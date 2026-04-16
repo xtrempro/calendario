@@ -1,0 +1,134 @@
+body {
+    font-family: 'Segoe UI';
+    background: #eef2f7;
+    margin: 0;
+    padding: 20px;
+}
+
+.container {
+    max-width: 900px;
+    margin: auto;
+}
+
+.card {
+    background: white;
+    border-radius: 16px;
+    padding: 15px;
+    box-shadow: 0 10px 25px rgba(0,0,0,.1);
+    margin-bottom: 15px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.weekdays, .grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+}
+
+.weekdays {
+    font-size: 12px;
+    color: #666;
+    margin-top: 10px;
+}
+
+.grid {
+    gap: 6px;
+    margin-top: 5px;
+}
+
+.day {
+    padding: 8px;
+    border-radius: 10px;
+    min-height: 60px;
+    background: #fafafa;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.green { background:#4CAF50!important;color:#fff }
+.blue { background:#2196F3!important;color:#fff }
+.purple { background:#9C27B0!important;color:#fff }
+.lightgreen { background:#8BC34A!important;color:#fff }
+.yellow { background:#FFC107!important }
+
+.weekend:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow){
+    background:#eee;
+}
+
+.holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow){
+    background:#ffdede;
+}
+
+.inactive-selected {
+    border:2px solid red;
+}
+
+.summary {
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+}
+
+.hidden {
+    display:none;
+}
+
+.layout {
+    display: flex;
+    gap: 20px;
+}
+
+.sidebar {
+    width: 250px;
+    background: white;
+    padding: 15px;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,.1);
+}
+
+.main {
+    flex: 1;
+}
+
+#profiles div {
+    padding: 5px;
+    cursor: pointer;
+    border-radius: 8px;
+}
+
+#profiles div.active {
+    background: #2196F3;
+    color: white;
+}
+
+.layout {
+    display: flex;
+    gap: 20px;
+}
+
+.sidebar {
+    width: 250px;
+    background: white;
+    padding: 15px;
+    border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,.1);
+}
+
+.main {
+    flex: 1;
+}
+
+#profiles div {
+    padding: 5px;
+    cursor: pointer;
+    border-radius: 8px;
+}
+
+#profiles div.active {
+    background: #2196F3;
+    color: white;
+}

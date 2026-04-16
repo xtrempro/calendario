@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>App de Turnos PRO</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+<div class="layout">
+
+    <!-- ASIDE -->
+    <aside class="sidebar">
+        <h3>Perfiles</h3>
+
+        <input id="newProfile" placeholder="Nuevo perfil">
+        <button id="createProfile">Crear</button>
+
+        <div id="profiles"></div>
+
+        <hr>
+
+        <label>
+            <input type="checkbox" id="shiftAssigned">
+            Asignación de Turno
+        </label>
+
+        <hr>
+
+        <label>Valor Hora</label>
+        <input id="valorHora" type="number" min="0" placeholder="Ej: 5000">
+
+        <hr>
+
+        <div id="summary"></div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+        <div class="card">
+            <div class="header">
+                <button id="prevBtn">◀</button>
+                <h2 id="monthYear"></h2>
+                <button id="nextBtn">▶</button>
+            </div>
+
+            <div class="weekdays">
+                <div>Lun</div><div>Mar</div><div>Mié</div>
+                <div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
+            </div>
+
+            <div class="grid" id="calendar"></div>
+        </div>
+    </main>
+
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+
+</html>
