@@ -1,3 +1,4 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -32,6 +33,45 @@
 
         <hr>
 
+        <!-- NUEVO -->
+        <button id="autoDiurnoBtn">Auto Diurno Año</button>
+        <button id="autoCuartoBtn">Auto Cuarto Turno</button>
+
+        <div id="selectorInfo" class="hidden infoBox">
+            Selecciona en el calendario un turno de <b>Larga</b>, desde ese día se aplicará la secuencia de cuarto turno
+        </div>
+
+        <hr>
+
+        <hr>
+
+            <div class="panelBox">
+
+            <b>Vacaciones / Ausencias</b><br><br>
+
+            <button id="adminBtn">
+            Permiso Administrativo
+            </button>
+
+
+<button id="legalBtn">
+Feriado Legal
+</button>
+
+<button id="licenseBtn">
+Licencia Médica
+</button>
+
+
+
+            <div id="adminInfo" class="hidden">
+            Selecciona fecha inicio en calendario
+            </div>
+
+            </div>
+
+
+
         <div id="summary"></div>
     </aside>
 
@@ -57,5 +97,4 @@
 
 <script type="module" src="js/main.js"></script>
 </body>
-
 </html>
