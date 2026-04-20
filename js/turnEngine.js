@@ -1,84 +1,129 @@
+// js/turnEngine.js
+
 import { getSwaps } from "./storage.js";
+import { TURNO } from "./constants.js";
 
-export function fusionarTurnos(actual, recibido){
+/* ======================================================
+   TURN ENGINE
+   Motor central de combinaciones y cambios de turno
+====================================================== */
 
-    actual = Number(actual) || 0;
-    recibido = Number(recibido) || 0;
+/* ======================================================
+   FUSIONAR TURNOS
+====================================================== */
 
-    if(recibido === 0) return actual;
-    if(actual === 0) return recibido;
+export function fusionarTurnos(actual, recibido) {
+
+    actual = Number(actual) || TURNO.LIBRE;
+    recibido = Number(recibido) || TURNO.LIBRE;
+
+    if (recibido === TURNO.LIBRE) return actual;
+    if (actual === TURNO.LIBRE) return recibido;
 
     /* Largo + Noche = 24 */
-    if(
-        (actual === 1 && recibido === 2) ||
-        (actual === 2 && recibido === 1)
-    ){
-        return 3;
+    if (
+        (actual === TURNO.LARGA && recibido === TURNO.NOCHE) ||
+        (actual === TURNO.NOCHE && recibido === TURNO.LARGA)
+    ) {
+        return TURNO.TURNO24;
     }
 
     /* Diurno + Noche = D+N */
-    if(
-        (actual === 4 && recibido === 2) ||
-        (actual === 2 && recibido === 4)
-    ){
-        return 5;
+    if (
+        (actual === TURNO.DIURNO && recibido === TURNO.NOCHE) ||
+        (actual === TURNO.NOCHE && recibido === TURNO.DIURNO)
+    ) {
+        return TURNO.DIURNO_NOCHE;
     }
 
-    /* Largo + Diurno */
-    if(
-        (actual === 1 && recibido === 4) ||
-        (actual === 4 && recibido === 1)
-    ){
-        return 4;
+    /* Largo + Diurno = Diurno */
+    if (
+        (actual === TURNO.LARGA && recibido === TURNO.DIURNO) ||
+        (actual === TURNO.DIURNO && recibido === TURNO.LARGA)
+    ) {
+        return TURNO.DIURNO;
     }
 
+    /* si no hay combinación definida */
     return actual;
 }
 
-function isoFromKey(key){
+/* ======================================================
+   HELPERS
+====================================================== */
+
+function isoFromKey(key) {
 
     const p = key.split("-");
 
-    return `${p[0]}-${String(Number(p[1])+1).padStart(2,"0")}-${String(p[2]).padStart(2,"0")}`;
+    return `${p[0]}-${String(Number(p[1]) + 1).padStart(2, "0")}-${String(p[2]).padStart(2, "0")}`;
 }
 
-export function aplicarCambiosTurno(nombre, key, turnoBase){
+function turnoDesdeCodigoSwap(valor) {
 
-    let turno = Number(turnoBase) || 0;
+    if (valor === "N") return TURNO.NOCHE;
+    if (valor === "D") return TURNO.DIURNO;
+
+    return TURNO.LARGA;
+}
+
+/* ======================================================
+   APLICAR CAMBIOS DE TURNO
+====================================================== */
+
+export function aplicarCambiosTurno(nombre, key, turnoBase) {
+
+    let turno = Number(turnoBase) || TURNO.LIBRE;
 
     const swaps = getSwaps();
     const fechaISO = isoFromKey(key);
 
-    for(const s of swaps){
+    for (const s of swaps) {
 
-        /* entrega */
+        /* ==========================================
+           ENTREGA
+        ========================================== */
 
-        if(s.fecha === fechaISO && s.from === nombre){
-            turno = 0;
+        if (
+            s.fecha === fechaISO &&
+            s.from === nombre
+        ) {
+            turno = TURNO.LIBRE;
         }
 
-        if(s.fecha === fechaISO && s.to === nombre){
-
+        if (
+            s.fecha === fechaISO &&
+            s.to === nombre
+        ) {
             const recibido =
-                s.turno === "N" ? 2 :
-                s.turno === "D" ? 4 : 1;
+                turnoDesdeCodigoSwap(s.turno);
 
-            turno = fusionarTurnos(turno, recibido);
+            turno =
+                fusionarTurnos(turno, recibido);
         }
 
-        /* devolución */
+        /* ==========================================
+           DEVOLUCIÓN
+        ========================================== */
 
-        if(s.devolucion === fechaISO && s.to === nombre){
-            turno = 0;
+        if (
+            s.devolucion === fechaISO &&
+            s.to === nombre
+        ) {
+            turno = TURNO.LIBRE;
         }
 
-        if(s.devolucion === fechaISO && s.from === nombre){
-
+        if (
+            s.devolucion === fechaISO &&
+            s.from === nombre
+        ) {
             const recibido =
-                s.turnoDevuelto === "N" ? 2 :
-                s.turnoDevuelto === "D" ? 4 : 1;
+                turnoDesdeCodigoSwap(
+                    s.turnoDevuelto
+                );
 
-            turno = fusionarTurnos(turno, recibido);
+            turno =
+                fusionarTurnos(turno, recibido);
         }
     }
 

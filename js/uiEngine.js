@@ -3,22 +3,20 @@
    Todo lo visual (labels, colores, clases)
 ====================================================== */
 
+import {
+   TURNO_LABEL,
+   TURNO_CLASS
+} from "./constants.js";
+
 /* ==========================================
    LABEL DE TURNO
 ========================================== */
 
-export function turnoLabel(state) {
-    return ["", "Larga", "Noche", "24", "Diurno", "D+N"][state] || "";
+export function turnoLabel(state){
+   return TURNO_LABEL[state] || "";
 }
 
-/* ==========================================
-   COLOR / CLASE DE TURNO
-========================================== */
-
-export function aplicarClaseTurno(div, state) {
-    if (state === 1) div.classList.add("green");
-    if (state === 2) div.classList.add("blue");
-    if (state === 3) div.classList.add("purple");
-    if (state === 4) div.classList.add("lightgreen");
-    if (state === 5) div.classList.add("yellow");
+export function aplicarClaseTurno(div,state){
+   const clase = TURNO_CLASS[state];
+   if(clase) div.classList.add(clase);
 }

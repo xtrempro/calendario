@@ -6,6 +6,8 @@
    SIN romper funcionalidades actuales
 ====================================================== */
 
+import { MODO } from "./constants.js";
+
 /* ======================================================
    HELPERS
 ====================================================== */
@@ -196,7 +198,7 @@ export function estaBloqueadoModo(
         );
     }
 
-    if (selectionMode === "admin") {
+    if (selectionMode === MODO.ADMIN) {
 
         if (shiftAssigned) {
             return (
