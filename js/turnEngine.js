@@ -1,5 +1,4 @@
 import { getSwaps } from "./storage.js";
-import { fusionarTurnos } from "./turnEngine.js";
 
 export function fusionarTurnos(actual, recibido){
 

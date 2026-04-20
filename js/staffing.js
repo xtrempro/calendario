@@ -5,6 +5,8 @@ import {
     getCurrentProfile
 } from "./storage.js";
 
+import { aplicarCambiosTurno } from "./shiftEngine.js";
+
 import { isWeekend } from "./calculations.js";
 
 /* ==========================================
@@ -79,7 +81,15 @@ function contarGrupo(profiles, estamento, y,m,d){
     .forEach(p => {
 
         const data = getDataPerfil(p.name);
-        const turno = data[key(y,m,d)] || 0;
+
+        let turno = data[key(y,m,d)] || 0;
+
+        // 🔥 ESTE ES EL FIX IMPORTANTE
+        turno = aplicarCambiosTurno(
+            p.name,
+            key(y,m,d),
+            turno
+        );
 
         if(trabajaDia(turno)) dia++;
         if(trabajaNoche(turno)) noche++;
@@ -99,7 +109,13 @@ function sugerirReemplazo(profiles, estamento, y,m,d){
         .filter(p => {
 
             const data = getDataPerfil(p.name);
-            const turno = data[key(y,m,d)] || 0;
+            let turno = data[key(y,m,d)] || 0;
+
+            turno = aplicarCambiosTurno(
+            p.name,
+            key(y,m,d),
+            turno
+        );
 
             return turno === 0;
         });
