@@ -15,6 +15,20 @@
         <h3>Perfiles</h3>
 
         <input id="newProfile" placeholder="Nuevo perfil">
+        <select id="newProfileRole">
+        <option value="Profesional">Profesional</option>
+        <option value="Técnico">Técnico</option>
+        <option value="Administrativo">Administrativo</option>
+        <option value="Auxiliar">Auxiliar</option>
+        </select>
+
+        <select id="filterRole">
+        <option value="Todos">Todos</option>
+        <option value="Profesional">Profesional</option>
+        <option value="Técnico">Técnico</option>
+        <option value="Administrativo">Administrativo</option>
+        <option value="Auxiliar">Auxiliar</option>
+        </select>
         <button id="createProfile">Crear</button>
 
         <div id="profiles"></div>
@@ -52,6 +66,12 @@
             <button id="adminBtn">
             Permiso Administrativo
             </button>
+            <button id="halfAdminMorningBtn">🌅 1/2 Administrativo Mañana</button>
+            <button id="halfAdminAfternoonBtn">🌇 1/2 Administrativo Tarde</button>
+
+            <button id="compBtn">
+Feriado Compensatorio
+</button>
 
 
 <button id="legalBtn">
@@ -76,23 +96,133 @@ Licencia Médica
     </aside>
 
     <!-- MAIN -->
-    <main class="main">
-        <div class="card">
-            <div class="header">
-                <button id="prevBtn">◀</button>
-                <h2 id="monthYear"></h2>
-                <button id="nextBtn">▶</button>
-            </div>
+<!-- MAIN -->
+<main class="main">
 
-            <div class="weekdays">
-                <div>Lun</div><div>Mar</div><div>Mié</div>
-                <div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
-            </div>
+    <!-- CALENDARIO -->
+    <div class="card">
+        <div class="header">
 
-            <div class="grid" id="calendar"></div>
+            <button id="prevBtn">◀</button>
+
+            <button id="undoBtn" title="Deshacer">
+        ↶
+            </button>
+
+            <h2 id="monthYear"></h2>
+
+            <button id="redoBtn" title="Rehacer">
+        ↷
+            </button>
+
+            <button id="nextBtn">▶</button>
+
+    </div>
+
+        <div class="weekdays">
+            <div>Lun</div><div>Mar</div><div>Mié</div>
+            <div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
         </div>
-    </main>
 
+        <div class="grid" id="calendar"></div>
+    </div>
+
+    <!-- TIMELINE -->
+    <div id="teamTimeline" class="card"></div>
+
+    <!-- STAFFING -->
+    <div id="staffingPanel" class="card staffing-panel">
+
+        <h3>Dotación Requerida</h3>
+
+        <div class="staff-grid">
+
+            <div>
+                <label>Profesional Hábil</label>
+                <input id="cfg_Profesional_habil" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Profesional Inhábil</label>
+                <input id="cfg_Profesional_inhabil" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Profesional Noche</label>
+                <input id="cfg_Profesional_noche" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Técnico Hábil</label>
+                <input id="cfg_Técnico_habil" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Técnico Inhábil</label>
+                <input id="cfg_Técnico_inhabil" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Técnico Noche</label>
+                <input id="cfg_Técnico_noche" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Administrativo Hábil</label>
+                <input id="cfg_Administrativo_habil" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Administrativo Inhábil</label>
+                <input id="cfg_Administrativo_inhabil" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Administrativo Noche</label>
+                <input id="cfg_Administrativo_noche" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Auxiliar Hábil</label>
+                <input id="cfg_Auxiliar_habil" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Auxiliar Inhábil</label>
+                <input id="cfg_Auxiliar_inhabil" type="number" min="0">
+            </div>
+
+            <div>
+                <label>Auxiliar Noche</label>
+                <input id="cfg_Auxiliar_noche" type="number" min="0">
+            </div>
+
+        </div>
+
+        <button id="saveStaffingBtn">Guardar Dotación</button>
+
+        <div id="staffingResult"></div>
+
+    </div>
+
+    <div id="swapPanel" class="card">
+        <h3>Cambio de Turnos</h3>
+
+        <select id="swapFrom"></select>
+        <select id="swapTo"></select>
+
+        <input type="date" id="swapDate">
+
+        <input type="date" id="returnDate">
+
+        <button id="saveSwapBtn">
+        Registrar Cambio
+        </button>
+
+<div id="swapList"></div>
+</div>
+
+</main>
 </div>
 
 <script type="module" src="js/main.js"></script>

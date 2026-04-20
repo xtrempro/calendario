@@ -1,7 +1,28 @@
 let currentProfile = null;
 
 export function getProfiles(){
-    return JSON.parse(localStorage.getItem("profiles")) || [];
+    const raw =
+        JSON.parse(localStorage.getItem("profiles")) || [];
+
+    return raw.map(p => {
+
+        if(typeof p === "string"){
+            return {
+                name:p,
+                estamento:"Profesional"
+            };
+        }
+
+        return p;
+    });
+}
+
+export function getSwaps(){
+    return JSON.parse(localStorage.getItem("swaps")) || [];
+}
+
+export function saveSwaps(d){
+    localStorage.setItem("swaps", JSON.stringify(d));
 }
 
 export function saveProfiles(p){
@@ -16,8 +37,10 @@ export function getCurrentProfile(){
     return currentProfile;
 }
 
-export function getProfileData(){
-    return JSON.parse(localStorage.getItem("data_"+currentProfile)) || {};
+export function getProfileData(profile = currentProfile){
+    return JSON.parse(
+        localStorage.getItem("data_" + profile)
+    ) || {};
 }
 
 export function saveProfileData(d){
@@ -63,6 +86,19 @@ export function saveAdminDays(d){
 
 export function getLegalDays(){
     return JSON.parse(localStorage.getItem("legal_"+currentProfile)) || {};
+}
+
+export function getCompDays(){
+    return JSON.parse(
+        localStorage.getItem("comp_"+currentProfile)
+    ) || {};
+}
+
+export function saveCompDays(d){
+    localStorage.setItem(
+        "comp_"+currentProfile,
+        JSON.stringify(d)
+    );
 }
 
 export function saveLegalDays(d){
