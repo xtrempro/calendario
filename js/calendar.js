@@ -18,7 +18,12 @@ import {
     getShiftAssigned,
     getCurrentProfile
 } from "./storage.js";
-
+import {
+    tieneAusencia,
+    obtenerLabelDia,
+    aplicarClasesEspeciales,
+    estaBloqueadoModo
+} from "./rulesEngine.js";
 import { fetchHolidays } from "./holidays.js";
 
 import {
@@ -47,15 +52,6 @@ function turnoLabel(state) {
     return ["", "Larga", "Noche", "24", "Diurno", "D+N"][state] || "";
 }
 
-function tieneAusencia(keyDay, admin, legal, comp, absences) {
-    return (
-        admin[keyDay] ||
-        legal[keyDay] ||
-        comp[keyDay] ||
-        absences[keyDay]
-    );
-}
-
 function aplicarClaseTurno(div, state) {
     if (state === 1) div.classList.add("green");
     if (state === 2) div.classList.add("blue");
@@ -64,114 +60,6 @@ function aplicarClaseTurno(div, state) {
     if (state === 5) div.classList.add("yellow");
 }
 
-function aplicarClasesEspeciales(
-    div,
-    keyDay,
-    state,
-    isHab,
-    isW,
-    isH,
-    admin,
-    legal,
-    comp,
-    absences
-) {
-    if (isW) div.classList.add("weekend");
-    if (isH) div.classList.add("holiday");
-
-    aplicarClaseTurno(div, state);
-
-    if ((isW || isH) && state > 0) {
-        div.classList.add("inactive-selected");
-    }
-
-    if (admin[keyDay] === 1) {
-        div.classList.add("admin-day");
-    }
-
-    if (
-        admin[keyDay] === "0.5M" ||
-        admin[keyDay] === "0.5T" ||
-        admin[keyDay] === 0.5
-    ) {
-        div.classList.add("half-admin-day");
-    }
-
-    if (absences[keyDay]?.type === "license") {
-        div.classList.add("license-day");
-    }
-
-    if (legal[keyDay]) {
-        div.classList.add(state > 0 || isHab ? "legal-day" : "legal-soft");
-    }
-
-    if (comp[keyDay]) {
-        div.classList.add(state > 0 || isHab ? "comp-day" : "comp-soft");
-    }
-}
-
-function aplicarModoSeleccion(
-    div,
-    keyDay,
-    state,
-    isHab,
-    admin,
-    legal,
-    comp,
-    absences
-) {
-    if (window.selectionMode === "halfadmin") {
-        const bloqueado =
-            !isHab ||
-            state === 0 ||
-            state === 2 ||
-            tieneAusencia(keyDay, admin, legal, comp, absences);
-
-        div.classList.add(
-            bloqueado ? "mpa-disabled" : "mpa-enabled"
-        );
-    }
-
-    if (window.selectionMode === "admin") {
-        let bloqueado = false;
-
-        if (getShiftAssigned()) {
-            bloqueado =
-                state === 0 ||
-                tieneAusencia(keyDay, admin, legal, comp, absences);
-        } else {
-            bloqueado =
-                !isHab ||
-                tieneAusencia(keyDay, admin, legal, comp, absences);
-        }
-
-        div.classList.add(
-            bloqueado ? "mpa-disabled" : "mpa-enabled"
-        );
-    }
-}
-
-function obtenerLabel(
-    keyDay,
-    state,
-    admin,
-    legal,
-    comp,
-    absences
-) {
-    let label = turnoLabel(state);
-
-    if (admin[keyDay] === 1) label = "ADM";
-    if (admin[keyDay] === "0.5M") label = "1/2M";
-    if (admin[keyDay] === "0.5T") label = "1/2T";
-    if (admin[keyDay] === 0.5) label = "1/2";
-
-    if (legal[keyDay]) label = "FL";
-    if (comp[keyDay]) label = "FC";
-    if (absences[keyDay]?.type === "license") label = "LM";
-
-    return label;
-}
 
 function siguienteTurno(state, isHab) {
     let s = state;
