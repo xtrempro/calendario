@@ -197,29 +197,40 @@ export async function renderCalendar() {
             admin,
             legal,
             comp,
-            absences
+            absences,
+            aplicarClaseTurno
         );
 
-        aplicarModoSeleccion(
-            div,
+        const bloqueado = estaBloqueadoModo(
+            window.selectionMode,
             keyDay,
             state,
             isHab,
             admin,
             legal,
             comp,
-            absences
+            absences,
+            getShiftAssigned()
+            );
+
+            if (window.selectionMode) {
+            div.classList.add(
+            bloqueado
+            ? "mpa-disabled"
+            : "mpa-enabled"
         );
+}
 
         const hrs = calcHours(date, state, holidays);
 
-        const label = obtenerLabel(
+        const label = obtenerLabelDia(
             keyDay,
             state,
             admin,
             legal,
             comp,
-            absences
+            absences,
+            turnoLabel
         );
 
         div.innerHTML = `${d}<br>${label}`;
@@ -244,7 +255,6 @@ export async function renderCalendar() {
     }
 
     /* carry */
-    const perfilActual = getCurrentProfile();
     const carryOut = calcularCarryMes(
     y,
     m,
