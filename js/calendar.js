@@ -1,6 +1,11 @@
 // js/calendar.js
 import { aplicarCambiosTurno } from "./shiftEngine.js";
 import {
+    calcularHorasMes,
+    renderSummaryHTML,
+    calcularCarryMes
+} from "./hoursEngine.js";
+import {
     getProfileData,
     saveProfileData,
     getCarry,
@@ -20,7 +25,6 @@ import {
     calcHours,
     isBusinessDay,
     isWeekend,
-    calcCarry
 } from "./calculations.js";
 
 import { renderTimeline } from "./timeline.js";
@@ -180,117 +184,6 @@ function siguienteTurno(state, isHab) {
     return s;
 }
 
-/* ======================================================
-   HORAS / RESUMEN
-====================================================== */
-
-function calcularHorasMes(
-    y,
-    m,
-    days,
-    holidays,
-    data,
-    blocked,
-    carryIn
-) {
-    const perfilActual = getCurrentProfile();
-    let totalD = carryIn.d;
-    let totalN = carryIn.n;
-    let businessDays = 0;
-
-    
-
-    for (let d = 1; d <= days; d++) {
-        const date = new Date(y, m, d);
-        const k = key(y, m, d);
-        
-
-        let state = Number(data[k]) || 0;
-
-        state = aplicarCambiosTurno(
-        perfilActual,
-        k,
-        state
-        );
-
-        if (isBusinessDay(date, holidays)) {
-            businessDays++;
-        }
-
-        const hrs = calcHours(date, state, holidays);
-        totalD += hrs.d;
-        totalN += hrs.n;
-    }
-
-    const horasHabiles = Math.round(businessDays * 8.8);
-
-    let hheeDiurnas = horasHabiles - totalD;
-    if (hheeDiurnas < 0) hheeDiurnas = 0;
-
-    let hheeNocturnas = getShiftAssigned() ? 0 : totalN;
-
-    Object.keys(blocked).forEach(k => {
-        if (!blocked[k]) return;
-
-        const p = k.split("-");
-        const date = new Date(
-            Number(p[0]),
-            Number(p[1]),
-            Number(p[2])
-        );
-
-        let state = Number(data[k]) || 0;
-
-            state = aplicarCambiosTurno(
-            perfilActual,
-            k,
-            state
-        );
-
-        const hrs = calcHours(date, state, holidays);
-
-        hheeDiurnas -= hrs.d;
-        hheeNocturnas -= hrs.n;
-    });
-
-    if (hheeDiurnas < 0) hheeDiurnas = 0;
-    if (hheeNocturnas < 0) hheeNocturnas = 0;
-
-    return {
-        totalD,
-        totalN,
-        horasHabiles,
-        hheeDiurnas,
-        hheeNocturnas
-    };
-}
-
-function renderSummary(summary, stats) {
-    const valorHora =
-        Number(localStorage.getItem("valorHora")) || 0;
-
-    const pagoDiurno =
-        stats.hheeDiurnas * 1.25 * valorHora;
-
-    const pagoNocturno =
-        stats.hheeNocturnas * 1.5 * valorHora;
-
-    summary.innerHTML = `
-        <div>🌞 Diurnas: ${stats.totalD}h</div>
-        <div>🌙 Nocturnas: ${stats.totalN}h</div>
-        <div>📊 Horas hábiles: ${stats.horasHabiles}h</div>
-
-        <hr>
-
-        <div>🟢 HHEE Diurnas: ${stats.hheeDiurnas}h</div>
-        <div>💰 Pago HHEE Diurnas: $${pagoDiurno.toFixed(0)}</div>
-
-        <hr>
-
-        <div>🌜 HHEE Nocturnas: ${stats.hheeNocturnas}h</div>
-        <div>💰 Pago HHEE Nocturnas: $${pagoNocturno.toFixed(0)}</div>
-    `;
-}
 
 /* ======================================================
    CLICK CELDA
@@ -463,20 +356,13 @@ export async function renderCalendar() {
     }
 
     /* carry */
-
-    const lastKey = key(y, m, days);
     const perfilActual = getCurrentProfile();
-
-    const lastState = aplicarCambiosTurno(
-    perfilActual,
-    lastKey,
-    Number(data[lastKey]) || 0
-    );
-
-    const carryOut = calcCarry(
-        new Date(y, m, days),
-        lastState,
-        holidays
+    const carryOut = calcularCarryMes(
+    y,
+    m,
+    days,
+    holidays,
+    data
     );
 
     const next = new Date(y, m + 1, 1);
@@ -499,7 +385,7 @@ export async function renderCalendar() {
         carryIn
     );
 
-    renderSummary(summary, stats);
+    summary.innerHTML = renderSummaryHTML(stats);
 
     /* timeline */
 
