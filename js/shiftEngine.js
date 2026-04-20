@@ -1,39 +1,5 @@
 import { getSwaps } from "./storage.js";
-
-export function fusionarTurnos(actual, recibido){
-
-    actual = Number(actual) || 0;
-    recibido = Number(recibido) || 0;
-
-    if(recibido === 0) return actual;
-    if(actual === 0) return recibido;
-
-    /* Largo + Noche = 24 */
-    if(
-        (actual === 1 && recibido === 2) ||
-        (actual === 2 && recibido === 1)
-    ){
-        return 3;
-    }
-
-    /* Diurno + Noche = D+N */
-    if(
-        (actual === 4 && recibido === 2) ||
-        (actual === 2 && recibido === 4)
-    ){
-        return 5;
-    }
-
-    /* Largo + Diurno */
-    if(
-        (actual === 1 && recibido === 4) ||
-        (actual === 4 && recibido === 1)
-    ){
-        return 4;
-    }
-
-    return actual;
-}
+import { fusionarTurnos } from "./turnEngine.js";
 
 function isoFromKey(key){
 
@@ -51,7 +17,7 @@ export function aplicarCambiosTurno(nombre, key, turnoBase){
 
     for(const s of swaps){
 
-        /* entrega */
+        /* ENTREGA */
 
         if(s.fecha === fechaISO && s.from === nombre){
             turno = 0;
@@ -66,7 +32,7 @@ export function aplicarCambiosTurno(nombre, key, turnoBase){
             turno = fusionarTurnos(turno, recibido);
         }
 
-        /* devolución */
+        /* DEVOLUCIÓN */
 
         if(s.devolucion === fechaISO && s.to === nombre){
             turno = 0;
