@@ -1,6 +1,11 @@
 // js/calendar.js
 import { aplicarCambiosTurno } from "./shiftEngine.js";
 import {
+    turnoLabel,
+    aplicarClaseTurno,
+    siguienteTurno
+} from "./turnEngine.js";
+import {
     calcularHorasMes,
     renderSummaryHTML,
     calcularCarryMes
@@ -47,31 +52,6 @@ export let currentDate = new Date();
 function key(y, m, d) {
     return `${y}-${m}-${d}`;
 }
-
-function turnoLabel(state) {
-    return ["", "Larga", "Noche", "24", "Diurno", "D+N"][state] || "";
-}
-
-function aplicarClaseTurno(div, state) {
-    if (state === 1) div.classList.add("green");
-    if (state === 2) div.classList.add("blue");
-    if (state === 3) div.classList.add("purple");
-    if (state === 4) div.classList.add("lightgreen");
-    if (state === 5) div.classList.add("yellow");
-}
-
-
-function siguienteTurno(state, isHab) {
-    let s = state;
-
-    do {
-        s++;
-        if (s > 5) s = 0;
-    } while ((s === 4 || s === 5) && !isHab);
-
-    return s;
-}
-
 
 /* ======================================================
    CLICK CELDA
