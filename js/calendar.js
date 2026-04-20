@@ -193,14 +193,17 @@ function calcularHorasMes(
     blocked,
     carryIn
 ) {
+    const perfilActual = getCurrentProfile();
     let totalD = carryIn.d;
     let totalN = carryIn.n;
     let businessDays = 0;
 
+    
+
     for (let d = 1; d <= days; d++) {
         const date = new Date(y, m, d);
         const k = key(y, m, d);
-        const perfilActual = getCurrentProfile();
+        
 
         let state = Number(data[k]) || 0;
 
@@ -236,7 +239,13 @@ function calcularHorasMes(
             Number(p[2])
         );
 
-        const state = data[k] || 0;
+        let state = Number(data[k]) || 0;
+
+            state = aplicarCambiosTurno(
+            perfilActual,
+            k,
+            state
+        );
 
         const hrs = calcHours(date, state, holidays);
 
