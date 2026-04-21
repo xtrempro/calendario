@@ -1,7 +1,11 @@
 // js/turnEngine.js
 
-import { getSwaps } from "./storage.js";
 import { TURNO } from "./constants.js";
+
+import {
+    getSwaps,
+    getProfileData
+} from "./storage.js";
 
 /* ======================================================
    TURN ENGINE
@@ -201,4 +205,24 @@ export function siguienteTurno(actual, isHab) {
         case TURNO.DIURNO_NOCHE: return TURNO.LIBRE;
         default: return TURNO.LIBRE;
     }
+}
+
+
+
+/* ======================================================
+   TURNO REAL DEL TRABAJADOR EN FECHA
+====================================================== */
+
+
+export function getTurnoReal(nombre, key) {
+
+    const data = getProfileData(nombre);
+
+    const turnoBase = Number(data[key]) || 0;
+
+    return aplicarCambiosTurno(
+        nombre,
+        key,
+        turnoBase
+    );
 }

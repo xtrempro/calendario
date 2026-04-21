@@ -284,17 +284,19 @@ export async function renderCalendar() {
 ====================================================== */
 
 export function prevMonth() {
-    currentDate.setMonth(
-        currentDate.getMonth() - 1
-    );
-
+    currentDate.setMonth(currentDate.getMonth() - 1);
     renderCalendar();
+
+    if(window.renderSwapPanel){
+        window.renderSwapPanel();
+    }
 }
 
 export function nextMonth() {
-    currentDate.setMonth(
-        currentDate.getMonth() + 1
-    );
-
+    currentDate.setMonth(currentDate.getMonth() + 1);
     renderCalendar();
+
+    if(window.renderSwapPanel){
+        window.renderSwapPanel();
+    }
 }

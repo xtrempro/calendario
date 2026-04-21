@@ -278,8 +278,8 @@ body.mode-active .day.mpa-disabled{
 
 .timeline-table{
     border-collapse:collapse;
-    width:max-content;
-    min-width:100%;
+    width:100%;
+    table-layout:auto;
 }
 
 .timeline-table th,
@@ -295,10 +295,11 @@ body.mode-active .day.mpa-disabled{
 }
 
 .namecol{
-    min-width:120px;
-    padding:6px;
+    width:1%;
+    white-space:nowrap;
+    padding:6px 14px 6px 8px;
     text-align:left;
-    font-weight:600;
+    font-weight:700;
     background:#fafafa;
 }
 
@@ -448,4 +449,124 @@ body.mode-active .day.mpa-disabled{
 .staff-night{
     color:#5b3cc4;
     font-weight:700;
+}
+
+.mini-grid{
+display:grid;
+grid-template-columns:repeat(7,1fr);
+gap:6px;
+margin-top:8px;
+}
+
+.mini-day{
+padding:8px;
+border-radius:10px;
+font-size:12px;
+text-align:center;
+cursor:pointer;
+font-weight:700;
+}
+
+.mini-on{
+background:#dff7df;
+border:1px solid #39b54a;
+}
+
+.mini-off{
+background:#f3f3f3;
+color:#aaa;
+cursor:not-allowed;
+}
+
+.mini-selected{
+background:#2d7cff;
+color:white;
+}
+
+.mini-day small{
+display:block;
+font-size:10px;
+margin-top:3px;
+}
+
+.swap-row{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:14px;
+    align-items:start;
+}
+
+.mini-wrap{
+    background:#fff;
+    border:1px solid #dbe3ea;
+    border-radius:14px;
+    padding:10px;
+}
+
+.mini-wrap label{
+    display:block;
+    font-size:13px;
+    font-weight:700;
+    margin-bottom:8px;
+    color:#334155;
+}
+
+#swapCalendar1,
+#swapCalendar2{
+    width:100%;
+}
+
+.mini-grid{
+    display:grid;
+    grid-template-columns:repeat(7,1fr);
+    gap:6px;
+}
+
+.mini-day{
+    height:34px;
+    border-radius:10px;
+    border:1px solid #dbe3ea;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:12px;
+    cursor:pointer;
+    user-select:none;
+}
+
+.mini-day.ok{
+    background:#dcfce7;
+}
+
+.mini-day.block{
+    background:#fee2e2;
+    color:#999;
+    cursor:not-allowed;
+}
+
+.mini-day.sel{
+    background:#2563eb;
+    color:white;
+    font-weight:700;
+}
+
+#swapPanel button{
+    grid-column:1/-1;
+}
+
+.mini-on{
+    background:#2ecc71;
+    color:white;
+    cursor:pointer;
+}
+
+.mini-off{
+    background:#e5e5e5;
+    color:#999;
+}
+
+.mini-selected{
+    background:#3498db;
+    color:white;
+    cursor:pointer;
 }

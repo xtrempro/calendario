@@ -7,5 +7,6 @@ export function refreshAll(){
     renderCalendar();
     renderTimeline();
     analizarStaffingMes();
+    renderSwapPanel();
 }
 
