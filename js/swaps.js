@@ -32,8 +32,8 @@ export function registrarCambio(data) {
         fecha: data.fecha,
         devolucion: data.devolucion,
 
-        turno: data.turno || "L",
-        turnoDevuelto: data.turnoDevuelto || "L",
+        turno: data.turno,
+        turnoDevuelto: data.turnoDevuelto,
 
         year: data.year,
         month: data.month

@@ -1,7 +1,9 @@
 import { renderCalendar, prevMonth, nextMonth } from "./calendar.js";
 import { renderTimeline } from "./timeline.js";
 import { pushHistory, undo, redo } from "./history.js";
-import { registrarCambio } from "./swaps.js";
+import { refreshAll } from "./refresh.js";
+import { DOM } from "./dom.js";
+import { renderSwapPanel } from "./swapUI.js";
 import {
     renderStaffingPanel,
     analizarStaffingMes
@@ -28,43 +30,19 @@ import {
     getCompDays,
     saveCompDays,
     getAbsences,
-    saveAbsences,
-    getSwaps
+    saveAbsences
 } from "./storage.js";
 
-/* ======================================================
-   ELEMENTOS
-====================================================== */
+import {
+    totalAdministrativosUsados,
+    aplicarAdministrativo,
+    aplicarHalfAdministrativo,
+    existeBloque10Actual,
+    aplicarLegal,
+    aplicarComp,
+    aplicarLicencia
+} from "./leaveEngine.js";
 
-
-
-const profilesDiv = document.getElementById("profiles");
-const newProfileInput = document.getElementById("newProfile");
-const createBtn = document.getElementById("createProfile");
-
-const checkbox = document.getElementById("shiftAssigned");
-const valorHoraInput = document.getElementById("valorHora");
-
-const autoDiurnoBtn = document.getElementById("autoDiurnoBtn");
-const autoCuartoBtn = document.getElementById("autoCuartoBtn");
-
-const adminBtn = document.getElementById("adminBtn");
-const halfAdminMorningBtn =
-document.getElementById("halfAdminMorningBtn");
-const halfAdminAfternoonBtn =
-document.getElementById("halfAdminAfternoonBtn");
-const legalBtn = document.getElementById("legalBtn");
-const compBtn = document.getElementById("compBtn");
-const licenseBtn = document.getElementById("licenseBtn");
-
-const selectorInfo = document.getElementById("selectorInfo");
-const adminInfo = document.getElementById("adminInfo");
-
-const newProfileRole =
-document.getElementById("newProfileRole");
-
-const filterRole =
-document.getElementById("filterRole");
 
 /* ======================================================
    ESTADO
@@ -78,256 +56,21 @@ let licenseCantidad = 0;
 window.selectionMode = null;
 
 /* ======================================================
-   cambio turnos
-====================================================== */
-
-function cargarSelectCambios(){
-
- const perfiles = getProfiles();
-
- const a =
- document.getElementById("swapFrom");
-
- const b =
- document.getElementById("swapTo");
-
- a.innerHTML="";
- b.innerHTML="";
-
- perfiles.forEach(p=>{
-
-   a.innerHTML +=
-   `<option>${p.name}</option>`;
-
-   b.innerHTML +=
-   `<option>${p.name}</option>`;
- });
-}
-
-
-function renderSwapPanel(){
-
-    const box = document.getElementById("swapPanel");
-    if(!box) return;
-
-    const perfiles = getProfiles();
-
-    let options = perfiles.map(p =>
-        `<option value="${p.name}">${p.name}</option>`
-    ).join("");
-
-    box.innerHTML = `
-        <h3>Cambio de Turnos</h3>
-
-        <div class="swap-row">
-            <select id="swapFrom">${options}</select>
-            <select id="swapTo">${options}</select>
-
-            <input type="date" id="swapDate1">
-            <input type="date" id="swapDate2">
-
-            <button id="saveSwapBtn">
-                Registrar Cambio
-            </button>
-        </div>
-
-        <div id="swapList"></div>
-    `;
-
-    document
-    .getElementById("saveSwapBtn")
-    .onclick = guardarCambioTurno;
-
-    const swapFrom =
-    document.getElementById("swapFrom");
-
-    swapFrom.onchange = actualizarSwapTo;
-
-    actualizarSwapTo();
-
-    renderSwapList();
-}
-
-function actualizarSwapTo(){
-
-    const from =
-        document.getElementById("swapFrom").value;
-
-    const toSelect =
-        document.getElementById("swapTo");
-
-    const perfiles = getProfiles();
-
-    const perfilFrom =
-        perfiles.find(p => p.name === from);
-
-    if(!perfilFrom) return;
-
-    const filtrados = perfiles.filter(p =>
-        p.name !== from &&
-        p.estamento === perfilFrom.estamento &&
-        !mismaRotativa(from, p.name)
-    );
-
-    toSelect.innerHTML = filtrados.map(p =>
-        `<option value="${p.name}">
-            ${p.name}
-        </option>`
-    ).join("");
-}
-
-
-
-function guardarCambioTurno(){
-
-    const from =
-        document.getElementById("swapFrom").value;
-
-    const to =
-        document.getElementById("swapTo").value;
-
-    const fecha =
-        document.getElementById("swapDate1").value;
-
-    const devolucion =
-        document.getElementById("swapDate2").value;
-
-    if(!from || !to || !fecha || !devolucion){
-        alert("Completa todos los campos");
-        return;
-    }
-
-    if(from === to){
-        alert("Debe ser entre trabajadores distintos");
-        return;
-    }
-
-    const f1 = parseInputDate(fecha);
-    const f2 = parseInputDate(devolucion);
-
-    if(
-        f1.getFullYear() !== f2.getFullYear() ||
-        f1.getMonth() !== f2.getMonth()
-    ){
-        alert("Ambas fechas deben ser del mismo mes");
-        return;
-    }
-    function obtenerTurno(nombre, fechaISO){
-    const data = JSON.parse(
-        localStorage.getItem("data_" + nombre)
-    ) || {};
-
-    const f = new Date(fechaISO);
-    const key = `${f.getFullYear()}-${f.getMonth()}-${f.getDate()}`;
-
-    const state = Number(data[key]) || 0;
-
-    if(state === 2) return "N";
-    return "L";
-}
-
-registrarCambio({
-    from,
-    to,
-    fecha,
-    devolucion,
-
-    turno: obtenerTurno(from, fecha),
-    turnoDevuelto: obtenerTurno(to, devolucion),
-
-    year: f1.getFullYear(),
-    month: f1.getMonth()
-});
-
-    renderSwapList();
-    renderCalendar();
-    renderTimeline();
-    pushHistory();
-
-    alert("Cambio registrado");
-}
-
-// la siguiente funcio sirve para bloquear y filtrar el combobox2 de cambios de turno
-
-function getBaseState(nombre, year, month, day = 1){
-
-    const data = JSON.parse(
-        localStorage.getItem("data_" + nombre)
-    ) || {};
-
-    const blocked = JSON.parse(
-        localStorage.getItem("blocked_" + nombre)
-    ) || {};
-
-    const key = `${year}-${month}-${day}`;
-
-    /* si no es bloqueado, probablemente fue cambio manual */
-    if(!blocked[key]) return null;
-
-    return Number(data[key]) || 0;
-}
-
-
-/* Detecta misma rotativa real */
-function mismaRotativa(nombre1, nombre2){
-
-    const now = new Date();
-
-    const y = now.getFullYear();
-    const m = now.getMonth();
-
-    let iguales = 0;
-    let comparados = 0;
-
-    for(let d=1; d<=20; d++){
-
-        const a = getBaseState(nombre1, y, m, d);
-        const b = getBaseState(nombre2, y, m, d);
-
-        if(a === null || b === null) continue;
-
-        comparados++;
-
-        if(a === b) iguales++;
-    }
-
-    if(comparados < 4) return false;
-
-    return iguales === comparados;
-}
-// de aqui adelante otra cosa que no se q es
-
-function renderSwapList(){
-
-    const div =
-        document.getElementById("swapList");
-
-    const swaps = getSwaps();
-
-    div.innerHTML = swaps.map((s,i)=>`
-    <div class="swap-item">
-        ${s.from} → ${s.to}
-        (${formatFechaUSA(s.fecha)})
-        ↩ devolución ${formatFechaUSA(s.devolucion)}
-    </div>
-    `).join("");
-}
-/* ======================================================
    CONFIG
 ====================================================== */
 
-valorHoraInput.value = localStorage.getItem("valorHora") || "";
+DOM.valorHoraInput.value = localStorage.getItem("valorHora") || "";
 
-valorHoraInput.oninput = () => {
-    let v = Number(valorHoraInput.value);
+DOM.valorHoraInput.oninput = () => {
+    let v = Number(DOM.valorHoraInput.value);
     if (v < 0) v = 0;
-    valorHoraInput.value = v;
+    DOM.valorHoraInput.value = v;
     localStorage.setItem("valorHora", v);
     renderCalendar();
 };
 
-checkbox.onchange = () => {
-    setShiftAssigned(checkbox.checked);
+DOM.checkbox.onchange = () => {
+    setShiftAssigned(DOM.checkbox.checked);
     renderBotones();
 };
 
@@ -359,14 +102,14 @@ function activarModo(modo, texto) {
     document.body.classList.add("mode-active");
     document.body.dataset.mode = modo;
 
-    selectorInfo.innerHTML = `
+    DOM.selectorInfo.innerHTML = `
         <div class="mode-banner">
             <span>🗓️ ${texto}</span>
             <button id="cancelModeBtn">✖</button>
         </div>
     `;
 
-    selectorInfo.classList.remove("hidden");
+    DOM.selectorInfo.classList.remove("hidden");
 
     document
         .getElementById("cancelModeBtn")
@@ -381,12 +124,10 @@ function desactivarModo() {
     document.body.classList.remove("mode-active");
     document.body.removeAttribute("data-mode");
 
-    selectorInfo.classList.add("hidden");
-    adminInfo.classList.add("hidden");
+    DOM.selectorInfo.classList.add("hidden");
+    DOM.adminInfo.classList.add("hidden");
 
-    renderCalendar();
-    renderTimeline();
-    analizarStaffingMes();
+    refreshAll();
 }
 
 function keyFromDate(d) {
@@ -427,13 +168,13 @@ function renderBotones() {
         actual &&
         actual.estamento === "Administrativo";
 
-    checkbox.parentElement.style.display =
+    DOM.checkbox.parentElement.style.display =
         admin ? "none" : "block";
 
-    autoDiurnoBtn.style.display =
+    DOM.autoDiurnoBtn.style.display =
         admin ? "none" : "block";
 
-    autoCuartoBtn.style.display =
+    DOM.autoCuartoBtn.style.display =
         admin ? "none" : "block";
 
     compBtn.style.display =
@@ -489,9 +230,9 @@ function renderProfiles() {
 
     const profiles = getProfiles();
     const current = getCurrentProfile();
-    const filtro = filterRole.value;
+    const filtro = DOM.filterRole.value;
 
-    profilesDiv.innerHTML = "";
+    DOM.profiles.innerHTML = "";
 
     profiles
     .filter(p =>
@@ -513,19 +254,17 @@ function renderProfiles() {
 
             setCurrentProfile(p.name);
 
-            checkbox.checked =
+            DOM.checkbox.checked =
                 getShiftAssigned();
 
             await aplicarReglasPerfil(p);
 
             renderProfiles();
             renderBotones();
-            renderCalendar();
-            renderTimeline();
-            analizarStaffingMes();
+            refreshAll();
         };
 
-        profilesDiv.appendChild(div);
+        DOM.profiles.appendChild(div);
     });
 }
 
@@ -533,7 +272,7 @@ async function aplicarReglasPerfil(p){
 
     if(p.estamento === "Administrativo"){
 
-        checkbox.checked = false;
+        DOM.checkbox.checked = false;
         setShiftAssigned(false);
 
         await aplicarDiurnoDesde(
@@ -546,13 +285,13 @@ async function aplicarReglasPerfil(p){
     }
 }
 
-createBtn.onclick = async () => {
+DOM.createBtn.onclick = async () => {
 
-    const name = newProfileInput.value.trim();
+    const name = DOM.newProfileInput.value.trim();
     if (!name) return;
 
     const estamento =
-        newProfileRole.value;
+        DOM.newProfileRole.value;
 
     const profiles = getProfiles();
 
@@ -572,20 +311,18 @@ createBtn.onclick = async () => {
 
     setCurrentProfile(name);
 
-    newProfileInput.value = "";
+    DOM.newProfileInput.value = "";
 
     await aplicarReglasPerfil(nuevo);
 
     renderProfiles();
     renderSwapPanel();
     renderBotones();
-    renderCalendar();
-    renderTimeline();
     renderStaffingPanel();
-    analizarStaffingMes();
+    refreshAll();
 };
 
-filterRole.onchange = renderProfiles;
+DOM.filterRole.onchange = renderProfiles;
 
 /* ======================================================
    TURNOS AUTOMÁTICOS
@@ -616,9 +353,7 @@ async function aplicarDiurnoDesde(fecha) {
 
     saveProfileData(data);
     saveBlockedDays(blocked);
-    renderCalendar();
-    renderTimeline();
-    analizarStaffingMes();
+    refreshAll();
 }
 
 function aplicarCuartoTurnoDesde(fecha) {
@@ -658,263 +393,13 @@ function aplicarCuartoTurnoDesde(fecha) {
 
     saveProfileData(data);
     saveBlockedDays(blocked);
-    renderCalendar();
-    renderTimeline();
-    analizarStaffingMes();
+    refreshAll();
 }
 
-/* ======================================================
-   ADMINISTRATIVO
-====================================================== */
-
-function totalAdministrativosUsados() {
-    const admin = getAdminDays();
-
-    let total = 0;
-
-    Object.values(admin).forEach(v => {
-        if (v === 1) total += 1;
-        else total += 0.5;
-    });
-
-    return total;
-}
-
-function activarSelectorAdmin() {
-
-    const usados = totalAdministrativosUsados();
-
-    if (usados >= 6) {
-        alert("Ya utilizó los 6 permisos administrativos.");
-        return;
-    }
-
-    adminCantidad = 1;
-
-    activarModo(
-        "admin",
-        "Selecciona un día para Permiso Administrativo"
-    );
-
-    renderCalendar();
-    renderTimeline();
-    analizarStaffingMes();
-}
-
-
-function activarSelectorHalfAdmin(tipo) {
-
-    const usados = totalAdministrativosUsados();
-
-    if (usados >= 6) {
-        alert("Ya utilizó los 6 permisos administrativos.");
-        return;
-    }
-
-    window.halfAdminTipo = tipo;
-
-    activarModo(
-        "halfadmin",
-        tipo === "M"
-        ? "Selecciona día válido para 1/2 Administrativo Mañana"
-        : "Selecciona día válido para 1/2 Administrativo Tarde"
-    );
-
-    renderCalendar(); // 🔥 ESTA LÍNEA FALTABA
-    renderTimeline();
-    analizarStaffingMes();
-}
-
-async function aplicarAdministrativo(fecha) {
-
-    const admin = getAdminDays();
-    const legal = getLegalDays();
-    const comp = getCompDays();
-    const abs = getAbsences();
-    const data = getProfileData();
-
-    const holidays =
-        await fetchHolidays(fecha.getFullYear());
-
-    let d = new Date(fecha);
-    const nuevos = [];
-
-    for (let i = 0; i < adminCantidad; i++) {
-
-        if (d.getFullYear() !== fecha.getFullYear()) {
-            alert("No puede pasar a enero.");
-            return;
-        }
-
-        const key = keyFromDate(d);
-        const turno = data[key] || 0;
-        const habil =
-            isBusinessDay(d, holidays);
-
-        if (getShiftAssigned()) {
-
-            // Solo días con turno
-            if (turno === 0) {
-                alert("No puede pedir PA en día libre.");
-                return;
-            }
-
-        } else {
-
-            // Solo hábiles
-            if (!habil) {
-                alert("Solo puede pedir PA en día hábil.");
-                return;
-            }
-        }
-
-        if (admin[key]) {
-            alert("Ya existe PA.");
-            return;
-        }
-
-        if (legal[key]) {
-            alert("Feriado Legal.");
-            return;
-        }
-
-        if (comp[key]) {
-            alert("Feriado Compensatorio.");
-            return;
-        }
-
-        if (abs[key]) {
-            alert("Licencia Médica.");
-            return;
-        }
-
-        nuevos.push(key);
-
-        d.setDate(d.getDate() + 1);
-    }
-
-    nuevos.forEach(k => admin[k] = 1);
-
-    saveAdminDays(admin);
-    renderTimeline();
-    analizarStaffingMes();
-}
-
-async function aplicarHalfAdministrativo(fecha, cerrarModo = false) {
-
-    const admin = getAdminDays();
-    const legal = getLegalDays();
-    const comp = getCompDays();
-    const abs = getAbsences();
-    const data = getProfileData();
-
-    const holidays = await fetchHolidays(fecha.getFullYear());
-
-    if (!isBusinessDay(fecha, holidays)) {
-        alert("Solo puede aplicarse en día hábil.");
-        return;
-    }
-
-    const key = keyFromDate(fecha);
-
-    // Turno del día
-    const turno = data[key] || 0;
-
-    // Nunca en Noche
-    if (turno === 2) {
-        alert("No puede aplicarse en turno Noche.");
-        return;
-    }
-
-    // Solo turnos permitidos
-    if (![1,3,4,5].includes(turno)) {
-        alert("Solo puede aplicarse en Largo, 24, Diurno o Diurno + Noche.");
-        return;
-    }
-
-    if (admin[key]) {
-        alert("Ese día ya posee Permiso Administrativo.");
-        return;
-    }
-
-    if (legal[key]) {
-        alert("No puede aplicarse sobre Feriado Legal.");
-        return;
-    }
-
-    if (comp[key]) {
-        alert("No puede aplicarse sobre Feriado Compensatorio.");
-        return;
-    }
-
-    if (abs[key]) {
-        alert("No puede aplicarse sobre Licencia Médica.");
-        return;
-    }
-
-    const usados = totalAdministrativosUsados();
-
-    if (usados + 0.5 > 6) {
-        alert("Sin saldo.");
-        return;
-    }
-
-    const tipo = window.halfAdminTipo || "M";
-
-    admin[key] = tipo === "M"
-        ? "0.5M"
-        : "0.5T";
-
-    saveAdminDays(admin);
-
-    if(cerrarModo){
-    desactivarModo();
-}
-    renderCalendar();
-    renderTimeline();
-    analizarStaffingMes();
-}
-
-/* ======================================================
-   FERIADO LEGAL
-====================================================== */
-
-function existeBloque10Actual() {
-    const legal = getLegalDays();
-
-    const fechas = Object.keys(legal)
-        .map(parseKey)
-        .sort((a, b) => a - b);
-
-    let maxSeguido = 0;
-    let actual = 0;
-    let prev = null;
-
-    fechas.forEach(d => {
-        const dow = d.getDay();
-
-        if (dow === 0 || dow === 6) return;
-
-        if (!prev) {
-            actual = 1;
-        } else {
-            const dif = diasEntre(d, prev);
-
-            if (dif <= 3) {
-                actual++;
-            } else {
-                actual = 1;
-            }
-        }
-
-        if (actual > maxSeguido) maxSeguido = actual;
-        prev = d;
-    });
-
-    return maxSeguido >= 10;
-}
+// funciones UI de leaveengine
 
 function activarSelectorLegal() {
+
     const usados = contarHabiles(getLegalDays());
     const saldo = 15 - usados;
 
@@ -924,6 +409,7 @@ function activarSelectorLegal() {
     }
 
     let cant = Number(prompt(`¿Cuántos días? Disponibles: ${saldo}`));
+
     if (!cant || cant <= 0) return;
 
     if (cant > saldo) {
@@ -931,228 +417,102 @@ function activarSelectorLegal() {
         return;
     }
 
-    const yaTieneBloque10 = existeBloque10Actual();
-
-    if (!yaTieneBloque10) {
-        const restante = saldo - cant;
-
-        if (cant < 10 && restante < 10) {
-            alert("Debe quedar saldo suficiente para un bloque continuo de 10 días.");
-            return;
-        }
-    }
-
     legalCantidad = cant;
 
-    activarModo("legal", "Selecciona inicio Feriado Legal");
-}
-
-async function aplicarLegal(fecha) {
-
-    const legal = getLegalDays();
-    const blocked = getBlockedDays();
-    const admin = getAdminDays();
-    const comp = getCompDays();
-    const abs = getAbsences();
-
-    const year = fecha.getFullYear();
-    const holidays = await fetchHolidays(year);
-
-    let usados = 0;
-    let d = new Date(fecha);
-
-    const nuevos = [];
-
-    while (usados < legalCantidad) {
-
-        if (d.getFullYear() !== year) {
-            alert("No puede continuar a enero del siguiente año.");
-            return;
-        }
-
-        const key = keyFromDate(d);
-
-
-        nuevos.push(key);
-
-        if (isBusinessDay(d, holidays)) {
-            usados++;
-        }
-
-        d.setDate(d.getDate() + 1);
-    }
-
-    if (!validarRangoAusencias(nuevos)) {
-    return;
-    }
-
-    nuevos.forEach(k => {
-        legal[k] = true;
-        blocked[k] = true;
-    });
-
-    saveLegalDays(legal);
-    saveBlockedDays(blocked);
-    renderTimeline();
-    analizarStaffingMes();
-}
-
-/* ======================================================
-   FERIADO COMPENSATORIO
-====================================================== */
-
-function ultimoLegal() {
-    const legal = getLegalDays();
-
-    let ult = null;
-
-    Object.keys(legal).forEach(k => {
-        const d = parseKey(k);
-
-        if (!ult || d > ult) ult = d;
-    });
-
-    return ult;
+    activarModo(
+        "legal",
+        "Selecciona inicio Feriado Legal"
+    );
 }
 
 function activarSelectorComp() {
+
     if (!getShiftAssigned()) {
         alert("Solo disponible con Asignación de Turno.");
         return;
     }
 
-    const usados = contarHabiles(getCompDays());
-
-    if (usados >= 10) {
-        alert("Ya utilizó los 10 compensatorios.");
-        return;
-    }
-
-    activarModo("comp", "Selecciona inicio Feriado Compensatorio");
+    activarModo(
+        "comp",
+        "Selecciona inicio Feriado Compensatorio"
+    );
 }
-
-async function aplicarComp(fecha) {
-
-    const comp = getCompDays();
-    const blocked = getBlockedDays();
-    const legal = getLegalDays();
-    const admin = getAdminDays();
-    const abs = getAbsences();
-
-    const year = fecha.getFullYear();
-    const holidays = await fetchHolidays(year);
-
-    const ult = ultimoLegal();
-
-    if (ult && fecha > ult) {
-        const dias = diasEntre(fecha, ult);
-
-        if (dias < 90) {
-            alert("Deben pasar 90 días desde el último Feriado Legal.");
-            return;
-        }
-    }
-
-    let usados = 0;
-    let d = new Date(fecha);
-
-    const nuevos = [];
-
-    while (usados < 10) {
-
-        if (d.getFullYear() !== year) {
-            alert("No puede continuar a enero del siguiente año.");
-            return;
-        }
-
-        const key = keyFromDate(d);
-
-
-        nuevos.push(key);
-
-        if (isBusinessDay(d, holidays)) {
-            usados++;
-        }
-
-        d.setDate(d.getDate() + 1);
-    }
-
-    if (!validarRangoAusencias(nuevos)) {
-    return;
-    }
-
-    nuevos.forEach(k => {
-        comp[k] = true;
-        blocked[k] = true;
-    });
-
-    saveCompDays(comp);
-    saveBlockedDays(blocked);
-    renderTimeline();
-    analizarStaffingMes();
-}
-
-
-
-/* ======================================================
-   LICENCIA MÉDICA
-====================================================== */
 
 function activarSelectorLicencia() {
-    let cant = Number(prompt("¿Cuántos días dura la licencia médica?"));
+
+    let cant = Number(
+        prompt("¿Cuántos días dura la licencia médica?")
+    );
+
     if (!cant || cant <= 0) return;
 
     licenseCantidad = cant;
 
-    activarModo("license", "Selecciona inicio Licencia Médica");
+    activarModo(
+        "license",
+        "Selecciona inicio Licencia Médica"
+    );
 }
 
-function aplicarLicencia(fecha) {
-    const abs = getAbsences();
-    const blocked = getBlockedDays();
+function activarSelectorAdmin() {
 
-    let d = new Date(fecha);
-
-    for (let i = 0; i < licenseCantidad; i++) {
-        const key = keyFromDate(d);
-
-        abs[key] = { type: "license" };
-        blocked[key] = true;
-
-        d.setDate(d.getDate() + 1);
+    if (totalAdministrativosUsados() >= 6) {
+        alert("Ya utilizó los 6 permisos administrativos.");
+        return;
     }
 
-    saveAbsences(abs);
-    saveBlockedDays(blocked);
-    renderTimeline();
-    analizarStaffingMes();
+    adminCantidad = 1;
+
+    activarModo(
+        "admin",
+        "Selecciona día administrativo"
+    );
 }
+
+function activarSelectorHalfAdmin(tipo) {
+
+    if (totalAdministrativosUsados() >= 6) {
+        alert("Sin saldo.");
+        return;
+    }
+
+    window.halfAdminTipo = tipo;
+
+    activarModo(
+        "halfadmin",
+        tipo === "M"
+        ? "Selecciona 1/2 Administrativo Mañana"
+        : "Selecciona 1/2 Administrativo Tarde"
+    );
+}
+
+
 
 /* ======================================================
    BOTONES
 ====================================================== */
 
-autoDiurnoBtn.onclick = () =>
+DOM.autoDiurnoBtn.onclick = () =>
     activarModo("diurno", "Selecciona inicio Auto Diurno");
 
-autoCuartoBtn.onclick = () =>
+DOM.autoCuartoBtn.onclick = () =>
     activarModo("cuarto", "Selecciona inicio Cuarto Turno");
 
-adminBtn.onclick = () => {
+DOM.adminBtn.onclick = () => {
     activarSelectorAdmin();
 };
-halfAdminMorningBtn.onclick =
+DOM.halfAdminMorningBtn.onclick =
 () => activarSelectorHalfAdmin("M");
-halfAdminAfternoonBtn.onclick =
+DOM.halfAdminAfternoonBtn.onclick =
 () => activarSelectorHalfAdmin("T");
-legalBtn.onclick = activarSelectorLegal;
-compBtn.onclick = activarSelectorComp;
-licenseBtn.onclick = activarSelectorLicencia;
+DOM.legalBtn.onclick = activarSelectorLegal;
+DOM.compBtn.onclick = activarSelectorComp;
+DOM.licenseBtn.onclick = activarSelectorLicencia;
 
-document.getElementById("prevBtn").onclick = prevMonth;
-document.getElementById("nextBtn").onclick = nextMonth;
+DOM.prevBtn.onclick = prevMonth;
+DOM.nextBtn.onclick = nextMonth;
 
-document.getElementById("undoBtn").onclick = () => {
+DOM.undoBtn.onclick = () => {
 
     if(undo()){
         renderCalendar();
@@ -1164,7 +524,7 @@ document.getElementById("undoBtn").onclick = () => {
     }
 };
 
-document.getElementById("redoBtn").onclick = () => {
+DOM.redoBtn.onclick = () => {
 
     if(redo()){
         renderCalendar();
@@ -1192,7 +552,7 @@ document.addEventListener("click", async (e) => {
 
     if (selectionMode === "license") {
         pushHistory();
-        await aplicarLicencia(fecha);
+        await aplicarLicencia(fecha, licenseCantidad);
         desactivarModo();
         return;
     }
@@ -1206,20 +566,24 @@ document.addEventListener("click", async (e) => {
 
     if (selectionMode === "legal") {
         pushHistory();
-        await aplicarLegal(fecha);
+        await await aplicarLegal(fecha, legalCantidad);
         desactivarModo();
         return;
     }
 
     if (selectionMode === "halfadmin") {
         pushHistory();
-        await aplicarHalfAdministrativo(fecha, true);
+        await aplicarHalfAdministrativo(
+        fecha,
+        window.halfAdminTipo || "M"
+        );
+        desactivarModo();
         return;
 }
 
     if (selectionMode === "admin") {
         pushHistory();
-        await aplicarAdministrativo(fecha);
+        await aplicarAdministrativo(fecha, adminCantidad);
         desactivarModo();
         return;
 }
@@ -1253,17 +617,15 @@ if (perfiles.length > 0) {
 
     setCurrentProfile(perfiles[0]);
 
-    checkbox.checked = getShiftAssigned();
+    DOM.checkbox.checked = getShiftAssigned();
 
     renderBotones();
-    renderCalendar();
-    renderTimeline();
-    analizarStaffingMes();
+    refreshAll();
 
 } else {
 
     // estado vacío inicial
-    document.getElementById("calendar").innerHTML = `
+    DOM.calendar.innerHTML = `
         <div style="
             grid-column:1/-1;
             padding:40px;
@@ -1274,6 +636,6 @@ if (perfiles.length > 0) {
             Cree un perfil para comenzar
         </div>
     `;
-
-    document.getElementById("teamTimeline").innerHTML = "";
+    
+    DOM.teamTimeline.innerHTML = "";
 }

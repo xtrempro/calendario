@@ -1,6 +1,9 @@
 // js/calendar.js
-import { aplicarCambiosTurno } from "./shiftEngine.js";
-import { fusionarTurnos } from "./turnEngine.js";
+import { aplicarCambiosTurno } from "./turnEngine.js";
+import {
+    fusionarTurnos,
+    siguienteTurno
+} from "./turnEngine.js";
 import {
     calcularHorasMes,
     renderSummaryHTML,
@@ -37,6 +40,11 @@ import {
     turnoLabel,
     aplicarClaseTurno
 } from "./uiEngine.js";
+
+import {
+   TURNO,
+   MODO
+} from "./constants.js";
 
 import { renderTimeline } from "./timeline.js";
 

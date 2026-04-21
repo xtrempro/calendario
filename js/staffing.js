@@ -5,7 +5,8 @@ import {
     getCurrentProfile
 } from "./storage.js";
 
-import { aplicarCambiosTurno } from "./shiftEngine.js";
+import { aplicarCambiosTurno } from "./turnEngine.js";
+import { ESTAMENTO } from "./constants.js";
 
 import { isWeekend } from "./calculations.js";
 
@@ -149,13 +150,12 @@ export function analizarMes(year, month){
 
         const detalle = [];
 
-        ["Profesional","Técnico","Administrativo","Auxiliar"]
-        .forEach(est => {
+        ESTAMENTO.forEach(est => {
 
-            const req =
-                habil
-                ? cfg[est].habil
-                : cfg[est].inhabil;
+        const req =
+            habil
+            ? cfg[est].habil
+            : cfg[est].inhabil;
 
             const reqN = cfg[est].noche;
 
@@ -227,12 +227,7 @@ export function renderStaffingPanel(){
 
     const cfg = getStaffingConfig();
 
-    const grupos = [
-        "Profesional",
-        "Técnico",
-        "Administrativo",
-        "Auxiliar"
-    ];
+    const grupos = ESTAMENTO;
 
     grupos.forEach(est => {
 

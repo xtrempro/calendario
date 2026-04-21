@@ -20,6 +20,16 @@ export function fusionarTurnos(actual, recibido) {
     if (recibido === TURNO.LIBRE) return actual;
     if (actual === TURNO.LIBRE) return recibido;
 
+    /* si ya tiene 24, mantener */
+    if (actual === TURNO.TURNO24) {
+        return TURNO.TURNO24;
+    }
+
+    /* si ya tiene D+N, mantener */
+    if (actual === TURNO.DIURNO_NOCHE) {
+        return TURNO.DIURNO_NOCHE;
+    }
+
     /* Largo + Noche = 24 */
     if (
         (actual === TURNO.LARGA && recibido === TURNO.NOCHE) ||
@@ -36,15 +46,7 @@ export function fusionarTurnos(actual, recibido) {
         return TURNO.DIURNO_NOCHE;
     }
 
-    /* Largo + Diurno = Diurno */
-    if (
-        (actual === TURNO.LARGA && recibido === TURNO.DIURNO) ||
-        (actual === TURNO.DIURNO && recibido === TURNO.LARGA)
-    ) {
-        return TURNO.DIURNO;
-    }
-
-    /* si no hay combinación definida */
+    /* cualquier otra mezcla no válida */
     return actual;
 }
 
@@ -76,56 +78,127 @@ export function aplicarCambiosTurno(nombre, key, turnoBase) {
     let turno = Number(turnoBase) || TURNO.LIBRE;
 
     const swaps = getSwaps();
+
     const fechaISO = isoFromKey(key);
 
     for (const s of swaps) {
 
-        /* ==========================================
-           ENTREGA
-        ========================================== */
+        /* ==================================================
+           FECHA ORIGINAL
+        ================================================== */
 
-        if (
-            s.fecha === fechaISO &&
-            s.from === nombre
-        ) {
-            turno = TURNO.LIBRE;
+        if (s.fecha === fechaISO) {
+
+            /* quien entrega pierde su turno */
+            if (s.from === nombre) {
+                turno = TURNO.LIBRE;
+            }
+
+            /* quien recibe fusiona */
+            if (s.to === nombre) {
+
+                const recibido =
+                    turnoDesdeCodigoSwap(s.turno);
+
+                turno =
+                    fusionarTurnos(turno, recibido);
+            }
         }
 
-        if (
-            s.fecha === fechaISO &&
-            s.to === nombre
-        ) {
-            const recibido =
-                turnoDesdeCodigoSwap(s.turno);
+        /* ==================================================
+           FECHA DEVOLUCIÓN
+        ================================================== */
 
-            turno =
-                fusionarTurnos(turno, recibido);
-        }
+        if (s.devolucion === fechaISO) {
 
-        /* ==========================================
-           DEVOLUCIÓN
-        ========================================== */
+            /* trabajador B devuelve SOLO el turno pactado */
+            if (s.to === nombre) {
 
-        if (
-            s.devolucion === fechaISO &&
-            s.to === nombre
-        ) {
-            turno = TURNO.LIBRE;
-        }
+                const devuelve =
+                    turnoDesdeCodigoSwap(
+                        s.turnoDevuelto
+                    );
 
-        if (
-            s.devolucion === fechaISO &&
-            s.from === nombre
-        ) {
-            const recibido =
-                turnoDesdeCodigoSwap(
-                    s.turnoDevuelto
-                );
+                if (turno === devuelve) {
+                    turno = TURNO.LIBRE;
+                }
 
-            turno =
-                fusionarTurnos(turno, recibido);
+                else if (
+                    turno === TURNO.TURNO24 &&
+                    devuelve === TURNO.LARGA
+                ) {
+                    turno = TURNO.NOCHE;
+                }
+
+                else if (
+                    turno === TURNO.TURNO24 &&
+                    devuelve === TURNO.NOCHE
+                ) {
+                    turno = TURNO.LARGA;
+                }
+
+                else if (
+                    turno === TURNO.DIURNO_NOCHE &&
+                    devuelve === TURNO.DIURNO
+                ) {
+                    turno = TURNO.NOCHE;
+                }
+
+                else if (
+                    turno === TURNO.DIURNO_NOCHE &&
+                    devuelve === TURNO.NOCHE
+                ) {
+                    turno = TURNO.DIURNO;
+                }
+
+                else {
+                    turno = TURNO.LIBRE;
+                }
+            }
+
+            /* trabajador A recibe devolución */
+            if (s.from === nombre) {
+
+                const recibido =
+                    turnoDesdeCodigoSwap(
+                        s.turnoDevuelto
+                    );
+
+                turno =
+                    fusionarTurnos(turno, recibido);
+            }
         }
     }
 
     return turno;
+}
+
+/* ======================================================
+   SIGUIENTE TURNO (click manual calendario)
+====================================================== */
+
+export function siguienteTurno(actual, isHab) {
+
+    actual = Number(actual) || TURNO.LIBRE;
+
+    /* Día inhábil: solo rota básicos */
+    if (!isHab) {
+        switch (actual) {
+            case TURNO.LIBRE: return TURNO.LARGA;
+            case TURNO.LARGA: return TURNO.NOCHE;
+            case TURNO.NOCHE: return TURNO.LIBRE;
+            default: return TURNO.LIBRE;
+        }
+    }
+
+    /* Día hábil */
+    switch (actual) {
+        case TURNO.LIBRE: return TURNO.LARGA;
+        case TURNO.LARGA: return TURNO.NOCHE;
+        case TURNO.NOCHE: return TURNO.TURNO24;
+        case TURNO.TURNO24: return TURNO.DIURNO;
+        case TURNO.DIURNO: return TURNO.DIURNO_NOCHE;
+        case TURNO.DIURNO_NOCHE: return TURNO.LIBRE;
+        default: return TURNO.LIBRE;
+    }
 }

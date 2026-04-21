@@ -4,7 +4,8 @@ import {
 } from "./storage.js";
 
 import * as calendar from "./calendar.js";
-import { aplicarCambiosTurno } from "./shiftEngine.js";
+import { aplicarCambiosTurno } from "./turnEngine.js";
+import { TURNO_COLOR } from "./constants.js";
 
 /* ==========================================
    STORAGE HELPERS
@@ -58,13 +59,7 @@ function getColor(nombre, key){
         turno
     );
 
-    if(turno === 1) return "#00ff88";
-    if(turno === 2) return "#1e88e5";
-    if(turno === 3) return "#9c27b0";
-    if(turno === 4) return "#4fc3ff";
-    if(turno === 5) return "#673ab7";
-
-    return "#f3f4f6";
+    return TURNO_COLOR[turno] || TURNO_COLOR[0];
 }
 
 /* ==========================================
