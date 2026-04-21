@@ -570,3 +570,41 @@ margin-top:3px;
     color:white;
     cursor:pointer;
 }
+
+/* Botones Modernos */
+button {
+    background: #6366f1;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    padding: 10px 16px;
+    transition: all 0.2s ease;
+    border-radius: 12px;
+}
+
+button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3);
+}
+
+/* El Calendario */
+.grid {
+    gap: 12px; /* Más espacio entre días */
+}
+
+.day {
+    border: 1px solid #f1f5f9;
+    background: #ffffff;
+    transition: transform 0.2s ease;
+}
+
+.day:hover {
+    z-index: 10;
+    transform: scale(1.05);
+}
+
+/* Paneles de información */
+.panelBox {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #6366f1; /* Acento lateral */
+}
