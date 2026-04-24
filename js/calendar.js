@@ -1,7 +1,6 @@
-// js/calendar.js
-import { aplicarCambiosTurno } from "./turnEngine.js";
 import {
-    fusionarTurnos,
+    aplicarCambiosTurno,
+    getTurnoBase,
     siguienteTurno
 } from "./turnEngine.js";
 import {
@@ -29,42 +28,64 @@ import {
     estaBloqueadoModo
 } from "./rulesEngine.js";
 import { fetchHolidays } from "./holidays.js";
-
 import {
     calcHours,
     isBusinessDay,
-    isWeekend,
+    isWeekend
 } from "./calculations.js";
-
 import {
     turnoLabel,
     aplicarClaseTurno
 } from "./uiEngine.js";
-
-import {
-   TURNO,
-   MODO
-} from "./constants.js";
-
 import { renderTimeline } from "./timeline.js";
 
-/* ======================================================
-   ESTADO GLOBAL
-====================================================== */
-
 export let currentDate = new Date();
-
-/* ======================================================
-   HELPERS
-====================================================== */
 
 function key(y, m, d) {
     return `${y}-${m}-${d}`;
 }
 
-/* ======================================================
-   CLICK CELDA
-====================================================== */
+function buildDayCell({
+    day,
+    month,
+    year,
+    keyDay,
+    label,
+    title,
+    isWeekendDay,
+    isHoliday,
+    isDraftSelected
+}) {
+    const div = document.createElement("div");
+
+    div.classList.add("day");
+    div.dataset.day = day;
+    div.dataset.month = month;
+    div.dataset.year = year;
+
+    if (isWeekendDay) {
+        div.classList.add("weekend");
+    }
+
+    if (isHoliday) {
+        div.classList.add("holiday");
+    }
+
+    if (isDraftSelected) {
+        div.classList.add("draft-selected");
+    }
+
+    div.innerHTML = `
+        <span class="day-number">${day}</span>
+        <span class="day-label">${label || ""}</span>
+    `;
+
+    if (title) {
+        div.title = title;
+    }
+
+    return div;
+}
 
 async function clickDia(
     keyDay,
@@ -93,9 +114,9 @@ async function clickDia(
 
     const nuevo = siguienteTurno(state, isHab);
 
-    if (window.pushUndoState) {
+    if (typeof window.pushUndoState === "function") {
         window.pushUndoState(
-            `Cambio ${keyDay}: ${turnoLabel(state)} → ${turnoLabel(nuevo)}`
+            `Cambio ${keyDay}: ${turnoLabel(state)} -> ${turnoLabel(nuevo)}`
         );
     }
 
@@ -104,10 +125,6 @@ async function clickDia(
 
     await renderCalendar();
 }
-
-/* ======================================================
-   RENDER CALENDARIO
-====================================================== */
 
 export async function renderCalendar() {
     const cal = document.getElementById("calendar");
@@ -118,8 +135,73 @@ export async function renderCalendar() {
 
     cal.replaceChildren();
 
+    const activeProfile = getCurrentProfile();
     const y = currentDate.getFullYear();
     const m = currentDate.getMonth();
+    const holidays = await fetchHolidays(y);
+    const first =
+        (new Date(y, m, 1).getDay() + 6) % 7;
+    const days =
+        new Date(y, m + 1, 0).getDate();
+    const draftKey =
+        typeof window.getProfileDraftSelectionKey === "function"
+            ? window.getProfileDraftSelectionKey()
+            : "";
+
+    if (monthYear) {
+        monthYear.innerText = currentDate.toLocaleString(
+            "es-CL",
+            {
+                month: "long",
+                year: "numeric"
+            }
+        );
+    }
+
+    for (let i = 0; i < first; i++) {
+        cal.innerHTML += "<div class=\"calendar-spacer\"></div>";
+    }
+
+    if (!activeProfile) {
+        for (let d = 1; d <= days; d++) {
+            const keyDay = key(y, m, d);
+            const date = new Date(y, m, d);
+
+            const div = buildDayCell({
+                day: d,
+                month: m,
+                year: y,
+                keyDay,
+                label: "",
+                title: "Selecciona una fecha para la nueva rotativa.",
+                isWeekendDay: isWeekend(date),
+                isHoliday: Boolean(holidays[keyDay]),
+                isDraftSelected: draftKey === keyDay
+            });
+
+            if (window.selectionMode === "profile-rotation") {
+                div.classList.add("mpa-enabled");
+            }
+
+            cal.appendChild(div);
+        }
+
+        if (summary) {
+            summary.innerHTML = `
+                <div class="empty-state empty-state--compact">
+                    Aun no hay horas extras para mostrar.
+                </div>
+            `;
+        }
+
+        renderTimeline();
+
+        if (typeof window.renderDashboardState === "function") {
+            window.renderDashboardState();
+        }
+
+        return;
+    }
 
     const data = getProfileData();
     const blocked = getBlockedDays();
@@ -127,62 +209,54 @@ export async function renderCalendar() {
     const legal = getLegalDays();
     const comp = getCompDays();
     const absences = getAbsences();
-
-    const holidays = await fetchHolidays(y);
     const carryIn = getCarry(y, m);
-
-    monthYear.innerText = currentDate.toLocaleString(
-        "es-ES",
-        {
-            month: "long",
-            year: "numeric"
-        }
-    );
-
-    const first =
-        (new Date(y, m, 1).getDay() + 6) % 7;
-
-    const days =
-        new Date(y, m + 1, 0).getDate();
-
-    for (let i = 0; i < first; i++) {
-        cal.innerHTML += "<div></div>";
-    }
 
     for (let d = 1; d <= days; d++) {
         const keyDay = key(y, m, d);
 
-        const perfilActual = getCurrentProfile();
         let state = Number(data[keyDay]) || 0;
-        state = aplicarCambiosTurno(
-        perfilActual,
-        keyDay,
-        state
-        );
-        
 
+        state = aplicarCambiosTurno(
+            activeProfile,
+            keyDay,
+            state
+        );
 
         const date = new Date(y, m, d);
-
-        const isW = isWeekend(date);
-        const isH = holidays[keyDay];
+        const isWeekendDay = isWeekend(date);
+        const isHoliday = holidays[keyDay];
         const isHab = isBusinessDay(date, holidays);
 
-        const div = document.createElement("div");
-
-        div.classList.add("day");
-
-        div.dataset.day = d;
-        div.dataset.month = m;
-        div.dataset.year = y;
+        const div = buildDayCell({
+            day: d,
+            month: m,
+            year: y,
+            keyDay,
+            label: obtenerLabelDia(
+                keyDay,
+                state,
+                admin,
+                legal,
+                comp,
+                absences,
+                turnoLabel
+            ),
+            title: (() => {
+                const hrs = calcHours(date, state, holidays);
+                return `Diurnas: ${hrs.d} | Nocturnas: ${hrs.n}`;
+            })(),
+            isWeekendDay,
+            isHoliday: Boolean(isHoliday),
+            isDraftSelected: draftKey === keyDay
+        });
 
         aplicarClasesEspeciales(
             div,
             keyDay,
             state,
             isHab,
-            isW,
-            isH,
+            isWeekendDay,
+            isHoliday,
             admin,
             legal,
             comp,
@@ -193,39 +267,28 @@ export async function renderCalendar() {
         const bloqueado = estaBloqueadoModo(
             window.selectionMode,
             keyDay,
-            state,
+            window.selectionMode === "admin"
+                ? getTurnoBase(activeProfile, keyDay)
+                : state,
             isHab,
             admin,
             legal,
             comp,
             absences,
-            getShiftAssigned()
-            );
+            getShiftAssigned(),
+            {
+                compCantidad: window.compCantidad || 0,
+                holidays
+            }
+        );
 
-            if (window.selectionMode) {
+        if (window.selectionMode) {
             div.classList.add(
-            bloqueado
-            ? "mpa-disabled"
-            : "mpa-enabled"
-        );
-}
-
-        const hrs = calcHours(date, state, holidays);
-
-        const label = obtenerLabelDia(
-            keyDay,
-            state,
-            admin,
-            legal,
-            comp,
-            absences,
-            turnoLabel
-        );
-
-        div.innerHTML = `${d}<br>${label}`;
-
-        div.title =
-            `Diurnas:${hrs.d} Nocturnas:${hrs.n}`;
+                bloqueado
+                    ? "mpa-disabled"
+                    : "mpa-enabled"
+            );
+        }
 
         div.onclick = async () => {
             await clickDia(
@@ -243,13 +306,12 @@ export async function renderCalendar() {
         cal.appendChild(div);
     }
 
-    /* carry */
     const carryOut = calcularCarryMes(
-    y,
-    m,
-    days,
-    holidays,
-    data
+        y,
+        m,
+        days,
+        holidays,
+        data
     );
 
     const next = new Date(y, m + 1, 1);
@@ -259,8 +321,6 @@ export async function renderCalendar() {
         next.getMonth(),
         carryOut
     );
-
-    /* resumen */
 
     const stats = calcularHorasMes(
         y,
@@ -272,31 +332,39 @@ export async function renderCalendar() {
         carryIn
     );
 
-    summary.innerHTML = renderSummaryHTML(stats);
-
-    /* timeline */
+    if (summary) {
+        summary.innerHTML = renderSummaryHTML(stats);
+    }
 
     renderTimeline();
+
+    if (typeof window.renderDashboardState === "function") {
+        window.renderDashboardState();
+    }
 }
 
-/* ======================================================
-   NAVEGACION
-====================================================== */
+function syncShellPanels() {
+    if (typeof window.renderSwapPanel === "function") {
+        window.renderSwapPanel();
+    }
+
+    if (typeof window.renderStaffingAnalysis === "function") {
+        window.renderStaffingAnalysis();
+    }
+
+    if (typeof window.renderDashboardState === "function") {
+        window.renderDashboardState();
+    }
+}
 
 export function prevMonth() {
     currentDate.setMonth(currentDate.getMonth() - 1);
     renderCalendar();
-
-    if(window.renderSwapPanel){
-        window.renderSwapPanel();
-    }
+    syncShellPanels();
 }
 
 export function nextMonth() {
     currentDate.setMonth(currentDate.getMonth() + 1);
     renderCalendar();
-
-    if(window.renderSwapPanel){
-        window.renderSwapPanel();
-    }
+    syncShellPanels();
 }

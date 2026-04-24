@@ -1,20 +1,19 @@
-import { renderCalendar, prevMonth, nextMonth } from "./calendar.js";
-import { renderTimeline } from "./timeline.js";
+import { prevMonth, nextMonth } from "./calendar.js";
 import { pushHistory, undo, redo } from "./history.js";
 import { refreshAll } from "./refresh.js";
 import { DOM } from "./dom.js";
 import { renderSwapPanel } from "./swapUI.js";
+import { renderStaffingPanel } from "./staffing.js";
 import {
-    renderStaffingPanel,
-    analizarStaffingMes
-} from "./staffing.js";
-
-import { fetchHolidays } from "./holidays.js";
-
+    fetchHolidays,
+    getCachedHolidays
+} from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
 import {
     getProfileData,
     saveProfileData,
+    getBaseProfileData,
+    saveBaseProfileData,
     getBlockedDays,
     saveBlockedDays,
     getProfiles,
@@ -23,79 +22,758 @@ import {
     getCurrentProfile,
     getShiftAssigned,
     setShiftAssigned,
-    getAdminDays,
-    saveAdminDays,
     getLegalDays,
-    saveLegalDays,
     getCompDays,
-    saveCompDays,
     getAbsences,
-    saveAbsences
+    updateProfile,
+    getRotativa,
+    saveRotativa,
+    getValorHora,
+    setValorHora,
+    getManualLeaveBalances,
+    saveManualLeaveBalances
 } from "./storage.js";
-
 import {
     totalAdministrativosUsados,
     aplicarAdministrativo,
     aplicarHalfAdministrativo,
-    existeBloque10Actual,
     aplicarLegal,
     aplicarComp,
-    aplicarLicencia
+    aplicarLicencia,
+    validarCantidadLegalAnual
 } from "./leaveEngine.js";
 
+const PROFILE_MODE = {
+    VIEW: "view",
+    CREATE: "create",
+    EDIT: "edit"
+};
 
-/* ======================================================
-   ESTADO
-====================================================== */
+const THEME_KEY = "proturnos_theme";
 
 let selectionMode = null;
 let adminCantidad = 0;
+let compCantidad = 0;
 let legalCantidad = 0;
 let licenseCantidad = 0;
+let availabilityEditMode = false;
+
+const profileDraft = {
+    mode: PROFILE_MODE.VIEW,
+    originalName: "",
+    originalRotationType: "",
+    originalRotationStart: "",
+    name: "",
+    estamento: "",
+    rotationType: "",
+    rotationStart: "",
+    shiftAssigned: false,
+    valorHora: ""
+};
 
 window.selectionMode = null;
+window.compCantidad = 0;
+window.pushUndoState = pushHistory;
+window.getProfileDraftSelectionKey = () =>
+    inputDateToCalendarKey(profileDraft.rotationStart);
 
-/* ======================================================
-   CONFIG
-====================================================== */
+function keyFromDate(date) {
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
 
-DOM.valorHoraInput.value = localStorage.getItem("valorHora") || "";
-
-DOM.valorHoraInput.oninput = () => {
-    let v = Number(DOM.valorHoraInput.value);
-    if (v < 0) v = 0;
-    DOM.valorHoraInput.value = v;
-    localStorage.setItem("valorHora", v);
-    renderCalendar();
-};
-
-DOM.checkbox.onchange = () => {
-    setShiftAssigned(DOM.checkbox.checked);
-    renderBotones();
-};
-
-/* ======================================================
-   HELPERS
-====================================================== */
-
-function parseInputDate(v){
-    const p = v.split("-");
+function parseKey(key) {
+    const parts = key.split("-");
     return new Date(
-        Number(p[0]),
-        Number(p[1])-1,
-        Number(p[2])
+        Number(parts[0]),
+        Number(parts[1]),
+        Number(parts[2])
     );
 }
 
-function formatFechaUSA(fechaStr){
+function parseInputDate(value){
+    const parts = value.split("-");
+    return new Date(
+        Number(parts[0]),
+        Number(parts[1]) - 1,
+        Number(parts[2])
+    );
+}
 
-    const p = fechaStr.split("-");
+function toInputDate(date){
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0")
+    ].join("-");
+}
 
-    return `${p[1]}-${p[2]}-${p[0]}`;
+function normalizeStoredStart(start){
+    if (!start) return "";
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(start)) {
+        return start;
+    }
+
+    const date = new Date(start);
+
+    if (Number.isNaN(date.getTime())) {
+        return "";
+    }
+
+    return toInputDate(date);
+}
+
+function inputDateToCalendarKey(value){
+    if (!value) return "";
+
+    const parts = value.split("-");
+
+    if (parts.length !== 3) return "";
+
+    return `${parts[0]}-${Number(parts[1]) - 1}-${Number(parts[2])}`;
+}
+
+function formatDisplayDate(value){
+    if (!value) return "";
+
+    const parts = value.split("-");
+
+    if (parts.length !== 3) return value;
+
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function contarHabiles(
+    obj,
+    year = new Date().getFullYear(),
+    holidays = getCachedHolidays(year)
+) {
+    let total = 0;
+
+    Object.keys(obj).forEach(key => {
+        if (!key.startsWith(year + "-")) return;
+
+        const date = parseKey(key);
+
+        if (isBusinessDay(date, holidays)) total++;
+    });
+
+    return total;
+}
+
+function formatSaldo(value) {
+    return Number.isInteger(value)
+        ? String(value)
+        : value
+            .toFixed(1)
+            .replace(".0", "")
+            .replace(".", ",");
+}
+
+function normalizeBalanceValue(value) {
+    const numeric = Number(
+        String(value ?? "").replace(",", ".")
+    );
+
+    if (!Number.isFinite(numeric)) return 0;
+
+    return Math.max(0, Math.round(numeric * 10) / 10);
+}
+
+function withManualBalance(
+    manualValue,
+    fallbackValue
+) {
+    const numeric = Number(manualValue);
+
+    return Number.isFinite(numeric)
+        ? Math.max(0, numeric)
+        : fallbackValue;
+}
+
+function getLeaveBalances(
+    year = new Date().getFullYear(),
+    holidays = getCachedHolidays(year)
+) {
+    const manual = getManualLeaveBalances(year);
+    const calculated = {
+        legal: Math.max(0, 15 - contarHabiles(getLegalDays(), year, holidays)),
+        admin: Math.max(0, 6 - totalAdministrativosUsados()),
+        comp: contarHabiles(getCompDays(), year, holidays)
+    };
+
+    return {
+        legal: withManualBalance(manual.legal, calculated.legal),
+        admin: withManualBalance(manual.admin, calculated.admin),
+        comp: withManualBalance(manual.comp, calculated.comp)
+    };
+}
+
+function decrementManualBalance(
+    field,
+    amount,
+    year = new Date().getFullYear()
+) {
+    const manual = getManualLeaveBalances(year);
+    const currentValue = Number(manual[field]);
+
+    if (!Number.isFinite(currentValue)) return;
+
+    saveManualLeaveBalances(year, {
+        ...manual,
+        [field]: Math.max(
+            0,
+            normalizeBalanceValue(currentValue - amount)
+        )
+    });
+}
+
+function sanitizeValorHora(value){
+    const numeric = Math.max(0, Number(value) || 0);
+    return value === "" ? "" : String(numeric);
+}
+
+function getRotativaLabel(type){
+    if (type === "4turno") return "4° Turno";
+    if (type === "diurno") return "Diurno";
+    return "Sin rotativa";
+}
+
+function isProfileEditing(){
+    return profileDraft.mode !== PROFILE_MODE.VIEW;
+}
+
+function getPerfilActual() {
+    const current = getCurrentProfile();
+    return getProfiles().find(
+        profile => profile.name === current
+    ) || null;
+}
+
+function clearDraftValues(){
+    profileDraft.originalName = "";
+    profileDraft.originalRotationType = "";
+    profileDraft.originalRotationStart = "";
+    profileDraft.name = "";
+    profileDraft.estamento = "";
+    profileDraft.rotationType = "";
+    profileDraft.rotationStart = "";
+    profileDraft.shiftAssigned = false;
+    profileDraft.valorHora = "";
+}
+
+function loadDraftFromProfile(profile){
+    const rotativa = getRotativa(profile.name);
+    const rotationStart =
+        normalizeStoredStart(rotativa.start);
+
+    profileDraft.originalName = profile.name;
+    profileDraft.originalRotationType =
+        rotativa.type || "";
+    profileDraft.originalRotationStart =
+        rotationStart;
+    profileDraft.name = profile.name;
+    profileDraft.estamento = profile.estamento || "";
+    profileDraft.rotationType = rotativa.type || "";
+    profileDraft.rotationStart = rotationStart;
+    profileDraft.shiftAssigned = getShiftAssigned(profile.name);
+    profileDraft.valorHora = String(getValorHora(profile.name) || "");
+}
+
+function hasRotationChanged() {
+    if (profileDraft.mode !== PROFILE_MODE.EDIT) {
+        return false;
+    }
+
+    return (
+        profileDraft.rotationType !==
+            profileDraft.originalRotationType ||
+        normalizeStoredStart(profileDraft.rotationStart) !==
+            normalizeStoredStart(
+                profileDraft.originalRotationStart
+            )
+    );
+}
+
+function getDisplayedProfileData(){
+    const profile = getPerfilActual();
+
+    if (profileDraft.mode === PROFILE_MODE.CREATE) {
+        return {
+            name: profileDraft.name,
+            estamento: profileDraft.estamento,
+            rotationType: profileDraft.rotationType,
+            rotationStart: profileDraft.rotationStart,
+            shiftAssigned: profileDraft.shiftAssigned,
+            valorHora: profileDraft.valorHora
+        };
+    }
+
+    if (profileDraft.mode === PROFILE_MODE.EDIT) {
+        return {
+            name: profileDraft.name,
+            estamento: profileDraft.estamento,
+            rotationType: profileDraft.rotationType,
+            rotationStart: profileDraft.rotationStart,
+            shiftAssigned: profileDraft.shiftAssigned,
+            valorHora: profileDraft.valorHora
+        };
+    }
+
+    if (!profile) {
+        return {
+            name: "",
+            estamento: "",
+            rotationType: "",
+            rotationStart: "",
+            shiftAssigned: false,
+            valorHora: ""
+        };
+    }
+
+    const rotativa = getRotativa(profile.name);
+
+    return {
+        name: profile.name,
+        estamento: profile.estamento,
+        rotationType: rotativa.type || "",
+        rotationStart: normalizeStoredStart(rotativa.start),
+        shiftAssigned: getShiftAssigned(profile.name),
+        valorHora: String(getValorHora(profile.name) || "")
+    };
+}
+
+function buildRotationStatus(data){
+    if (profileDraft.mode === PROFILE_MODE.CREATE) {
+        if (!data.rotationType) {
+            return "Selecciona una rotativa para definir su fecha de inicio.";
+        }
+
+        if (!data.rotationStart) {
+            return `Marca en el calendario desde que fecha se aplicara ${getRotativaLabel(data.rotationType)}.`;
+        }
+
+        return `${getRotativaLabel(data.rotationType)} comenzara el ${formatDisplayDate(data.rotationStart)}.`;
+    }
+
+    if (profileDraft.mode === PROFILE_MODE.EDIT) {
+        if (!data.rotationType) {
+            return "Selecciona la nueva rotativa y luego marca su fecha de inicio.";
+        }
+
+        if (!hasRotationChanged()) {
+            if (!data.rotationStart) {
+                return `Rotativa actual: ${getRotativaLabel(data.rotationType)}.`;
+            }
+
+            return `Rotativa actual: ${getRotativaLabel(data.rotationType)} desde ${formatDisplayDate(data.rotationStart)}.`;
+        }
+
+        if (!data.rotationStart) {
+            return `Marca en el calendario desde que fecha se aplicara la nueva ${getRotativaLabel(data.rotationType)}.`;
+        }
+
+        return `${getRotativaLabel(data.rotationType)} se aplicara desde ${formatDisplayDate(data.rotationStart)}.`;
+    }
+
+    if (!data.rotationType) {
+        return "Este colaborador aun no tiene una rotativa configurada.";
+    }
+
+    if (!data.rotationStart) {
+        return `Rotativa actual: ${getRotativaLabel(data.rotationType)}.`;
+    }
+
+    return `Rotativa actual: ${getRotativaLabel(data.rotationType)} desde ${formatDisplayDate(data.rotationStart)}.`;
+}
+
+function buildEditorHint(profile){
+    if (profileDraft.mode === PROFILE_MODE.CREATE) {
+        return "Completa nombre, estamento, rotativa y marca en el calendario desde que fecha inicia antes de guardar.";
+    }
+
+    if (profileDraft.mode === PROFILE_MODE.EDIT) {
+        return "Actualiza los datos del trabajador. Solo si cambias la rotativa debes marcar en el calendario desde que fecha aplica.";
+    }
+
+    if (profile) {
+        return "Presiona Editar para modificar nombre, estamento, rotativa, asignacion de turno y valor hora.";
+    }
+
+    return "Selecciona un colaborador para editarlo o crea uno nuevo.";
+}
+
+function renderDisponibilidadVacaciones() {
+    if (!DOM.availabilitySummary) return;
+
+    const profile = getPerfilActual();
+
+    if (!profile) {
+        availabilityEditMode = false;
+
+        DOM.availabilitySummary.innerHTML = `
+            <div class="availability-empty">
+                Selecciona un colaborador para ver sus saldos.
+            </div>
+        `;
+
+        if (DOM.availabilityEditBtn) {
+            DOM.availabilityEditBtn.textContent = "EDITAR";
+            DOM.availabilityEditBtn.disabled = true;
+        }
+
+        return;
+    }
+
+    const saldos = getLeaveBalances();
+    const licencias = Object.keys(getAbsences()).length;
+    const year = new Date().getFullYear();
+
+    if (DOM.availabilityEditBtn) {
+        DOM.availabilityEditBtn.textContent =
+            availabilityEditMode ? "GUARDAR" : "EDITAR";
+        DOM.availabilityEditBtn.disabled = false;
+    }
+
+    if (availabilityEditMode) {
+        DOM.availabilitySummary.innerHTML = `
+            <div class="availability-list">
+                <label class="availability-item">
+                    <span>FL</span>
+                    <input id="availabilityLegalInput" type="number" min="0" step="0.5" value="${saldos.legal}">
+                </label>
+
+                <label class="availability-item">
+                    <span>FC</span>
+                    <input id="availabilityCompInput" type="number" min="0" step="1" value="${saldos.comp}">
+                </label>
+
+                <label class="availability-item">
+                    <span>ADM</span>
+                    <input id="availabilityAdminInput" type="number" min="0" step="0.5" value="${saldos.admin}">
+                </label>
+            </div>
+
+            <div class="availability-note">
+                Editando saldos vigentes del ano ${year}. Licencias medicas cargadas: ${licencias}
+            </div>
+        `;
+
+        return;
+    }
+
+    DOM.availabilitySummary.innerHTML = `
+        <div class="availability-list">
+            <div class="availability-item">
+                <span>FL</span>
+                <strong>${formatSaldo(saldos.legal)} dias</strong>
+            </div>
+
+            <div class="availability-item">
+                <span>FC</span>
+                <strong>${formatSaldo(saldos.comp)} reg.</strong>
+            </div>
+
+            <div class="availability-item">
+                <span>ADM</span>
+                <strong>${formatSaldo(saldos.admin)} dias</strong>
+            </div>
+        </div>
+
+        <div class="availability-note">
+            Saldos vigentes del ano ${year}. Licencias medicas cargadas: ${licencias}
+        </div>
+    `;
+}
+
+function renderLeaveActionLabels() {
+    const profile = getPerfilActual();
+    const adminBase = "P. ADMINISTRATIVO";
+    const compBase = "F. COMPENSATORIO";
+    const legalBase = "F. LEGAL";
+
+    if (!profile) {
+        DOM.adminBtnLabel.textContent = adminBase;
+        DOM.compBtnLabel.textContent = compBase;
+        DOM.legalBtnLabel.textContent = legalBase;
+        DOM.adminBtn.disabled = true;
+        DOM.halfAdminMorningBtn.disabled = true;
+        DOM.halfAdminAfternoonBtn.disabled = true;
+        DOM.compBtn.disabled = true;
+        DOM.legalBtn.disabled = true;
+        return;
+    }
+
+    const saldos = getLeaveBalances();
+
+    DOM.adminBtnLabel.textContent =
+        `${adminBase} (${formatSaldo(saldos.admin)})`;
+    DOM.compBtnLabel.textContent =
+        `${compBase} (${formatSaldo(saldos.comp)})`;
+    DOM.legalBtnLabel.textContent =
+        `${legalBase} (${formatSaldo(saldos.legal)})`;
+
+    DOM.adminBtn.disabled = saldos.admin <= 0;
+    DOM.halfAdminMorningBtn.disabled = saldos.admin <= 0;
+    DOM.halfAdminAfternoonBtn.disabled = saldos.admin <= 0;
+    DOM.compBtn.disabled = saldos.comp <= 0;
+    DOM.legalBtn.disabled = saldos.legal <= 0;
+}
+
+function renderDashboardState() {
+    const profile = getPerfilActual();
+    const data = getDisplayedProfileData();
+    const editing = isProfileEditing();
+
+    DOM.profileNameInput.value = data.name || "";
+    DOM.profileRoleSelect.value = data.estamento || "";
+    DOM.profileRotationSelect.value = data.rotationType || "";
+    DOM.checkbox.checked = Boolean(data.shiftAssigned);
+    DOM.valorHoraInput.value = data.valorHora;
+
+    DOM.profileNameInput.disabled = !editing;
+    DOM.profileRoleSelect.disabled = !editing;
+    DOM.profileRotationSelect.disabled = !editing;
+    DOM.checkbox.disabled = !editing;
+    DOM.valorHoraInput.disabled = !editing;
+
+    DOM.profileRotationStatus.textContent =
+        buildRotationStatus(data);
+
+    DOM.profileEditorHint.textContent =
+        buildEditorHint(profile);
+
+    DOM.openCreateProfileBtn.textContent =
+        profileDraft.mode === PROFILE_MODE.CREATE
+            ? "GUARDAR"
+            : "CREAR NUEVO";
+
+    DOM.openEditProfileBtn.textContent =
+        profileDraft.mode === PROFILE_MODE.EDIT
+            ? "GUARDAR"
+            : "EDITAR";
+
+    DOM.openCreateProfileBtn.disabled =
+        profileDraft.mode === PROFILE_MODE.EDIT;
+
+    DOM.openEditProfileBtn.disabled =
+        profileDraft.mode === PROFILE_MODE.CREATE ||
+        (!profile && profileDraft.mode !== PROFILE_MODE.EDIT);
+
+    renderLeaveActionLabels();
+    renderDisponibilidadVacaciones();
+    updateTurnChangesNavState();
+}
+
+window.renderDashboardState = renderDashboardState;
+
+function renderBotones() {
+    const hasProfile = Boolean(getCurrentProfile());
+    const shiftAssigned = isProfileEditing()
+        ? Boolean(profileDraft.shiftAssigned)
+        : getShiftAssigned();
+
+    DOM.autoDiurnoBtn.classList.toggle(
+        "hidden",
+        !hasProfile
+    );
+
+    DOM.autoCuartoBtn.classList.toggle(
+        "hidden",
+        !hasProfile
+    );
+
+    DOM.compBtn.classList.toggle(
+        "hidden",
+        !hasProfile || !shiftAssigned
+    );
+
+    updateTurnChangesNavState();
+}
+
+function updateTurnChangesNavState() {
+    const button =
+        document.getElementById("turnChangesNav") ||
+        document.querySelector("[data-target='turnChangesView']");
+
+    if (!button) return;
+
+    const currentProfile = getCurrentProfile();
+    const rotativa = currentProfile
+        ? getRotativa(currentProfile)
+        : { type: "" };
+    const disabled =
+        !currentProfile ||
+        rotativa.type === "diurno";
+
+    button.disabled = disabled;
+    button.classList.toggle("is-disabled", disabled);
+    button.title = disabled
+        ? "Cambios de turno no disponible para trabajadores con rotativa Diurno."
+        : "";
+
+    if (
+        disabled &&
+        document.body.dataset.activeView === "swap"
+    ) {
+        setActiveShortcut("calendarPanel");
+    }
+}
+
+function getViewForTarget(targetId) {
+    if (
+        targetId === "profileSection" ||
+        targetId === "availabilitySummary" ||
+        targetId === "hoursPanel"
+    ) {
+        return "profile";
+    }
+
+    if (
+        targetId === "swapPanel" ||
+        targetId === "turnChangesView"
+    ) {
+        return "swap";
+    }
+
+    if (targetId === "staffingPanel") {
+        return "staffing";
+    }
+
+    return "turnos";
+}
+
+function setDashboardView(view) {
+    document.body.dataset.activeView = view;
+}
+
+function setActiveShortcut(targetId) {
+    const nextView = getViewForTarget(targetId);
+
+    if (nextView === "profile" && selectionMode) {
+        clearSelectionMode(false);
+    }
+
+    setDashboardView(nextView);
+
+    document
+        .querySelectorAll(".nav-tile[data-target]")
+        .forEach(button => {
+            button.classList.toggle(
+                "is-active",
+                button.dataset.target === targetId
+            );
+        });
+}
+
+function renderProfiles() {
+    const profiles = getProfiles();
+
+    if (
+        profiles.length > 0 &&
+        !profiles.some(
+            profile => profile.name === getCurrentProfile()
+        ) &&
+        profileDraft.mode === PROFILE_MODE.VIEW
+    ) {
+        setCurrentProfile(profiles[0].name);
+    }
+
+    const current = getCurrentProfile();
+    const filtro = DOM.filterRole.value;
+    const query =
+        DOM.profileSearch.value
+            .trim()
+            .toLowerCase();
+
+    DOM.profiles.innerHTML = "";
+
+    const visibles = profiles.filter(profile => {
+        const matchRole =
+            filtro === "Todos" ||
+            profile.estamento === filtro;
+
+        const matchSearch =
+            !query ||
+            profile.name.toLowerCase().includes(query) ||
+            profile.estamento.toLowerCase().includes(query);
+
+        return matchRole && matchSearch;
+    });
+
+    if (!visibles.length) {
+        DOM.emptyProfiles.classList.remove("hidden");
+        DOM.emptyProfiles.textContent = profiles.length
+            ? "No hay resultados con ese filtro."
+            : "Aun no hay colaboradores creados.";
+    } else {
+        DOM.emptyProfiles.classList.add("hidden");
+    }
+
+    visibles.forEach(profile => {
+        const item = document.createElement("div");
+        item.className = "profile-item";
+
+        if (
+            profile.name === current &&
+            profileDraft.mode !== PROFILE_MODE.CREATE
+        ) {
+            item.classList.add("active");
+        }
+
+        const avatar = document.createElement("div");
+        avatar.className = "profile-item__avatar";
+        avatar.textContent =
+            profile.name.trim().charAt(0).toUpperCase() || "T";
+
+        const content = document.createElement("div");
+        content.className = "profile-item__content";
+
+        const name = document.createElement("strong");
+        name.textContent = profile.name;
+
+        const meta = document.createElement("span");
+        meta.textContent = profile.estamento;
+
+        content.append(name, meta);
+        item.append(avatar, content);
+
+        item.onclick = () => {
+            clearSelectionMode(false);
+            clearDraftValues();
+            availabilityEditMode = false;
+            profileDraft.mode = PROFILE_MODE.VIEW;
+            setCurrentProfile(profile.name);
+            renderProfiles();
+            renderBotones();
+            refreshAll();
+        };
+
+        DOM.profiles.appendChild(item);
+    });
+
+    renderDashboardState();
+}
+
+function clearSelectionMode(shouldRefresh = true) {
+    selectionMode = null;
+    window.selectionMode = null;
+    compCantidad = 0;
+    window.compCantidad = 0;
+
+    document.body.classList.remove("mode-active");
+    document.body.removeAttribute("data-mode");
+
+    DOM.selectorInfo.classList.add("hidden");
+    DOM.selectorInfo.innerHTML = "";
+    DOM.adminInfo.classList.add("hidden");
+
+    if (shouldRefresh) {
+        refreshAll();
+    }
 }
 
 function activarModo(modo, texto) {
-
     selectionMode = modo;
     window.selectionMode = modo;
 
@@ -104,360 +782,403 @@ function activarModo(modo, texto) {
 
     DOM.selectorInfo.innerHTML = `
         <div class="mode-banner">
-            <span>🗓️ ${texto}</span>
-            <button id="cancelModeBtn">✖</button>
+            <span>${texto}</span>
+            <button id="cancelModeBtn" type="button">Cancelar</button>
         </div>
     `;
 
     DOM.selectorInfo.classList.remove("hidden");
+    DOM.adminInfo.textContent =
+        "Selecciona una fecha en el calendario para continuar.";
+    DOM.adminInfo.classList.remove("hidden");
 
     document
         .getElementById("cancelModeBtn")
-        .onclick = desactivarModo;
-}
-
-function desactivarModo() {
-
-    selectionMode = null;
-    window.selectionMode = null;
-
-    document.body.classList.remove("mode-active");
-    document.body.removeAttribute("data-mode");
-
-    DOM.selectorInfo.classList.add("hidden");
-    DOM.adminInfo.classList.add("hidden");
+        .onclick = () => clearSelectionMode();
 
     refreshAll();
 }
 
-function keyFromDate(d) {
-    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+function startCreateMode() {
+    clearSelectionMode(false);
+    clearDraftValues();
+    availabilityEditMode = false;
+
+    profileDraft.mode = PROFILE_MODE.CREATE;
+    setCurrentProfile(null);
+
+    renderProfiles();
+    renderBotones();
+    refreshAll();
+    setActiveShortcut("profileSection");
+    DOM.profileNameInput.focus();
 }
 
-function parseKey(k) {
-    const p = k.split("-");
-    return new Date(Number(p[0]), Number(p[1]), Number(p[2]));
+function startEditMode() {
+    const profile = getPerfilActual();
+    if (!profile) return;
+
+    clearSelectionMode(false);
+    availabilityEditMode = false;
+    loadDraftFromProfile(profile);
+    profileDraft.mode = PROFILE_MODE.EDIT;
+
+    renderDashboardState();
+    renderBotones();
+    refreshAll();
+    setActiveShortcut("profileSection");
+    DOM.profileNameInput.focus();
+    DOM.profileNameInput.select();
 }
 
-function contarHabiles(obj) {
-    const year = new Date().getFullYear();
-    let total = 0;
+function exitProfileMode(selectedName = getCurrentProfile()) {
+    clearSelectionMode(false);
+    clearDraftValues();
+    availabilityEditMode = false;
+    profileDraft.mode = PROFILE_MODE.VIEW;
 
-    Object.keys(obj).forEach(k => {
-        if (!k.startsWith(year + "-")) return;
-
-        const d = parseKey(k);
-        const dow = d.getDay();
-
-        if (dow !== 0 && dow !== 6) total++;
-    });
-
-    return total;
+    setCurrentProfile(selectedName || null);
+    renderProfiles();
+    renderBotones();
 }
 
-function renderBotones() {
+function requestRotationStartSelection() {
+    if (!isProfileEditing()) return;
+    if (!profileDraft.rotationType) return;
 
-    const perfiles = getProfiles();
+    activarModo(
+        "profile-rotation",
+        `Marca en el calendario desde que fecha se aplicara ${getRotativaLabel(profileDraft.rotationType)}`
+    );
 
-    const actual =
-        perfiles.find(
-            x => x.name === getCurrentProfile()
-        );
-
-    const admin =
-        actual &&
-        actual.estamento === "Administrativo";
-
-    DOM.checkbox.parentElement.style.display =
-        admin ? "none" : "block";
-
-    DOM.autoDiurnoBtn.style.display =
-        admin ? "none" : "block";
-
-    DOM.autoCuartoBtn.style.display =
-        admin ? "none" : "block";
-
-    compBtn.style.display =
-        admin
-        ? "none"
-        : getShiftAssigned()
-            ? "block"
-            : "none";
+    setActiveShortcut("calendarPanel");
 }
 
-function diasEntre(a, b) {
-    return Math.floor((a - b) / 86400000);
-}
+function handleRotationSelectionChange() {
+    if (!isProfileEditing()) return;
 
-function validarRangoAusencias(fechas) {
+    profileDraft.rotationType =
+        DOM.profileRotationSelect.value;
+    profileDraft.rotationStart = "";
 
-    const admin = getAdminDays();
-    const legal = getLegalDays();
-    const comp = getCompDays();
-    const abs = getAbsences();
-
-    for (const key of fechas) {
-
-        if (admin[key]) {
-            alert("No se puede aplicar sobre Permiso Administrativo.");
-            return false;
-        }
-
-        if (legal[key]) {
-            alert("Ya existe Feriado Legal en ese rango.");
-            return false;
-        }
-
-        if (comp[key]) {
-            alert("Ya existe Feriado Compensatorio en ese rango.");
-            return false;
-        }
-
-        if (abs[key]) {
-            alert("Existe Licencia Médica en ese rango.");
-            return false;
-        }
-    }
-
-    return true;
-}
-
-/* ======================================================
-   PERFILES
-====================================================== */
-
-function renderProfiles() {
-
-    const profiles = getProfiles();
-    const current = getCurrentProfile();
-    const filtro = DOM.filterRole.value;
-
-    DOM.profiles.innerHTML = "";
-
-    profiles
-    .filter(p =>
-        filtro === "Todos" ||
-        p.estamento === filtro
-    )
-    .forEach(p => {
-
-        const div = document.createElement("div");
-
-        div.innerText =
-            `${p.name} (${p.estamento})`;
-
-        if (p.name === current) {
-            div.classList.add("active");
-        }
-
-        div.onclick = async () => {
-
-            setCurrentProfile(p.name);
-
-            DOM.checkbox.checked =
-                getShiftAssigned();
-
-            await aplicarReglasPerfil(p);
-
-            renderProfiles();
-            renderBotones();
-            refreshAll();
-        };
-
-        DOM.profiles.appendChild(div);
-    });
-}
-
-async function aplicarReglasPerfil(p){
-
-    if(p.estamento === "Administrativo"){
-
-        DOM.checkbox.checked = false;
-        setShiftAssigned(false);
-
-        await aplicarDiurnoDesde(
-            new Date(
-                new Date().getFullYear(),
-                0,
-                1
-            )
-        );
-    }
-}
-
-DOM.createBtn.onclick = async () => {
-
-    const name = DOM.newProfileInput.value.trim();
-    if (!name) return;
-
-    const estamento =
-        DOM.newProfileRole.value;
-
-    const profiles = getProfiles();
-
-    if (profiles.some(x => x.name === name)) {
-        alert("Ese perfil ya existe.");
+    if (!profileDraft.rotationType) {
+        clearSelectionMode(false);
+        renderDashboardState();
+        refreshAll();
         return;
     }
 
-    const nuevo = {
-        name,
-        estamento
-    };
-
-    profiles.push(nuevo);
-
-    saveProfiles(profiles);
-
-    setCurrentProfile(name);
-
-    DOM.newProfileInput.value = "";
-
-    await aplicarReglasPerfil(nuevo);
-
-    renderProfiles();
-    renderSwapPanel();
-    renderBotones();
-    renderStaffingPanel();
+    renderDashboardState();
+    requestRotationStartSelection();
     refreshAll();
-};
+}
 
-DOM.filterRole.onchange = renderProfiles;
+function validateDraft() {
+    const missing = [];
+    const requiresRotationStart =
+        profileDraft.mode === PROFILE_MODE.CREATE ||
+        hasRotationChanged();
 
-/* ======================================================
-   TURNOS AUTOMÁTICOS
-====================================================== */
+    if (!profileDraft.name.trim()) missing.push("nombre");
+    if (!profileDraft.estamento) missing.push("estamento");
+    if (!profileDraft.rotationType) missing.push("rotativa");
+    if (
+        requiresRotationStart &&
+        !profileDraft.rotationStart
+    ) {
+        missing.push("fecha de inicio de rotativa");
+    }
+
+    if (!missing.length) {
+        return true;
+    }
+
+    alert(
+        `Falta completar: ${missing.join(", ")}.`
+    );
+    return false;
+}
 
 async function aplicarDiurnoDesde(fecha) {
+    if (!getCurrentProfile()) return;
+
     const data = getProfileData();
+    const baseData = getBaseProfileData();
     const blocked = getBlockedDays();
 
     const year = fecha.getFullYear();
     const holidays = await fetchHolidays(year);
 
-    let d = new Date(fecha);
+    let day = new Date(fecha);
 
-    while (d.getFullYear() === year) {
-        const key = keyFromDate(d);
+    while (day.getFullYear() === year) {
+        const key = keyFromDate(day);
 
         delete data[key];
+        delete baseData[key];
         delete blocked[key];
 
-        if (isBusinessDay(d, holidays)) {
+        if (isBusinessDay(day, holidays)) {
             data[key] = 4;
+            baseData[key] = 4;
             blocked[key] = true;
         }
 
-        d.setDate(d.getDate() + 1);
+        day.setDate(day.getDate() + 1);
     }
 
     saveProfileData(data);
+    saveBaseProfileData(baseData);
     saveBlockedDays(blocked);
     refreshAll();
 }
 
 function aplicarCuartoTurnoDesde(fecha) {
-
-    localStorage.setItem(
-        "rotativa_" + getCurrentProfile(),
-        fecha
-    );
+    if (!getCurrentProfile()) return;
 
     const data = getProfileData();
+    const baseData = getBaseProfileData();
     const blocked = getBlockedDays();
 
-    let d = new Date(fecha);
-    const year = d.getFullYear();
+    let day = new Date(fecha);
+    const year = day.getFullYear();
 
-    while (d.getFullYear() === year) {
+    while (day.getFullYear() === year) {
         for (let i = 0; i < 4; i++) {
-
-            const key = keyFromDate(d);
+            const key = keyFromDate(day);
 
             delete data[key];
+            delete baseData[key];
             delete blocked[key];
 
             if (i === 0) {
                 data[key] = 1;
+                baseData[key] = 1;
                 blocked[key] = true;
             }
 
             if (i === 1) {
                 data[key] = 2;
+                baseData[key] = 2;
                 blocked[key] = true;
             }
 
-            d.setDate(d.getDate() + 1);
+            day.setDate(day.getDate() + 1);
         }
     }
 
     saveProfileData(data);
+    saveBaseProfileData(baseData);
     saveBlockedDays(blocked);
     refreshAll();
 }
 
-// funciones UI de leaveengine
+async function applyDraftRotation(rotationType, rotationStart) {
+    const startDate = parseInputDate(rotationStart);
 
-function activarSelectorLegal() {
+    if (rotationType === "diurno") {
+        await aplicarDiurnoDesde(startDate);
+        return;
+    }
 
-    const usados = contarHabiles(getLegalDays());
-    const saldo = 15 - usados;
+    aplicarCuartoTurnoDesde(startDate);
+}
+
+async function guardarPerfil() {
+    if (!validateDraft()) return;
+
+    const nextName = profileDraft.name.trim();
+    const nextEstamento = profileDraft.estamento;
+    const nextShiftAssigned =
+        Boolean(profileDraft.shiftAssigned);
+    const nextValorHora =
+        sanitizeValorHora(profileDraft.valorHora);
+    const nextRotationType =
+        profileDraft.rotationType;
+    const nextRotationStart =
+        profileDraft.rotationStart;
+    const shouldApplyRotation =
+        profileDraft.mode === PROFILE_MODE.CREATE ||
+        hasRotationChanged();
+
+    try {
+        if (profileDraft.mode === PROFILE_MODE.CREATE) {
+            const profiles = getProfiles();
+
+            if (
+                profiles.some(
+                    profile => profile.name === nextName
+                )
+            ) {
+                alert("Ese perfil ya existe.");
+                return;
+            }
+
+            profiles.push({
+                name: nextName,
+                estamento: nextEstamento
+            });
+
+            saveProfiles(profiles);
+            setCurrentProfile(nextName);
+        }
+
+        if (profileDraft.mode === PROFILE_MODE.EDIT) {
+            updateProfile(
+                profileDraft.originalName,
+                {
+                    name: nextName,
+                    estamento: nextEstamento
+                }
+            );
+
+            setCurrentProfile(nextName);
+        }
+
+        setShiftAssigned(nextShiftAssigned);
+        setValorHora(nextValorHora);
+        saveRotativa({
+            type: nextRotationType,
+            start: nextRotationStart
+        });
+
+        exitProfileMode(nextName);
+        if (shouldApplyRotation) {
+            await applyDraftRotation(
+                nextRotationType,
+                nextRotationStart
+            );
+        }
+        refreshAll();
+    } catch (error) {
+        alert(
+            error.message ||
+            "No se pudo guardar el colaborador."
+        );
+    }
+}
+
+function handleAvailabilityEdit() {
+    const profile = getPerfilActual();
+
+    if (!profile) return;
+
+    if (!availabilityEditMode) {
+        availabilityEditMode = true;
+        renderDisponibilidadVacaciones();
+        document
+            .getElementById("availabilityLegalInput")
+            ?.focus();
+        return;
+    }
+
+    const year = new Date().getFullYear();
+
+    saveManualLeaveBalances(year, {
+        legal: normalizeBalanceValue(
+            document.getElementById("availabilityLegalInput")?.value
+        ),
+        comp: normalizeBalanceValue(
+            document.getElementById("availabilityCompInput")?.value
+        ),
+        admin: normalizeBalanceValue(
+            document.getElementById("availabilityAdminInput")?.value
+        )
+    }, profile.name);
+
+    availabilityEditMode = false;
+    refreshAll();
+}
+
+async function activarSelectorLegal() {
+    const year = new Date().getFullYear();
+    const holidays = await fetchHolidays(year);
+    const saldo = getLeaveBalances(year, holidays).legal;
 
     if (saldo <= 0) {
-        alert("Sin saldo de feriado legal.");
+        alert("No quedan dias de feriado legal.");
         return;
     }
 
-    let cant = Number(prompt(`¿Cuántos días? Disponibles: ${saldo}`));
+    const cantidad = Number(
+        prompt(
+            `Cuantos dias deseas cargar? Disponibles: ${saldo}`
+        )
+    );
 
-    if (!cant || cant <= 0) return;
+    if (!cantidad || cantidad <= 0) return;
 
-    if (cant > saldo) {
-        alert("Supera saldo.");
+    const validacion =
+        await validarCantidadLegalAnual(cantidad, year);
+
+    if (!validacion.ok) {
+        alert(validacion.message);
         return;
     }
 
-    legalCantidad = cant;
+    legalCantidad = cantidad;
 
     activarModo(
         "legal",
-        "Selecciona inicio Feriado Legal"
+        "Selecciona un dia habil para iniciar el feriado legal. Los dias inhabiles y ausencias incompatibles quedaran bloqueados."
     );
 }
 
 function activarSelectorComp() {
+    const saldo = getLeaveBalances().comp;
+    const cantidad = Number(saldo);
 
-    if (!getShiftAssigned()) {
-        alert("Solo disponible con Asignación de Turno.");
+    if (saldo <= 0) {
+        alert("No quedan feriados compensatorios disponibles.");
         return;
     }
 
+    if (!Number.isInteger(cantidad)) {
+        alert("El saldo de F. Compensatorio debe ser un numero entero para aplicar el bloque completo.");
+        return;
+    }
+
+    if (!getShiftAssigned()) {
+        alert("Solo disponible con asignacion de turno activa.");
+        return;
+    }
+
+    compCantidad = cantidad;
+    window.compCantidad = cantidad;
+
     activarModo(
         "comp",
-        "Selecciona inicio Feriado Compensatorio"
+        `Selecciona un dia habil para iniciar el bloque completo de ${formatSaldo(cantidad)} F. Compensatorio. Deben haber pasado 90 dias corridos desde el ultimo F. Legal.`
     );
 }
 
 function activarSelectorLicencia() {
-
-    let cant = Number(
-        prompt("¿Cuántos días dura la licencia médica?")
+    const cantidad = Number(
+        prompt("Cuantos dias dura la licencia medica?")
     );
 
-    if (!cant || cant <= 0) return;
+    if (!cantidad || cantidad <= 0) return;
 
-    licenseCantidad = cant;
+    licenseCantidad = cantidad;
 
     activarModo(
         "license",
-        "Selecciona inicio Licencia Médica"
+        "Selecciona el inicio de la licencia medica"
     );
 }
 
 function activarSelectorAdmin() {
+    const saldo = getLeaveBalances().admin;
 
-    if (totalAdministrativosUsados() >= 6) {
-        alert("Ya utilizó los 6 permisos administrativos.");
+    if (saldo <= 0) {
+        alert("Ya se utilizaron los 6 permisos administrativos.");
+        return;
+    }
+
+    if (saldo < 1) {
+        alert(
+            `Saldo insuficiente. El saldo disponible (${formatSaldo(saldo)}) solo permite aplicar 1/2 ADM Manana o 1/2 ADM Tarde.`
+        );
         return;
     }
 
@@ -465,14 +1186,15 @@ function activarSelectorAdmin() {
 
     activarModo(
         "admin",
-        "Selecciona día administrativo"
+        getShiftAssigned()
+            ? "Selecciona un turno Larga o Noche valido para el permiso administrativo."
+            : "Selecciona un turno Larga o Noche en dia habil para el permiso administrativo."
     );
 }
 
 function activarSelectorHalfAdmin(tipo) {
-
-    if (totalAdministrativosUsados() >= 6) {
-        alert("Sin saldo.");
+    if (getLeaveBalances().admin <= 0) {
+        alert("No quedan permisos administrativos disponibles.");
         return;
     }
 
@@ -481,30 +1203,153 @@ function activarSelectorHalfAdmin(tipo) {
     activarModo(
         "halfadmin",
         tipo === "M"
-        ? "Selecciona 1/2 Administrativo Mañana"
-        : "Selecciona 1/2 Administrativo Tarde"
+            ? "Selecciona el medio dia administrativo de manana"
+            : "Selecciona el medio dia administrativo de tarde"
     );
 }
 
+function applyTheme(theme) {
+    document.body.classList.remove("theme-light", "theme-dark");
+    document.body.classList.add(`theme-${theme}`);
+    DOM.themeToggle.setAttribute(
+        "aria-pressed",
+        theme === "dark" ? "true" : "false"
+    );
+}
 
+function initTheme() {
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    const prefersLight =
+        window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches;
 
-/* ======================================================
-   BOTONES
-====================================================== */
+    const initialTheme =
+        savedTheme || (prefersLight ? "light" : "dark");
+
+    applyTheme(initialTheme);
+
+    DOM.themeToggle.onclick = () => {
+        const nextTheme =
+            document.body.classList.contains("theme-dark")
+                ? "light"
+                : "dark";
+
+        localStorage.setItem(THEME_KEY, nextTheme);
+        applyTheme(nextTheme);
+    };
+}
+
+function bindProfileForm() {
+    DOM.profileNameInput.oninput = () => {
+        if (!isProfileEditing()) return;
+        profileDraft.name = DOM.profileNameInput.value;
+    };
+
+    DOM.profileRoleSelect.onchange = () => {
+        if (!isProfileEditing()) return;
+        profileDraft.estamento =
+            DOM.profileRoleSelect.value;
+    };
+
+    DOM.profileRotationSelect.onchange =
+        handleRotationSelectionChange;
+
+    DOM.checkbox.onchange = () => {
+        if (isProfileEditing()) {
+            profileDraft.shiftAssigned =
+                DOM.checkbox.checked;
+            renderBotones();
+            return;
+        }
+
+        if (!getCurrentProfile()) return;
+
+        setShiftAssigned(DOM.checkbox.checked);
+        renderBotones();
+        refreshAll();
+    };
+
+    DOM.valorHoraInput.oninput = () => {
+        const sanitized = sanitizeValorHora(
+            DOM.valorHoraInput.value
+        );
+
+        DOM.valorHoraInput.value = sanitized;
+
+        if (isProfileEditing()) {
+            profileDraft.valorHora = sanitized;
+            return;
+        }
+
+        if (!getCurrentProfile()) return;
+
+        setValorHora(sanitized);
+        refreshAll();
+    };
+
+    DOM.openCreateProfileBtn.onclick = async () => {
+        if (profileDraft.mode === PROFILE_MODE.CREATE) {
+            await guardarPerfil();
+            return;
+        }
+
+        startCreateMode();
+    };
+
+    DOM.openEditProfileBtn.onclick = async () => {
+        if (profileDraft.mode === PROFILE_MODE.EDIT) {
+            await guardarPerfil();
+            return;
+        }
+
+        startEditMode();
+    };
+
+    if (DOM.availabilityEditBtn) {
+        DOM.availabilityEditBtn.onclick = handleAvailabilityEdit;
+    }
+}
+
+function bindShellInteractions() {
+    DOM.filterRole.onchange = renderProfiles;
+    DOM.profileSearch.oninput = renderProfiles;
+
+    document
+        .querySelectorAll(".nav-tile[data-target]")
+        .forEach(button => {
+            button.onclick = () => {
+                const target = document.getElementById(
+                    button.dataset.target
+                );
+
+                if (!target) return;
+
+                setActiveShortcut(button.dataset.target);
+                target.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start"
+                });
+            };
+        });
+
+    document
+        .querySelectorAll("[data-editor-mode]")
+        .forEach(button => {
+            button.onclick = () => startEditMode();
+        });
+}
 
 DOM.autoDiurnoBtn.onclick = () =>
-    activarModo("diurno", "Selecciona inicio Auto Diurno");
+    activarModo("diurno", "Selecciona el inicio del auto diurno");
 
 DOM.autoCuartoBtn.onclick = () =>
-    activarModo("cuarto", "Selecciona inicio Cuarto Turno");
+    activarModo("cuarto", "Selecciona el inicio del cuarto turno");
 
-DOM.adminBtn.onclick = () => {
-    activarSelectorAdmin();
-};
+DOM.adminBtn.onclick = activarSelectorAdmin;
 DOM.halfAdminMorningBtn.onclick =
-() => activarSelectorHalfAdmin("M");
+    () => activarSelectorHalfAdmin("M");
 DOM.halfAdminAfternoonBtn.onclick =
-() => activarSelectorHalfAdmin("T");
+    () => activarSelectorHalfAdmin("T");
 DOM.legalBtn.onclick = activarSelectorLegal;
 DOM.compBtn.onclick = activarSelectorComp;
 DOM.licenseBtn.onclick = activarSelectorLicencia;
@@ -513,36 +1358,27 @@ DOM.prevBtn.onclick = prevMonth;
 DOM.nextBtn.onclick = nextMonth;
 
 DOM.undoBtn.onclick = () => {
-
-    if(undo()){
-        renderCalendar();
-        renderTimeline();
-
-        if(typeof renderStaffingPanel === "function"){
-            renderStaffingPanel();
-        }
+    if (undo()) {
+        refreshAll();
     }
 };
 
 DOM.redoBtn.onclick = () => {
-
-    if(redo()){
-        renderCalendar();
-        renderTimeline();
-
-        if(typeof renderStaffingPanel === "function"){
-            renderStaffingPanel();
-        }
+    if (redo()) {
+        refreshAll();
     }
 };
 
-/* ======================================================
-   CLICK CALENDARIO
-====================================================== */
-
-document.addEventListener("click", async (e) => {
-    const celda = e.target.closest(".day");
+document.addEventListener("click", async event => {
+    const celda = event.target.closest(".day");
     if (!celda) return;
+
+    if (
+        selectionMode &&
+        celda.classList.contains("mpa-disabled")
+    ) {
+        return;
+    }
 
     const fecha = new Date(
         Number(celda.dataset.year),
@@ -550,92 +1386,125 @@ document.addEventListener("click", async (e) => {
         Number(celda.dataset.day)
     );
 
+    if (selectionMode === "profile-rotation") {
+        profileDraft.rotationStart = toInputDate(fecha);
+        clearSelectionMode(false);
+        renderDashboardState();
+        refreshAll();
+        return;
+    }
+
     if (selectionMode === "license") {
         pushHistory();
         await aplicarLicencia(fecha, licenseCantidad);
-        desactivarModo();
+        clearSelectionMode();
         return;
     }
 
     if (selectionMode === "comp") {
         pushHistory();
-        await aplicarComp(fecha);
-        desactivarModo();
+        const aplicado = await aplicarComp(fecha, compCantidad);
+
+        if (aplicado) {
+            decrementManualBalance(
+                "comp",
+                compCantidad,
+                fecha.getFullYear()
+            );
+        } else {
+            alert(
+                "No se pudo aplicar el F. Compensatorio. Debe iniciar en un dia habil, haber pasado 90 dias corridos desde el ultimo F. Legal y el bloque completo no puede cruzarse con licencias, feriados legales, permisos administrativos, medios ADM, permisos sin goce u otros bloqueos incompatibles."
+            );
+        }
+
+        clearSelectionMode();
         return;
     }
 
     if (selectionMode === "legal") {
         pushHistory();
-        await await aplicarLegal(fecha, legalCantidad);
-        desactivarModo();
+        const aplicado =
+            await aplicarLegal(fecha, legalCantidad);
+
+        if (!aplicado) {
+            alert(
+                "No se pudo aplicar el F. Legal en esa fecha. Revisa que el inicio sea habil, que hayan pasado 90 dias desde el ultimo F. Compensatorio y que el rango no tenga ausencias incompatibles."
+            );
+        } else {
+            decrementManualBalance(
+                "legal",
+                legalCantidad,
+                fecha.getFullYear()
+            );
+        }
+
+        clearSelectionMode();
         return;
     }
 
     if (selectionMode === "halfadmin") {
         pushHistory();
-        await aplicarHalfAdministrativo(
-        fecha,
-        window.halfAdminTipo || "M"
+        const aplicado = await aplicarHalfAdministrativo(
+            fecha,
+            window.halfAdminTipo || "M"
         );
-        desactivarModo();
+
+        if (aplicado) {
+            decrementManualBalance(
+                "admin",
+                0.5,
+                fecha.getFullYear()
+            );
+        }
+
+        clearSelectionMode();
         return;
-}
+    }
 
     if (selectionMode === "admin") {
         pushHistory();
-        await aplicarAdministrativo(fecha, adminCantidad);
-        desactivarModo();
+        const aplicado =
+            await aplicarAdministrativo(fecha, adminCantidad);
+
+        if (aplicado) {
+            decrementManualBalance(
+                "admin",
+                adminCantidad,
+                fecha.getFullYear()
+            );
+        }
+
+        clearSelectionMode();
         return;
-}
+    }
 
     if (selectionMode === "diurno") {
         pushHistory();
         await aplicarDiurnoDesde(fecha);
-        desactivarModo();
+        clearSelectionMode();
         return;
     }
 
     if (selectionMode === "cuarto") {
         pushHistory();
         aplicarCuartoTurnoDesde(fecha);
-        desactivarModo();
-        return;
+        clearSelectionMode();
     }
 });
 
-/* ======================================================
-   INICIO
-====================================================== */
-
-renderProfiles();
+initTheme();
+bindProfileForm();
+bindShellInteractions();
 renderStaffingPanel();
 renderSwapPanel();
+renderProfiles();
+renderBotones();
 
-const perfiles = getProfiles();
-
-if (perfiles.length > 0) {
-
-    setCurrentProfile(perfiles[0]);
-
-    DOM.checkbox.checked = getShiftAssigned();
-
-    renderBotones();
+if (getProfiles().length > 0) {
+    setActiveShortcut("calendarPanel");
     refreshAll();
-
 } else {
-
-    // estado vacío inicial
-    DOM.calendar.innerHTML = `
-        <div style="
-            grid-column:1/-1;
-            padding:40px;
-            text-align:center;
-            color:#666;
-            font-size:18px;
-        ">
-            Cree un perfil para comenzar
-        </div>
-    `;
-    
-    DOM.teamTimeline.innerHTML = "";
+    setActiveShortcut("profileSection");
+    renderDashboardState();
+    refreshAll();
 }

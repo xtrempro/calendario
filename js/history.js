@@ -17,6 +17,9 @@ function snapshot(){
         admin: localStorage.getItem(key(p,"admin")),
         legal: localStorage.getItem(key(p,"legal")),
         comp: localStorage.getItem(key(p,"comp")),
+        leaveBalances: localStorage.getItem(
+            key(p,"leaveBalances")
+        ),
         abs: localStorage.getItem(key(p,"absences")),
         blocked: localStorage.getItem(key(p,"blocked")),
         shift: localStorage.getItem(key(p,"shift"))
@@ -32,6 +35,10 @@ function restore(state){
     localStorage.setItem(key(p,"admin"), state.admin || "{}");
     localStorage.setItem(key(p,"legal"), state.legal || "{}");
     localStorage.setItem(key(p,"comp"), state.comp || "{}");
+    localStorage.setItem(
+        key(p,"leaveBalances"),
+        state.leaveBalances || "{}"
+    );
     localStorage.setItem(key(p,"absences"), state.abs || "{}");
     localStorage.setItem(key(p,"blocked"), state.blocked || "{}");
     localStorage.setItem(key(p,"shift"), state.shift || "false");

@@ -4,7 +4,8 @@ import { TURNO } from "./constants.js";
 
 import {
     getSwaps,
-    getProfileData
+    getProfileData,
+    getBaseProfileData
 } from "./storage.js";
 
 /* ======================================================
@@ -225,4 +226,28 @@ export function getTurnoReal(nombre, key) {
         key,
         turnoBase
     );
+}
+
+export function getTurnoBase(nombre, key) {
+    const baseData = getBaseProfileData(nombre);
+    const hasBaseData =
+        Object.keys(baseData).length > 0;
+
+    if (Object.prototype.hasOwnProperty.call(baseData, key)) {
+        return Number(baseData[key]) || TURNO.LIBRE;
+    }
+
+    if (hasBaseData) {
+        return TURNO.LIBRE;
+    }
+
+    const blocked = JSON.parse(
+        localStorage.getItem("blocked_" + nombre)
+    ) || {};
+
+    if (!blocked[key]) return TURNO.LIBRE;
+
+    const data = getProfileData(nombre);
+
+    return Number(data[key]) || TURNO.LIBRE;
 }

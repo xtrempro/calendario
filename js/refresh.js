@@ -1,12 +1,19 @@
-
 import { renderCalendar } from "./calendar.js";
 import { renderTimeline } from "./timeline.js";
-import { analizarStaffingMes } from "./staffing.js";
 
 export function refreshAll(){
     renderCalendar();
     renderTimeline();
-    analizarStaffingMes();
-    renderSwapPanel();
-}
 
+    if (typeof window.renderStaffingAnalysis === "function") {
+        window.renderStaffingAnalysis();
+    }
+
+    if (typeof window.renderSwapPanel === "function") {
+        window.renderSwapPanel();
+    }
+
+    if (typeof window.renderDashboardState === "function") {
+        window.renderDashboardState();
+    }
+}

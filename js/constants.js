@@ -41,12 +41,12 @@ export const TURNO_CLASS = {
 };
 
 export const TURNO_COLOR = {
-   0:"#f3f4f6",
-   1:"#00ff88",
-   2:"#1e88e5",
-   3:"#9c27b0",
-   4:"#4fc3ff",
-   5:"#673ab7"
+   0:"var(--timeline-empty)",
+   1:"#22c55e",
+   2:"#1d6cff",
+   3:"#8b2bd9",
+   4:"#13b981",
+   5:"#f0b100"
 };
 
 /* ==========================================

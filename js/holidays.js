@@ -1,5 +1,9 @@
 let holidaysCache = {};
 
+export function getCachedHolidays(year){
+    return holidaysCache[year] || {};
+}
+
 export async function fetchHolidays(year){
     if(holidaysCache[year]) return holidaysCache[year];
 

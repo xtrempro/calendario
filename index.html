@@ -1,228 +1,537 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>App de Turnos PRO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProTurnos</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 
-<body>
-<div class="layout">
+<body class="theme-dark" data-active-view="turnos">
+<div class="app-shell">
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="9.5" cy="7" r="3"></circle>
+                    <path d="M17 11l2 2 4-4"></path>
+                    <path d="M17 17h4"></path>
+                </svg>
+            </div>
 
-    <!-- ASIDE -->
-    <aside class="sidebar">
-        <h3>Perfiles</h3>
-
-        <input id="newProfile" placeholder="Nuevo perfil">
-        <select id="newProfileRole">
-        <option value="Profesional">Profesional</option>
-        <option value="Técnico">Técnico</option>
-        <option value="Administrativo">Administrativo</option>
-        <option value="Auxiliar">Auxiliar</option>
-        </select>
-
-        <select id="filterRole">
-        <option value="Todos">Todos</option>
-        <option value="Profesional">Profesional</option>
-        <option value="Técnico">Técnico</option>
-        <option value="Administrativo">Administrativo</option>
-        <option value="Auxiliar">Auxiliar</option>
-        </select>
-        <button id="createProfile">Crear</button>
-
-        <div id="profiles"></div>
-
-        <hr>
-
-        <label>
-            <input type="checkbox" id="shiftAssigned">
-            Asignación de Turno
-        </label>
-
-        <hr>
-
-        <label>Valor Hora</label>
-        <input id="valorHora" type="number" min="0" placeholder="Ej: 5000">
-
-        <hr>
-
-        <!-- NUEVO -->
-        <button id="autoDiurnoBtn">Auto Diurno Año</button>
-        <button id="autoCuartoBtn">Auto Cuarto Turno</button>
-
-        <div id="selectorInfo" class="hidden infoBox">
-            Selecciona en el calendario un turno de <b>Larga</b>, desde ese día se aplicará la secuencia de cuarto turno
+            <div class="brand-copy">
+                <strong>LOGO</strong>
+                <span>Gesti&#243;n de turnos</span>
+            </div>
         </div>
 
-        <hr>
-
-        <hr>
-
-            <div class="panelBox">
-
-            <b>Vacaciones / Ausencias</b><br><br>
-
-            <button id="adminBtn">
-            Permiso Administrativo
+        <div class="topbar-actions">
+            <button id="themeToggle" class="theme-switch" type="button" aria-label="Cambiar tema" aria-pressed="true">
+                <svg class="theme-switch__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="4"></circle>
+                    <path d="M12 2v2"></path>
+                    <path d="M12 20v2"></path>
+                    <path d="M4.93 4.93l1.41 1.41"></path>
+                    <path d="M17.66 17.66l1.41 1.41"></path>
+                    <path d="M2 12h2"></path>
+                    <path d="M20 12h2"></path>
+                    <path d="M6.34 17.66l-1.41 1.41"></path>
+                    <path d="M19.07 4.93l-1.41 1.41"></path>
+                </svg>
+                <span class="theme-switch__track">
+                    <span class="theme-switch__thumb"></span>
+                </span>
+                <svg class="theme-switch__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3A7 7 0 0 0 21 12.79z"></path>
+                </svg>
             </button>
-            <button id="halfAdminMorningBtn">🌅 1/2 Administrativo Mañana</button>
-            <button id="halfAdminAfternoonBtn">🌇 1/2 Administrativo Tarde</button>
 
-            <button id="compBtn">
-Feriado Compensatorio
-</button>
-
-
-<button id="legalBtn">
-Feriado Legal
-</button>
-
-<button id="licenseBtn">
-Licencia Médica
-</button>
-
-
-
-            <div id="adminInfo" class="hidden">
-            Selecciona fecha inicio en calendario
+            <div class="user-chip">
+                <span class="user-avatar" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 21a8 8 0 0 0-16 0"></path>
+                        <circle cx="12" cy="8" r="4"></circle>
+                    </svg>
+                </span>
+                <span>USUARIO</span>
             </div>
 
-            </div>
-
-
-
-        <div id="summary"></div>
-    </aside>
-
-    <!-- MAIN -->
-<!-- MAIN -->
-<main class="main">
-
-    <!-- CALENDARIO -->
-    <div class="card">
-        <div class="header">
-
-            <button id="prevBtn">◀</button>
-
-            <button id="undoBtn" title="Deshacer">
-        ↶
+            <button class="icon-button" type="button" aria-label="Configuraci&#243;n">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1v.17a2 2 0 1 1-4 0V21a1.7 1.7 0 0 0-1.4-1.6 1.7 1.7 0 0 0-1 .34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1-.4H2.83a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.6-1.4 1.7 1.7 0 0 0-.34-1l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1V2.83a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1.4 1.6 1.7 1.7 0 0 0 1-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c0 .38.14.74.4 1 .26.26.62.4 1 .4h.17a2 2 0 1 1 0 4H21c-.38 0-.74.14-1 .4-.26.26-.4.62-.4 1z"></path>
+                </svg>
             </button>
-
-            <h2 id="monthYear"></h2>
-
-            <button id="redoBtn" title="Rehacer">
-        ↷
-            </button>
-
-            <button id="nextBtn">▶</button>
-
-    </div>
-
-        <div class="weekdays">
-            <div>Lun</div><div>Mar</div><div>Mié</div>
-            <div>Jue</div><div>Vie</div><div>Sáb</div><div>Dom</div>
         </div>
+    </header>
 
-        <div class="grid" id="calendar"></div>
+    <div class="app-grid">
+        <aside class="panel sidebar">
+            <div class="panel-title">Listado Colaboradores</div>
+
+            <label class="field-shell field-shell--icon">
+                <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M21 21l-4.35-4.35"></path>
+                    </svg>
+                </span>
+                <input id="profileSearch" type="search" placeholder="Buscar...">
+            </label>
+
+            <label class="field-shell field-shell--icon">
+                <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="4" y1="6" x2="20" y2="6"></line>
+                        <line x1="7" y1="12" x2="17" y2="12"></line>
+                        <line x1="10" y1="18" x2="14" y2="18"></line>
+                    </svg>
+                </span>
+                <select id="filterRole">
+                    <option value="Todos">Todos</option>
+                    <option value="Profesional">Profesional</option>
+                    <option value="T&#233;cnico">T&#233;cnico</option>
+                    <option value="Administrativo">Administrativo</option>
+                    <option value="Auxiliar">Auxiliar</option>
+                </select>
+            </label>
+
+            <label class="inline-toggle sidebar-toggle">
+                <span>Mostrar desactivados</span>
+                <span class="toggle-check">
+                    <input type="checkbox" checked disabled>
+                </span>
+            </label>
+
+            <div id="profiles" class="profile-list"></div>
+            <div id="emptyProfiles" class="empty-state hidden"></div>
+        </aside>
+
+        <main class="dashboard">
+            <section class="panel overview-card" id="profileSection">
+                <div class="overview-card__grid">
+                    <div class="overview-metrics">
+                        <label class="metric-row metric-row--field">
+                            <span class="metric-label">Nombre:</span>
+                            <input id="profileNameField" type="text" placeholder="Nombre del trabajador">
+                        </label>
+
+                        <label class="metric-row metric-row--field">
+                            <span class="metric-label">Estamento:</span>
+                            <select id="profileRoleField">
+                                <option value="">Seleccionar</option>
+                                <option value="Profesional">Profesional</option>
+                                <option value="T&#233;cnico">T&#233;cnico</option>
+                                <option value="Administrativo">Administrativo</option>
+                                <option value="Auxiliar">Auxiliar</option>
+                            </select>
+                        </label>
+
+                        <label class="metric-row metric-row--field">
+                            <span class="metric-label">Rotativa Actual:</span>
+                            <select id="profileRotationField">
+                                <option value="">Seleccionar</option>
+                                <option value="4turno">4&#176; Turno</option>
+                                <option value="diurno">Diurno</option>
+                            </select>
+                        </label>
+
+                        <div id="profileRotationStatus" class="profile-status-note">
+                            Selecciona una rotativa para definir su fecha de inicio.
+                        </div>
+                    </div>
+
+                    <div class="overview-side">
+                        <label class="metric-row metric-row--field metric-toggle">
+                            <span class="metric-label">Asignaci&#243;n de Turno:</span>
+                            <span class="toggle-check">
+                                <input type="checkbox" id="shiftAssigned">
+                            </span>
+                        </label>
+
+                        <label class="metric-row metric-row--field metric-input">
+                            <span class="metric-label">Valor Hora:</span>
+                            <input id="valorHora" type="number" min="0" placeholder="Ej: 5000">
+                        </label>
+
+                        <div id="profileEditorHint" class="profile-status-note profile-status-note--soft">
+                            Selecciona un colaborador para editarlo o crea uno nuevo.
+                        </div>
+                    </div>
+
+                    <div class="overview-actions">
+                        <button id="openCreateProfile" class="primary-button" type="button">CREAR NUEVO</button>
+                        <button id="openEditProfile" class="secondary-button" type="button">EDITAR</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel actionbar">
+                <button class="nav-tile is-active" type="button" data-target="calendarPanel">
+                    <svg class="nav-icon tone-blue" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="3"></rect>
+                        <line x1="16" y1="2.5" x2="16" y2="6"></line>
+                        <line x1="8" y1="2.5" x2="8" y2="6"></line>
+                        <line x1="3" y1="10" x2="21" y2="10"></line>
+                    </svg>
+                    <span>Turnos</span>
+                </button>
+
+                <button class="nav-tile" type="button" data-target="staffingPanel">
+                    <svg class="nav-icon tone-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    <span>RRHH</span>
+                </button>
+
+                <button class="nav-tile" type="button" data-target="hoursPanel">
+                    <svg class="nav-icon tone-green" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path d="M12 7v10"></path>
+                        <path d="M9 10.5c0-1.2 1.34-2.17 3-2.17s3 .97 3 2.17-1.34 2.17-3 2.17-3 .97-3 2.17 1.34 2.16 3 2.16 3-.96 3-2.16"></path>
+                    </svg>
+                    <span>HH.EE</span>
+                </button>
+
+                <button class="nav-tile" type="button" data-target="swapPanel">
+                    <svg class="nav-icon tone-violet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <polyline points="12 7 12 12 15 15"></polyline>
+                    </svg>
+                    <span>LOG</span>
+                </button>
+
+                <button class="nav-tile" type="button" data-target="profileSection">
+                    <svg class="nav-icon tone-blue" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 21a8 8 0 0 0-16 0"></path>
+                        <circle cx="12" cy="8" r="4"></circle>
+                    </svg>
+                    <span>Perfil</span>
+                </button>
+
+                <button class="nav-tile" type="button" data-target="reportsPanel">
+                    <svg class="nav-icon tone-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="6" y1="20" x2="6" y2="10"></line>
+                        <line x1="12" y1="20" x2="12" y2="4"></line>
+                        <line x1="18" y1="20" x2="18" y2="14"></line>
+                    </svg>
+                    <span>Reportes</span>
+                </button>
+
+                <button id="undoBtn" class="nav-tile nav-tile--action" type="button">
+                    <svg class="nav-icon tone-green" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M9 14L4 9l5-5"></path>
+                        <path d="M20 20a8 8 0 0 0-8-8H4"></path>
+                    </svg>
+                    <span>Deshacer</span>
+                </button>
+
+                <button id="redoBtn" class="nav-tile nav-tile--action" type="button">
+                    <svg class="nav-icon tone-blue" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M15 14l5-5-5-5"></path>
+                        <path d="M4 20a8 8 0 0 1 8-8h8"></path>
+                    </svg>
+                    <span>Rehacer</span>
+                </button>
+
+                <button id="turnChangesNav" class="nav-tile" type="button" data-target="turnChangesView">
+                    <svg class="nav-icon tone-orange" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M7 7h11l-3-3"></path>
+                        <path d="M17 17H6l3 3"></path>
+                        <circle cx="7" cy="15" r="3"></circle>
+                        <circle cx="17" cy="9" r="3"></circle>
+                    </svg>
+                    <span>Cambios de Turno</span>
+                </button>
+            </section>
+
+            <section class="primary-grid">
+                <div class="panel calendar-panel" id="calendarPanel">
+                    <div id="selectorInfo" class="hidden"></div>
+
+                    <div class="calendar-header">
+                        <button id="prevBtn" class="icon-button" type="button" aria-label="Mes anterior">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="15 18 9 12 15 6"></polyline>
+                            </svg>
+                        </button>
+
+                        <h2 id="monthYear"></h2>
+
+                        <button id="nextBtn" class="icon-button" type="button" aria-label="Mes siguiente">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="weekdays">
+                        <div>Lun</div>
+                        <div>Mar</div>
+                        <div>Mi&#233;</div>
+                        <div>Jue</div>
+                        <div>Vie</div>
+                        <div>S&#225;b</div>
+                        <div>Dom</div>
+                    </div>
+
+                    <div class="grid" id="calendar"></div>
+                </div>
+
+                <div class="stacked-panels">
+                    <section class="panel leave-panel" id="leavePanel">
+                        <div class="section-head">
+                            <span class="section-icon tone-blue">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="7" y="3" width="10" height="18" rx="2"></rect>
+                                    <path d="M10 7h4"></path>
+                                    <path d="M10 11h4"></path>
+                                </svg>
+                            </span>
+                            <h3>Vacaciones / Ausencias</h3>
+                        </div>
+
+                        <div class="legend-list">
+                            <button id="adminBtn" class="legend-action" type="button">
+                                <span class="legend-dot tone-orange">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="4" y="7" width="16" height="12" rx="2"></rect>
+                                        <path d="M8 7V5h8v2"></path>
+                                    </svg>
+                                </span>
+                                <span id="adminBtnLabel">P. ADMINISTRATIVO</span>
+                            </button>
+
+                            <button id="halfAdminMorningBtn" class="legend-action" type="button">
+                                <span class="legend-dot tone-yellow">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="8" r="3"></circle>
+                                        <path d="M12 2v2"></path>
+                                        <path d="M5.64 4.64l1.41 1.41"></path>
+                                        <path d="M3 10h2"></path>
+                                        <path d="M19 10h2"></path>
+                                        <path d="M16.95 6.05l1.41-1.41"></path>
+                                        <path d="M4 18h16"></path>
+                                        <path d="M6 22h12"></path>
+                                    </svg>
+                                </span>
+                                <span>1/2 ADM MA&#209;ANA</span>
+                            </button>
+
+                            <button id="halfAdminAfternoonBtn" class="legend-action" type="button">
+                                <span class="legend-dot tone-orange">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M4 18h16"></path>
+                                        <path d="M6 22h12"></path>
+                                        <path d="M8 14a4 4 0 1 1 8 0"></path>
+                                        <path d="M12 2v2"></path>
+                                        <path d="M17.66 4.34l-1.41 1.41"></path>
+                                        <path d="M21 9h-2"></path>
+                                    </svg>
+                                </span>
+                                <span>1/2 ADM TARDE</span>
+                            </button>
+
+                            <button id="compBtn" class="legend-action" type="button">
+                                <span class="legend-dot tone-violet">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="3" y="8" width="18" height="13" rx="2"></rect>
+                                        <path d="M12 8V21"></path>
+                                        <path d="M3 13h18"></path>
+                                        <path d="M8 8V5a2 2 0 1 1 4 0v3"></path>
+                                        <path d="M12 8V5a2 2 0 1 1 4 0v3"></path>
+                                    </svg>
+                                </span>
+                                <span id="compBtnLabel">F. COMPENSATORIO</span>
+                            </button>
+
+                            <button id="legalBtn" class="legend-action" type="button">
+                                <span class="legend-dot tone-cyan">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M3 11a9 9 0 0 1 18 0Z"></path>
+                                        <path d="M3 11c1.4 0 2.6 1.1 2.6 2.5C5.6 12.1 6.8 11 8.2 11s2.6 1.1 2.6 2.5c0-1.4 1.2-2.5 2.6-2.5s2.6 1.1 2.6 2.5c0-1.4 1.2-2.5 2.6-2.5"></path>
+                                        <path d="M12 11v7a2 2 0 0 0 4 0"></path>
+                                        <path d="M5 21h14"></path>
+                                    </svg>
+                                </span>
+                                <span id="legalBtnLabel">F. LEGAL</span>
+                            </button>
+
+                            <button id="licenseBtn" class="legend-action" type="button">
+                                <span class="legend-dot tone-red">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="8"></circle>
+                                        <path d="M12 8v8"></path>
+                                        <path d="M8 12h8"></path>
+                                    </svg>
+                                </span>
+                                <span>LICENCIA MEDICA</span>
+                            </button>
+
+                            <div class="legend-item legend-item--static">
+                                <span class="legend-dot tone-blue">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M20 21a8 8 0 0 0-16 0"></path>
+                                        <circle cx="12" cy="8" r="4"></circle>
+                                    </svg>
+                                </span>
+                                <span>L.M. PROFESIONAL</span>
+                            </div>
+
+                            <div class="legend-item legend-item--static">
+                                <span class="legend-dot tone-muted">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="8"></circle>
+                                        <line x1="8" y1="12" x2="16" y2="12"></line>
+                                    </svg>
+                                </span>
+                                <span>PERMISO SIN GOCE</span>
+                            </div>
+
+                            <div class="legend-item legend-item--static">
+                                <span class="legend-dot tone-muted">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M7 3h8l4 4v14H7z"></path>
+                                        <path d="M15 3v5h5"></path>
+                                        <path d="M10 13h4"></path>
+                                        <path d="M10 17h4"></path>
+                                    </svg>
+                                </span>
+                                <span>AUSENCIA INJUSTIFICADA</span>
+                            </div>
+                        </div>
+
+                        <div class="leave-panel__footer">
+                            <button id="autoDiurnoBtn" class="ghost-button" type="button">Auto Diurno</button>
+                            <button id="autoCuartoBtn" class="ghost-button" type="button">Cuarto Turno</button>
+                        </div>
+
+                        <div id="adminInfo" class="helper-note hidden"></div>
+                    </section>
+
+                    <section class="panel availability-panel">
+                        <div class="section-head">
+                            <span class="section-icon tone-blue">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="4" width="18" height="18" rx="3"></rect>
+                                    <line x1="16" y1="2.5" x2="16" y2="6"></line>
+                                    <line x1="8" y1="2.5" x2="8" y2="6"></line>
+                                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                                </svg>
+                            </span>
+                            <h3>Vacaciones Disponibles</h3>
+                        </div>
+
+                        <div id="availabilitySummary"></div>
+
+                        <button id="availabilityEditBtn" class="secondary-button secondary-button--wide" type="button">EDITAR</button>
+                    </section>
+
+                    <section class="panel hours-panel" id="hoursPanel">
+                        <div class="section-head">
+                            <span class="section-icon tone-blue">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                    <path d="M12 7v5l3 2"></path>
+                                </svg>
+                            </span>
+                            <h3>Horas Extras</h3>
+                        </div>
+
+                        <div id="summary" class="summary"></div>
+                    </section>
+                </div>
+            </section>
+
+            <section class="panel timeline-panel" id="reportsPanel">
+                <div class="section-head">
+                    <h3>Vista Mensual del Equipo</h3>
+                </div>
+                <div id="teamTimeline"></div>
+            </section>
+
+            <section class="secondary-grid">
+                <section id="staffingPanel" class="panel staffing-panel">
+                    <div class="section-head">
+                        <h3>RRHH / Dotaci&#243;n Requerida</h3>
+                    </div>
+
+                    <div class="staff-grid">
+                        <div>
+                            <label>Profesional H&#225;bil</label>
+                            <input id="cfg_Profesional_habil" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>Profesional Inh&#225;bil</label>
+                            <input id="cfg_Profesional_inhabil" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>Profesional Noche</label>
+                            <input id="cfg_Profesional_noche" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>T&#233;cnico H&#225;bil</label>
+                            <input id="cfg_T&#233;cnico_habil" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>T&#233;cnico Inh&#225;bil</label>
+                            <input id="cfg_T&#233;cnico_inhabil" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>T&#233;cnico Noche</label>
+                            <input id="cfg_T&#233;cnico_noche" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>Administrativo H&#225;bil</label>
+                            <input id="cfg_Administrativo_habil" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>Administrativo Inh&#225;bil</label>
+                            <input id="cfg_Administrativo_inhabil" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>Administrativo Noche</label>
+                            <input id="cfg_Administrativo_noche" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>Auxiliar H&#225;bil</label>
+                            <input id="cfg_Auxiliar_habil" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>Auxiliar Inh&#225;bil</label>
+                            <input id="cfg_Auxiliar_inhabil" type="number" min="0">
+                        </div>
+
+                        <div>
+                            <label>Auxiliar Noche</label>
+                            <input id="cfg_Auxiliar_noche" type="number" min="0">
+                        </div>
+                    </div>
+
+                    <button id="saveStaffingBtn" class="primary-button primary-button--wide" type="button">Guardar Dotaci&#243;n</button>
+                    <div id="staffingResult"></div>
+                </section>
+
+                <section id="turnChangesView" class="turn-changes-view">
+                    <section id="swapPanel" class="panel swap-panel"></section>
+                </section>
+            </section>
+        </main>
     </div>
-
-    <!-- TIMELINE -->
-    <div id="teamTimeline" class="card"></div>
-
-    <!-- STAFFING -->
-    <div id="staffingPanel" class="card staffing-panel">
-
-        <h3>Dotación Requerida</h3>
-
-        <div class="staff-grid">
-
-            <div>
-                <label>Profesional Hábil</label>
-                <input id="cfg_Profesional_habil" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Profesional Inhábil</label>
-                <input id="cfg_Profesional_inhabil" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Profesional Noche</label>
-                <input id="cfg_Profesional_noche" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Técnico Hábil</label>
-                <input id="cfg_Técnico_habil" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Técnico Inhábil</label>
-                <input id="cfg_Técnico_inhabil" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Técnico Noche</label>
-                <input id="cfg_Técnico_noche" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Administrativo Hábil</label>
-                <input id="cfg_Administrativo_habil" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Administrativo Inhábil</label>
-                <input id="cfg_Administrativo_inhabil" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Administrativo Noche</label>
-                <input id="cfg_Administrativo_noche" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Auxiliar Hábil</label>
-                <input id="cfg_Auxiliar_habil" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Auxiliar Inhábil</label>
-                <input id="cfg_Auxiliar_inhabil" type="number" min="0">
-            </div>
-
-            <div>
-                <label>Auxiliar Noche</label>
-                <input id="cfg_Auxiliar_noche" type="number" min="0">
-            </div>
-
-        </div>
-
-        <button id="saveStaffingBtn">Guardar Dotación</button>
-
-        <div id="staffingResult"></div>
-
-    </div>
-
-    <div id="swapPanel" class="card">
-    <h3>Cambio de Turnos</h3>
-
-    <select id="swapFrom"></select>
-    <select id="swapTo"></select>
-
-    <div id="swapCalendar1"></div>
-
-    <div id="swapCalendar2"></div>
-
-    <button id="saveSwapBtn">
-        Registrar Cambio
-    </button>
-
-    <div id="swapList"></div>
-</div>
-
-</main>
 </div>
 
 <script type="module" src="js/main.js"></script>

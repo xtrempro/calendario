@@ -1,8 +1,7 @@
-// js/hoursEngine.js
-
 import {
     getShiftAssigned,
-    getCurrentProfile
+    getCurrentProfile,
+    getValorHora
 } from "./storage.js";
 
 import { aplicarCambiosTurno } from "./turnEngine.js";
@@ -13,17 +12,9 @@ import {
     calcCarry
 } from "./calculations.js";
 
-/* ======================================================
-   HELPERS
-====================================================== */
-
 function key(y, m, d) {
     return `${y}-${m}-${d}`;
 }
-
-/* ======================================================
-   HORAS DEL MES
-====================================================== */
 
 export function calcularHorasMes(
     y,
@@ -34,7 +25,28 @@ export function calcularHorasMes(
     blocked,
     carryIn
 ) {
-    const perfilActual = getCurrentProfile();
+    return calcularHorasMesPerfil(
+        getCurrentProfile(),
+        y,
+        m,
+        days,
+        holidays,
+        data,
+        blocked,
+        carryIn
+    );
+}
+
+export function calcularHorasMesPerfil(
+    nombre,
+    y,
+    m,
+    days,
+    holidays,
+    data,
+    blocked,
+    carryIn
+) {
 
     let totalD = carryIn?.d || 0;
     let totalN = carryIn?.n || 0;
@@ -42,14 +54,13 @@ export function calcularHorasMes(
     let businessDays = 0;
 
     for (let d = 1; d <= days; d++) {
-
         const date = new Date(y, m, d);
         const k = key(y, m, d);
 
         let state = Number(data[k]) || 0;
 
         state = aplicarCambiosTurno(
-            perfilActual,
+            nombre,
             k,
             state
         );
@@ -79,14 +90,9 @@ export function calcularHorasMes(
     }
 
     let hheeNocturnas =
-        getShiftAssigned() ? 0 : totalN;
-
-    /* ==========================================
-       DESCUENTO DIAS BLOQUEADOS
-    ========================================== */
+        getShiftAssigned(nombre) ? 0 : totalN;
 
     Object.keys(blocked).forEach(k => {
-
         if (!blocked[k]) return;
 
         const p = k.split("-");
@@ -100,7 +106,7 @@ export function calcularHorasMes(
         let state = Number(data[k]) || 0;
 
         state = aplicarCambiosTurno(
-            perfilActual,
+            nombre,
             k,
             state
         );
@@ -127,14 +133,9 @@ export function calcularHorasMes(
     };
 }
 
-/* ======================================================
-   RESUMEN HTML
-====================================================== */
-
 export function renderSummaryHTML(stats) {
-
     const valorHora =
-        Number(localStorage.getItem("valorHora")) || 0;
+        getValorHora();
 
     const pagoDiurno =
         stats.hheeDiurnas *
@@ -146,26 +147,34 @@ export function renderSummaryHTML(stats) {
         1.5 *
         valorHora;
 
+    const currency = new Intl.NumberFormat(
+        "es-CL",
+        {
+            maximumFractionDigits: 0
+        }
+    );
+
     return `
-        <div>🌞 Diurnas: ${stats.totalD}h</div>
-        <div>🌙 Nocturnas: ${stats.totalN}h</div>
-        <div>📊 Horas hábiles: ${stats.horasHabiles}h</div>
+        <div class="summary-grid">
+            <article class="summary-card">
+                <span class="summary-label">Diurnas</span>
+                <strong class="summary-value">${stats.hheeDiurnas}h</strong>
+                <span class="summary-amount">$${currency.format(pagoDiurno)}</span>
+            </article>
 
-        <hr>
+            <article class="summary-card">
+                <span class="summary-label">Nocturnas</span>
+                <strong class="summary-value">${stats.hheeNocturnas}h</strong>
+                <span class="summary-amount">$${currency.format(pagoNocturno)}</span>
+            </article>
+        </div>
 
-        <div>🟢 HHEE Diurnas: ${stats.hheeDiurnas}h</div>
-        <div>💰 Pago HHEE Diurnas: $${pagoDiurno.toFixed(0)}</div>
-
-        <hr>
-
-        <div>🌜 HHEE Nocturnas: ${stats.hheeNocturnas}h</div>
-        <div>💰 Pago HHEE Nocturnas: $${pagoNocturno.toFixed(0)}</div>
+        <div class="summary-footnote">
+            <span>Total trabajado: ${stats.totalD}h diurnas / ${stats.totalN}h nocturnas</span>
+            <span>Base del mes: ${stats.horasHabiles}h</span>
+        </div>
     `;
 }
-
-/* ======================================================
-   CARRY MES SIGUIENTE
-====================================================== */
 
 export function calcularCarryMes(
     y,

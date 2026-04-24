@@ -1,240 +1,378 @@
-import { registrarCambio } from "./swaps.js";
-import { getProfiles, getSwaps } from "./storage.js";
+import {
+    cambiosDelMes,
+    registrarCambio
+} from "./swaps.js";
+import {
+    getCurrentProfile,
+    getProfiles,
+    getRotativa,
+    getSwaps
+} from "./storage.js";
 import { refreshAll } from "./refresh.js";
 import { pushHistory } from "./history.js";
-import { getTurnoReal } from "./turnEngine.js";
-import {
-    getAdminDays,
-    getLegalDays,
-    getCompDays,
-    getAbsences
-} from "./storage.js";
-
-import { currentDate } from "./calendar.js";
-
+import { getTurnoBase } from "./turnEngine.js";
 
 let fechaCambioSeleccionada = "";
 let fechaDevolucionSeleccionada = "";
+let swapDate = new Date(
+    new Date().getFullYear(),
+    new Date().getMonth(),
+    1
+);
 
-/* ===============================
-   HELPERS
-=============================== */
-
-function parseInputDate(v){
-    const p = v.split("-");
+function parseInputDate(value){
+    const parts = value.split("-");
     return new Date(
-        Number(p[0]),
-        Number(p[1]) - 1,
-        Number(p[2])
+        Number(parts[0]),
+        Number(parts[1]) - 1,
+        Number(parts[2])
     );
 }
 
-function formatFechaUSA(fechaStr){
-    const p = fechaStr.split("-");
-    return `${p[1]}-${p[2]}-${p[0]}`;
+function formatFecha(fechaStr){
+    const parts = fechaStr.split("-");
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
 }
 
-/* ===============================
-   BASE STATE
-=============================== */
-
 function getBaseState(nombre, year, month, day = 1){
-
-    const data = JSON.parse(
-        localStorage.getItem("data_" + nombre)
-    ) || {};
-
-    const blocked = JSON.parse(
-        localStorage.getItem("blocked_" + nombre)
-    ) || {};
-
     const key = `${year}-${month}-${day}`;
+    const turno = getTurnoBase(nombre, key);
 
-    if(!blocked[key]) return null;
+    return turno ? turno : null;
+}
 
-    return Number(data[key]) || 0;
+function getPerfil(nombre) {
+    return getProfiles().find(
+        profile => profile.name === nombre
+    ) || null;
+}
+
+function esRotativaDiurna(nombre) {
+    return getRotativa(nombre).type === "diurno";
+}
+
+function esTurnoIntercambiable(turno) {
+    const base = Number(turno) || 0;
+
+    return base === 1 || base === 2;
 }
 
 function codigoTurno(valor){
+    const turno = Number(valor) || 0;
 
-    valor = Number(valor) || 0;
+    if (turno === 2) return "N";
+    if (turno === 1) return "L";
 
-    if(valor === 2) return "N";
-    if(valor === 4) return "D";
-
-    return "L";
+    return "";
 }
 
 function mismaRotativa(nombre1, nombre2){
-
-    const now = new Date();
-
-    const y = now.getFullYear();
-    const m = now.getMonth();
+    const y = swapDate.getFullYear();
+    const m = swapDate.getMonth();
 
     let iguales = 0;
     let comparados = 0;
 
-    for(let d=1; d<=20; d++){
-
+    for (let d = 1; d <= 20; d++) {
         const a = getBaseState(nombre1, y, m, d);
         const b = getBaseState(nombre2, y, m, d);
 
-        if(a === null || b === null) continue;
+        if (a === null || b === null) continue;
 
         comparados++;
 
-        if(a === b) iguales++;
+        if (a === b) iguales++;
     }
 
-    if(comparados < 4) return false;
+    if (comparados < 4) return false;
 
     return iguales === comparados;
 }
 
-/* ===============================
-   RENDER
-=============================== */
+function getTrabajadoresDisponibles(nombreFrom) {
+    const perfilFrom = getPerfil(nombreFrom);
+
+    if (!perfilFrom) return [];
+
+    return getProfiles().filter(profile =>
+        profile.name !== nombreFrom &&
+        profile.estamento === perfilFrom.estamento &&
+        !esRotativaDiurna(profile.name) &&
+        !mismaRotativa(nombreFrom, profile.name)
+    );
+}
+
+function getSwapYear(){
+    return swapDate.getFullYear();
+}
+
+function getSwapMonth(){
+    return swapDate.getMonth();
+}
+
+function formatSwapMonth(){
+    return swapDate
+        .toLocaleString(
+            "es-CL",
+            {
+                month: "long",
+                year: "numeric"
+            }
+        )
+        .toUpperCase();
+}
+
+function cambiarMesSwap(offset){
+    swapDate = new Date(
+        getSwapYear(),
+        getSwapMonth() + offset,
+        1
+    );
+
+    fechaCambioSeleccionada = "";
+    fechaDevolucionSeleccionada = "";
+
+    renderSwapPanel();
+}
+
+function toISO(date){
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function keyISO(key){
+    const parts = key.split("-");
+    return `${parts[0]}-${String(Number(parts[1]) + 1).padStart(2, "0")}-${String(parts[2]).padStart(2, "0")}`;
+}
+
+function textoTurno(turno){
+    if (turno === 1) return "L";
+    if (turno === 2) return "N";
+    if (turno === 3) return "24";
+    if (turno === 4) return "D";
+    if (turno === 5) return "D+N";
+
+    return "";
+}
+
+function getProfileMap(prefix, nombre) {
+    return JSON.parse(
+        localStorage.getItem(`${prefix}_${nombre}`)
+    ) || {};
+}
+
+function fechaDisponible(nombre, key, turno){
+    if (!esTurnoIntercambiable(turno)) return false;
+
+    const swaps = getSwaps();
+
+    if (
+        swaps.some(swap =>
+            (swap.from === nombre || swap.to === nombre) &&
+            (
+                swap.fecha === keyISO(key) ||
+                swap.devolucion === keyISO(key)
+            )
+        )
+    ) {
+        return false;
+    }
+
+    if (getProfileMap("admin", nombre)[key]) return false;
+    if (getProfileMap("legal", nombre)[key]) return false;
+    if (getProfileMap("comp", nombre)[key]) return false;
+    if (getProfileMap("absences", nombre)[key]) return false;
+
+    return true;
+}
 
 export function renderSwapPanel(){
-
     const box = document.getElementById("swapPanel");
-    if(!box) return;
+    if (!box) return;
 
     const perfiles = getProfiles();
+    const selectedFrom = getCurrentProfile();
+    const previousTo =
+        document.getElementById("swapTo")?.value || "";
+    const perfilFrom = getPerfil(selectedFrom);
 
-    const options = perfiles.map(p =>
-        `<option value="${p.name}">${p.name}</option>`
-    ).join("");
+    if (!selectedFrom || !perfilFrom) {
+        box.innerHTML = `
+            <div class="section-head">
+                <h3>Cambios de Turno</h3>
+            </div>
+            <div class="empty-state">
+                Selecciona un trabajador para revisar cambios de turno.
+            </div>
+        `;
+        return;
+    }
+
+    if (esRotativaDiurna(selectedFrom)) {
+        box.innerHTML = `
+            <div class="section-head">
+                <h3>Cambios de Turno</h3>
+            </div>
+            <div class="empty-state">
+                ${selectedFrom} tiene rotativa Diurno, por lo que no puede intercambiar turnos.
+            </div>
+        `;
+        return;
+    }
+
+    if (perfiles.length < 2) {
+        box.innerHTML = `
+            <div class="section-head">
+                <h3>Cambios de Turno</h3>
+            </div>
+            <div class="empty-state">
+                Necesitas al menos dos colaboradores para registrar cambios de turno.
+            </div>
+        `;
+        return;
+    }
+
+    const options = getTrabajadoresDisponibles(
+        selectedFrom
+    )
+        .map(profile => `
+            <option
+                value="${profile.name}"
+                ${profile.name === previousTo ? "selected" : ""}
+            >
+                ${profile.name}
+            </option>
+        `)
+        .join("");
 
     box.innerHTML = `
-        <h3>Cambio de Turnos</h3>
+        <div class="section-head">
+            <h3>Cambios de Turno</h3>
+        </div>
+
+        <div class="swap-monthbar">
+            <button id="swapPrevMonth" class="swap-month-button" type="button" aria-label="Mes anterior">
+                &lt;
+            </button>
+
+            <strong id="swapMonthLabel">${formatSwapMonth()}</strong>
+
+            <button id="swapNextMonth" class="swap-month-button" type="button" aria-label="Mes siguiente">
+                &gt;
+            </button>
+        </div>
 
         <div class="swap-row">
+            <label class="field-stack">
+                <span>Entrega turno</span>
+                <div id="swapFromLabel" class="swap-readonly-worker">
+                    ${selectedFrom}
+                </div>
+            </label>
 
-            <select id="swapFrom">
-                ${options}
-            </select>
-
-            <select id="swapTo">
-                ${options}
-            </select>
+            <label class="field-stack">
+                <span>Recibe turno</span>
+                <select id="swapTo">
+                    ${options}
+                </select>
+            </label>
 
             <div class="mini-wrap">
-                <label>Fecha Cambio</label>
+                <label>Fecha de cambio</label>
                 <div id="swapCalendar1"></div>
             </div>
 
             <div class="mini-wrap">
-                <label>Fecha Devolución</label>
+                <label>Fecha de devolución</label>
                 <div id="swapCalendar2"></div>
             </div>
 
-            <button id="saveSwapBtn">
-                Registrar Cambio
+            <button id="saveSwapBtn" class="primary-button primary-button--wide" type="button">
+                Registrar cambio
             </button>
-
         </div>
 
         <div id="swapList"></div>
     `;
 
+    document.getElementById("swapPrevMonth").onclick =
+        () => cambiarMesSwap(-1);
+
+    document.getElementById("swapNextMonth").onclick =
+        () => cambiarMesSwap(1);
+
     document.getElementById("saveSwapBtn").onclick =
         guardarCambioTurno;
-
-    document.getElementById("swapFrom").onchange = ()=>{
-
-        actualizarSwapTo();
-        renderMiniCalendarios();
-    };
 
     document.getElementById("swapTo").onchange =
         renderMiniCalendarios;
 
-    actualizarSwapTo();
-
+    actualizarSwapTo(previousTo);
     renderSwapList();
-
     renderMiniCalendarios();
 }
 
 window.renderSwapPanel = renderSwapPanel;
 
 function renderMiniCalendarios(){
+    const from = getCurrentProfile();
+    const to = document.getElementById("swapTo")?.value;
 
-    const from =
-        document.getElementById("swapFrom").value;
-
-    const to =
-        document.getElementById("swapTo").value;
-
-    if(!from || !to) return;
+    if (!from || !to) return;
 
     renderMiniCalendar(
         "swapCalendar1",
         from,
-        to,
         true
     );
 
     renderMiniCalendar(
         "swapCalendar2",
         to,
-        from,
         false
     );
 }
 
-function renderMiniCalendar(id, trabajador, otro, esCambio){
-
+function renderMiniCalendar(id, trabajador, esCambio){
     const div = document.getElementById(id);
-    if(!div) return;
+    if (!div) return;
 
-    const y = currentDate.getFullYear();
-    const m = currentDate.getMonth();
+    const y = getSwapYear();
+    const m = getSwapMonth();
+    const days = new Date(y, m + 1, 0).getDate();
 
-    let html = `
-        <div class="mini-grid">
-    `;
+    let html = `<div class="mini-grid">`;
 
-    for(let d=1; d<=31; d++){
-
-        const fecha = new Date(y,m,d);
-
-        if(fecha.getMonth() !== m) continue;
+    for (let d = 1; d <= days; d++) {
+        const fecha = new Date(y, m, d);
 
         const key = `${y}-${m}-${d}`;
-
-        const turno =
-            getTurnoReal(trabajador,key);
-
-        const valido =
-            fechaDisponible(
-                trabajador,
-                key,
-                turno
-            );
+        const turnoBase = getTurnoBase(trabajador, key);
+        const valido = fechaDisponible(
+            trabajador,
+            key,
+            turnoBase
+        );
 
         let clase = "mini-off";
 
-        if(valido) clase = "mini-on";
+        if (valido) clase = "mini-on";
 
-        const seleccionada =
-            esCambio
+        const seleccionada = esCambio
             ? fechaCambioSeleccionada === toISO(fecha)
             : fechaDevolucionSeleccionada === toISO(fecha);
 
-        if(seleccionada)
+        if (seleccionada) {
             clase = "mini-selected";
+        }
 
         html += `
             <div
-              class="mini-day ${clase}"
-              data-fecha="${toISO(fecha)}"
-              data-tipo="${esCambio ? 1 : 2}"
+                class="mini-day ${clase}"
+                data-fecha="${toISO(fecha)}"
+                data-tipo="${esCambio ? 1 : 2}"
             >
-              <span>${d}</span>
-              <small>${textoTurno(turno)}</small>
+                <span>${d}</span>
+                <small>${textoTurno(turnoBase)}</small>
             </div>
         `;
     }
@@ -243,145 +381,168 @@ function renderMiniCalendar(id, trabajador, otro, esCambio){
 
     div.innerHTML = html;
 
-    div.querySelectorAll(".mini-on,.mini-selected")
-    .forEach(x=>{
+    div.querySelectorAll(".mini-on, .mini-selected")
+        .forEach(item => {
+            item.onclick = () => {
+                const fecha = item.dataset.fecha;
 
-        x.onclick = ()=>{
+                if (item.dataset.tipo === "1") {
+                    fechaCambioSeleccionada = fecha;
+                } else {
+                    fechaDevolucionSeleccionada = fecha;
+                }
 
-            const f = x.dataset.fecha;
-
-            if(x.dataset.tipo == "1")
-                fechaCambioSeleccionada = f;
-            else
-                fechaDevolucionSeleccionada = f;
-
-            renderMiniCalendarios();
-        };
-    });
+                renderMiniCalendarios();
+            };
+        });
 }
 
-function fechaDisponible(nombre,key,turno){
+function actualizarSwapTo(preferredTo = ""){
+    const from = getCurrentProfile();
+    const toSelect = document.getElementById("swapTo");
 
-    if(!turno || turno === 0)
-        return false;
+    if (!from || !toSelect) return;
 
-    const swaps = getSwaps();
+    const filtrados = getTrabajadoresDisponibles(from);
 
-    if(swaps.some(s =>
-        (s.from === nombre || s.to === nombre) &&
-        (s.fecha === keyISO(key) ||
-         s.devolucion === keyISO(key))
-    )) return false;
+    const selectedTo =
+        filtrados.some(profile => profile.name === preferredTo)
+            ? preferredTo
+            : filtrados[0]?.name || "";
 
-    if(getAdminDays()[key]) return false;
-    if(getLegalDays()[key]) return false;
-    if(getCompDays()[key]) return false;
-    if(getAbsences()[key]) return false;
+    toSelect.innerHTML = filtrados
+        .map(profile => `
+            <option
+                value="${profile.name}"
+                ${profile.name === selectedTo ? "selected" : ""}
+            >
+                ${profile.name}
+            </option>
+        `)
+        .join("");
 
-    return true;
-}
+    if (!filtrados.length) {
+        toSelect.disabled = true;
 
+        const saveButton =
+            document.getElementById("saveSwapBtn");
 
-function textoTurno(t){
+        if (saveButton) {
+            saveButton.disabled = true;
+        }
 
-    if(t==1) return "L";
-    if(t==2) return "N";
-    if(t==3) return "24";
-    if(t==4) return "D";
-    if(t==5) return "D+N";
+        document.getElementById("swapCalendar1").innerHTML = `
+            <div class="empty-state empty-state--compact">
+                No hay colegas compatibles para este cambio.
+            </div>
+        `;
 
-    return "";
-}
-
-function toISO(f){
-
-    return `${f.getFullYear()}-${String(f.getMonth()+1).padStart(2,"0")}-${String(f.getDate()).padStart(2,"0")}`;
-}
-
-function keyISO(key){
-
-    const p = key.split("-");
-
-    return `${p[0]}-${String(Number(p[1])+1).padStart(2,"0")}-${String(p[2]).padStart(2,"0")}`;
-}
-
-function actualizarSwapTo(){
-
-    const from =
-        document.getElementById("swapFrom").value;
-
-    const toSelect =
-        document.getElementById("swapTo");
-
-    const perfiles = getProfiles();
-
-    const perfilFrom =
-        perfiles.find(p => p.name === from);
-
-    if(!perfilFrom) return;
-
-    const filtrados = perfiles.filter(p =>
-        p.name !== from &&
-        p.estamento === perfilFrom.estamento &&
-        !mismaRotativa(from, p.name)
-    );
-
-    toSelect.innerHTML = filtrados.map(p =>
-        `<option value="${p.name}">
-            ${p.name}
-        </option>`
-    ).join("");
-}
-
-function renderSwapList(){
-
-    const div =
-        document.getElementById("swapList");
-
-    const swaps = getSwaps();
-
-    div.innerHTML = swaps.map(s => `
-        <div class="swap-item">
-            ${s.from} → ${s.to}
-            (${formatFechaUSA(s.fecha)})
-            ↩ devolución ${formatFechaUSA(s.devolucion)}
-        </div>
-    `).join("");
-}
-
-/* ===============================
-   GUARDAR
-=============================== */
-
-function guardarCambioTurno(){
-
-    const from =
-        document.getElementById("swapFrom").value;
-
-    const to =
-        document.getElementById("swapTo").value;
-
-    const fecha = fechaCambioSeleccionada;
-    const devolucion = fechaDevolucionSeleccionada;
-
-    if(!from || !to || !fecha || !devolucion){
-        alert("Completa todos los campos");
+        document.getElementById("swapCalendar2").innerHTML = `
+            <div class="empty-state empty-state--compact">
+                Ajusta la selección para continuar.
+            </div>
+        `;
         return;
     }
 
-    if(from === to){
-        alert("Debe ser entre trabajadores distintos");
+    toSelect.disabled = false;
+
+    const saveButton =
+        document.getElementById("saveSwapBtn");
+
+    if (saveButton) {
+        saveButton.disabled = false;
+    }
+}
+
+function renderSwapList(){
+    const div = document.getElementById("swapList");
+    if (!div) return;
+
+    const swaps = cambiosDelMes(
+        getSwapYear(),
+        getSwapMonth()
+    );
+
+    if (!swaps.length) {
+        div.innerHTML = `
+            <div class="empty-state empty-state--compact">
+                No hay cambios de turno registrados en ${formatSwapMonth().toLowerCase()}.
+            </div>
+        `;
+        return;
+    }
+
+    div.innerHTML = swaps
+        .slice()
+        .sort((a, b) => a.fecha.localeCompare(b.fecha))
+        .map(swap => `
+            <div class="swap-item">
+                ${swap.from} -> ${swap.to}
+                (${formatFecha(swap.fecha)})
+                | devolución ${formatFecha(swap.devolucion)}
+            </div>
+        `)
+        .join("");
+}
+
+function guardarCambioTurno(){
+    const from = getCurrentProfile();
+    const to = document.getElementById("swapTo")?.value;
+    const fecha = fechaCambioSeleccionada;
+    const devolucion = fechaDevolucionSeleccionada;
+
+    if (!from || !to || !fecha || !devolucion) {
+        alert("Completa todos los campos.");
+        return;
+    }
+
+    if (from === to) {
+        alert("El cambio debe ser entre trabajadores distintos.");
         return;
     }
 
     const f1 = parseInputDate(fecha);
     const f2 = parseInputDate(devolucion);
 
-    if(
+    if (
         f1.getFullYear() !== f2.getFullYear() ||
         f1.getMonth() !== f2.getMonth()
-    ){
-        alert("Ambas fechas deben ser del mismo mes");
+    ) {
+        alert("Ambas fechas deben pertenecer al mismo mes.");
+        return;
+    }
+
+    if (
+        f1.getFullYear() !== getSwapYear() ||
+        f1.getMonth() !== getSwapMonth()
+    ) {
+        alert("Las fechas deben pertenecer al mes visualizado.");
+        return;
+    }
+
+    const perfilFrom = getPerfil(from);
+    const perfilTo = getPerfil(to);
+
+    if (
+        !perfilFrom ||
+        !perfilTo ||
+        perfilFrom.estamento !== perfilTo.estamento
+    ) {
+        alert("Solo se pueden intercambiar turnos entre trabajadores del mismo estamento.");
+        return;
+    }
+
+    if (
+        esRotativaDiurna(from) ||
+        esRotativaDiurna(to)
+    ) {
+        alert("Los trabajadores con rotativa Diurno no pueden intercambiar turnos.");
+        return;
+    }
+
+    if (mismaRotativa(from, to)) {
+        alert("No se puede intercambiar con un trabajador que tiene la misma rotativa base.");
         return;
     }
 
@@ -399,13 +560,13 @@ function guardarCambioTurno(){
         f2.getDate()
     );
 
-    if(turnoFrom === null){
-        alert(from + " no tiene turno ese día");
+    if (!esTurnoIntercambiable(turnoFrom)) {
+        alert(`${from} solo puede entregar turnos base Larga o Noche.`);
         return;
     }
 
-    if(turnoTo === null){
-        alert(to + " no tiene turno en devolución");
+    if (!esTurnoIntercambiable(turnoTo)) {
+        alert(`${to} solo puede devolver turnos base Larga o Noche.`);
         return;
     }
 
@@ -414,21 +575,17 @@ function guardarCambioTurno(){
         to,
         fecha,
         devolucion,
-
         turno: codigoTurno(turnoFrom),
         turnoDevuelto: codigoTurno(turnoTo),
-
         year: f1.getFullYear(),
         month: f1.getMonth()
     });
 
     pushHistory();
 
-    /* limpiar selección mini calendarios */
-    fechaCambioSeleccionada = null;
-    fechaDevolucionSeleccionada = null;
+    fechaCambioSeleccionada = "";
+    fechaDevolucionSeleccionada = "";
 
     refreshAll();
-
-alert("Cambio registrado");
+    alert("Cambio registrado.");
 }
