@@ -32,6 +32,8 @@ export const DOM = {
     compBtn: document.getElementById("compBtn"),
     compBtnLabel: document.getElementById("compBtnLabel"),
     licenseBtn: document.getElementById("licenseBtn"),
+    professionalLicenseBtn: document.getElementById("professionalLicenseBtn"),
+    unpaidLeaveBtn: document.getElementById("unpaidLeaveBtn"),
 
     /* navegacion */
     prevBtn: document.getElementById("prevBtn"),

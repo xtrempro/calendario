@@ -278,6 +278,8 @@ export async function renderCalendar() {
             getShiftAssigned(),
             {
                 compCantidad: window.compCantidad || 0,
+                licenseCantidad: window.licenseCantidad || 0,
+                licenseType: window.licenseType || "license",
                 holidays
             }
         );

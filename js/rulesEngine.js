@@ -53,6 +53,46 @@ function getAbsenceText(absence) {
         .join(" ");
 }
 
+export function getAbsenceType(absence) {
+    if (!absence) return "";
+
+    if (typeof absence === "string") {
+        return normalizeText(absence).replace(/\s+/g, "_");
+    }
+
+    return normalizeText(
+        absence.type ||
+        absence.kind ||
+        absence.code ||
+        absence.label ||
+        ""
+    ).replace(/\s+/g, "_");
+}
+
+function isMedicalAbsenceType(type) {
+    return (
+        type === "license" ||
+        type === "professional_license"
+    );
+}
+
+export function puedeReemplazarAusencia(absence, nextType) {
+    if (!absence || esAusenciaInjustificada(absence)) {
+        return true;
+    }
+
+    const currentType = getAbsenceType(absence);
+
+    if (currentType === nextType) {
+        return true;
+    }
+
+    return (
+        isMedicalAbsenceType(currentType) &&
+        isMedicalAbsenceType(nextType)
+    );
+}
+
 function parseKey(keyDay) {
     const parts = String(keyDay || "").split("-");
 
@@ -286,6 +326,45 @@ export function puedeAplicarCompensatorioDesde(
     return usados === total;
 }
 
+export function puedeAplicarAusenciaBloqueanteDesde(
+    keyDay,
+    cantidad,
+    absences,
+    nextType
+) {
+    const total = Number(cantidad);
+
+    if (!total || total <= 0 || !Number.isInteger(total)) {
+        return false;
+    }
+
+    const start = parseKey(keyDay);
+
+    if (Number.isNaN(start.getTime())) {
+        return false;
+    }
+
+    const cursor = new Date(start);
+
+    for (let i = 0; i < total; i++) {
+        const currentKey =
+            `${cursor.getFullYear()}-${cursor.getMonth()}-${cursor.getDate()}`;
+
+        if (
+            !puedeReemplazarAusencia(
+                absences[currentKey],
+                nextType
+            )
+        ) {
+            return false;
+        }
+
+        cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return true;
+}
+
 /* ======================================================
    LABEL VISUAL DEL DIA
 ====================================================== */
@@ -333,11 +412,16 @@ export function obtenerLabelDia(
 
     /* licencia médica */
 
-    if (
-        absences[keyDay] &&
-        absences[keyDay].type === "license"
-    ) {
-        label = "LM";
+    if (absences[keyDay]) {
+        const absenceType = getAbsenceType(absences[keyDay]);
+
+        if (absenceType === "professional_license") {
+            label = "LMP";
+        } else if (absenceType === "unpaid_leave") {
+            label = "PSG";
+        } else if (absenceType === "license") {
+            label = "LM";
+        }
     }
 
     return label;
@@ -397,13 +481,16 @@ export function aplicarClasesEspeciales(
 
     /* licencia */
 
-    if (
-        absences[keyDay] &&
-        absences[keyDay].type === "license"
-    ) {
-        div.classList.add(
-            "license-day"
-        );
+    if (absences[keyDay]) {
+        const absenceType = getAbsenceType(absences[keyDay]);
+
+        if (absenceType === "professional_license") {
+            div.classList.add("professional-license-day");
+        } else if (absenceType === "unpaid_leave") {
+            div.classList.add("unpaid-leave-day");
+        } else if (absenceType === "license") {
+            div.classList.add("license-day");
+        }
     }
 
     /* legal */
@@ -491,6 +578,15 @@ export function estaBloqueadoModo(
             legal,
             comp,
             absences
+        );
+    }
+
+    if (selectionMode === "license") {
+        return !puedeAplicarAusenciaBloqueanteDesde(
+            keyDay,
+            options.licenseCantidad || 0,
+            absences,
+            options.licenseType || "license"
         );
     }
 

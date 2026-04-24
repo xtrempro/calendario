@@ -19,7 +19,8 @@ import {
 
     getShiftAssigned,
     getCurrentProfile,
-    getManualLeaveBalances
+    getManualLeaveBalances,
+    saveManualLeaveBalances
 } from "./storage.js";
 
 import { renderTimeline } from "./timeline.js";
@@ -27,9 +28,11 @@ import { analizarStaffingMes } from "./staffing.js";
 import { getTurnoBase } from "./turnEngine.js";
 import {
     esAusenciaInjustificada,
+    getAbsenceType,
     puedeAplicarAdministrativo,
     puedeAplicarCompensatorioDesde,
-    puedeIniciarLegal
+    puedeIniciarLegal,
+    puedeReemplazarAusencia
 } from "./rulesEngine.js";
 
 /* =========================================
@@ -514,23 +517,247 @@ export async function aplicarComp(fecha, cantidad = 10){
 LICENCIA
 ========================================= */
 
-export function aplicarLicencia(fecha, cantidad){
+function previousKey(key) {
+    const date = parseKey(key);
+
+    date.setDate(date.getDate() - 1);
+
+    return keyFromDate(date);
+}
+
+function nextKey(key) {
+    const date = parseKey(key);
+
+    date.setDate(date.getDate() + 1);
+
+    return keyFromDate(date);
+}
+
+function isBeforeKey(a, b) {
+    return parseKey(a) < parseKey(b);
+}
+
+function blockStartKey(map, key) {
+    if (!map[key]) return "";
+
+    let cursor = key;
+
+    while (map[previousKey(cursor)]) {
+        cursor = previousKey(cursor);
+    }
+
+    return cursor;
+}
+
+function blockKeys(map, key) {
+    const start = blockStartKey(map, key);
+    const keys = [];
+
+    if (!start) return keys;
+
+    let cursor = start;
+
+    while (map[cursor]) {
+        keys.push(cursor);
+        cursor = nextKey(cursor);
+    }
+
+    return keys;
+}
+
+function shouldCancelMappedBlock(map, startKey, key) {
+    const blockStart = blockStartKey(map, key);
+
+    return Boolean(blockStart) && isBeforeKey(startKey, blockStart);
+}
+
+function shouldCancelAdmin(admin, startKey, key) {
+    return Boolean(admin[key]) && isBeforeKey(startKey, key);
+}
+
+function addManualBalance(
+    field,
+    amount,
+    year,
+    createWhenMissing = false
+) {
+    if (!amount || amount <= 0) return;
+
+    const manual = getManualLeaveBalances(year);
+    const current = Number(manual[field]);
+
+    if (!Number.isFinite(current) && !createWhenMissing) {
+        return;
+    }
+
+    saveManualLeaveBalances(year, {
+        [field]: (Number.isFinite(current) ? current : 0) + amount
+    });
+}
+
+async function countBusinessReturned(keys) {
+    const holidaysByYear = {};
+    let total = 0;
+
+    for (const key of keys) {
+        const date = parseKey(key);
+        const year = date.getFullYear();
+
+        if (!holidaysByYear[year]) {
+            holidaysByYear[year] = await fetchHolidays(year);
+        }
+
+        if (isBusinessDay(date, holidaysByYear[year])) {
+            total++;
+        }
+    }
+
+    return total;
+}
+
+async function returnLegalBalance(keysByYear) {
+    for (const [year, keys] of Object.entries(keysByYear)) {
+        const amount = await countBusinessReturned(keys);
+        addManualBalance("legal", amount, Number(year));
+    }
+}
+
+async function returnCompBalance(keysByYear) {
+    for (const [year, keys] of Object.entries(keysByYear)) {
+        const amount = await countBusinessReturned(keys);
+        addManualBalance("comp", amount, Number(year), true);
+    }
+}
+
+function returnAdminBalance(amountByYear) {
+    Object.entries(amountByYear).forEach(([year, amount]) => {
+        addManualBalance("admin", amount, Number(year));
+    });
+}
+
+function pushKeyByYear(target, key) {
+    const year = key.split("-")[0];
+
+    if (!target[year]) target[year] = [];
+
+    target[year].push(key);
+}
+
+export async function aplicarLicencia(
+    fecha,
+    cantidad,
+    type = "license"
+){
+    const total = Number(cantidad);
+
+    if (!total || total <= 0 || !Number.isInteger(total)) {
+        return false;
+    }
 
     const abs = getAbsences();
     const blocked = getBlockedDays();
+    const admin = getAdminDays();
+    const legal = getLegalDays();
+    const comp = getCompDays();
+
+    const startKey = keyFromDate(fecha);
+    const keys = [];
 
     let d = new Date(fecha);
 
-    for(let i=0;i<cantidad;i++){
+    for(let i=0;i<total;i++){
 
         const key = keyFromDate(d);
 
-        abs[key] = { type:"license" };
-        blocked[key] = true;
+        if (!puedeReemplazarAusencia(abs[key], type)) {
+            return false;
+        }
+
+        keys.push(key);
 
         d.setDate(d.getDate()+1);
     }
 
+    const returnedLegal = {};
+    const returnedComp = {};
+    const returnedAdmin = {};
+    const canceledLegalBlocks = new Set();
+    const canceledCompBlocks = new Set();
+    const licenseKeys = new Set(keys);
+
+    keys.forEach(key => {
+        const year = Number(key.split("-")[0]);
+
+        if (
+            legal[key] &&
+            shouldCancelMappedBlock(legal, startKey, key)
+        ) {
+            const legalStart = blockStartKey(legal, key);
+
+            if (!canceledLegalBlocks.has(legalStart)) {
+                canceledLegalBlocks.add(legalStart);
+
+                blockKeys(legal, key).forEach(blockKey => {
+                    delete legal[blockKey];
+                    pushKeyByYear(returnedLegal, blockKey);
+
+                    if (!licenseKeys.has(blockKey)) {
+                        delete blocked[blockKey];
+                    }
+                });
+            }
+        }
+
+        if (
+            comp[key] &&
+            shouldCancelMappedBlock(comp, startKey, key)
+        ) {
+            const compStart = blockStartKey(comp, key);
+
+            if (!canceledCompBlocks.has(compStart)) {
+                canceledCompBlocks.add(compStart);
+
+                blockKeys(comp, key).forEach(blockKey => {
+                    delete comp[blockKey];
+                    pushKeyByYear(returnedComp, blockKey);
+
+                    if (!licenseKeys.has(blockKey)) {
+                        delete blocked[blockKey];
+                    }
+                });
+            }
+        }
+
+        if (
+            admin[key] &&
+            shouldCancelAdmin(admin, startKey, key)
+        ) {
+            const value = admin[key];
+            const amount = value === 1 ? 1 : 0.5;
+
+            delete admin[key];
+            if (!licenseKeys.has(key)) {
+                delete blocked[key];
+            }
+
+            returnedAdmin[year] =
+                (returnedAdmin[year] || 0) + amount;
+        }
+
+        abs[key] = {
+            type,
+            previousType: getAbsenceType(abs[key]) || ""
+        };
+        blocked[key] = true;
+    });
+
+    await returnLegalBalance(returnedLegal);
+    await returnCompBalance(returnedComp);
+    returnAdminBalance(returnedAdmin);
+
+    saveAdminDays(admin);
+    saveLegalDays(legal);
+    saveCompDays(comp);
     saveAbsences(abs);
     saveBlockedDays(blocked);
 

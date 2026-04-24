@@ -56,6 +56,7 @@ let adminCantidad = 0;
 let compCantidad = 0;
 let legalCantidad = 0;
 let licenseCantidad = 0;
+let licenseType = "license";
 let availabilityEditMode = false;
 
 const profileDraft = {
@@ -73,6 +74,8 @@ const profileDraft = {
 
 window.selectionMode = null;
 window.compCantidad = 0;
+window.licenseCantidad = 0;
+window.licenseType = "license";
 window.pushUndoState = pushHistory;
 window.getProfileDraftSelectionKey = () =>
     inputDateToCalendarKey(profileDraft.rotationStart);
@@ -501,6 +504,9 @@ function renderLeaveActionLabels() {
         DOM.halfAdminAfternoonBtn.disabled = true;
         DOM.compBtn.disabled = true;
         DOM.legalBtn.disabled = true;
+        DOM.licenseBtn.disabled = true;
+        DOM.professionalLicenseBtn.disabled = true;
+        DOM.unpaidLeaveBtn.disabled = true;
         return;
     }
 
@@ -518,6 +524,9 @@ function renderLeaveActionLabels() {
     DOM.halfAdminAfternoonBtn.disabled = saldos.admin <= 0;
     DOM.compBtn.disabled = saldos.comp <= 0;
     DOM.legalBtn.disabled = saldos.legal <= 0;
+    DOM.licenseBtn.disabled = false;
+    DOM.professionalLicenseBtn.disabled = false;
+    DOM.unpaidLeaveBtn.disabled = false;
 }
 
 function renderDashboardState() {
@@ -760,6 +769,10 @@ function clearSelectionMode(shouldRefresh = true) {
     window.selectionMode = null;
     compCantidad = 0;
     window.compCantidad = 0;
+    licenseCantidad = 0;
+    licenseType = "license";
+    window.licenseCantidad = 0;
+    window.licenseType = "license";
 
     document.body.classList.remove("mode-active");
     document.body.removeAttribute("data-mode");
@@ -1152,18 +1165,27 @@ function activarSelectorComp() {
     );
 }
 
-function activarSelectorLicencia() {
+function getLicenseTypeLabel(type) {
+    if (type === "professional_license") return "LM Profesional";
+    if (type === "unpaid_leave") return "Permiso sin Goce";
+    return "Licencia Medica";
+}
+
+function activarSelectorLicencia(type = "license") {
     const cantidad = Number(
-        prompt("Cuantos dias dura la licencia medica?")
+        prompt(`Cuantos dias dura ${getLicenseTypeLabel(type)}?`)
     );
 
     if (!cantidad || cantidad <= 0) return;
 
     licenseCantidad = cantidad;
+    licenseType = type;
+    window.licenseCantidad = cantidad;
+    window.licenseType = type;
 
     activarModo(
         "license",
-        "Selecciona el inicio de la licencia medica"
+        `Selecciona el inicio de ${getLicenseTypeLabel(type)}. Se contara en dias corridos.`
     );
 }
 
@@ -1352,7 +1374,11 @@ DOM.halfAdminAfternoonBtn.onclick =
     () => activarSelectorHalfAdmin("T");
 DOM.legalBtn.onclick = activarSelectorLegal;
 DOM.compBtn.onclick = activarSelectorComp;
-DOM.licenseBtn.onclick = activarSelectorLicencia;
+DOM.licenseBtn.onclick = () => activarSelectorLicencia("license");
+DOM.professionalLicenseBtn.onclick =
+    () => activarSelectorLicencia("professional_license");
+DOM.unpaidLeaveBtn.onclick =
+    () => activarSelectorLicencia("unpaid_leave");
 
 DOM.prevBtn.onclick = prevMonth;
 DOM.nextBtn.onclick = nextMonth;
@@ -1396,7 +1422,18 @@ document.addEventListener("click", async event => {
 
     if (selectionMode === "license") {
         pushHistory();
-        await aplicarLicencia(fecha, licenseCantidad);
+        const aplicado = await aplicarLicencia(
+            fecha,
+            licenseCantidad,
+            licenseType
+        );
+
+        if (!aplicado) {
+            alert(
+                "No se pudo aplicar esta ausencia. Una Licencia Medica solo puede reemplazarse por una LM Profesional y viceversa; el Permiso sin Goce no puede superponerse sobre licencias existentes."
+            );
+        }
+
         clearSelectionMode();
         return;
     }

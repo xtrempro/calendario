@@ -247,15 +247,26 @@ export function saveManualLeaveBalances(
     const currentYearBalances =
         allBalances[String(year)] || {};
     const nextBalances = {
-        ...currentYearBalances,
-        ...balances
+        ...currentYearBalances
     };
 
-    allBalances[String(year)] = {
-        legal: Math.max(0, Number(nextBalances.legal) || 0),
-        comp: Math.max(0, Number(nextBalances.comp) || 0),
-        admin: Math.max(0, Number(nextBalances.admin) || 0)
-    };
+    ["legal", "comp", "admin"].forEach(field => {
+        if (
+            !Object.prototype.hasOwnProperty.call(
+                balances,
+                field
+            )
+        ) {
+            return;
+        }
+
+        nextBalances[field] = Math.max(
+            0,
+            Number(balances[field]) || 0
+        );
+    });
+
+    allBalances[String(year)] = nextBalances;
 
     localStorage.setItem(
         "leaveBalances_" + profile,

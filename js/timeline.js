@@ -45,6 +45,31 @@ function formatTimelineHours(value){
     return rounded > 0 ? String(rounded) : "";
 }
 
+function syncTimelineStickyOffsets(container) {
+    const shell = container.querySelector(".timeline-shell");
+    const headerCells = container.querySelectorAll(
+        ".timeline-table thead th"
+    );
+
+    if (!shell || headerCells.length < 3) return;
+
+    const nameWidth = Math.ceil(
+        headerCells[0].getBoundingClientRect().width
+    );
+    const dayWidth = Math.ceil(
+        headerCells[1].getBoundingClientRect().width
+    );
+
+    shell.style.setProperty(
+        "--timeline-hhee-day-left",
+        `${nameWidth}px`
+    );
+    shell.style.setProperty(
+        "--timeline-hhee-night-left",
+        `${nameWidth + dayWidth}px`
+    );
+}
+
 function getColor(nombre, key){
     const data = getData(nombre);
     const admin = getAdmin(nombre);
@@ -52,6 +77,8 @@ function getColor(nombre, key){
     const comp = getComp(nombre);
     const abs = getAbs(nombre);
 
+    if (abs[key]?.type === "professional_license") return "#2563eb";
+    if (abs[key]?.type === "unpaid_leave") return "#6b7280";
     if (abs[key]) return "#ef4444";
     if (legal[key]) return "#0ea5a6";
     if (comp[key]) return "#f97316";
@@ -122,8 +149,30 @@ export async function renderTimeline(){
                 <thead>
                     <tr>
                         <th class="timeline-name-head">Funcionarios</th>
-                        <th class="timeline-hhee-head timeline-hhee--day">HHEE Diurnas</th>
-                        <th class="timeline-hhee-head timeline-hhee--night">HHEE Nocturnas</th>
+                        <th class="timeline-hhee-head timeline-hhee--day" title="HHEE Diurnas">
+                            <span class="timeline-hhee-label" aria-label="HHEE Diurnas">
+                                <span>HHEE</span>
+                                <svg class="timeline-hhee-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="4"></circle>
+                                    <path d="M12 2v2"></path>
+                                    <path d="M12 20v2"></path>
+                                    <path d="M4.93 4.93l1.41 1.41"></path>
+                                    <path d="M17.66 17.66l1.41 1.41"></path>
+                                    <path d="M2 12h2"></path>
+                                    <path d="M20 12h2"></path>
+                                    <path d="M6.34 17.66l-1.41 1.41"></path>
+                                    <path d="M17.66 6.34l1.41-1.41"></path>
+                                </svg>
+                            </span>
+                        </th>
+                        <th class="timeline-hhee-head timeline-hhee--night" title="HHEE Nocturnas">
+                            <span class="timeline-hhee-label" aria-label="HHEE Nocturnas">
+                                <span>HHEE</span>
+                                <svg class="timeline-hhee-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M21 12.79A9 9 0 1 1 11.21 3A7 7 0 0 0 21 12.79z"></path>
+                                </svg>
+                            </span>
+                        </th>
     `;
 
     for (let d = 1; d <= diasMes; d++) {
@@ -182,4 +231,6 @@ export async function renderTimeline(){
     `;
 
     div.innerHTML = html;
+    syncTimelineStickyOffsets(div);
+    requestAnimationFrame(() => syncTimelineStickyOffsets(div));
 }
