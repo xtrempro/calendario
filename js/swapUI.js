@@ -169,8 +169,8 @@ function fechaDisponible(nombre, key, turno){
         swaps.some(swap =>
             (swap.from === nombre || swap.to === nombre) &&
             (
-                swap.fecha === keyISO(key) ||
-                swap.devolucion === keyISO(key)
+                (!swap.skipFecha && swap.fecha === keyISO(key)) ||
+                (!swap.skipDevolucion && swap.devolucion === keyISO(key))
             )
         )
     ) {

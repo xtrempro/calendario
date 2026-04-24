@@ -50,8 +50,8 @@ export function getCambioPorFecha(fecha) {
     const swaps = getSwaps();
 
     return swaps.find(s =>
-        s.fecha === fecha ||
-        s.devolucion === fecha
+        (!s.skipFecha && s.fecha === fecha) ||
+        (!s.skipDevolucion && s.devolucion === fecha)
     );
 }
 

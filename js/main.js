@@ -10,6 +10,10 @@ import {
 } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
 import {
+    turnoLabel,
+    aplicarClaseTurno
+} from "./uiEngine.js";
+import {
     getProfileData,
     saveProfileData,
     getBaseProfileData,
@@ -22,16 +26,23 @@ import {
     getCurrentProfile,
     getShiftAssigned,
     setShiftAssigned,
+    getAdminDays,
+    saveAdminDays,
     getLegalDays,
+    saveLegalDays,
     getCompDays,
+    saveCompDays,
     getAbsences,
+    saveAbsences,
     updateProfile,
     getRotativa,
     saveRotativa,
     getValorHora,
     setValorHora,
     getManualLeaveBalances,
-    saveManualLeaveBalances
+    saveManualLeaveBalances,
+    getSwaps,
+    saveSwaps
 } from "./storage.js";
 import {
     totalAdministrativosUsados,
@@ -58,6 +69,7 @@ let legalCantidad = 0;
 let licenseCantidad = 0;
 let licenseType = "license";
 let availabilityEditMode = false;
+let profileRotationMiniDate = new Date();
 
 const profileDraft = {
     mode: PROFILE_MODE.VIEW,
@@ -102,12 +114,16 @@ function parseInputDate(value){
     );
 }
 
-function toInputDate(date){
+function toISODate(date) {
     return [
         date.getFullYear(),
         String(date.getMonth() + 1).padStart(2, "0"),
         String(date.getDate()).padStart(2, "0")
     ].join("-");
+}
+
+function toInputDate(date){
+    return toISODate(date);
 }
 
 function normalizeStoredStart(start){
@@ -134,6 +150,18 @@ function inputDateToCalendarKey(value){
     if (parts.length !== 3) return "";
 
     return `${parts[0]}-${Number(parts[1]) - 1}-${Number(parts[2])}`;
+}
+
+function compareISODate(a, b) {
+    return String(a || "").localeCompare(String(b || ""));
+}
+
+function isDateKeyOnOrAfter(key, startDate) {
+    const date = parseKey(key);
+
+    if (Number.isNaN(date.getTime())) return false;
+
+    return date >= startDate;
 }
 
 function formatDisplayDate(value){
@@ -227,6 +255,25 @@ function decrementManualBalance(
         [field]: Math.max(
             0,
             normalizeBalanceValue(currentValue - amount)
+        )
+    });
+}
+
+function incrementManualBalance(
+    field,
+    amount,
+    year = new Date().getFullYear()
+) {
+    const manual = getManualLeaveBalances(year);
+    const currentValue = Number(manual[field]);
+
+    if (!Number.isFinite(currentValue)) return;
+
+    saveManualLeaveBalances(year, {
+        ...manual,
+        [field]: Math.max(
+            0,
+            normalizeBalanceValue(currentValue + amount)
         )
     });
 }
@@ -353,7 +400,7 @@ function buildRotationStatus(data){
         }
 
         if (!data.rotationStart) {
-            return `Marca en el calendario desde que fecha se aplicara ${getRotativaLabel(data.rotationType)}.`;
+            return `Marca en el mini calendario desde que fecha se aplicara ${getRotativaLabel(data.rotationType)}.`;
         }
 
         return `${getRotativaLabel(data.rotationType)} comenzara el ${formatDisplayDate(data.rotationStart)}.`;
@@ -361,7 +408,7 @@ function buildRotationStatus(data){
 
     if (profileDraft.mode === PROFILE_MODE.EDIT) {
         if (!data.rotationType) {
-            return "Selecciona la nueva rotativa y luego marca su fecha de inicio.";
+            return "Selecciona la nueva rotativa y luego marca su fecha de inicio en el mini calendario.";
         }
 
         if (!hasRotationChanged()) {
@@ -373,7 +420,7 @@ function buildRotationStatus(data){
         }
 
         if (!data.rotationStart) {
-            return `Marca en el calendario desde que fecha se aplicara la nueva ${getRotativaLabel(data.rotationType)}.`;
+            return `Marca en el mini calendario desde que fecha se aplicara la nueva ${getRotativaLabel(data.rotationType)}.`;
         }
 
         return `${getRotativaLabel(data.rotationType)} se aplicara desde ${formatDisplayDate(data.rotationStart)}.`;
@@ -392,11 +439,11 @@ function buildRotationStatus(data){
 
 function buildEditorHint(profile){
     if (profileDraft.mode === PROFILE_MODE.CREATE) {
-        return "Completa nombre, estamento, rotativa y marca en el calendario desde que fecha inicia antes de guardar.";
+        return "Completa nombre, estamento, rotativa y marca en el mini calendario desde que fecha inicia antes de guardar.";
     }
 
     if (profileDraft.mode === PROFILE_MODE.EDIT) {
-        return "Actualiza los datos del trabajador. Solo si cambias la rotativa debes marcar en el calendario desde que fecha aplica.";
+        return "Actualiza los datos del trabajador. Solo si cambias la rotativa debes marcar en el mini calendario desde que fecha aplica.";
     }
 
     if (profile) {
@@ -404,6 +451,118 @@ function buildEditorHint(profile){
     }
 
     return "Selecciona un colaborador para editarlo o crea uno nuevo.";
+}
+
+function getProfileRotationState(profileName, key) {
+    if (!profileName) return 0;
+
+    const baseData = getBaseProfileData(profileName);
+    const data = getProfileData(profileName);
+
+    if (Object.prototype.hasOwnProperty.call(baseData, key)) {
+        return Number(baseData[key]) || 0;
+    }
+
+    return Number(data[key]) || 0;
+}
+
+function renderProfileRotationMiniCalendar() {
+    if (!DOM.profileRotationMiniCalendar) return;
+
+    const y = profileRotationMiniDate.getFullYear();
+    const m = profileRotationMiniDate.getMonth();
+    const first = (new Date(y, m, 1).getDay() + 6) % 7;
+    const days = new Date(y, m + 1, 0).getDate();
+    const selectedKey =
+        inputDateToCalendarKey(profileDraft.rotationStart);
+    const profile = getPerfilActual();
+    const editing = isProfileEditing();
+    const canPick = editing && Boolean(profileDraft.rotationType);
+
+    let html = `
+        <div class="profile-mini-head">
+            <button id="profileMiniPrev" type="button" aria-label="Mes anterior">&lt;</button>
+            <strong>${profileRotationMiniDate.toLocaleString("es-CL", {
+                month: "long",
+                year: "numeric"
+            })}</strong>
+            <button id="profileMiniNext" type="button" aria-label="Mes siguiente">&gt;</button>
+        </div>
+
+        <div class="profile-mini-weekdays">
+            <span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span>
+        </div>
+
+        <div class="profile-mini-grid">
+    `;
+
+    for (let i = 0; i < first; i++) {
+        html += `<span class="profile-mini-spacer"></span>`;
+    }
+
+    for (let d = 1; d <= days; d++) {
+        const key = `${y}-${m}-${d}`;
+        const state = getProfileRotationState(profile?.name, key);
+        const cell = document.createElement("button");
+
+        cell.type = "button";
+        cell.className = "profile-mini-day";
+        cell.dataset.key = key;
+
+        if (selectedKey === key) {
+            cell.classList.add("is-selected");
+        }
+
+        if (canPick) {
+            cell.classList.add("is-pickable");
+        } else {
+            cell.disabled = true;
+        }
+
+        aplicarClaseTurno(cell, state);
+        cell.innerHTML = `
+            <span>${d}</span>
+            <small>${turnoLabel(state)}</small>
+        `;
+
+        html += cell.outerHTML;
+    }
+
+    html += `
+        </div>
+        <p class="profile-mini-help">
+            ${canPick
+                ? "Selecciona aqui desde que fecha se aplicara la rotativa escogida."
+                : "Presiona Crear Nuevo o Editar y escoge una rotativa para seleccionar fecha."}
+        </p>
+    `;
+
+    DOM.profileRotationMiniCalendar.innerHTML = html;
+
+    document.getElementById("profileMiniPrev").onclick = () => {
+        profileRotationMiniDate.setMonth(
+            profileRotationMiniDate.getMonth() - 1
+        );
+        renderProfileRotationMiniCalendar();
+    };
+
+    document.getElementById("profileMiniNext").onclick = () => {
+        profileRotationMiniDate.setMonth(
+            profileRotationMiniDate.getMonth() + 1
+        );
+        renderProfileRotationMiniCalendar();
+    };
+
+    DOM.profileRotationMiniCalendar
+        .querySelectorAll(".profile-mini-day.is-pickable")
+        .forEach(button => {
+            button.onclick = () => {
+                const date = parseKey(button.dataset.key);
+
+                profileDraft.rotationStart = toInputDate(date);
+                renderDashboardState();
+            };
+        });
 }
 
 function renderDisponibilidadVacaciones() {
@@ -549,6 +708,8 @@ function renderDashboardState() {
     DOM.profileRotationStatus.textContent =
         buildRotationStatus(data);
 
+    renderProfileRotationMiniCalendar();
+
     DOM.profileEditorHint.textContent =
         buildEditorHint(profile);
 
@@ -581,16 +742,6 @@ function renderBotones() {
     const shiftAssigned = isProfileEditing()
         ? Boolean(profileDraft.shiftAssigned)
         : getShiftAssigned();
-
-    DOM.autoDiurnoBtn.classList.toggle(
-        "hidden",
-        !hasProfile
-    );
-
-    DOM.autoCuartoBtn.classList.toggle(
-        "hidden",
-        !hasProfile
-    );
 
     DOM.compBtn.classList.toggle(
         "hidden",
@@ -816,6 +967,7 @@ function startCreateMode() {
     clearSelectionMode(false);
     clearDraftValues();
     availabilityEditMode = false;
+    profileRotationMiniDate = new Date();
 
     profileDraft.mode = PROFILE_MODE.CREATE;
     setCurrentProfile(null);
@@ -834,6 +986,9 @@ function startEditMode() {
     clearSelectionMode(false);
     availabilityEditMode = false;
     loadDraftFromProfile(profile);
+    profileRotationMiniDate = profileDraft.rotationStart
+        ? parseInputDate(profileDraft.rotationStart)
+        : new Date();
     profileDraft.mode = PROFILE_MODE.EDIT;
 
     renderDashboardState();
@@ -855,18 +1010,6 @@ function exitProfileMode(selectedName = getCurrentProfile()) {
     renderBotones();
 }
 
-function requestRotationStartSelection() {
-    if (!isProfileEditing()) return;
-    if (!profileDraft.rotationType) return;
-
-    activarModo(
-        "profile-rotation",
-        `Marca en el calendario desde que fecha se aplicara ${getRotativaLabel(profileDraft.rotationType)}`
-    );
-
-    setActiveShortcut("calendarPanel");
-}
-
 function handleRotationSelectionChange() {
     if (!isProfileEditing()) return;
 
@@ -882,8 +1025,7 @@ function handleRotationSelectionChange() {
     }
 
     renderDashboardState();
-    requestRotationStartSelection();
-    refreshAll();
+    setActiveShortcut("profileSection");
 }
 
 function validateDraft() {
@@ -910,6 +1052,159 @@ function validateDraft() {
         `Falta completar: ${missing.join(", ")}.`
     );
     return false;
+}
+
+function futureKeys(map, startDate) {
+    return Object.keys(map || {}).filter(key =>
+        isDateKeyOnOrAfter(key, startDate)
+    );
+}
+
+function pushReturnKey(target, key) {
+    const year = key.split("-")[0];
+
+    if (!target[year]) target[year] = [];
+
+    target[year].push(key);
+}
+
+async function countBusinessKeys(keys) {
+    const holidaysByYear = {};
+    let total = 0;
+
+    for (const key of keys) {
+        const date = parseKey(key);
+        const year = date.getFullYear();
+
+        if (!holidaysByYear[year]) {
+            holidaysByYear[year] = await fetchHolidays(year);
+        }
+
+        if (isBusinessDay(date, holidaysByYear[year])) {
+            total++;
+        }
+    }
+
+    return total;
+}
+
+async function returnBusinessBalances(field, keysByYear) {
+    for (const [year, keys] of Object.entries(keysByYear)) {
+        const total = await countBusinessKeys(keys);
+        incrementManualBalance(field, total, Number(year));
+    }
+}
+
+function returnAdminBalances(amountByYear) {
+    Object.entries(amountByYear).forEach(([year, amount]) => {
+        incrementManualBalance("admin", amount, Number(year));
+    });
+}
+
+function cleanupFutureSwaps(profileName, startISO) {
+    const nextSwaps = [];
+
+    getSwaps().forEach(swap => {
+        if (
+            swap.from !== profileName &&
+            swap.to !== profileName
+        ) {
+            nextSwaps.push(swap);
+            return;
+        }
+
+        const skipFecha =
+            Boolean(swap.skipFecha) ||
+            (
+                swap.fecha &&
+                compareISODate(swap.fecha, startISO) >= 0
+            );
+        const skipDevolucion =
+            Boolean(swap.skipDevolucion) ||
+            (
+                swap.devolucion &&
+                compareISODate(swap.devolucion, startISO) >= 0
+            );
+
+        if (skipFecha && skipDevolucion) {
+            return;
+        }
+
+        nextSwaps.push({
+            ...swap,
+            skipFecha,
+            skipDevolucion
+        });
+    });
+
+    saveSwaps(nextSwaps);
+}
+
+async function cleanupFutureSchedule(startDate) {
+    const profileName = getCurrentProfile();
+
+    if (!profileName) return;
+
+    const data = getProfileData();
+    const baseData = getBaseProfileData();
+    const blocked = getBlockedDays();
+    const admin = getAdminDays();
+    const legal = getLegalDays();
+    const comp = getCompDays();
+    const absences = getAbsences();
+    const returnedLegal = {};
+    const returnedComp = {};
+    const returnedAdmin = {};
+    const startISO = toISODate(startDate);
+
+    futureKeys(data, startDate).forEach(key => {
+        delete data[key];
+    });
+
+    futureKeys(baseData, startDate).forEach(key => {
+        delete baseData[key];
+    });
+
+    futureKeys(blocked, startDate).forEach(key => {
+        delete blocked[key];
+    });
+
+    futureKeys(legal, startDate).forEach(key => {
+        delete legal[key];
+        pushReturnKey(returnedLegal, key);
+    });
+
+    futureKeys(comp, startDate).forEach(key => {
+        delete comp[key];
+        pushReturnKey(returnedComp, key);
+    });
+
+    futureKeys(admin, startDate).forEach(key => {
+        const amount = admin[key] === 1 ? 1 : 0.5;
+        const year = key.split("-")[0];
+
+        delete admin[key];
+        returnedAdmin[year] =
+            (returnedAdmin[year] || 0) + amount;
+    });
+
+    futureKeys(absences, startDate).forEach(key => {
+        delete absences[key];
+    });
+
+    cleanupFutureSwaps(profileName, startISO);
+
+    await returnBusinessBalances("legal", returnedLegal);
+    await returnBusinessBalances("comp", returnedComp);
+    returnAdminBalances(returnedAdmin);
+
+    saveProfileData(data);
+    saveBaseProfileData(baseData);
+    saveBlockedDays(blocked);
+    saveAdminDays(admin);
+    saveLegalDays(legal);
+    saveCompDays(comp);
+    saveAbsences(absences);
 }
 
 async function aplicarDiurnoDesde(fecha) {
@@ -988,6 +1283,8 @@ function aplicarCuartoTurnoDesde(fecha) {
 
 async function applyDraftRotation(rotationType, rotationStart) {
     const startDate = parseInputDate(rotationStart);
+
+    await cleanupFutureSchedule(startDate);
 
     if (rotationType === "diurno") {
         await aplicarDiurnoDesde(startDate);
@@ -1361,12 +1658,6 @@ function bindShellInteractions() {
         });
 }
 
-DOM.autoDiurnoBtn.onclick = () =>
-    activarModo("diurno", "Selecciona el inicio del auto diurno");
-
-DOM.autoCuartoBtn.onclick = () =>
-    activarModo("cuarto", "Selecciona el inicio del cuarto turno");
-
 DOM.adminBtn.onclick = activarSelectorAdmin;
 DOM.halfAdminMorningBtn.onclick =
     () => activarSelectorHalfAdmin("M");
@@ -1411,14 +1702,6 @@ document.addEventListener("click", async event => {
         Number(celda.dataset.month),
         Number(celda.dataset.day)
     );
-
-    if (selectionMode === "profile-rotation") {
-        profileDraft.rotationStart = toInputDate(fecha);
-        clearSelectionMode(false);
-        renderDashboardState();
-        refreshAll();
-        return;
-    }
 
     if (selectionMode === "license") {
         pushHistory();
@@ -1515,18 +1798,6 @@ document.addEventListener("click", async event => {
         return;
     }
 
-    if (selectionMode === "diurno") {
-        pushHistory();
-        await aplicarDiurnoDesde(fecha);
-        clearSelectionMode();
-        return;
-    }
-
-    if (selectionMode === "cuarto") {
-        pushHistory();
-        aplicarCuartoTurnoDesde(fecha);
-        clearSelectionMode();
-    }
 });
 
 initTheme();

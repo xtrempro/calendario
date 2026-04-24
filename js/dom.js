@@ -13,6 +13,7 @@ export const DOM = {
     profileRoleSelect: document.getElementById("profileRoleField"),
     profileRotationSelect: document.getElementById("profileRotationField"),
     profileRotationStatus: document.getElementById("profileRotationStatus"),
+    profileRotationMiniCalendar: document.getElementById("profileRotationMiniCalendar"),
     profileEditorHint: document.getElementById("profileEditorHint"),
 
     /* config */
@@ -21,8 +22,6 @@ export const DOM = {
     themeToggle: document.getElementById("themeToggle"),
 
     /* botones turnos */
-    autoDiurnoBtn: document.getElementById("autoDiurnoBtn"),
-    autoCuartoBtn: document.getElementById("autoCuartoBtn"),
     adminBtn: document.getElementById("adminBtn"),
     adminBtnLabel: document.getElementById("adminBtnLabel"),
     halfAdminMorningBtn: document.getElementById("halfAdminMorningBtn"),

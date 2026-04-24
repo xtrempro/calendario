@@ -179,10 +179,6 @@ export async function renderCalendar() {
                 isDraftSelected: draftKey === keyDay
             });
 
-            if (window.selectionMode === "profile-rotation") {
-                div.classList.add("mpa-enabled");
-            }
-
             cal.appendChild(div);
         }
 

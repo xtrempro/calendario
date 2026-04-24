@@ -92,7 +92,7 @@ export function aplicarCambiosTurno(nombre, key, turnoBase) {
            FECHA ORIGINAL
         ================================================== */
 
-        if (s.fecha === fechaISO) {
+        if (!s.skipFecha && s.fecha === fechaISO) {
 
             /* quien entrega pierde su turno */
             if (s.from === nombre) {
@@ -114,7 +114,7 @@ export function aplicarCambiosTurno(nombre, key, turnoBase) {
            FECHA DEVOLUCIÓN
         ================================================== */
 
-        if (s.devolucion === fechaISO) {
+        if (!s.skipDevolucion && s.devolucion === fechaISO) {
 
             /* trabajador B devuelve SOLO el turno pactado */
             if (s.to === nombre) {
