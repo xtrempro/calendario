@@ -3,6 +3,7 @@ import { getCurrentProfile } from "./storage.js";
 
 const KEY = "auditLog";
 const MAX_LOGS = 1500;
+let selectedMonth = "";
 
 export const AUDIT_CATEGORY = {
     TURN_CHANGES: "turn_changes",
@@ -89,6 +90,21 @@ function formatTimestamp(value) {
     });
 }
 
+function monthValue(date = new Date()) {
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0")
+    ].join("-");
+}
+
+function logMonthValue(log) {
+    const date = new Date(log.createdAt);
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    return monthValue(date);
+}
+
 function sortedLogs() {
     return getAuditLogs()
         .slice()
@@ -137,6 +153,16 @@ function entryHTML(log) {
     `;
 }
 
+function filterLogsBySelectedMonth(logs) {
+    if (!selectedMonth) {
+        selectedMonth = monthValue();
+    }
+
+    return logs.filter(log =>
+        logMonthValue(log) === selectedMonth
+    );
+}
+
 export function getAuditCategories() {
     return CATEGORY_DEFS.map(item => ({ ...item }));
 }
@@ -175,11 +201,23 @@ export function renderAuditLogPanel() {
     const box = document.getElementById("auditLogPanel");
     if (!box) return;
 
-    const logs = sortedLogs();
+    if (!selectedMonth) {
+        selectedMonth = monthValue();
+    }
+
+    const allLogs = sortedLogs();
+    const logs = filterLogsBySelectedMonth(allLogs);
 
     box.innerHTML = `
-        <div class="section-head">
-            <h3>LOG / Bitacora de Modificaciones</h3>
+        <div class="section-head section-head--with-action">
+            <span class="section-head__title">
+                <h3>LOG / Bitacora de Modificaciones</h3>
+            </span>
+
+            <label class="audit-month-filter">
+                <span>Mes</span>
+                <input id="auditMonthFilter" type="month" value="${escapeHTML(selectedMonth)}">
+            </label>
         </div>
 
         <div class="audit-summary-grid">
@@ -191,7 +229,7 @@ export function renderAuditLogPanel() {
         <div class="audit-feed">
             <div class="audit-feed__head">
                 <h4>Detalle de registros</h4>
-                <span>${logs.length} registros guardados</span>
+                <span>${logs.length} de ${allLogs.length} registros</span>
             </div>
             ${logs.length
                 ? logs.map(entryHTML).join("")
@@ -202,6 +240,15 @@ export function renderAuditLogPanel() {
                 `}
         </div>
     `;
+
+    const filter = document.getElementById("auditMonthFilter");
+
+    if (filter) {
+        filter.onchange = () => {
+            selectedMonth = filter.value || monthValue();
+            renderAuditLogPanel();
+        };
+    }
 }
 
 window.renderAuditLogPanel = renderAuditLogPanel;

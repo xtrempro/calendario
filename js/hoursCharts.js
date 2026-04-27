@@ -327,8 +327,18 @@ export function initHoursCharts(getCurrentProfileData) {
     }
 
     if (DOM.hheeChartMonth) {
-        DOM.hheeChartMonth.onchange = () =>
+        DOM.hheeChartMonth.onchange = () => {
+            if (
+                typeof window.setHoursMonthFromValue === "function"
+            ) {
+                window.setHoursMonthFromValue(
+                    DOM.hheeChartMonth.value
+                );
+                return;
+            }
+
             renderHoursCharts(getCurrentProfileData?.());
+        };
     }
 
     if (DOM.hheeHistoryYears) {

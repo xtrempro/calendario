@@ -1,5 +1,8 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap");
+
 :root {
-    --font-ui: "Aptos", "Segoe UI", sans-serif;
+    --font-ui: "Plus Jakarta Sans", "Aptos", "Segoe UI", sans-serif;
+    --font-display: "Sora", "Plus Jakarta Sans", "Aptos", sans-serif;
     --radius-xl: 24px;
     --radius-lg: 18px;
     --radius-md: 14px;
@@ -25,18 +28,33 @@
 
 html {
     scroll-behavior: smooth;
+    font-family: var(--font-ui);
 }
 
 body {
     margin: 0;
     min-height: 100vh;
     font-family: var(--font-ui);
+    font-feature-settings: "liga" 1, "kern" 1;
     color: var(--text);
     background:
         radial-gradient(circle at top left, var(--bg-glow-1), transparent 28%),
         radial-gradient(circle at top right, var(--bg-glow-2), transparent 22%),
         linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
     transition: background 0.25s ease, color 0.25s ease;
+}
+
+h1,
+h2,
+h3,
+h4,
+.brand-copy strong,
+.panel-title,
+.nav-tile span,
+.calendar-header h2,
+.swap-monthbar strong,
+.hhee-monthbar strong {
+    font-family: var(--font-display);
 }
 
 body::before,
@@ -120,16 +138,26 @@ body.theme-light {
     --shadow-soft: 0 14px 28px rgba(17, 32, 56, 0.08);
 }
 
-body,
 input,
 select,
+textarea,
+label,
 button {
     font: inherit;
 }
 
 button,
 input,
-select {
+select,
+textarea,
+label {
+    font-family: var(--font-ui);
+}
+
+button,
+input,
+select,
+textarea {
     outline: none;
 }
 
@@ -139,8 +167,13 @@ button {
 }
 
 input,
-select {
+select,
+textarea {
     width: 100%;
+    font-family: var(--font-ui);
+    font-size: 0.96rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
     border: 1px solid var(--field-border);
     background: var(--field);
     color: var(--text);
@@ -150,19 +183,8 @@ select {
 }
 
 textarea {
-    width: 100%;
-    border: 1px solid var(--field-border);
-    background: var(--field);
-    color: var(--text);
-    border-radius: var(--radius-sm);
-    padding: 12px 14px;
     resize: vertical;
     min-height: 92px;
-}
-
-textarea:focus {
-    border-color: rgba(29, 108, 255, 0.48);
-    box-shadow: 0 0 0 4px rgba(29, 108, 255, 0.12);
 }
 
 input::placeholder {
@@ -170,13 +192,15 @@ input::placeholder {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
     border-color: rgba(29, 108, 255, 0.48);
     box-shadow: 0 0 0 4px rgba(29, 108, 255, 0.12);
 }
 
 input:disabled,
-select:disabled {
+select:disabled,
+textarea:disabled {
     cursor: default;
     opacity: 1;
     color: var(--text);
@@ -233,14 +257,22 @@ svg {
     border-radius: 14px;
     display: grid;
     place-items: center;
+    overflow: hidden;
     color: #fff;
-    background: linear-gradient(135deg, #2e7dff, #1664ef);
-    box-shadow: 0 18px 32px rgba(29, 108, 255, 0.3);
+    background: transparent;
+    box-shadow: 0 18px 32px rgba(29, 108, 255, 0.18);
 }
 
 .brand-mark svg {
     width: 28px;
     height: 28px;
+}
+
+.brand-logo {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
 }
 
 .brand-copy {
@@ -249,8 +281,14 @@ svg {
 }
 
 .brand-copy strong {
+    color: #2c7be5;
     font-size: clamp(1.5rem, 2vw, 2.35rem);
-    letter-spacing: -0.04em;
+    letter-spacing: -0.055em;
+    line-height: 0.95;
+}
+
+.brand-accent {
+    color: #72ba6a;
 }
 
 .brand-copy span {
@@ -472,6 +510,7 @@ body.theme-dark .theme-switch__thumb {
 .profile-list {
     display: grid;
     gap: 10px;
+    font-family: var(--font-ui);
 }
 
 .profile-item {
@@ -531,9 +570,15 @@ body.theme-dark .theme-switch__thumb {
 
 .profile-item__content strong,
 .profile-item__content span {
+    font-family: var(--font-ui);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.profile-item__content strong {
+    font-weight: 800;
+    letter-spacing: -0.02em;
 }
 
 .profile-item__content span {
@@ -765,6 +810,7 @@ body[data-active-view="log"] .secondary-grid {
     border-radius: 18px;
     background: var(--field);
     border: 1px solid var(--border);
+    font-family: var(--font-ui);
 }
 
 .record-card__head {
@@ -838,11 +884,13 @@ body[data-active-view="log"] .secondary-grid {
     gap: 4px;
     color: var(--text-soft);
     font-size: 0.88rem;
+    font-weight: 500;
     line-height: 1.35;
 }
 
 .record-item__values strong {
     color: var(--text);
+    font-weight: 800;
 }
 
 .record-item small {
@@ -879,8 +927,11 @@ body[data-active-view="log"] .secondary-grid {
 }
 
 .metric-label {
+    font-family: var(--font-display);
     color: var(--text-soft);
-    font-size: 0.98rem;
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
 }
 
 .metric-row--field .metric-label {
@@ -895,6 +946,8 @@ body[data-active-view="log"] .secondary-grid {
 .metric-row--field input,
 .metric-row--field select {
     min-width: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
 }
 
 .metric-input input {
@@ -1247,6 +1300,8 @@ body[data-active-view="log"] .secondary-grid {
 
 .nav-tile span {
     font-size: 0.92rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
 }
 
 .nav-icon {
@@ -1978,6 +2033,25 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
     gap: 16px;
 }
 
+.hhee-monthbar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin: -2px 0 16px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--panel-alt);
+}
+
+.hhee-monthbar strong {
+    min-width: 190px;
+    text-align: center;
+    color: var(--text-strong);
+    letter-spacing: 0.02em;
+}
+
 .hhee-chart-controls {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2506,6 +2580,19 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
+}
+
+.audit-month-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-soft);
+    font-size: 0.88rem;
+    font-weight: 800;
+}
+
+.audit-month-filter input {
+    width: 170px;
 }
 
 .audit-summary-card {

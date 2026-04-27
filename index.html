@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ProTurnos</title>
+<link rel="icon" type="image/png" href="img/logo-turnosalud.png">
 <link rel="stylesheet" href="styles.css">
 </head>
 
@@ -12,16 +13,11 @@
     <header class="topbar">
         <div class="brand">
             <div class="brand-mark" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="9.5" cy="7" r="3"></circle>
-                    <path d="M17 11l2 2 4-4"></path>
-                    <path d="M17 17h4"></path>
-                </svg>
+                <img class="brand-logo" src="img/logo-turnosalud.png" alt="">
             </div>
 
             <div class="brand-copy">
-                <strong>LOGO</strong>
+                <strong>TURNO <span class="brand-accent">SALUD</span></strong>
                 <span>Gesti&#243;n de turnos</span>
             </div>
         </div>
@@ -590,6 +586,18 @@
 
                             <button id="printHoursReportBtn" class="secondary-button secondary-button--small" type="button">
                                 Imprimir reporte
+                            </button>
+                        </div>
+
+                        <div class="hhee-monthbar">
+                            <button id="hheePrevMonth" class="swap-month-button" type="button" aria-label="Mes anterior HH.EE">
+                                &lt;
+                            </button>
+
+                            <strong id="hheeMonthLabel">Mes HH.EE</strong>
+
+                            <button id="hheeNextMonth" class="swap-month-button" type="button" aria-label="Mes siguiente HH.EE">
+                                &gt;
                             </button>
                         </div>
 

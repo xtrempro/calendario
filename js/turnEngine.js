@@ -69,6 +69,19 @@ function isoFromKey(key) {
     return `${p[0]}-${String(Number(p[1]) + 1).padStart(2, "0")}-${String(p[2]).padStart(2, "0")}`;
 }
 
+function offsetKey(key, offset) {
+    const p = key.split("-");
+    const date = new Date(
+        Number(p[0]),
+        Number(p[1]),
+        Number(p[2])
+    );
+
+    date.setDate(date.getDate() + offset);
+
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
 function turnoDesdeCodigoSwap(valor) {
 
     if (valor === "N") return TURNO.NOCHE;
@@ -202,21 +215,21 @@ export function aplicarCambiosTurno(
    SIGUIENTE TURNO (click manual calendario)
 ====================================================== */
 
-export function siguienteTurno(actual, isHab) {
+export function siguienteTurno(actual, isHab = true) {
 
     actual = Number(actual) || TURNO.LIBRE;
 
-    /* Día inhábil: solo rota básicos */
     if (!isHab) {
         switch (actual) {
             case TURNO.LIBRE: return TURNO.LARGA;
             case TURNO.LARGA: return TURNO.NOCHE;
-            case TURNO.NOCHE: return TURNO.LIBRE;
+            case TURNO.NOCHE: return TURNO.TURNO24;
+            case TURNO.TURNO24: return TURNO.LIBRE;
             default: return TURNO.LIBRE;
         }
     }
 
-    /* Día hábil */
+    /* En dias habiles tambien se permite Diurno y D+N. */
     switch (actual) {
         case TURNO.LIBRE: return TURNO.LARGA;
         case TURNO.LARGA: return TURNO.NOCHE;
@@ -246,6 +259,153 @@ export function getTurnoReal(nombre, key) {
         key,
         turnoBase
     );
+}
+
+function estadoTurno(nombre, key) {
+    const data = getProfileData(nombre);
+
+    return aplicarCambiosTurno(
+        nombre,
+        key,
+        Number(data[key]) || TURNO.LIBRE
+    );
+}
+
+export function turnoBloqueadoPorTurno24(nombre, key, turno) {
+    const candidate = Number(turno) || TURNO.LIBRE;
+
+    if (!nombre || !candidate) return false;
+
+    const anterior = estadoTurno(nombre, offsetKey(key, -1));
+    const siguiente = estadoTurno(nombre, offsetKey(key, 1));
+
+    if (candidate === TURNO.TURNO24) {
+        if (
+            [
+                TURNO.LARGA,
+                TURNO.TURNO24,
+                TURNO.DIURNO,
+                TURNO.DIURNO_NOCHE
+            ].includes(siguiente)
+        ) {
+            return true;
+        }
+
+        if (
+            [
+                TURNO.NOCHE,
+                TURNO.TURNO24,
+                TURNO.DIURNO_NOCHE
+            ].includes(anterior)
+        ) {
+            return true;
+        }
+    }
+
+    if (
+        siguiente === TURNO.TURNO24 &&
+        (
+            candidate === TURNO.NOCHE ||
+            candidate === TURNO.TURNO24 ||
+            candidate === TURNO.DIURNO_NOCHE
+        )
+    ) {
+        return true;
+    }
+
+    if (
+        anterior === TURNO.TURNO24 &&
+        (
+            candidate === TURNO.LARGA ||
+            candidate === TURNO.TURNO24 ||
+            candidate === TURNO.DIURNO ||
+            candidate === TURNO.DIURNO_NOCHE
+        )
+    ) {
+        return true;
+    }
+
+    return false;
+}
+
+function allowedTurnsForBase(baseTurno, isHab) {
+    const base = Number(baseTurno) || TURNO.LIBRE;
+
+    if (base === TURNO.LARGA) {
+        return [
+            TURNO.LARGA,
+            TURNO.TURNO24
+        ];
+    }
+
+    if (base === TURNO.NOCHE) {
+        return [
+            TURNO.NOCHE,
+            TURNO.TURNO24,
+            ...(isHab ? [TURNO.DIURNO_NOCHE] : [])
+        ];
+    }
+
+    return null;
+}
+
+function siguienteEnLista(actual, turnos) {
+    const disponibles = Array.from(
+        new Set(
+            (turnos || [])
+                .map(turno => Number(turno) || TURNO.LIBRE)
+        )
+    );
+
+    if (!disponibles.length) return TURNO.LIBRE;
+
+    const index = disponibles.indexOf(
+        Number(actual) || TURNO.LIBRE
+    );
+
+    if (index < 0) return disponibles[0];
+
+    return disponibles[(index + 1) % disponibles.length];
+}
+
+export function siguienteTurnoValido(
+    nombre,
+    key,
+    actual,
+    isHab = true,
+    options = {}
+) {
+    const inicial = Number(actual) || TURNO.LIBRE;
+    const visitados = new Set();
+    const baseTurno =
+        Number(options.baseTurno) || TURNO.LIBRE;
+    const allowedTurns =
+        allowedTurnsForBase(baseTurno, isHab);
+    const disallowLibre =
+        Boolean(options.disallowLibre) ||
+        baseTurno > TURNO.LIBRE;
+    const nextCandidate = turno =>
+        allowedTurns
+            ? siguienteEnLista(turno, allowedTurns)
+            : siguienteTurno(turno, isHab);
+    let candidate = nextCandidate(inicial);
+    const isBlocked = turno =>
+        (
+            disallowLibre &&
+            Number(turno) === TURNO.LIBRE
+        ) ||
+        turnoBloqueadoPorTurno24(nombre, key, turno);
+
+    while (
+        candidate !== inicial &&
+        !visitados.has(candidate) &&
+        isBlocked(candidate)
+    ) {
+        visitados.add(candidate);
+        candidate = nextCandidate(candidate);
+    }
+
+    return candidate;
 }
 
 export function getTurnoBase(nombre, key) {

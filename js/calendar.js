@@ -2,7 +2,7 @@ import {
     aplicarCambiosTurno,
     fusionarTurnos,
     getTurnoBase,
-    siguienteTurno
+    siguienteTurnoValido
 } from "./turnEngine.js";
 import {
     calcularHorasMes,
@@ -72,8 +72,71 @@ import {
 
 export let currentDate = new Date();
 
+const CALENDAR_AUDIT_DELAY_MS = 60000;
+const calendarAuditTimers = new Map();
+const calendarAuditDrafts = new Map();
+
 function key(y, m, d) {
     return `${y}-${m}-${d}`;
+}
+
+function scheduleCalendarAuditLog({
+    profile,
+    keyDay,
+    previousTurn,
+    nextTurn
+}) {
+    if (!profile || !keyDay) return;
+
+    const id = `${profile}::${keyDay}`;
+    const currentDraft =
+        calendarAuditDrafts.get(id);
+    const draft = {
+        profile,
+        keyDay,
+        previousTurn: currentDraft
+            ? currentDraft.previousTurn
+            : previousTurn,
+        nextTurn
+    };
+
+    calendarAuditDrafts.set(id, draft);
+
+    if (calendarAuditTimers.has(id)) {
+        clearTimeout(calendarAuditTimers.get(id));
+    }
+
+    calendarAuditTimers.set(
+        id,
+        setTimeout(() => {
+            const finalDraft =
+                calendarAuditDrafts.get(id);
+
+            calendarAuditTimers.delete(id);
+            calendarAuditDrafts.delete(id);
+
+            if (!finalDraft) return;
+            if (
+                Number(finalDraft.previousTurn) ===
+                Number(finalDraft.nextTurn)
+            ) {
+                return;
+            }
+
+            addAuditLog(
+                AUDIT_CATEGORY.CALENDAR,
+                "Modifico turno manualmente",
+                `${finalDraft.profile}: ${finalDraft.keyDay} paso de ${turnoLabel(finalDraft.previousTurn) || "Libre"} a ${turnoLabel(finalDraft.nextTurn) || "Libre"}.`,
+                {
+                    profile: finalDraft.profile,
+                    keyDay: finalDraft.keyDay,
+                    previousTurn: finalDraft.previousTurn,
+                    nextTurn: finalDraft.nextTurn,
+                    delayed: true
+                }
+            );
+        }, CALENDAR_AUDIT_DELAY_MS)
+    );
 }
 
 function buildDayCell({
@@ -705,7 +768,19 @@ async function clickDia(
         return;
     }
 
-    const nuevo = siguienteTurno(state, isHab);
+    const baseTurno = getTurnoBase(
+        getCurrentProfile(),
+        keyDay
+    );
+    const nuevo = siguienteTurnoValido(
+        getCurrentProfile(),
+        keyDay,
+        state,
+        isHab,
+        {
+            baseTurno
+        }
+    );
 
     if (typeof window.pushUndoState === "function") {
         window.pushUndoState(
@@ -715,17 +790,12 @@ async function clickDia(
 
     data[keyDay] = nuevo;
     saveProfileData(data);
-    addAuditLog(
-        AUDIT_CATEGORY.CALENDAR,
-        "Modifico turno manualmente",
-        `${getCurrentProfile()}: ${keyDay} paso de ${turnoLabel(state) || "Libre"} a ${turnoLabel(nuevo) || "Libre"}.`,
-        {
-            profile: getCurrentProfile(),
-            keyDay,
-            previousTurn: state,
-            nextTurn: nuevo
-        }
-    );
+    scheduleCalendarAuditLog({
+        profile: getCurrentProfile(),
+        keyDay,
+        previousTurn: state,
+        nextTurn: nuevo
+    });
 
     await renderCalendar();
 }

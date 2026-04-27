@@ -258,6 +258,23 @@ function toInputDate(date){
     return toISODate(date);
 }
 
+function toMonthInputValue(date) {
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0")
+    ].join("-");
+}
+
+function parseMonthInputValue(value) {
+    const parts = String(value || "").split("-");
+    const year = Number(parts[0]);
+    const month = Number(parts[1]) - 1;
+
+    if (!year || month < 0) return null;
+
+    return new Date(year, month, 1);
+}
+
 function normalizeStoredStart(start){
     if (!start) return "";
 
@@ -337,6 +354,16 @@ function formatSaldo(value) {
             .toFixed(1)
             .replace(".0", "")
             .replace(".", ",");
+}
+
+function formatMonthHeading(date) {
+    return date.toLocaleString(
+        "es-CL",
+        {
+            month: "long",
+            year: "numeric"
+        }
+    ).toUpperCase();
 }
 
 function normalizeBalanceValue(value) {
@@ -558,6 +585,47 @@ function renderAttachmentName(entry) {
         ? `<small>Clip: ${escapeHTML(entry.file.name)}</small>`
         : "";
 }
+
+function syncHoursMonthControls(forceChartMonth = false) {
+    if (DOM.hheeMonthLabel) {
+        DOM.hheeMonthLabel.textContent =
+            formatMonthHeading(profileRotationMiniDate);
+    }
+
+    if (
+        DOM.hheeChartMonth &&
+        (
+            forceChartMonth ||
+            !DOM.hheeChartMonth.value
+        )
+    ) {
+        DOM.hheeChartMonth.value =
+            toMonthInputValue(profileRotationMiniDate);
+    }
+}
+
+function setHoursMonthFromValue(value) {
+    const nextDate = parseMonthInputValue(value);
+
+    if (!nextDate) return;
+
+    profileRotationMiniDate = nextDate;
+    syncHoursMonthControls(true);
+    renderDashboardState();
+}
+
+function changeHoursMonth(offset) {
+    profileRotationMiniDate = new Date(
+        profileRotationMiniDate.getFullYear(),
+        profileRotationMiniDate.getMonth() + offset,
+        1
+    );
+
+    syncHoursMonthControls(true);
+    renderDashboardState();
+}
+
+window.setHoursMonthFromValue = setHoursMonthFromValue;
 
 function getRotativaLabel(type){
     if (type === "3turno") return "3er Turno";
@@ -1010,7 +1078,7 @@ async function renderProfileHoursSummary(profile = getPerfilActual()) {
 
     summary.innerHTML = `
         <div class="summary-context">
-            Mes visualizado en mini calendario: ${monthLabel}
+            Mes HH.EE visualizado: ${monthLabel}
         </div>
         ${renderSummaryHTML(stats)}
         ${renderReplacementLogHTML(profile.name, y, m, holidays)}
@@ -1701,6 +1769,10 @@ function renderDashboardState() {
         profileDraft.mode === PROFILE_MODE.CREATE ||
         (!profile && profileDraft.mode !== PROFILE_MODE.EDIT);
 
+    syncHoursMonthControls(
+        document.body.dataset.activeView === "hours"
+    );
+
     if (DOM.printHoursReportBtn) {
         DOM.printHoursReportBtn.disabled =
             !profile || profileDraft.mode === PROFILE_MODE.CREATE;
@@ -1802,6 +1874,7 @@ function setActiveShortcut(targetId) {
     setDashboardView(nextView);
 
     if (nextView === "hours") {
+        syncHoursMonthControls(true);
         renderHoursCharts(getPerfilActual());
     }
 
@@ -3007,6 +3080,16 @@ function bindProfileForm() {
                 getPerfilActual(),
                 profileRotationMiniDate
             );
+    }
+
+    if (DOM.hheePrevMonthBtn) {
+        DOM.hheePrevMonthBtn.onclick = () =>
+            changeHoursMonth(-1);
+    }
+
+    if (DOM.hheeNextMonthBtn) {
+        DOM.hheeNextMonthBtn.onclick = () =>
+            changeHoursMonth(1);
     }
 }
 
