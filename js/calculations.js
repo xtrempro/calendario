@@ -58,26 +58,24 @@ export function calc24(date,h){
     if(dow===0) return nextHab?{d:1,n:23}:{d:0,n:24};
 }
 
-export function calcDiurno(date){
+export function calcDiurno(date,h={}){
+    if(!isBusinessDay(date,h)) return {d:0,n:0};
+
     const d=date.getDay();
-    if([1,2,3,4].includes(d)) return {d:9,n:0};
-    if(d===5) return {d:8,n:0};
+
+    if([1,2,3,4,5].includes(d)) return {d:8.8,n:0};
+
     return {d:0,n:0};
 }
 
 export function calcDiaNoche(date,h){
-    const dow=date.getDay();
+    const diurno=calcDiurno(date,h);
+    const noche=calcNight(date,h);
 
-    const next=new Date(date);
-    next.setDate(date.getDate()+1);
-    const nextHab=isBusinessDay(next,h);
-
-    if([1,2,3,4].includes(dow))
-        return nextHab?{d:11,n:10}:{d:10,n:11};
-
-    if(dow===5) return {d:9,n:11};
-
-    return {d:0,n:0};
+    return {
+        d:diurno.d+noche.d,
+        n:noche.n
+    };
 }
 
 export function calcHours(date,state,h){
@@ -88,7 +86,7 @@ export function calcHours(date,state,h){
 
     if(state===2) return calcNight(date,h);
     if(state===3) return calc24(date,h);
-    if(state===4) return calcDiurno(date);
+    if(state===4) return calcDiurno(date,h);
     if(state===5) return calcDiaNoche(date,h);
 }
 

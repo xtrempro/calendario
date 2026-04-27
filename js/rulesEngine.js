@@ -28,6 +28,117 @@ export function tieneAusencia(
     );
 }
 
+export function requiereReemplazoTurnoBase(
+    keyDay,
+    baseState,
+    admin,
+    legal,
+    comp,
+    absences
+) {
+    return (
+        Number(baseState) > TURNO.LIBRE &&
+        Boolean(
+            tieneAusencia(
+                keyDay,
+                admin,
+                legal,
+                comp,
+                absences
+            )
+        )
+    );
+}
+
+export function getTurnoExtraAgregado(baseState, actualState) {
+    const base = Number(baseState) || TURNO.LIBRE;
+    const actual = Number(actualState) || TURNO.LIBRE;
+
+    if (base === actual) return TURNO.LIBRE;
+    if (base === TURNO.LIBRE) return actual;
+
+    if (base === TURNO.LARGA && actual === TURNO.TURNO24) {
+        return TURNO.NOCHE;
+    }
+
+    if (base === TURNO.NOCHE && actual === TURNO.TURNO24) {
+        return TURNO.LARGA;
+    }
+
+    if (base === TURNO.DIURNO && actual === TURNO.DIURNO_NOCHE) {
+        return TURNO.NOCHE;
+    }
+
+    if (base === TURNO.NOCHE && actual === TURNO.DIURNO_NOCHE) {
+        return TURNO.DIURNO;
+    }
+
+    return actual;
+}
+
+export function getTurnoComponentes(turno) {
+    const state = Number(turno) || TURNO.LIBRE;
+
+    if (state === TURNO.LARGA) return ["L"];
+    if (state === TURNO.NOCHE) return ["N"];
+    if (state === TURNO.DIURNO) return ["D"];
+    if (state === TURNO.TURNO24) return ["L", "N"];
+    if (state === TURNO.DIURNO_NOCHE) return ["D", "N"];
+
+    return [];
+}
+
+export function turnoDesdeComponentes(componentes) {
+    const set = new Set(componentes || []);
+
+    if (set.has("D") && set.has("N")) {
+        return TURNO.DIURNO_NOCHE;
+    }
+
+    if (set.has("L") && set.has("N")) {
+        return TURNO.TURNO24;
+    }
+
+    if (set.has("D")) return TURNO.DIURNO;
+    if (set.has("L")) return TURNO.LARGA;
+    if (set.has("N")) return TURNO.NOCHE;
+
+    return TURNO.LIBRE;
+}
+
+export function restarTurnoCubierto(extraState, coveredState) {
+    const covered = new Set(getTurnoComponentes(coveredState));
+    const pending = getTurnoComponentes(extraState)
+        .filter(component => !covered.has(component));
+
+    return turnoDesdeComponentes(pending);
+}
+
+export function turnoExtraCubreTurno(extraState, coveredState) {
+    const extra = Number(extraState) || TURNO.LIBRE;
+    const covered = Number(coveredState) || TURNO.LIBRE;
+
+    if (!extra || !covered) return false;
+    if (extra === covered) return true;
+    if (extra === TURNO.TURNO24) {
+        return (
+            covered === TURNO.LARGA ||
+            covered === TURNO.NOCHE ||
+            covered === TURNO.TURNO24
+        );
+    }
+
+    if (extra === TURNO.DIURNO_NOCHE) {
+        return (
+            covered === TURNO.DIURNO ||
+            covered === TURNO.NOCHE ||
+            covered === TURNO.DIURNO_NOCHE
+        );
+    }
+
+    return false;
+}
+
 function normalizeText(value) {
     return String(value || "")
         .normalize("NFD")
@@ -206,6 +317,32 @@ export function puedeIniciarLegal(
     absences
 ) {
     if (!isHab) {
+        return false;
+    }
+
+    if (admin[keyDay] || legal[keyDay] || comp[keyDay]) {
+        return false;
+    }
+
+    if (
+        absences[keyDay] &&
+        !esAusenciaInjustificada(absences[keyDay])
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
+export function puedeAplicarAusenciaInjustificada(
+    keyDay,
+    state,
+    admin,
+    legal,
+    comp,
+    absences
+) {
+    if (!Number(state)) {
         return false;
     }
 
@@ -421,6 +558,8 @@ export function obtenerLabelDia(
             label = "PSG";
         } else if (absenceType === "license") {
             label = "LM";
+        } else if (esAusenciaInjustificada(absences[keyDay])) {
+            label = "AI";
         }
     }
 
@@ -490,6 +629,8 @@ export function aplicarClasesEspeciales(
             div.classList.add("unpaid-leave-day");
         } else if (absenceType === "license") {
             div.classList.add("license-day");
+        } else if (esAusenciaInjustificada(absences[keyDay])) {
+            div.classList.add("unjustified-absence-day");
         }
     }
 
@@ -587,6 +728,17 @@ export function estaBloqueadoModo(
             options.licenseCantidad || 0,
             absences,
             options.licenseType || "license"
+        );
+    }
+
+    if (selectionMode === "unjustified") {
+        return !puedeAplicarAusenciaInjustificada(
+            keyDay,
+            state,
+            admin,
+            legal,
+            comp,
+            absences
         );
     }
 

@@ -1,48 +1,86 @@
 import {
     getProfiles,
-    getCurrentProfile
+    getCurrentProfile,
+    getShiftAssigned
 } from "./storage.js";
 
 import * as calendar from "./calendar.js";
-import { aplicarCambiosTurno } from "./turnEngine.js";
+import {
+    aplicarCambiosTurno,
+    getTurnoBase
+} from "./turnEngine.js";
 import { TURNO_COLOR } from "./constants.js";
 import { fetchHolidays } from "./holidays.js";
 import { calcularHorasMesPerfil } from "./hoursEngine.js";
+import { getJSON } from "./persistence.js";
+import {
+    getTurnoExtraAgregado,
+    requiereReemplazoTurnoBase,
+    restarTurnoCubierto
+} from "./rulesEngine.js";
+import {
+    getBackedTurnForWorker,
+    getReplacementForCoveredShift,
+    getReplacementForWorkerShift
+} from "./replacements.js";
+import {
+    hasContractForDate,
+    isReplacementProfile
+} from "./contracts.js";
 
 function getData(nombre){
-    return JSON.parse(localStorage.getItem("data_" + nombre)) || {};
+    return getJSON("data_" + nombre, {});
 }
 
 function getAdmin(nombre){
-    return JSON.parse(localStorage.getItem("admin_" + nombre)) || {};
+    return getJSON("admin_" + nombre, {});
 }
 
 function getLegal(nombre){
-    return JSON.parse(localStorage.getItem("legal_" + nombre)) || {};
+    return getJSON("legal_" + nombre, {});
 }
 
 function getComp(nombre){
-    return JSON.parse(localStorage.getItem("comp_" + nombre)) || {};
+    return getJSON("comp_" + nombre, {});
 }
 
 function getAbs(nombre){
-    return JSON.parse(localStorage.getItem("absences_" + nombre)) || {};
+    return getJSON("absences_" + nombre, {});
 }
 
 function getBlocked(nombre){
-    return JSON.parse(localStorage.getItem("blocked_" + nombre)) || {};
+    return getJSON("blocked_" + nombre, {});
 }
 
 function getCarry(nombre, y, m){
-    return JSON.parse(
-        localStorage.getItem(`carry_${nombre}_${y}_${m}`)
-    ) || { d: 0, n: 0 };
+    return getJSON(
+        `carry_${nombre}_${y}_${m}`,
+        { d: 0, n: 0 }
+    );
 }
 
 function formatTimelineHours(value){
     const rounded = Math.round(Number(value) || 0);
 
     return rounded > 0 ? String(rounded) : "";
+}
+
+function dayExtraAlertClass(nombre, value) {
+    if (!getShiftAssigned(nombre)) {
+        return "";
+    }
+
+    const hours = Number(value) || 0;
+
+    if (hours >= 40) {
+        return " hhee-alert-danger";
+    }
+
+    if (hours > 30 && hours < 40) {
+        return " hhee-alert-warning";
+    }
+
+    return "";
 }
 
 function syncTimelineStickyOffsets(container) {
@@ -96,6 +134,64 @@ function getColor(nombre, key){
     );
 
     return TURNO_COLOR[turno] || TURNO_COLOR[0];
+}
+
+function needsReplacementMarker(nombre, key) {
+    return (
+        requiereReemplazoTurnoBase(
+            key,
+            getTurnoBase(nombre, key),
+            getAdmin(nombre),
+            getLegal(nombre),
+            getComp(nombre),
+            getAbs(nombre)
+        ) &&
+        !getReplacementForCoveredShift(nombre, key)
+    );
+}
+
+function replacementMarker(nombre, key) {
+    return getReplacementForWorkerShift(nombre, key);
+}
+
+function pendingManualExtraMarker(nombre, key) {
+    const data = getData(nombre);
+    const baseWithSwaps = aplicarCambiosTurno(
+        nombre,
+        key,
+        getTurnoBase(nombre, key),
+        { includeReplacements: false }
+    );
+    const actualWithSwaps = aplicarCambiosTurno(
+        nombre,
+        key,
+        Number(data[key]) || 0,
+        { includeReplacements: false }
+    );
+    const extraTurn = getTurnoExtraAgregado(
+        baseWithSwaps,
+        actualWithSwaps
+    );
+
+    return restarTurnoCubierto(
+        extraTurn,
+        getBackedTurnForWorker(nombre, key)
+    );
+}
+
+function contractErrorMarker(nombre, key) {
+    if (!isReplacementProfile(nombre)) {
+        return false;
+    }
+
+    const data = getData(nombre);
+    const state = aplicarCambiosTurno(
+        nombre,
+        key,
+        Number(data[key]) || 0
+    );
+
+    return state > 0 && !hasContractForDate(nombre, key);
 }
 
 export async function renderTimeline(){
@@ -201,7 +297,7 @@ export async function renderTimeline(){
         html += `<tr>`;
         html += `<td class="namecol">${profile.name}</td>`;
         html += `
-            <td class="timeline-hhee timeline-hhee--day">
+            <td class="timeline-hhee timeline-hhee--day${dayExtraAlertClass(profile.name, stats.hheeDiurnas)}">
                 ${formatTimelineHours(stats.hheeDiurnas)}
             </td>
             <td class="timeline-hhee timeline-hhee--night">
@@ -212,12 +308,50 @@ export async function renderTimeline(){
         for (let d = 1; d <= diasMes; d++) {
             const key = `${year}-${month}-${d}`;
             const color = getColor(profile.name, key);
+            const contractError =
+                contractErrorMarker(profile.name, key);
+            const needsReplacement =
+                needsReplacementMarker(profile.name, key);
+            const pendingManualExtra =
+                pendingManualExtraMarker(profile.name, key);
+            const showExtraReason =
+                !contractError &&
+                !needsReplacement &&
+                pendingManualExtra;
+            const replacement =
+                replacementMarker(profile.name, key);
+            const marker = contractError
+                ? "X"
+                : needsReplacement
+                    ? "!"
+                    : showExtraReason
+                        ? "?"
+                        : (replacement ? "R" : "");
+            const title = contractError
+                ? "No tiene contrato vigente en la fecha seleccionada"
+                : needsReplacement
+                    ? "Requiere reemplazo de turno base"
+                    : showExtraReason
+                        ? "Requiere motivo de horas extras"
+                        : replacement
+                            ? (
+                                replacement.replaced
+                                    ? `Reemplazo de ${replacement.replaced} por ${replacement.absenceType || "ausencia"}`
+                                    : `Motivo HHEE: ${replacement.reason || replacement.absenceType || "sin detalle"}`
+                            )
+                            : "";
 
             html += `
                 <td
-                    class="mini"
+                    class="mini ${contractError ? "contract-error-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason ? "needs-extra-reason" : ""} ${replacement ? "replacement-day" : ""}"
                     style="background:${color}"
-                ></td>
+                    title="${title}"
+                    ${contractError ? `data-contract-error-profile="${profile.name}" data-contract-error-key="${key}"` : ""}
+                    ${needsReplacement ? `data-replacement-profile="${profile.name}" data-replacement-key="${key}"` : ""}
+                    ${showExtraReason ? `data-extra-profile="${profile.name}" data-extra-key="${key}" data-extra-turn="${showExtraReason}"` : ""}
+                >
+                    ${marker ? `<span class="timeline-replacement-marker">${marker}</span>` : ""}
+                </td>
             `;
         }
 
@@ -231,6 +365,34 @@ export async function renderTimeline(){
     `;
 
     div.innerHTML = html;
+    div.querySelectorAll("[data-replacement-profile]")
+        .forEach(cell => {
+            cell.onclick = () => {
+                window.openReplacementDialog?.(
+                    cell.dataset.replacementProfile,
+                    cell.dataset.replacementKey
+                );
+            };
+        });
+    div.querySelectorAll("[data-extra-profile]")
+        .forEach(cell => {
+            cell.onclick = () => {
+                window.openExtraReasonDialog?.(
+                    cell.dataset.extraProfile,
+                    cell.dataset.extraKey,
+                    Number(cell.dataset.extraTurn) || 0
+                );
+            };
+        });
+    div.querySelectorAll("[data-contract-error-profile]")
+        .forEach(cell => {
+            cell.onclick = () => {
+                window.startReplacementContractEdit?.(
+                    cell.dataset.contractErrorProfile,
+                    cell.dataset.contractErrorKey
+                );
+            };
+        });
     syncTimelineStickyOffsets(div);
     requestAnimationFrame(() => syncTimelineStickyOffsets(div));
 }

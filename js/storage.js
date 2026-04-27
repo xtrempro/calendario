@@ -1,3 +1,14 @@
+import {
+    getRaw,
+    setRaw,
+    removeKey,
+    getJSON,
+    setJSON,
+    getNumber,
+    listKeys,
+    moveKey
+} from "./persistence.js";
+
 let currentProfile = null;
 
 function normalizeEstamento(value){
@@ -25,6 +36,15 @@ function normalizeRotativaType(value){
         .toLowerCase();
 
     if (
+        normalized === "3turno" ||
+        normalized === "3 turno" ||
+        normalized === "3er turno" ||
+        normalized === "tercer turno"
+    ) {
+        return "3turno";
+    }
+
+    if (
         normalized === "4turno" ||
         normalized === "4 turno" ||
         normalized === "4oturno" ||
@@ -37,20 +57,22 @@ function normalizeRotativaType(value){
         return "diurno";
     }
 
+    if (
+        normalized === "reemplazo" ||
+        normalized === "replacement"
+    ) {
+        return "reemplazo";
+    }
+
     return "";
 }
 
 function moveStorageKey(oldKey, newKey){
-    const value = localStorage.getItem(oldKey);
-    if (value === null) return;
-
-    localStorage.setItem(newKey, value);
-    localStorage.removeItem(oldKey);
+    moveKey(oldKey, newKey);
 }
 
 export function getProfiles(){
-    const raw =
-        JSON.parse(localStorage.getItem("profiles")) || [];
+    const raw = getJSON("profiles", []);
 
     return raw.map(profile => {
         if (typeof profile === "string") {
@@ -67,12 +89,50 @@ export function getProfiles(){
     });
 }
 
+export function isProfileActive(profileOrName){
+    const profile = typeof profileOrName === "string"
+        ? getProfiles().find(item =>
+            item.name === profileOrName
+        )
+        : profileOrName;
+
+    if (!profile) return false;
+
+    return profile.active !== false;
+}
+
 export function getSwaps(){
-    return JSON.parse(localStorage.getItem("swaps")) || [];
+    return getJSON("swaps", []);
 }
 
 export function saveSwaps(data){
-    localStorage.setItem("swaps", JSON.stringify(data));
+    setJSON("swaps", data);
+}
+
+export function getReplacements(){
+    return getJSON("replacements", []);
+}
+
+export function saveReplacements(data){
+    setJSON("replacements", data);
+}
+
+export function getReplacementContracts(profile = currentProfile){
+    if (!profile) return [];
+
+    return getJSON("replacementContracts_" + profile, []);
+}
+
+export function saveReplacementContracts(
+    contracts,
+    profile = currentProfile
+){
+    if (!profile) return;
+
+    setJSON(
+        "replacementContracts_" + profile,
+        Array.isArray(contracts) ? contracts : []
+    );
 }
 
 export function saveProfiles(profiles){
@@ -81,7 +141,7 @@ export function saveProfiles(profiles){
         estamento: normalizeEstamento(profile.estamento)
     }));
 
-    localStorage.setItem("profiles", JSON.stringify(normalized));
+    setJSON("profiles", normalized);
 }
 
 export function setCurrentProfile(profile){
@@ -93,76 +153,51 @@ export function getCurrentProfile(){
 }
 
 export function getProfileData(profile = currentProfile){
-    return JSON.parse(
-        localStorage.getItem("data_" + profile)
-    ) || {};
+    return getJSON("data_" + profile, {});
 }
 
-export function saveProfileData(data){
-    localStorage.setItem(
-        "data_" + currentProfile,
-        JSON.stringify(data)
-    );
+export function saveProfileData(data, profile = currentProfile){
+    setJSON("data_" + profile, data);
 }
 
 export function getBaseProfileData(profile = currentProfile){
-    return JSON.parse(
-        localStorage.getItem("baseData_" + profile)
-    ) || {};
+    return getJSON("baseData_" + profile, {});
 }
 
 export function saveBaseProfileData(data, profile = currentProfile){
-    localStorage.setItem(
-        "baseData_" + profile,
-        JSON.stringify(data)
-    );
+    setJSON("baseData_" + profile, data);
 }
 
-export function getBlockedDays(){
-    return JSON.parse(
-        localStorage.getItem("blocked_" + currentProfile)
-    ) || {};
+export function getBlockedDays(profile = currentProfile){
+    return getJSON("blocked_" + profile, {});
 }
 
-export function saveBlockedDays(data){
-    localStorage.setItem(
-        "blocked_" + currentProfile,
-        JSON.stringify(data)
-    );
+export function saveBlockedDays(data, profile = currentProfile){
+    setJSON("blocked_" + profile, data);
 }
 
 export function getShiftAssigned(profile = currentProfile){
-    return JSON.parse(
-        localStorage.getItem("shift_" + profile)
-    ) || false;
+    return getJSON("shift_" + profile, false);
 }
 
 export function setShiftAssigned(value, profile = currentProfile){
-    localStorage.setItem(
-        "shift_" + profile,
-        JSON.stringify(Boolean(value))
-    );
+    setJSON("shift_" + profile, Boolean(value));
 }
 
 export function getValorHora(profile = currentProfile){
-    const ownValue = localStorage.getItem(
-        "valorHora_" + profile
-    );
+    const ownValue = getRaw("valorHora_" + profile, null);
 
     if (ownValue !== null) {
         return Number(ownValue) || 0;
     }
 
-    return Number(localStorage.getItem("valorHora")) || 0;
+    return getNumber("valorHora", 0) || 0;
 }
 
 export function setValorHora(value, profile = currentProfile){
     const normalized = Math.max(0, Number(value) || 0);
 
-    localStorage.setItem(
-        "valorHora_" + profile,
-        String(normalized)
-    );
+    setRaw("valorHora_" + profile, String(normalized));
 }
 
 export function getCarryKey(y, m){
@@ -170,55 +205,35 @@ export function getCarryKey(y, m){
 }
 
 export function saveCarry(y, m, data){
-    localStorage.setItem(
-        getCarryKey(y, m),
-        JSON.stringify(data)
-    );
+    setJSON(getCarryKey(y, m), data);
 }
 
 export function getCarry(y, m){
-    return JSON.parse(
-        localStorage.getItem(getCarryKey(y, m))
-    ) || { d: 0, n: 0 };
+    return getJSON(getCarryKey(y, m), { d: 0, n: 0 });
 }
 
 export function getAdminDays(){
-    return JSON.parse(
-        localStorage.getItem("admin_" + currentProfile)
-    ) || {};
+    return getJSON("admin_" + currentProfile, {});
 }
 
 export function saveAdminDays(data){
-    localStorage.setItem(
-        "admin_" + currentProfile,
-        JSON.stringify(data)
-    );
+    setJSON("admin_" + currentProfile, data);
 }
 
 export function getLegalDays(){
-    return JSON.parse(
-        localStorage.getItem("legal_" + currentProfile)
-    ) || {};
+    return getJSON("legal_" + currentProfile, {});
 }
 
 export function saveLegalDays(data){
-    localStorage.setItem(
-        "legal_" + currentProfile,
-        JSON.stringify(data)
-    );
+    setJSON("legal_" + currentProfile, data);
 }
 
 export function getCompDays(){
-    return JSON.parse(
-        localStorage.getItem("comp_" + currentProfile)
-    ) || {};
+    return getJSON("comp_" + currentProfile, {});
 }
 
 export function saveCompDays(data){
-    localStorage.setItem(
-        "comp_" + currentProfile,
-        JSON.stringify(data)
-    );
+    setJSON("comp_" + currentProfile, data);
 }
 
 export function getManualLeaveBalances(
@@ -227,9 +242,10 @@ export function getManualLeaveBalances(
 ) {
     if (!profile) return {};
 
-    const allBalances = JSON.parse(
-        localStorage.getItem("leaveBalances_" + profile)
-    ) || {};
+    const allBalances = getJSON(
+        "leaveBalances_" + profile,
+        {}
+    );
 
     return allBalances[String(year)] || {};
 }
@@ -241,9 +257,10 @@ export function saveManualLeaveBalances(
 ) {
     if (!profile) return;
 
-    const allBalances = JSON.parse(
-        localStorage.getItem("leaveBalances_" + profile)
-    ) || {};
+    const allBalances = getJSON(
+        "leaveBalances_" + profile,
+        {}
+    );
     const currentYearBalances =
         allBalances[String(year)] || {};
     const nextBalances = {
@@ -268,29 +285,19 @@ export function saveManualLeaveBalances(
 
     allBalances[String(year)] = nextBalances;
 
-    localStorage.setItem(
-        "leaveBalances_" + profile,
-        JSON.stringify(allBalances)
-    );
+    setJSON("leaveBalances_" + profile, allBalances);
 }
 
 export function getAbsences(){
-    return JSON.parse(
-        localStorage.getItem("absences_" + currentProfile)
-    ) || {};
+    return getJSON("absences_" + currentProfile, {});
 }
 
 export function saveAbsences(data){
-    localStorage.setItem(
-        "absences_" + currentProfile,
-        JSON.stringify(data)
-    );
+    setJSON("absences_" + currentProfile, data);
 }
 
 export function getRotativa(profile = currentProfile){
-    const raw = localStorage.getItem(
-        "rotativa_" + profile
-    );
+    const raw = getRaw("rotativa_" + profile, null);
 
     if (!raw) {
         return {
@@ -333,14 +340,11 @@ export function saveRotativa(rotativa, profile = currentProfile){
     const start = String(rotativa?.start || "");
 
     if (!type) {
-        localStorage.removeItem("rotativa_" + profile);
+        removeKey("rotativa_" + profile);
         return;
     }
 
-    localStorage.setItem(
-        "rotativa_" + profile,
-        JSON.stringify({ type, start })
-    );
+    setJSON("rotativa_" + profile, { type, start });
 }
 
 export function updateProfile(oldName, nextProfile){
@@ -365,16 +369,20 @@ export function updateProfile(oldName, nextProfile){
         throw new Error("Ese perfil ya existe.");
     }
 
-    const updatedProfiles = profiles.map(profile =>
-        profile.name === oldName
-            ? {
-                name: targetName,
-                estamento: normalizeEstamento(
-                    nextProfile.estamento
-                )
-            }
-            : profile
-    );
+    const updatedProfiles = profiles.map(profile => {
+        if (profile.name !== oldName) {
+            return profile;
+        }
+
+        return {
+            ...profile,
+            ...nextProfile,
+            name: targetName,
+            estamento: normalizeEstamento(
+                nextProfile.estamento ?? profile.estamento
+            )
+        };
+    });
 
     saveProfiles(updatedProfiles);
 
@@ -396,7 +404,9 @@ export function updateProfile(oldName, nextProfile){
         "absences_",
         "rotativa_",
         "valorHora_",
-        "leaveBalances_"
+        "leaveBalances_",
+        "replacementContracts_",
+        "hrLogs_"
     ];
 
     keysToMove.forEach(prefix => {
@@ -407,14 +417,7 @@ export function updateProfile(oldName, nextProfile){
     });
 
     const carryPrefix = `carry_${oldName}_`;
-    const carryKeys = [];
-
-    for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith(carryPrefix)) {
-            carryKeys.push(key);
-        }
-    }
+    const carryKeys = listKeys(carryPrefix);
 
     carryKeys.forEach(key => {
         moveStorageKey(
@@ -437,6 +440,18 @@ export function updateProfile(oldName, nextProfile){
     }));
 
     saveSwaps(swaps);
+
+    const replacements = getReplacements().map(replacement => ({
+        ...replacement,
+        worker: replacement.worker === oldName
+            ? targetName
+            : replacement.worker,
+        replaced: replacement.replaced === oldName
+            ? targetName
+            : replacement.replaced
+    }));
+
+    saveReplacements(replacements);
 
     if (currentProfile === oldName) {
         currentProfile = targetName;

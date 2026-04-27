@@ -7,6 +7,9 @@ import {
     getProfileData,
     getBaseProfileData
 } from "./storage.js";
+import { getJSON } from "./persistence.js";
+import { cambioEstaAnulado } from "./swaps.js";
+import { getReplacementTurnForWorker } from "./replacements.js";
 
 /* ======================================================
    TURN ENGINE
@@ -78,15 +81,25 @@ function turnoDesdeCodigoSwap(valor) {
    APLICAR CAMBIOS DE TURNO
 ====================================================== */
 
-export function aplicarCambiosTurno(nombre, key, turnoBase) {
+export function aplicarCambiosTurno(
+    nombre,
+    key,
+    turnoBase,
+    options = {}
+) {
 
     let turno = Number(turnoBase) || TURNO.LIBRE;
+    const includeReplacements =
+        options.includeReplacements !== false;
 
     const swaps = getSwaps();
 
     const fechaISO = isoFromKey(key);
 
     for (const s of swaps) {
+        if (cambioEstaAnulado(s)) {
+            continue;
+        }
 
         /* ==================================================
            FECHA ORIGINAL
@@ -175,6 +188,13 @@ export function aplicarCambiosTurno(nombre, key, turnoBase) {
         }
     }
 
+    if (includeReplacements) {
+        turno = fusionarTurnos(
+            turno,
+            getReplacementTurnForWorker(nombre, key)
+        );
+    }
+
     return turno;
 }
 
@@ -241,9 +261,7 @@ export function getTurnoBase(nombre, key) {
         return TURNO.LIBRE;
     }
 
-    const blocked = JSON.parse(
-        localStorage.getItem("blocked_" + nombre)
-    ) || {};
+    const blocked = getJSON("blocked_" + nombre, {});
 
     if (!blocked[key]) return TURNO.LIBRE;
 

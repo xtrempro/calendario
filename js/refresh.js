@@ -1,5 +1,6 @@
 import { renderCalendar } from "./calendar.js";
 import { renderTimeline } from "./timeline.js";
+import { renderAuditLogPanel } from "./auditLog.js";
 
 export function refreshAll(){
     renderCalendar();
@@ -15,5 +16,9 @@ export function refreshAll(){
 
     if (typeof window.renderDashboardState === "function") {
         window.renderDashboardState();
+    }
+
+    if (document.body.dataset.activeView === "log") {
+        renderAuditLogPanel();
     }
 }

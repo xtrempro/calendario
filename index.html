@@ -100,7 +100,7 @@
             <label class="inline-toggle sidebar-toggle">
                 <span>Mostrar desactivados</span>
                 <span class="toggle-check">
-                    <input type="checkbox" checked disabled>
+                    <input id="showInactiveProfiles" type="checkbox" checked>
                 </span>
             </label>
 
@@ -110,62 +110,193 @@
 
         <main class="dashboard">
             <section class="panel overview-card" id="profileSection">
-                <div class="overview-card__grid">
-                    <div class="overview-metrics">
-                        <label class="metric-row metric-row--field">
-                            <span class="metric-label">Nombre:</span>
-                            <input id="profileNameField" type="text" placeholder="Nombre del trabajador">
+                <div class="profile-layout">
+                    <section class="profile-area profile-area--personal">
+                        <div class="section-head">
+                            <h3>Datos Personales</h3>
+                        </div>
+
+                        <div class="profile-form-grid">
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Nombre:</span>
+                                <input id="profileNameField" type="text" placeholder="Nombre del trabajador">
+                            </label>
+
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Correo electronico:</span>
+                                <input id="profileEmailField" type="email" placeholder="correo@ejemplo.cl">
+                            </label>
+
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">RUT:</span>
+                                <input id="profileRutField" type="text" placeholder="17.816.632-8">
+                            </label>
+
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Celular:</span>
+                                <span class="phone-prefix-field">
+                                    <span>+569(</span>
+                                    <input id="profilePhoneField" type="text" inputmode="numeric" maxlength="8" placeholder="12345678">
+                                    <span>)</span>
+                                </span>
+                            </label>
+
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Fecha de nacimiento:</span>
+                                <input id="profileBirthDateField" type="date">
+                            </label>
+
+                            <label class="metric-row metric-row--field profile-file-row">
+                                <span class="metric-label">Documentos:</span>
+                                <span>
+                                    <input id="profileDocsField" type="file" multiple>
+                                    <small class="field-help">Clip para CV, carnet de vacunas, licencias u otros documentos.</small>
+                                </span>
+                            </label>
+                        </div>
+
+                        <div id="profileDocsList" class="attachment-list"></div>
+                    </section>
+
+                    <section class="profile-area profile-actions-card">
+                        <div class="section-head">
+                            <h3>Acciones</h3>
+                        </div>
+
+                        <div class="overview-actions">
+                            <button id="openCreateProfile" class="primary-button" type="button">CREAR NUEVO</button>
+                            <button id="openEditProfile" class="secondary-button" type="button">EDITAR</button>
+                        </div>
+
+                        <label class="inline-toggle profile-active-toggle">
+                            <span>
+                                Perfil activo
+                                <small>Si se desactiva, no aparece en busquedas ni puede recibir turnos nuevos.</small>
+                            </span>
+                            <span class="toggle-check">
+                                <input id="profileActiveToggle" type="checkbox" checked>
+                            </span>
                         </label>
 
-                        <label class="metric-row metric-row--field">
-                            <span class="metric-label">Estamento:</span>
-                            <select id="profileRoleField">
-                                <option value="">Seleccionar</option>
-                                <option value="Profesional">Profesional</option>
-                                <option value="T&#233;cnico">T&#233;cnico</option>
-                                <option value="Administrativo">Administrativo</option>
-                                <option value="Auxiliar">Auxiliar</option>
-                            </select>
-                        </label>
+                        <div id="profileEditorHint" class="profile-status-note profile-status-note--soft">
+                            Selecciona un colaborador para editarlo o crea uno nuevo.
+                        </div>
+                    </section>
 
-                        <label class="metric-row metric-row--field">
-                            <span class="metric-label">Rotativa Actual:</span>
-                            <select id="profileRotationField">
-                                <option value="">Seleccionar</option>
-                                <option value="4turno">4&#176; Turno</option>
-                                <option value="diurno">Diurno</option>
-                            </select>
-                        </label>
+                    <section class="profile-area profile-area--contract">
+                        <div class="section-head">
+                            <h3>Datos Contractuales</h3>
+                        </div>
+
+                        <div class="profile-form-grid">
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Unidad:</span>
+                                <input id="profileUnitField" type="text" placeholder="Unidad del trabajador">
+                            </label>
+
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Ingreso a unidad:</span>
+                                <input id="profileUnitEntryDateField" type="date">
+                            </label>
+
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Tipo de contrato:</span>
+                                <select id="profileContractTypeField">
+                                    <option value="">Seleccionar</option>
+                                    <option value="Planta">Planta</option>
+                                    <option value="Contrata">Contrata</option>
+                                    <option value="Honorarios">Honorarios</option>
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </label>
+
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Estamento:</span>
+                                <select id="profileRoleField">
+                                    <option value="">Seleccionar</option>
+                                    <option value="Profesional">Profesional</option>
+                                    <option value="T&#233;cnico">T&#233;cnico</option>
+                                    <option value="Administrativo">Administrativo</option>
+                                    <option value="Auxiliar">Auxiliar</option>
+                                </select>
+                            </label>
+
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Rotativa Actual:</span>
+                                <select id="profileRotationField">
+                                    <option value="">Seleccionar</option>
+                                    <option value="3turno">3er Turno</option>
+                                    <option value="4turno">4&#176; Turno</option>
+                                    <option value="diurno">Diurno</option>
+                                    <option value="reemplazo">Reemplazo</option>
+                                </select>
+                            </label>
+
+                            <label class="metric-row metric-row--field metric-toggle">
+                                <span class="metric-label">Asignaci&#243;n de Turno:</span>
+                                <span class="toggle-check">
+                                    <input type="checkbox" id="shiftAssigned">
+                                </span>
+                            </label>
+
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Grado:</span>
+                                <select id="profileGradeField">
+                                    <option value="">Seleccionar</option>
+                                    <option value="24">24</option>
+                                    <option value="23">23</option>
+                                    <option value="22">22</option>
+                                    <option value="21">21</option>
+                                    <option value="20">20</option>
+                                    <option value="19">19</option>
+                                    <option value="18">18</option>
+                                    <option value="17">17</option>
+                                    <option value="16">16</option>
+                                    <option value="15">15</option>
+                                    <option value="14">14</option>
+                                    <option value="13">13</option>
+                                    <option value="12">12</option>
+                                    <option value="11">11</option>
+                                    <option value="10">10</option>
+                                    <option value="9">9</option>
+                                    <option value="8">8</option>
+                                    <option value="7">7</option>
+                                    <option value="6">6</option>
+                                    <option value="5">5</option>
+                                </select>
+                            </label>
+
+                            <label class="metric-row metric-row--field metric-input">
+                                <span class="metric-label">Valor Hora:</span>
+                                <input id="valorHora" type="number" min="0" step="1" placeholder="Ej: 5000">
+                            </label>
+                        </div>
 
                         <div id="profileRotationStatus" class="profile-status-note">
                             Selecciona una rotativa para definir su fecha de inicio.
                         </div>
 
                         <div id="profileRotationMiniCalendar" class="profile-rotation-mini"></div>
-                    </div>
 
-                    <div class="overview-side">
-                        <label class="metric-row metric-row--field metric-toggle">
-                            <span class="metric-label">Asignaci&#243;n de Turno:</span>
-                            <span class="toggle-check">
-                                <input type="checkbox" id="shiftAssigned">
-                            </span>
-                        </label>
+                        <div id="replacementContractEditor" class="replacement-contract-editor hidden">
+                            <label class="metric-row metric-row--field">
+                                <span class="metric-label">Reemplaza a:</span>
+                                <input id="replacementTargetField" type="text" placeholder="Nombre o motivo del reemplazo">
+                            </label>
 
-                        <label class="metric-row metric-row--field metric-input">
-                            <span class="metric-label">Valor Hora:</span>
-                            <input id="valorHora" type="number" min="0" placeholder="Ej: 5000">
-                        </label>
-
-                        <div id="profileEditorHint" class="profile-status-note profile-status-note--soft">
-                            Selecciona un colaborador para editarlo o crea uno nuevo.
+                            <div id="replacementContractStatus" class="profile-status-note profile-status-note--soft">
+                                Selecciona inicio y termino del contrato en el mini calendario.
+                            </div>
                         </div>
-                    </div>
+                    </section>
 
-                    <div class="overview-actions">
-                        <button id="openCreateProfile" class="primary-button" type="button">CREAR NUEVO</button>
-                        <button id="openEditProfile" class="secondary-button" type="button">EDITAR</button>
-                    </div>
+                    <section class="profile-area profile-area--records">
+                        <div class="section-head">
+                            <h3>Registros RRHH</h3>
+                        </div>
+
+                        <div id="profileRecordsPanel" class="profile-records-grid"></div>
+                    </section>
                 </div>
             </section>
 
@@ -199,7 +330,7 @@
                     <span>HH.EE</span>
                 </button>
 
-                <button class="nav-tile" type="button" data-target="swapPanel">
+                <button class="nav-tile" type="button" data-target="auditLogPanel">
                     <svg class="nav-icon tone-violet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="9"></circle>
                         <polyline points="12 7 12 12 15 15"></polyline>
@@ -394,7 +525,7 @@
                                 <span>PERMISO SIN GOCE</span>
                             </button>
 
-                            <div class="legend-item legend-item--static">
+                            <button id="unjustifiedAbsenceBtn" class="legend-action" type="button">
                                 <span class="legend-dot tone-muted">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M7 3h8l4 4v14H7z"></path>
@@ -404,10 +535,27 @@
                                     </svg>
                                 </span>
                                 <span>AUSENCIA INJUSTIFICADA</span>
-                            </div>
+                            </button>
                         </div>
 
                         <div id="adminInfo" class="helper-note hidden"></div>
+                    </section>
+
+                    <section class="panel staffing-report-panel" id="staffingReportPanel">
+                        <div class="section-head">
+                            <span class="section-icon tone-green">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M4 19V5"></path>
+                                    <path d="M4 19h16"></path>
+                                    <rect x="7" y="10" width="3" height="6" rx="1"></rect>
+                                    <rect x="12" y="7" width="3" height="9" rx="1"></rect>
+                                    <rect x="17" y="12" width="3" height="4" rx="1"></rect>
+                                </svg>
+                            </span>
+                            <h3>Reporte RRHH</h3>
+                        </div>
+
+                        <div id="staffingReportInline" class="staffing-report-scroll"></div>
                     </section>
 
                     <section class="panel availability-panel">
@@ -429,17 +577,84 @@
                     </section>
 
                     <section class="panel hours-panel" id="hoursPanel">
-                        <div class="section-head">
-                            <span class="section-icon tone-blue">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                    <circle cx="12" cy="12" r="9"></circle>
-                                    <path d="M12 7v5l3 2"></path>
-                                </svg>
+                        <div class="section-head section-head--with-action">
+                            <span class="section-head__title">
+                                <span class="section-icon tone-blue">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="9"></circle>
+                                        <path d="M12 7v5l3 2"></path>
+                                    </svg>
+                                </span>
+                                <h3>Horas Extras</h3>
                             </span>
-                            <h3>Horas Extras</h3>
+
+                            <button id="printHoursReportBtn" class="secondary-button secondary-button--small" type="button">
+                                Imprimir reporte
+                            </button>
                         </div>
 
                         <div id="summary" class="summary"></div>
+                    </section>
+
+                    <section class="panel hours-charts-panel" id="hoursChartsPanel">
+                        <div class="section-head">
+                            <span class="section-icon tone-green">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M4 19V5"></path>
+                                    <path d="M4 19h16"></path>
+                                    <rect x="7" y="11" width="3" height="5" rx="1"></rect>
+                                    <rect x="12" y="7" width="3" height="9" rx="1"></rect>
+                                    <rect x="17" y="9" width="3" height="7" rx="1"></rect>
+                                </svg>
+                            </span>
+                            <h3>Gr&#225;ficos HH.EE</h3>
+                        </div>
+
+                        <div class="hhee-chart-controls">
+                            <label>
+                                <span>Estamento</span>
+                                <select id="hheeChartRole">
+                                    <option value="Profesional">Profesional</option>
+                                    <option value="T&#233;cnico">T&#233;cnico</option>
+                                    <option value="Administrativo">Administrativo</option>
+                                    <option value="Auxiliar">Auxiliar</option>
+                                </select>
+                            </label>
+
+                            <label>
+                                <span>Mes comparativo</span>
+                                <input id="hheeChartMonth" type="month">
+                            </label>
+
+                            <label>
+                                <span>Hist&#243;rico</span>
+                                <select id="hheeHistoryYears">
+                                    <option value="1">1 a&#241;o</option>
+                                    <option value="2">2 a&#241;os</option>
+                                    <option value="3">3 a&#241;os</option>
+                                    <option value="4">4 a&#241;os</option>
+                                    <option value="5">5 a&#241;os</option>
+                                </select>
+                            </label>
+                        </div>
+
+                        <div class="hhee-chart-grid">
+                            <article class="hhee-chart-card">
+                                <div class="hhee-chart-card__head">
+                                    <h4>Comparaci&#243;n mensual por trabajador</h4>
+                                    <span>Diurnas vs nocturnas</span>
+                                </div>
+                                <div id="hheeMonthlyChart"></div>
+                            </article>
+
+                            <article class="hhee-chart-card">
+                                <div class="hhee-chart-card__head">
+                                    <h4>Hist&#243;rico por estamento</h4>
+                                    <span>Total mensual agregado</span>
+                                </div>
+                                <div id="hheeHistoryChart"></div>
+                            </article>
+                        </div>
                     </section>
                 </div>
             </section>
@@ -456,6 +671,8 @@
                     <div class="section-head">
                         <h3>RRHH / Dotaci&#243;n Requerida</h3>
                     </div>
+
+                    <div id="staffingConfigSummary" class="staffing-config-summary"></div>
 
                     <div class="staff-grid">
                         <div>
@@ -519,13 +736,17 @@
                         </div>
                     </div>
 
-                    <button id="saveStaffingBtn" class="primary-button primary-button--wide" type="button">Guardar Dotaci&#243;n</button>
+                    <button id="saveStaffingBtn" class="primary-button primary-button--wide" type="button">Modificar Dotaci&#243;n</button>
+                    <div id="staffingMedicalChart"></div>
                     <div id="staffingResult"></div>
+                    <div id="replacementContractsLog"></div>
                 </section>
 
                 <section id="turnChangesView" class="turn-changes-view">
                     <section id="swapPanel" class="panel swap-panel"></section>
                 </section>
+
+                <section id="auditLogPanel" class="panel audit-log-panel"></section>
             </section>
         </main>
     </div>

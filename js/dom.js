@@ -5,16 +5,32 @@ export const DOM = {
     profileSearch: document.getElementById("profileSearch"),
     emptyProfiles: document.getElementById("emptyProfiles"),
     filterRole: document.getElementById("filterRole"),
+    showInactiveProfiles: document.getElementById("showInactiveProfiles"),
     openCreateProfileBtn: document.getElementById("openCreateProfile"),
     openEditProfileBtn: document.getElementById("openEditProfile"),
 
     /* formulario perfil */
     profileNameInput: document.getElementById("profileNameField"),
+    profileEmailInput: document.getElementById("profileEmailField"),
+    profileRutInput: document.getElementById("profileRutField"),
+    profilePhoneInput: document.getElementById("profilePhoneField"),
+    profileBirthDateInput: document.getElementById("profileBirthDateField"),
+    profileDocsInput: document.getElementById("profileDocsField"),
+    profileDocsList: document.getElementById("profileDocsList"),
+    profileActiveToggle: document.getElementById("profileActiveToggle"),
+    profileUnitInput: document.getElementById("profileUnitField"),
+    profileUnitEntryDateInput: document.getElementById("profileUnitEntryDateField"),
+    profileContractTypeSelect: document.getElementById("profileContractTypeField"),
     profileRoleSelect: document.getElementById("profileRoleField"),
     profileRotationSelect: document.getElementById("profileRotationField"),
+    profileGradeSelect: document.getElementById("profileGradeField"),
     profileRotationStatus: document.getElementById("profileRotationStatus"),
     profileRotationMiniCalendar: document.getElementById("profileRotationMiniCalendar"),
+    replacementContractEditor: document.getElementById("replacementContractEditor"),
+    replacementTargetInput: document.getElementById("replacementTargetField"),
+    replacementContractStatus: document.getElementById("replacementContractStatus"),
     profileEditorHint: document.getElementById("profileEditorHint"),
+    profileRecordsPanel: document.getElementById("profileRecordsPanel"),
 
     /* config */
     checkbox: document.getElementById("shiftAssigned"),
@@ -33,6 +49,7 @@ export const DOM = {
     licenseBtn: document.getElementById("licenseBtn"),
     professionalLicenseBtn: document.getElementById("professionalLicenseBtn"),
     unpaidLeaveBtn: document.getElementById("unpaidLeaveBtn"),
+    unjustifiedAbsenceBtn: document.getElementById("unjustifiedAbsenceBtn"),
 
     /* navegacion */
     prevBtn: document.getElementById("prevBtn"),
@@ -47,5 +64,11 @@ export const DOM = {
     teamTimeline: document.getElementById("teamTimeline"),
     swapPanel: document.getElementById("swapPanel"),
     availabilitySummary: document.getElementById("availabilitySummary"),
-    availabilityEditBtn: document.getElementById("availabilityEditBtn")
+    availabilityEditBtn: document.getElementById("availabilityEditBtn"),
+    printHoursReportBtn: document.getElementById("printHoursReportBtn"),
+    hheeChartRole: document.getElementById("hheeChartRole"),
+    hheeChartMonth: document.getElementById("hheeChartMonth"),
+    hheeHistoryYears: document.getElementById("hheeHistoryYears"),
+    hheeMonthlyChart: document.getElementById("hheeMonthlyChart"),
+    hheeHistoryChart: document.getElementById("hheeHistoryChart")
 };

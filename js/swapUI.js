@@ -1,16 +1,23 @@
 import {
     cambiosDelMes,
+    cambioEstaAnulado,
     registrarCambio
 } from "./swaps.js";
 import {
     getCurrentProfile,
+    getProfileData,
     getProfiles,
     getRotativa,
-    getSwaps
+    getSwaps,
+    isProfileActive
 } from "./storage.js";
 import { refreshAll } from "./refresh.js";
 import { pushHistory } from "./history.js";
-import { getTurnoBase } from "./turnEngine.js";
+import {
+    aplicarCambiosTurno,
+    getTurnoBase
+} from "./turnEngine.js";
+import { getJSON } from "./persistence.js";
 
 let fechaCambioSeleccionada = "";
 let fechaDevolucionSeleccionada = "";
@@ -36,7 +43,14 @@ function formatFecha(fechaStr){
 
 function getBaseState(nombre, year, month, day = 1){
     const key = `${year}-${month}-${day}`;
-    const turno = getTurnoBase(nombre, key);
+    const turno = getRotativa(nombre).type === "reemplazo"
+        ? aplicarCambiosTurno(
+            nombre,
+            key,
+            Number(getProfileData(nombre)[key]) || 0,
+            { includeReplacements: false }
+        )
+        : getTurnoBase(nombre, key);
 
     return turno ? turno : null;
 }
@@ -47,8 +61,12 @@ function getPerfil(nombre) {
     ) || null;
 }
 
-function esRotativaDiurna(nombre) {
-    return getRotativa(nombre).type === "diurno";
+function noPuedeIntercambiar(nombre) {
+    if (!isProfileActive(nombre)) return true;
+
+    const type = getRotativa(nombre).type;
+
+    return type === "diurno";
 }
 
 function esTurnoIntercambiable(turno) {
@@ -96,8 +114,9 @@ function getTrabajadoresDisponibles(nombreFrom) {
 
     return getProfiles().filter(profile =>
         profile.name !== nombreFrom &&
+        isProfileActive(profile) &&
         profile.estamento === perfilFrom.estamento &&
-        !esRotativaDiurna(profile.name) &&
+        !noPuedeIntercambiar(profile.name) &&
         !mismaRotativa(nombreFrom, profile.name)
     );
 }
@@ -155,9 +174,7 @@ function textoTurno(turno){
 }
 
 function getProfileMap(prefix, nombre) {
-    return JSON.parse(
-        localStorage.getItem(`${prefix}_${nombre}`)
-    ) || {};
+    return getJSON(`${prefix}_${nombre}`, {});
 }
 
 function fechaDisponible(nombre, key, turno){
@@ -167,6 +184,7 @@ function fechaDisponible(nombre, key, turno){
 
     if (
         swaps.some(swap =>
+            !cambioEstaAnulado(swap) &&
             (swap.from === nombre || swap.to === nombre) &&
             (
                 (!swap.skipFecha && swap.fecha === keyISO(key)) ||
@@ -207,13 +225,13 @@ export function renderSwapPanel(){
         return;
     }
 
-    if (esRotativaDiurna(selectedFrom)) {
+    if (noPuedeIntercambiar(selectedFrom)) {
         box.innerHTML = `
             <div class="section-head">
                 <h3>Cambios de Turno</h3>
             </div>
             <div class="empty-state">
-                ${selectedFrom} tiene rotativa Diurno, por lo que no puede intercambiar turnos.
+                ${selectedFrom} no puede intercambiar turnos por estar desactivado o tener rotativa Diurno.
             </div>
         `;
         return;
@@ -346,7 +364,12 @@ function renderMiniCalendar(id, trabajador, esCambio){
         const fecha = new Date(y, m, d);
 
         const key = `${y}-${m}-${d}`;
-        const turnoBase = getTurnoBase(trabajador, key);
+        const turnoBase = getBaseState(
+            trabajador,
+            y,
+            m,
+            d
+        );
         const valido = fechaDisponible(
             trabajador,
             key,
@@ -477,9 +500,10 @@ function renderSwapList(){
         .slice()
         .sort((a, b) => a.fecha.localeCompare(b.fecha))
         .map(swap => `
-            <div class="swap-item">
+            <div class="swap-item ${cambioEstaAnulado(swap) ? "is-canceled" : ""}">
                 ${swap.from} -> ${swap.to}
                 (${formatFecha(swap.fecha)})
+                ${cambioEstaAnulado(swap) ? "| ANULADO" : ""}
                 | devolución ${formatFecha(swap.devolucion)}
             </div>
         `)
@@ -534,8 +558,8 @@ function guardarCambioTurno(){
     }
 
     if (
-        esRotativaDiurna(from) ||
-        esRotativaDiurna(to)
+        noPuedeIntercambiar(from) ||
+        noPuedeIntercambiar(to)
     ) {
         alert("Los trabajadores con rotativa Diurno no pueden intercambiar turnos.");
         return;
@@ -570,6 +594,8 @@ function guardarCambioTurno(){
         return;
     }
 
+    pushHistory();
+
     registrarCambio({
         from,
         to,
@@ -580,8 +606,6 @@ function guardarCambioTurno(){
         year: f1.getFullYear(),
         month: f1.getMonth()
     });
-
-    pushHistory();
 
     fechaCambioSeleccionada = "";
     fechaDevolucionSeleccionada = "";

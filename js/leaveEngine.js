@@ -25,11 +25,19 @@ import {
 
 import { renderTimeline } from "./timeline.js";
 import { analizarStaffingMes } from "./staffing.js";
-import { getTurnoBase } from "./turnEngine.js";
+import {
+    addAuditLog,
+    AUDIT_CATEGORY
+} from "./auditLog.js";
+import {
+    getTurnoBase,
+    getTurnoReal
+} from "./turnEngine.js";
 import {
     esAusenciaInjustificada,
     getAbsenceType,
     puedeAplicarAdministrativo,
+    puedeAplicarAusenciaInjustificada,
     puedeAplicarCompensatorioDesde,
     puedeIniciarLegal,
     puedeReemplazarAusencia
@@ -41,6 +49,27 @@ HELPERS
 
 function keyFromDate(d){
     return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function isoFromKey(key) {
+    const parts = String(key || "").split("-");
+
+    return `${parts[0]}-${String(Number(parts[1]) + 1).padStart(2, "0")}-${String(Number(parts[2])).padStart(2, "0")}`;
+}
+
+function formatKey(key) {
+    const iso = isoFromKey(key);
+    const parts = iso.split("-");
+
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function absenceLabel(type) {
+    if (type === "professional_license") return "LM Profesional";
+    if (type === "unpaid_leave") return "Permiso sin Goce";
+    if (type === "unjustified_absence") return "Ausencia Injustificada";
+
+    return "Licencia Medica";
 }
 
 function parseKey(k){
@@ -88,8 +117,62 @@ function validarRangoAusencias(fechas){
         if(admin[key]) return false;
         if(legal[key]) return false;
         if(comp[key]) return false;
-        if(abs[key]) return false;
+        if(
+            abs[key] &&
+            !esAusenciaInjustificada(abs[key])
+        ) return false;
     }
+
+    return true;
+}
+
+export function aplicarAusenciaInjustificada(fecha){
+    const currentProfile = getCurrentProfile();
+
+    if (!currentProfile) return false;
+
+    const key = keyFromDate(fecha);
+    const admin = getAdminDays();
+    const legal = getLegalDays();
+    const comp = getCompDays();
+    const absences = getAbsences();
+    const blocked = getBlockedDays();
+    const turno = getTurnoReal(currentProfile, key);
+
+    if (
+        !puedeAplicarAusenciaInjustificada(
+            key,
+            turno,
+            admin,
+            legal,
+            comp,
+            absences
+        )
+    ) {
+        return false;
+    }
+
+    absences[key] = {
+        type: "unjustified_absence"
+    };
+    blocked[key] = true;
+
+    saveAbsences(absences);
+    saveBlockedDays(blocked);
+
+    addAuditLog(
+        AUDIT_CATEGORY.LEAVE_ABSENCE,
+        "Aplico ausencia injustificada",
+        `${currentProfile}: ${formatKey(key)}.`,
+        {
+            profile: currentProfile,
+            date: isoFromKey(key),
+            type: "unjustified_absence"
+        }
+    );
+
+    renderTimeline();
+    analizarStaffingMes();
 
     return true;
 }
@@ -188,6 +271,17 @@ export async function aplicarAdministrativo(fecha, cantidad = 1){
         saveAbsences(absences);
     }
 
+    addAuditLog(
+        AUDIT_CATEGORY.LEAVE_ABSENCE,
+        "Aplico P. Administrativo",
+        `${currentProfile}: ${cantidad} dia desde ${formatKey(keyFromDate(fecha))}.`,
+        {
+            profile: currentProfile,
+            date: isoFromKey(keyFromDate(fecha)),
+            amount: cantidad
+        }
+    );
+
     renderTimeline();
     analizarStaffingMes();
 
@@ -211,6 +305,19 @@ export async function aplicarHalfAdministrativo(fecha, tipo="M"){
         tipo === "M" ? "0.5M" : "0.5T";
 
     saveAdminDays(admin);
+
+    addAuditLog(
+        AUDIT_CATEGORY.LEAVE_ABSENCE,
+        tipo === "M"
+            ? "Aplico 1/2 ADM Manana"
+            : "Aplico 1/2 ADM Tarde",
+        `${getCurrentProfile()}: ${formatKey(key)}.`,
+        {
+            profile: getCurrentProfile(),
+            date: isoFromKey(key),
+            amount: 0.5
+        }
+    );
 
     renderTimeline();
     analizarStaffingMes();
@@ -390,7 +497,13 @@ export async function aplicarLegal(fecha, cantidad){
 
     if(!validarRangoAusencias(nuevos)) return false;
 
+    let changedAbsences = false;
+
     nuevos.forEach(k=>{
+        if (esAusenciaInjustificada(absences[k])) {
+            delete absences[k];
+            changedAbsences = true;
+        }
 
         legal[k] = true;
         blocked[k] = true;
@@ -398,6 +511,21 @@ export async function aplicarLegal(fecha, cantidad){
 
     saveLegalDays(legal);
     saveBlockedDays(blocked);
+
+    if (changedAbsences) {
+        saveAbsences(absences);
+    }
+
+    addAuditLog(
+        AUDIT_CATEGORY.LEAVE_ABSENCE,
+        "Aplico F. Legal",
+        `${getCurrentProfile()}: ${cantidad} dia(s) habiles desde ${formatKey(startKey)}.`,
+        {
+            profile: getCurrentProfile(),
+            date: isoFromKey(startKey),
+            amount: cantidad
+        }
+    );
 
     renderTimeline();
     analizarStaffingMes();
@@ -506,6 +634,17 @@ export async function aplicarComp(fecha, cantidad = 10){
     if (changedAbsences) {
         saveAbsences(absences);
     }
+
+    addAuditLog(
+        AUDIT_CATEGORY.LEAVE_ABSENCE,
+        "Aplico F. Compensatorio",
+        `${getCurrentProfile()}: bloque de ${total} dia(s) habiles desde ${formatKey(startKey)}.`,
+        {
+            profile: getCurrentProfile(),
+            date: isoFromKey(startKey),
+            amount: total
+        }
+    );
 
     renderTimeline();
     analizarStaffingMes();
@@ -760,6 +899,18 @@ export async function aplicarLicencia(
     saveCompDays(comp);
     saveAbsences(abs);
     saveBlockedDays(blocked);
+
+    addAuditLog(
+        AUDIT_CATEGORY.LEAVE_ABSENCE,
+        `Aplico ${absenceLabel(type)}`,
+        `${getCurrentProfile()}: ${total} dia(s) corridos desde ${formatKey(startKey)}.`,
+        {
+            profile: getCurrentProfile(),
+            date: isoFromKey(startKey),
+            amount: total,
+            type
+        }
+    );
 
     renderTimeline();
     analizarStaffingMes();
