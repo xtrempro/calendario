@@ -11,6 +11,81 @@ import {
 
 let currentProfile = null;
 
+export const DEFAULT_GRADE_HOUR_CONFIG = {
+    professional: {
+        10: 9378.56,
+        11: 8605.85,
+        12: 7897.38,
+        13: 7272.24,
+        14: 6663.65,
+        15: 6107.22
+    },
+    general: {
+        12: 4420.99,
+        13: 4205.87,
+        14: 4002.53,
+        15: 3784.87,
+        16: 3550.55,
+        17: 3392.09,
+        18: 3230.79,
+        19: 3085.6,
+        20: 2902.88,
+        21: 2751.67,
+        22: 2550.45,
+        23: 2330.32,
+        24: 2148.73
+    }
+};
+
+function normalizeRateMap(map = {}, fallback = {}) {
+    return Object.keys(fallback).reduce((acc, grade) => {
+        const value = Number(map[grade]);
+        acc[grade] = Number.isFinite(value) && value > 0
+            ? value
+            : fallback[grade];
+        return acc;
+    }, {});
+}
+
+function normalizeGradeHourConfig(config = {}) {
+    return {
+        professional: normalizeRateMap(
+            config.professional,
+            DEFAULT_GRADE_HOUR_CONFIG.professional
+        ),
+        general: normalizeRateMap(
+            config.general,
+            DEFAULT_GRADE_HOUR_CONFIG.general
+        )
+    };
+}
+
+function gradeHourGroup(estamento) {
+    return normalizeEstamento(estamento) === "Profesional"
+        ? "professional"
+        : "general";
+}
+
+export function getGradeHourConfig() {
+    return normalizeGradeHourConfig(
+        getJSON("gradeHourConfig", DEFAULT_GRADE_HOUR_CONFIG)
+    );
+}
+
+export function saveGradeHourConfig(config) {
+    setJSON(
+        "gradeHourConfig",
+        normalizeGradeHourConfig(config)
+    );
+}
+
+export function getGradeHourValue(estamento, grade) {
+    const group = gradeHourGroup(estamento);
+    const config = getGradeHourConfig();
+
+    return Number(config[group]?.[String(grade)] || 0);
+}
+
 function normalizeEstamento(value){
     const source = String(value || "").trim();
 
@@ -65,6 +140,17 @@ function normalizeRotativaType(value){
     }
 
     return "";
+}
+
+function normalizeRotationFirstTurn(value) {
+    const normalized = String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+
+    return normalized === "noche"
+        ? "noche"
+        : "larga";
 }
 
 function moveStorageKey(oldKey, newKey){
@@ -185,19 +271,21 @@ export function setShiftAssigned(value, profile = currentProfile){
 }
 
 export function getValorHora(profile = currentProfile){
-    const ownValue = getRaw("valorHora_" + profile, null);
+    const profileData = getProfiles().find(item =>
+        item.name === profile
+    );
+    const configuredValue = profileData
+        ? getGradeHourValue(
+            profileData.estamento,
+            profileData.grade
+        )
+        : 0;
 
-    if (ownValue !== null) {
-        return Number(ownValue) || 0;
+    if (configuredValue > 0) {
+        return configuredValue;
     }
 
-    return getNumber("valorHora", 0) || 0;
-}
-
-export function setValorHora(value, profile = currentProfile){
-    const normalized = Math.max(0, Number(value) || 0);
-
-    setRaw("valorHora_" + profile, String(normalized));
+    return 0;
 }
 
 export function getCarryKey(y, m){
@@ -302,7 +390,8 @@ export function getRotativa(profile = currentProfile){
     if (!raw) {
         return {
             type: "",
-            start: ""
+            start: "",
+            firstTurn: "larga"
         };
     }
 
@@ -312,39 +401,44 @@ export function getRotativa(profile = currentProfile){
         if (typeof parsed === "string") {
             return {
                 type: "4turno",
-                start: parsed
+                start: parsed,
+                firstTurn: "larga"
             };
         }
 
         if (parsed && typeof parsed === "object") {
             return {
                 type: normalizeRotativaType(parsed.type),
-                start: String(parsed.start || "")
+                start: String(parsed.start || ""),
+                firstTurn: normalizeRotationFirstTurn(parsed.firstTurn)
             };
         }
     } catch {
         return {
             type: "4turno",
-            start: raw
+            start: raw,
+            firstTurn: "larga"
         };
     }
 
     return {
         type: "",
-        start: ""
+        start: "",
+        firstTurn: "larga"
     };
 }
 
 export function saveRotativa(rotativa, profile = currentProfile){
     const type = normalizeRotativaType(rotativa?.type);
     const start = String(rotativa?.start || "");
+    const firstTurn = normalizeRotationFirstTurn(rotativa?.firstTurn);
 
     if (!type) {
         removeKey("rotativa_" + profile);
         return;
     }
 
-    setJSON("rotativa_" + profile, { type, start });
+    setJSON("rotativa_" + profile, { type, start, firstTurn });
 }
 
 export function updateProfile(oldName, nextProfile){
@@ -403,7 +497,6 @@ export function updateProfile(oldName, nextProfile){
         "comp_",
         "absences_",
         "rotativa_",
-        "valorHora_",
         "leaveBalances_",
         "replacementContracts_",
         "clockMarks_",

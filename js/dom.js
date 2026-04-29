@@ -25,7 +25,6 @@ export const DOM = {
     profileRotationSelect: document.getElementById("profileRotationField"),
     profileGradeSelect: document.getElementById("profileGradeField"),
     profileRotationStatus: document.getElementById("profileRotationStatus"),
-    profileRotationMiniCalendar: document.getElementById("profileRotationMiniCalendar"),
     replacementContractEditor: document.getElementById("replacementContractEditor"),
     replacementTargetInput: document.getElementById("replacementTargetField"),
     replacementContractStatus: document.getElementById("replacementContractStatus"),
@@ -34,8 +33,8 @@ export const DOM = {
 
     /* config */
     checkbox: document.getElementById("shiftAssigned"),
-    valorHoraInput: document.getElementById("valorHora"),
     themeToggle: document.getElementById("themeToggle"),
+    systemSettingsBtn: document.getElementById("systemSettingsBtn"),
 
     /* botones turnos */
     adminBtn: document.getElementById("adminBtn"),

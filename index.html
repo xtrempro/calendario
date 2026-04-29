@@ -67,7 +67,7 @@
                 <span>USUARIO</span>
             </div>
 
-            <button class="icon-button" type="button" aria-label="Configuraci&#243;n">
+            <button id="systemSettingsBtn" class="icon-button" type="button" aria-label="Configuraci&#243;n">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="3"></circle>
                     <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1v.17a2 2 0 1 1-4 0V21a1.7 1.7 0 0 0-1.4-1.6 1.7 1.7 0 0 0-1 .34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1-.4H2.83a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.6-1.4 1.7 1.7 0 0 0-.34-1l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1V2.83a2 2 0 1 1 4 0V3a1.7 1.7 0 0 0 1.4 1.6 1.7 1.7 0 0 0 1-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c0 .38.14.74.4 1 .26.26.62.4 1 .4h.17a2 2 0 1 1 0 4H21c-.38 0-.74.14-1 .4-.26.26-.4.62-.4 1z"></path>
@@ -277,17 +277,11 @@
                                 </select>
                             </label>
 
-                            <label class="metric-row metric-row--field metric-input">
-                                <span class="metric-label">Valor Hora:</span>
-                                <input id="valorHora" type="number" min="0" step="1" placeholder="Ej: 5000">
-                            </label>
                         </div>
 
                         <div id="profileRotationStatus" class="profile-status-note">
                             Selecciona una rotativa para definir su fecha de inicio.
                         </div>
-
-                        <div id="profileRotationMiniCalendar" class="profile-rotation-mini"></div>
 
                         <div id="replacementContractEditor" class="replacement-contract-editor hidden">
                             <label class="metric-row metric-row--field">
@@ -296,7 +290,7 @@
                             </label>
 
                             <div id="replacementContractStatus" class="profile-status-note profile-status-note--soft">
-                                Selecciona inicio y termino del contrato en el mini calendario.
+                                Configura inicio y termino del contrato desde el modal de rotativa.
                             </div>
                         </div>
                     </section>

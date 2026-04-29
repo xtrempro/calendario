@@ -4,6 +4,7 @@ import { getCurrentProfile } from "./storage.js";
 const KEY = "auditLog";
 const MAX_LOGS = 1500;
 let selectedMonth = "";
+const selectedCategories = new Set();
 
 export const AUDIT_CATEGORY = {
     TURN_CHANGES: "turn_changes",
@@ -13,7 +14,8 @@ export const AUDIT_CATEGORY = {
     COLLABORATOR_CREATED: "collaborator_created",
     COLLABORATOR_UPDATED: "collaborator_updated",
     PROFILE_STATUS: "profile_status",
-    STAFFING: "staffing"
+    STAFFING: "staffing",
+    SYSTEM_SETTINGS: "system_settings"
 };
 
 const CATEGORY_DEFS = [
@@ -56,6 +58,11 @@ const CATEGORY_DEFS = [
         key: AUDIT_CATEGORY.STAFFING,
         title: "Modificacion de Dotacion Requerida",
         tone: "muted"
+    },
+    {
+        key: AUDIT_CATEGORY.SYSTEM_SETTINGS,
+        title: "Ajustes del Sistema",
+        tone: "blue"
     }
 ];
 
@@ -121,9 +128,10 @@ function summaryCardHTML(logs, def) {
     const count =
         logs.filter(log => log.category === def.key).length;
     const latest = latestForCategory(logs, def.key);
+    const isActive = selectedCategories.has(def.key);
 
     return `
-        <article class="audit-summary-card audit-summary-card--${def.tone}">
+        <button class="audit-summary-card audit-summary-card--${def.tone} ${isActive ? "is-active" : ""}" type="button" data-audit-category="${escapeHTML(def.key)}" aria-pressed="${isActive ? "true" : "false"}">
             <span>${escapeHTML(def.title)}</span>
             <strong>${count}</strong>
             <small>
@@ -131,7 +139,7 @@ function summaryCardHTML(logs, def) {
                     ? `Ultimo: ${escapeHTML(formatTimestamp(latest.createdAt))}`
                     : "Sin registros"}
             </small>
-        </article>
+        </button>
     `;
 }
 
@@ -207,6 +215,10 @@ export function renderAuditLogPanel() {
 
     const allLogs = sortedLogs();
     const logs = filterLogsBySelectedMonth(allLogs);
+    const activeCategories = Array.from(selectedCategories);
+    const visibleLogs = activeCategories.length
+        ? logs.filter(log => selectedCategories.has(log.category))
+        : logs;
 
     box.innerHTML = `
         <div class="section-head section-head--with-action">
@@ -229,13 +241,15 @@ export function renderAuditLogPanel() {
         <div class="audit-feed">
             <div class="audit-feed__head">
                 <h4>Detalle de registros</h4>
-                <span>${logs.length} de ${allLogs.length} registros</span>
+                <span>${visibleLogs.length} de ${logs.length} registros del mes</span>
             </div>
-            ${logs.length
-                ? logs.map(entryHTML).join("")
+            ${visibleLogs.length
+                ? visibleLogs.map(entryHTML).join("")
                 : `
                     <div class="empty-state empty-state--compact">
-                        Aun no hay modificaciones registradas.
+                        ${activeCategories.length
+                            ? "No hay registros para las tarjetas seleccionadas en este mes."
+                            : "Aun no hay modificaciones registradas."}
                     </div>
                 `}
         </div>
@@ -249,6 +263,22 @@ export function renderAuditLogPanel() {
             renderAuditLogPanel();
         };
     }
+
+    box.querySelectorAll("[data-audit-category]").forEach(card => {
+        card.onclick = () => {
+            const category = card.dataset.auditCategory;
+
+            if (!category) return;
+
+            if (selectedCategories.has(category)) {
+                selectedCategories.delete(category);
+            } else {
+                selectedCategories.add(category);
+            }
+
+            renderAuditLogPanel();
+        };
+    });
 }
 
 window.renderAuditLogPanel = renderAuditLogPanel;
