@@ -1386,12 +1386,26 @@ body[data-active-view="log"] .secondary-grid {
     height: 28px;
 }
 
+.action-arrow-icon {
+    width: 30px;
+    height: 30px;
+    filter: drop-shadow(0 5px 10px rgba(29, 108, 255, 0.14));
+}
+
+#undoBtn .action-arrow-icon {
+    filter: drop-shadow(0 5px 10px rgba(34, 197, 94, 0.16));
+}
+
+#redoBtn .action-arrow-icon {
+    filter: drop-shadow(0 5px 10px rgba(29, 108, 255, 0.16));
+}
+
 .tone-blue {
     color: #2a7cff;
 }
 
 .tone-light {
-    color: #e8eef9;
+    color: #8aa0bd;
 }
 
 .tone-green {
@@ -1407,7 +1421,7 @@ body[data-active-view="log"] .secondary-grid {
 }
 
 .tone-cyan {
-    color: #0fbcc0;
+    color: #0ea5e9;
 }
 
 .tone-red {
