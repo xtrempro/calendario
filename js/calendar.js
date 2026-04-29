@@ -23,6 +23,7 @@ import {
     getShiftAssigned,
     getCurrentProfile,
     getProfiles,
+    getRotativa,
     isProfileActive
 } from "./storage.js";
 import {
@@ -32,7 +33,9 @@ import {
     obtenerLabelDia,
     aplicarClasesEspeciales,
     estaBloqueadoModo,
+    getTurnoComponentes,
     restarTurnoCubierto,
+    turnoDesdeComponentes,
     turnoExtraCubreTurno
 } from "./rulesEngine.js";
 import { fetchHolidays } from "./holidays.js";
@@ -54,6 +57,7 @@ import {
 import {
     getAbsenceLabelForProfileDate,
     getBackedTurnForWorker,
+    getClockExtraBackupForWorker,
     getReplacementForCoveredShift,
     getReplacementForWorkerShift,
     renderReplacementLogHTML,
@@ -69,6 +73,12 @@ import {
     addAuditLog,
     AUDIT_CATEGORY
 } from "./auditLog.js";
+import {
+    getClockExtraHours,
+    hasClockExtra,
+    hasSevereClockIncident,
+    hasSimpleClockIncident
+} from "./clockMarks.js";
 
 export let currentDate = new Date();
 
@@ -550,47 +560,133 @@ function getExtraReasonMatches(
         });
 }
 
+function getManualBackupSections(pendingTurn, matchesByTurn) {
+    return getTurnoComponentes(pendingTurn)
+        .map(component => {
+            const turn = turnoDesdeComponentes([component]);
+
+            return {
+                id: component,
+                turn,
+                label: turnoReplacementLabel(turn),
+                matches: matchesByTurn.get(turn) || []
+            };
+        })
+        .filter(section => section.turn);
+}
+
+function formatClockHoursForDialog(hours) {
+    const d = Math.round((Number(hours?.d) || 0) * 2) / 2;
+    const n = Math.round((Number(hours?.n) || 0) * 2) / 2;
+    const parts = [];
+
+    if (d) parts.push(`${d}h diurnas`);
+    if (n) parts.push(`${n}h nocturnas`);
+
+    return parts.length ? parts.join(" / ") : "0h";
+}
+
 function extraReasonDialogHTML({
     profileName,
     pendingTurn,
-    matches
+    manualSections,
+    clockHours,
+    hasClockSection
 }) {
-    const items = matches.length
-        ? matches.map((match, index) => `
-            <button class="replacement-candidate" type="button" data-match-index="${index}">
-                <span>
-                    <strong>${match.profile.name}</strong>
-                    <small>${match.absenceType} | ${turnoReplacementLabel(match.coveredTurn)}</small>
-                </span>
-                <span>${match.exactMatch ? "Coincide" : "Parcial"}</span>
-            </button>
-        `).join("")
-        : `
-            <div class="empty-state empty-state--compact">
-                No hay vacaciones o licencias compatibles con este turno.
-            </div>
-        `;
+    const hasManualSection = Boolean(pendingTurn);
+    const hasMultipleManualSections =
+        (manualSections || []).length > 1;
+    const savesMultipleBackups =
+        hasMultipleManualSections ||
+        (hasClockSection && hasManualSection);
+    const manualItems = (manualSections || [])
+        .map(section => {
+            const items = section.matches.length
+                ? section.matches.map((match, index) => `
+                    <button
+                        class="replacement-candidate"
+                        type="button"
+                        data-section-id="${section.id}"
+                        data-match-index="${index}"
+                    >
+                        <span>
+                            <strong>${match.profile.name}</strong>
+                            <small>${match.absenceType} | ${turnoReplacementLabel(match.coveredTurn)}</small>
+                        </span>
+                        <span>${match.exactMatch ? "Coincide" : "Parcial"}</span>
+                    </button>
+                `).join("")
+                : `
+                    <div class="empty-state empty-state--compact">
+                        No hay vacaciones o licencias compatibles con este tramo.
+                    </div>
+                `;
+
+            return `
+                <div class="overtime-backup-subsection" data-manual-section="${section.id}">
+                    <div class="overtime-backup-subsection__head">
+                        <span>${section.label}</span>
+                    </div>
+                    <div class="replacement-candidate-list">
+                        ${items}
+                    </div>
+                    <label class="extra-reason-field">
+                        <span>Motivo manual para ${section.label}</span>
+                        <textarea rows="3" data-manual-reason="${section.id}" placeholder="Ej: Campana de Invierno, Estacion de Trabajo"></textarea>
+                    </label>
+                </div>
+            `;
+        })
+        .join("");
+    const clockSection = hasClockSection
+        ? `
+            <section class="overtime-backup-section" data-section="clock">
+                <div class="overtime-backup-section__head">
+                    <span>Horas por marcaje modificado</span>
+                    <small>${formatClockHoursForDialog(clockHours)}</small>
+                </div>
+                <p>
+                    Respalda las horas extras generadas por modificar la entrada
+                    o salida del turno.
+                </p>
+                <label class="extra-reason-field">
+                    <span>Motivo del marcaje</span>
+                    <textarea rows="3" data-clock-reason placeholder="Ej: Apoyo previo al turno, continuidad de atencion, emergencia del servicio"></textarea>
+                </label>
+            </section>
+        `
+        : "";
+    const manualSection = hasManualSection
+        ? `
+            <section class="overtime-backup-section" data-section="manual">
+                <div class="overtime-backup-section__head">
+                    <span>Turno extra agregado</span>
+                    <small>${turnoReplacementLabel(pendingTurn)}</small>
+                </div>
+                <p>
+                    Puedes asociar cada tramo a una ausencia compatible o escribir
+                    un motivo manual por separado.
+                </p>
+                ${manualItems}
+            </section>
+        `
+        : "";
 
     return `
-        <div class="turn-change-dialog replacement-dialog extra-reason-dialog" role="dialog" aria-modal="true" aria-labelledby="extraReasonDialogTitle">
+        <div class="turn-change-dialog replacement-dialog extra-reason-dialog overtime-backup-dialog" role="dialog" aria-modal="true" aria-labelledby="extraReasonDialogTitle">
             <strong id="extraReasonDialogTitle">Respaldar horas extras</strong>
             <p>
-                ${profileName} tiene un turno extra ${turnoReplacementLabel(pendingTurn)}
-                sin respaldo. Puedes asociarlo a una ausencia compatible o escribir el motivo.
+                ${profileName} tiene horas extras pendientes de respaldo.
+                Completa ${savesMultipleBackups ? "las secciones" : "el motivo"} para validar el pago.
             </p>
-            <div class="replacement-candidate-list">
-                ${items}
-            </div>
-            <label class="extra-reason-field">
-                <span>Motivo manual</span>
-                <textarea rows="3" placeholder="Ej: Campana de Invierno, Estacion de Trabajo"></textarea>
-            </label>
+            ${clockSection}
+            ${manualSection}
             <div class="turn-change-dialog__actions">
                 <button class="secondary-button" type="button" data-action="cancel">
                     Cancelar
                 </button>
                 <button class="primary-button" type="button" data-action="save-reason">
-                    Guardar motivo
+                    ${savesMultipleBackups ? "Guardar respaldos" : "Guardar motivo"}
                 </button>
             </div>
         </div>
@@ -600,24 +696,76 @@ function extraReasonDialogHTML({
 async function openExtraReasonDialog(
     profileName,
     keyDay,
-    pendingTurn
+    pendingTurn,
+    options = {}
 ) {
-    if (!pendingTurn || window.selectionMode) {
+    if ((!pendingTurn && !options.forceClock) || window.selectionMode) {
         return;
     }
 
-    const matches = getExtraReasonMatches(
-        profileName,
-        keyDay,
-        pendingTurn
-    );
+    const profileData = getProfileData(profileName);
+    const actualState = options.state ||
+        aplicarCambiosTurno(
+            profileName,
+            keyDay,
+            Number(profileData[keyDay]) || 0
+        );
+    const [year, month, day] = String(keyDay)
+        .split("-")
+        .map(Number);
+    const date = new Date(year, month, day);
+    const holidays = await fetchHolidays(year);
+    const hasClockSection =
+        hasClockExtra(
+            profileName,
+            keyDay,
+            date,
+            actualState,
+            holidays
+        ) &&
+        !getClockExtraBackupForWorker(profileName, keyDay);
+    const clockHours = hasClockSection
+        ? getClockExtraHours(
+            profileName,
+            keyDay,
+            date,
+            actualState,
+            holidays
+        )
+        : null;
+
+    if (!pendingTurn && !hasClockSection) {
+        return;
+    }
+
+    const matchesByTurn = new Map();
+    const manualSections = pendingTurn
+        ? getManualBackupSections(pendingTurn, matchesByTurn)
+        : [];
+
+    if (pendingTurn) {
+        manualSections.forEach(section => {
+            const matches = getExtraReasonMatches(
+                profileName,
+                keyDay,
+                section.turn
+            );
+
+            matchesByTurn.set(section.turn, matches);
+            section.matches = matches;
+        });
+    }
+
     const backdrop = document.createElement("div");
+    const selectedMatches = new Map();
 
     backdrop.className = "turn-change-dialog-backdrop";
     backdrop.innerHTML = extraReasonDialogHTML({
         profileName,
         pendingTurn,
-        matches
+        manualSections,
+        clockHours,
+        hasClockSection
     });
 
     const close = () => {
@@ -631,20 +779,78 @@ async function openExtraReasonDialog(
         }
     };
 
-    const saveBackup = async payload => {
+    const saveBackups = async () => {
+        const clockReason = backdrop
+            .querySelector("[data-clock-reason]")
+            ?.value
+            .trim() || "";
+        const manualBackups = manualSections.map(section => {
+            const selectedIndex = selectedMatches.get(section.id);
+            const selectedMatch = selectedIndex !== undefined
+                ? section.matches[selectedIndex]
+                : null;
+            const reason = backdrop
+                .querySelector(`[data-manual-reason="${section.id}"]`)
+                ?.value
+                .trim() || "";
+
+            return {
+                section,
+                selectedMatch,
+                reason
+            };
+        });
+        const missingManualBackup = manualBackups.find(backup =>
+            !backup.selectedMatch && !backup.reason
+        );
+
+        if (hasClockSection && !clockReason) {
+            alert("Indica el motivo de las horas extras generadas por el marcaje.");
+            backdrop.querySelector("[data-clock-reason]")?.focus();
+            return;
+        }
+
+        if (pendingTurn && missingManualBackup) {
+            alert(`Selecciona una ausencia compatible o escribe el motivo del turno ${missingManualBackup.section.label}.`);
+            backdrop
+                .querySelector(`[data-manual-reason="${missingManualBackup.section.id}"]`)
+                ?.focus();
+            return;
+        }
+
         if (typeof window.pushUndoState === "function") {
             window.pushUndoState("Respaldar horas extras");
         }
 
-        saveReplacement({
-            worker: profileName,
-            keyDay,
-            turno: payload.turno,
-            replaced: payload.replaced || "",
-            reason: payload.reason || "",
-            absenceType: payload.absenceType || "",
-            source: "manual_extra",
-            addsShift: false
+        if (hasClockSection) {
+            saveReplacement({
+                worker: profileName,
+                keyDay,
+                turno: actualState,
+                reason: clockReason,
+                absenceType: "Marcaje reloj control",
+                source: "clock_extra",
+                addsShift: false,
+                clockLabel: "Marcaje reloj control",
+                clockHours
+            });
+        }
+
+        manualBackups.forEach(backup => {
+            saveReplacement({
+                worker: profileName,
+                keyDay,
+                turno: backup.selectedMatch
+                    ? backup.selectedMatch.coveredTurn
+                    : backup.section.turn,
+                replaced: backup.selectedMatch?.profile.name || "",
+                reason: backup.selectedMatch ? "" : backup.reason,
+                absenceType: backup.selectedMatch
+                    ? backup.selectedMatch.absenceType
+                    : "Motivo manual",
+                source: "manual_extra",
+                addsShift: false
+            });
         });
 
         close();
@@ -665,50 +871,86 @@ async function openExtraReasonDialog(
         .querySelectorAll("[data-match-index]")
         .forEach(button => {
             button.onclick = () => {
-                const match = matches[
+                const sectionId = button.dataset.sectionId;
+
+                selectedMatches.set(
+                    sectionId,
                     Number(button.dataset.matchIndex)
-                ];
+                );
 
-                if (!match) return;
+                backdrop
+                    .querySelectorAll(
+                        `[data-match-index][data-section-id="${sectionId}"]`
+                    )
+                    .forEach(item => {
+                        const selected =
+                            Number(item.dataset.matchIndex) ===
+                            selectedMatches.get(sectionId);
 
-                saveBackup({
-                    turno: match.coveredTurn,
-                    replaced: match.profile.name,
-                    absenceType: match.absenceType
-                });
+                        item.classList.toggle("is-selected", selected);
+                        item.setAttribute(
+                            "aria-pressed",
+                            selected ? "true" : "false"
+                        );
+                    });
+
+                const manualTextarea = backdrop
+                    .querySelector(`[data-manual-reason="${sectionId}"]`);
+
+                if (manualTextarea) {
+                    manualTextarea.value = "";
+                }
             };
         });
 
     backdrop
-        .querySelector("[data-action='save-reason']")
-        .onclick = () => {
-            const reason = backdrop
-                .querySelector(".extra-reason-field textarea")
-                .value
-                .trim();
+        .querySelectorAll("[data-manual-reason]")
+        .forEach(textarea => {
+            textarea.addEventListener("input", event => {
+                if (!event.target.value.trim()) return;
 
-            if (!reason) {
-                alert("Indica el motivo de las horas extras para guardar el respaldo.");
-                return;
-            }
+                const sectionId = event.target.dataset.manualReason;
 
-            saveBackup({
-                turno: pendingTurn,
-                reason,
-                absenceType: "Motivo manual"
+                selectedMatches.delete(sectionId);
+                backdrop
+                    .querySelectorAll(
+                        `[data-match-index][data-section-id="${sectionId}"]`
+                    )
+                    .forEach(item => {
+                        item.classList.remove("is-selected");
+                        item.setAttribute("aria-pressed", "false");
+                    });
             });
-        };
+        });
+
+    backdrop
+        .querySelector("[data-action='save-reason']")
+        .onclick = saveBackups;
 
     document.addEventListener("keydown", onKeydown);
     document.body.appendChild(backdrop);
 
     (
+        backdrop.querySelector("[data-clock-reason]") ||
         backdrop.querySelector("[data-match-index]") ||
-        backdrop.querySelector(".extra-reason-field textarea")
+        backdrop.querySelector("[data-manual-reason]")
     )?.focus();
 }
 
 window.openExtraReasonDialog = openExtraReasonDialog;
+
+async function openClockExtraReasonDialog(
+    profileName,
+    keyDay,
+    state
+) {
+    return openExtraReasonDialog(profileName, keyDay, 0, {
+        forceClock: true,
+        state
+    });
+}
+
+window.openClockExtraReasonDialog = openClockExtraReasonDialog;
 
 async function clickDia(
     keyDay,
@@ -925,6 +1167,22 @@ export async function renderCalendar() {
                 keyDay,
                 data
             );
+        const severeClockIncident =
+            hasSevereClockIncident(activeProfile, keyDay);
+        const simpleClockIncident =
+            !severeClockIncident &&
+            hasSimpleClockIncident(activeProfile, keyDay);
+        const clockExtra =
+            hasClockExtra(
+                activeProfile,
+                keyDay,
+                date,
+                state,
+                holidays
+            );
+        const showClockExtraReason =
+            clockExtra &&
+            !getClockExtraBackupForWorker(activeProfile, keyDay);
         const showTurnChangeBadge =
             Boolean(turnChange) &&
             state > 0 &&
@@ -946,13 +1204,17 @@ export async function renderCalendar() {
             pendingManualExtra;
         const badge = replacementContractError
             ? "X"
-            : needsReplacement
-                ? "!"
-                : showExtraReason
+            : severeClockIncident
+                ? "!!!"
+                : needsReplacement
+                    ? "!"
+                    : showExtraReason || showClockExtraReason
                     ? "?"
-                    : workerReplacement
-                        ? (workerReplacement.reason ? "Motivo" : "Reemplazo")
-                        : (showTurnChangeBadge ? "CCTT" : "");
+                    : simpleClockIncident
+                        ? "*"
+                        : workerReplacement
+                            ? (workerReplacement.reason ? "Motivo" : "Reemplazo")
+                            : (showTurnChangeBadge ? "CCTT" : "");
         const replacementTitle = workerReplacement
             ? (
                 workerReplacement.replaced
@@ -978,6 +1240,12 @@ export async function renderCalendar() {
                     ? " | Requiere reemplazo de turno base"
                     : showExtraReason
                         ? " | Requiere motivo de horas extras"
+                        : showClockExtraReason
+                            ? " | Requiere motivo por horas extras de marcaje"
+                            : severeClockIncident
+                                ? " | Incidencia grave de marcaje"
+                                : simpleClockIncident
+                                    ? " | Incidencia de marcaje"
                         : replacementContractError
                             ? " | No tiene contrato vigente en la fecha seleccionada"
                             : "";
@@ -1013,6 +1281,17 @@ export async function renderCalendar() {
 
         if (showExtraReason) {
             div.classList.add("needs-extra-reason");
+        }
+
+        if (showClockExtraReason) {
+            div.classList.add("needs-extra-reason");
+            div.classList.add("clock-extra-day");
+        }
+
+        if (severeClockIncident) {
+            div.classList.add("clock-severe-day");
+        } else if (simpleClockIncident) {
+            div.classList.add("clock-incident-day");
         }
 
         if (replacementContractError) {
@@ -1053,6 +1332,7 @@ export async function renderCalendar() {
                 compCantidad: window.compCantidad || 0,
                 licenseCantidad: window.licenseCantidad || 0,
                 licenseType: window.licenseType || "license",
+                rotativa: getRotativa(activeProfile),
                 holidays
             }
         );
@@ -1093,6 +1373,18 @@ export async function renderCalendar() {
                     activeProfile,
                     keyDay,
                     showExtraReason
+                );
+            }
+
+            if (
+                showClockExtraReason &&
+                event.target.closest(".day-badge")
+            ) {
+                event.stopPropagation();
+                return openClockExtraReasonDialog(
+                    activeProfile,
+                    keyDay,
+                    state
                 );
             }
 

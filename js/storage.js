@@ -406,6 +406,7 @@ export function updateProfile(oldName, nextProfile){
         "valorHora_",
         "leaveBalances_",
         "replacementContracts_",
+        "clockMarks_",
         "hrLogs_"
     ];
 

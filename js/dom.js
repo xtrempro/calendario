@@ -50,6 +50,7 @@ export const DOM = {
     professionalLicenseBtn: document.getElementById("professionalLicenseBtn"),
     unpaidLeaveBtn: document.getElementById("unpaidLeaveBtn"),
     unjustifiedAbsenceBtn: document.getElementById("unjustifiedAbsenceBtn"),
+    clockMarkBtn: document.getElementById("clockMarkBtn"),
 
     /* navegacion */
     prevBtn: document.getElementById("prevBtn"),
@@ -73,5 +74,10 @@ export const DOM = {
     hheeChartMonth: document.getElementById("hheeChartMonth"),
     hheeHistoryYears: document.getElementById("hheeHistoryYears"),
     hheeMonthlyChart: document.getElementById("hheeMonthlyChart"),
-    hheeHistoryChart: document.getElementById("hheeHistoryChart")
+    hheeHistoryChart: document.getElementById("hheeHistoryChart"),
+
+    /* buscador superior */
+    topProfileSearchForm: document.getElementById("topProfileSearchForm"),
+    topProfileSearchInput: document.getElementById("topProfileSearch"),
+    topProfileOptions: document.getElementById("topProfileOptions")
 };

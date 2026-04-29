@@ -12,6 +12,7 @@ import {
     tieneAusencia
 } from "./rulesEngine.js";
 import { calcHours } from "./calculations.js";
+import { getClockExtraHours } from "./clockMarks.js";
 import {
     addAuditLog,
     AUDIT_CATEGORY
@@ -98,6 +99,17 @@ export function getReplacementForWorkerShift(profile, keyDay) {
     )[0] || null;
 }
 
+export function getClockExtraBackupForWorker(profile, keyDay) {
+    const iso = isoFromKey(keyDay);
+
+    return getReplacements().find(replacement =>
+        replacementActive(replacement) &&
+        replacement.worker === profile &&
+        replacement.date === iso &&
+        replacement.source === "clock_extra"
+    ) || null;
+}
+
 export function getReplacementsForWorkerShift(profile, keyDay) {
     const iso = isoFromKey(keyDay);
 
@@ -120,6 +132,9 @@ export function getReplacementTurnForWorker(profile, keyDay) {
 
 export function getBackedTurnForWorker(profile, keyDay) {
     return getReplacementsForWorkerShift(profile, keyDay)
+        .filter(replacement =>
+            replacement.source !== "clock_extra"
+        )
         .reduce(
             (turno, replacement) =>
                 mergeTurns(turno, codeToTurno(replacement.turno)),
@@ -210,6 +225,8 @@ export function saveReplacement(data) {
         addsShift: data.addsShift !== false,
         date: isoFromKey(data.keyDay),
         turno: turnoToCode(data.turno),
+        clockLabel: data.clockLabel || "",
+        clockHours: data.clockHours || null,
         absenceType,
         year: date.getFullYear(),
         month: date.getMonth(),
@@ -220,7 +237,8 @@ export function saveReplacement(data) {
     saveReplacements(replacements);
     addAuditLog(
         AUDIT_CATEGORY.OVERTIME,
-        data.source === "manual_extra"
+        data.source === "manual_extra" ||
+        data.source === "clock_extra"
             ? "Respaldo horas extras manuales"
             : "Asigno reemplazo de turno",
         hasReplacedWorker
@@ -244,8 +262,8 @@ function formatDate(value) {
 }
 
 function formatHours(hours) {
-    const d = Math.round(Number(hours.d) || 0);
-    const n = Math.round(Number(hours.n) || 0);
+    const d = Math.round((Number(hours.d) || 0) * 2) / 2;
+    const n = Math.round((Number(hours.n) || 0) * 2) / 2;
     const chunks = [];
 
     if (d) chunks.push(`${d}h diurnas`);
@@ -274,8 +292,35 @@ export function renderReplacementLogHTML(profile, year, month, holidays = {}) {
             ${records.map(record => {
                 const key = keyFromISO(record.date);
                 const date = parseKey(key);
+                const isClockExtra =
+                    record.source === "clock_extra";
                 const turno = codeToTurno(record.turno);
-                const hours = calcHours(date, turno, holidays);
+                const savedClockHours = record.clockHours || null;
+                const needsClockRecalculation =
+                    isClockExtra &&
+                    (
+                        !savedClockHours ||
+                        (
+                            !Number(savedClockHours.d) &&
+                            !Number(savedClockHours.n)
+                        )
+                    );
+                const hours = isClockExtra
+                    ? (
+                        needsClockRecalculation
+                            ? getClockExtraHours(
+                                record.worker,
+                                key,
+                                date,
+                                turno,
+                                holidays
+                            )
+                            : savedClockHours
+                    )
+                    : calcHours(date, turno, holidays);
+                const label = isClockExtra
+                    ? (record.clockLabel || "Marcaje reloj control")
+                    : turnoReplacementLabel(turno);
                 const replacedProfile = profiles.find(
                     profileItem => profileItem.name === record.replaced
                 );
@@ -289,7 +334,7 @@ export function renderReplacementLogHTML(profile, year, month, holidays = {}) {
 
                 return `
                     <div class="replacement-log__item">
-                        <span>${formatDate(record.date)} · ${turnoReplacementLabel(turno)}</span>
+                        <span>${formatDate(record.date)} · ${label}</span>
                         <span>${formatHours(hours)}</span>
                         <small>${detail}</small>
                     </div>

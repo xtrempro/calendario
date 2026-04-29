@@ -69,6 +69,7 @@ import {
     formatContractDate,
     getContractsForProfile
 } from "./contracts.js";
+import { openClockMarkDialog } from "./clockMarks.js";
 import {
     totalAdministrativosUsados,
     aplicarAdministrativo,
@@ -478,6 +479,61 @@ function formatRut(value) {
         .join("");
 
     return `${dotted}-${verifier}`;
+}
+
+function cleanRutForValidation(value) {
+    return String(value || "")
+        .replace(/\./g, "")
+        .replace(/\s+/g, "")
+        .toUpperCase();
+}
+
+function validarRut(rutCompleto) {
+    const cleaned = cleanRutForValidation(rutCompleto);
+
+    if (!/^[0-9]+-[0-9K]{1}$/.test(cleaned)) return false;
+
+    const [rut, dv] = cleaned.split("-");
+    let suma = 0;
+    let multiplo = 2;
+
+    for (let i = rut.length - 1; i >= 0; i--) {
+        suma += Number(rut.charAt(i)) * multiplo;
+        multiplo = multiplo < 7 ? multiplo + 1 : 2;
+    }
+
+    let dvEsperado = 11 - (suma % 11);
+    dvEsperado =
+        dvEsperado === 11
+            ? "0"
+            : dvEsperado === 10
+                ? "K"
+                : String(dvEsperado);
+
+    return dv === dvEsperado;
+}
+
+function getRutValidationMessage(value) {
+    const rut = String(value || "").trim();
+
+    if (!rut) return "";
+    if (validarRut(rut)) return "";
+
+    return "El RUT ingresado no es valido. Revisa el numero y el digito verificador.";
+}
+
+function syncRutValidity(showMessage = false) {
+    const message = getRutValidationMessage(
+        DOM.profileRutInput.value
+    );
+
+    DOM.profileRutInput.setCustomValidity(message);
+
+    if (message && showMessage) {
+        DOM.profileRutInput.reportValidity();
+    }
+
+    return !message;
 }
 
 function normalizeAttachmentFiles(files) {
@@ -1631,6 +1687,7 @@ function renderLeaveActionLabels() {
         DOM.professionalLicenseBtn.disabled = true;
         DOM.unpaidLeaveBtn.disabled = true;
         DOM.unjustifiedAbsenceBtn.disabled = true;
+        DOM.clockMarkBtn.disabled = true;
         if (profile && !isProfileActive(profile)) {
             DOM.adminBtnLabel.textContent = `${adminBase} (inactivo)`;
             DOM.compBtnLabel.textContent = `${compBase} (inactivo)`;
@@ -1658,6 +1715,7 @@ function renderLeaveActionLabels() {
     DOM.professionalLicenseBtn.disabled = false;
     DOM.unpaidLeaveBtn.disabled = false;
     DOM.unjustifiedAbsenceBtn.disabled = false;
+    DOM.clockMarkBtn.disabled = false;
 }
 
 function renderDashboardState() {
@@ -1665,9 +1723,12 @@ function renderDashboardState() {
     const data = getDisplayedProfileData();
     const editing = isProfileEditing();
 
+    syncTopProfileSearch();
+
     DOM.profileNameInput.value = data.name || "";
     DOM.profileEmailInput.value = data.email || "";
     DOM.profileRutInput.value = data.rut || "";
+    syncRutValidity(false);
     DOM.profilePhoneInput.value = data.phone || "";
     DOM.profileBirthDateInput.value = data.birthDate || "";
     DOM.profileUnitInput.value = data.unit || "";
@@ -1989,22 +2050,131 @@ function renderProfiles() {
         content.append(name, meta);
         item.append(avatar, content);
 
-        item.onclick = () => {
-            clearSelectionMode(false);
-            clearDraftValues();
-            availabilityEditMode = false;
-            profileDraft.mode = PROFILE_MODE.VIEW;
-            setCurrentProfile(profile.name);
-            renderProfiles();
-            renderBotones();
-            refreshAll();
-        };
+        item.onclick = () => selectProfileByName(profile.name);
 
         DOM.profiles.appendChild(item);
     });
 
     renderDashboardState();
 }
+
+function normalizeProfileSearch(value) {
+    return String(value || "")
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+}
+
+function getTopSearchProfiles() {
+    const showInactive =
+        DOM.showInactiveProfiles?.checked ?? true;
+
+    return getProfiles()
+        .filter(profile =>
+            showInactive || isProfileActive(profile)
+        )
+        .sort((a, b) =>
+            a.name.localeCompare(b.name)
+        );
+}
+
+function syncTopProfileSearch() {
+    if (!DOM.topProfileSearchInput) return;
+
+    const data = getDisplayedProfileData();
+    const currentName =
+        profileDraft.mode === PROFILE_MODE.CREATE
+            ? ""
+            : data.name || getCurrentProfile() || "";
+
+    if (document.activeElement !== DOM.topProfileSearchInput) {
+        DOM.topProfileSearchInput.value = currentName;
+    }
+
+    if (!DOM.topProfileOptions) return;
+
+    DOM.topProfileOptions.innerHTML = "";
+
+    getTopSearchProfiles().forEach(profile => {
+        const option = document.createElement("option");
+        option.value = profile.name;
+        option.label = `${profile.name} | ${profile.estamento}`;
+        DOM.topProfileOptions.appendChild(option);
+    });
+}
+
+function handleTopProfileSearch() {
+    if (!DOM.topProfileSearchInput) return;
+
+    const query = DOM.topProfileSearchInput.value.trim();
+
+    if (!query) {
+        syncTopProfileSearch();
+        return;
+    }
+
+    const normalizedQuery = normalizeProfileSearch(query);
+    const profiles = getTopSearchProfiles();
+    const exact = profiles.find(profile =>
+        normalizeProfileSearch(profile.name) === normalizedQuery
+    );
+    const startsWith = profiles.find(profile =>
+        normalizeProfileSearch(profile.name).startsWith(normalizedQuery)
+    );
+    const contains = profiles.find(profile =>
+        normalizeProfileSearch(profile.name).includes(normalizedQuery)
+    );
+    const match = exact || startsWith || contains;
+
+    if (!match) {
+        alert("No se encontro un colaborador con ese nombre.");
+        syncTopProfileSearch();
+        DOM.topProfileSearchInput.focus();
+        DOM.topProfileSearchInput.select();
+        return;
+    }
+
+    DOM.topProfileSearchInput.value = match.name;
+    selectProfileByName(match.name);
+}
+
+function selectProfileByName(profileName, options = {}) {
+    const profile = getProfiles().find(item =>
+        item.name === profileName
+    );
+
+    if (!profile) return;
+
+    clearSelectionMode(false);
+    clearDraftValues();
+    availabilityEditMode = false;
+    profileDraft.mode = PROFILE_MODE.VIEW;
+    setCurrentProfile(profile.name);
+    renderProfiles();
+    renderBotones();
+
+    if (options.openProfile) {
+        setActiveShortcut("profileSection");
+    }
+
+    if (options.openTurns) {
+        setActiveShortcut("calendarPanel");
+    }
+
+    refreshAll();
+
+    if (options.scrollToTop) {
+        requestAnimationFrame(() => {
+            window.scrollTo({
+                top: 0,
+                behavior: "smooth"
+            });
+        });
+    }
+}
+
+window.selectProfileByName = selectProfileByName;
 
 function clearSelectionMode(shouldRefresh = true) {
     selectionMode = null;
@@ -2192,6 +2362,8 @@ function validateDraft() {
     const requiresRotationStart =
         profileDraft.mode === PROFILE_MODE.CREATE ||
         hasRotationChanged();
+    const rutMessage =
+        getRutValidationMessage(profileDraft.rut);
 
     if (!profileDraft.name.trim()) missing.push("nombre");
     if (!profileDraft.estamento) missing.push("estamento");
@@ -2228,6 +2400,14 @@ function validateDraft() {
         ) < 0
     ) {
         alert("La fecha de termino del contrato no puede ser anterior al inicio.");
+        return false;
+    }
+
+    if (rutMessage) {
+        alert(rutMessage);
+        DOM.profileRutInput.focus();
+        DOM.profileRutInput.select();
+        syncRutValidity(true);
         return false;
     }
 
@@ -2720,11 +2900,13 @@ async function activarSelectorLegal() {
         return;
     }
 
-    const cantidad = Number(
-        prompt(
-            `Cuantos dias deseas cargar? Disponibles: ${saldo}`
-        )
-    );
+    const cantidad = await openAmountDialog({
+        title: "F. Legal",
+        subtitle: "Indica cuantos dias de feriado legal deseas cargar.",
+        label: "Dias de F. Legal",
+        max: saldo,
+        confirmText: "Continuar"
+    });
 
     if (!cantidad || cantidad <= 0) return;
 
@@ -2780,12 +2962,111 @@ function getLicenseTypeLabel(type) {
     return "Licencia Medica";
 }
 
-function activarSelectorLicencia(type = "license") {
+function openAmountDialog({
+    title,
+    subtitle,
+    label = "Cantidad de dias",
+    max = null,
+    min = 1,
+    step = 1,
+    confirmText = "Continuar"
+}) {
+    return new Promise(resolve => {
+        const backdrop = document.createElement("div");
+        const maxAttribute = max !== null
+            ? `max="${Number(max)}"`
+            : "";
+        const hint = max !== null
+            ? `<small>Disponibles: ${formatSaldo(max)}</small>`
+            : "";
+
+        backdrop.className = "turn-change-dialog-backdrop";
+        backdrop.innerHTML = `
+            <form class="turn-change-dialog amount-dialog" role="dialog" aria-modal="true">
+                <strong>${title}</strong>
+                <p>${subtitle}</p>
+                <label class="amount-dialog-field">
+                    <span>${label}</span>
+                    <input
+                        name="amount"
+                        type="number"
+                        min="${Number(min)}"
+                        step="${Number(step)}"
+                        ${maxAttribute}
+                        required
+                    >
+                    ${hint}
+                </label>
+                <div class="turn-change-dialog__actions">
+                    <button class="primary-button" type="submit">
+                        ${confirmText}
+                    </button>
+                    <button class="secondary-button" type="button" data-action="cancel">
+                        Cancelar
+                    </button>
+                </div>
+            </form>
+        `;
+
+        const dialog = backdrop.querySelector("form");
+        const input = dialog.querySelector("[name='amount']");
+        const close = value => {
+            document.removeEventListener("keydown", onKeydown);
+            backdrop.remove();
+            resolve(value);
+        };
+        const onKeydown = event => {
+            if (event.key === "Escape") {
+                close(null);
+            }
+        };
+
+        dialog
+            .querySelector("[data-action='cancel']")
+            .onclick = () => close(null);
+
+        dialog.onsubmit = event => {
+            event.preventDefault();
+
+            const value = Number(input.value);
+
+            if (!value || value < Number(min)) {
+                alert("Ingresa una cantidad valida.");
+                input.focus();
+                return;
+            }
+
+            if (max !== null && value > Number(max)) {
+                alert(`La cantidad no puede superar el saldo disponible (${formatSaldo(max)}).`);
+                input.focus();
+                return;
+            }
+
+            close(value);
+        };
+
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) {
+                close(null);
+            }
+        });
+
+        document.addEventListener("keydown", onKeydown);
+        document.body.appendChild(backdrop);
+        input.focus();
+    });
+}
+
+async function activarSelectorLicencia(type = "license") {
     if (!canModifyCurrentProfile()) return;
 
-    const cantidad = Number(
-        prompt(`Cuantos dias dura ${getLicenseTypeLabel(type)}?`)
-    );
+    const label = getLicenseTypeLabel(type);
+    const cantidad = await openAmountDialog({
+        title: label,
+        subtitle: "Indica cuantos dias corridos dura la ausencia.",
+        label: "Dias corridos",
+        confirmText: "Continuar"
+    });
 
     if (!cantidad || cantidad <= 0) return;
 
@@ -2821,9 +3102,11 @@ function activarSelectorAdmin() {
 
     activarModo(
         "admin",
-        getShiftAssigned()
-            ? "Selecciona un turno Larga o Noche valido para el permiso administrativo."
-            : "Selecciona un turno Larga o Noche en dia habil para el permiso administrativo."
+        getRotativa(getCurrentProfile()).type === "diurno"
+            ? "Selecciona un turno Diurno en dia habil para el permiso administrativo."
+            : getShiftAssigned()
+                ? "Selecciona un turno Larga o Noche valido para el permiso administrativo."
+                : "Selecciona un turno Larga o Noche en dia habil para el permiso administrativo."
     );
 }
 
@@ -2855,6 +3138,60 @@ function activarSelectorAusenciaInjustificada() {
 
     DOM.adminInfo.textContent =
         "Solo quedan habilitados los dias con turno real del trabajador. Puedes marcar varios turnos y presionar Cancelar para terminar.";
+}
+
+function activarSelectorMarcajeReloj() {
+    if (!canModifyCurrentProfile()) return;
+
+    activarModo(
+        "clockmark",
+        "Selecciona en el calendario el turno donde modificaras el marcaje de entrada o salida."
+    );
+
+    DOM.adminInfo.textContent =
+        "Solo quedan habilitados los dias con turno real y sin vacaciones o ausencias.";
+}
+
+async function handleClockMarkSelection(fecha) {
+    const profile = getCurrentProfile();
+    const keyDay = keyFromDate(fecha);
+    const data = getProfileData();
+    const holidays = await fetchHolidays(fecha.getFullYear());
+    const state = aplicarCambiosTurno(
+        profile,
+        keyDay,
+        Number(data[keyDay]) || 0
+    );
+
+    if (!state) {
+        alert("Selecciona un dia que tenga turno para modificar sus marcajes.");
+        clearSelectionMode();
+        return;
+    }
+
+    pushHistory();
+
+    const saved = await openClockMarkDialog({
+        profile,
+        keyDay,
+        date: fecha,
+        state,
+        holidays
+    });
+
+    if (saved) {
+        addAuditLog(
+            AUDIT_CATEGORY.CALENDAR,
+            "Modifico marcaje reloj control",
+            `${profile}: modifico marcajes del ${keyDay}.`,
+            {
+                profile,
+                keyDay
+            }
+        );
+    }
+
+    clearSelectionMode();
 }
 
 function applyTheme(theme) {
@@ -2904,6 +3241,12 @@ function bindProfileForm() {
         const formatted = formatRut(DOM.profileRutInput.value);
         DOM.profileRutInput.value = formatted;
         profileDraft.rut = formatted;
+        syncRutValidity(false);
+    };
+
+    DOM.profileRutInput.onblur = () => {
+        if (!isProfileEditing()) return;
+        syncRutValidity(true);
     };
 
     DOM.profilePhoneInput.oninput = () => {
@@ -3100,6 +3443,20 @@ function bindShellInteractions() {
         DOM.showInactiveProfiles.onchange = renderProfiles;
     }
 
+    if (DOM.topProfileSearchForm) {
+        DOM.topProfileSearchForm.onsubmit = event => {
+            event.preventDefault();
+            handleTopProfileSearch();
+        };
+    }
+
+    if (DOM.topProfileSearchInput) {
+        DOM.topProfileSearchInput.onchange =
+            handleTopProfileSearch;
+        DOM.topProfileSearchInput.onfocus = () =>
+            DOM.topProfileSearchInput.select();
+    }
+
     document
         .querySelectorAll(".nav-tile[data-target]")
         .forEach(button => {
@@ -3139,6 +3496,7 @@ DOM.unpaidLeaveBtn.onclick =
     () => activarSelectorLicencia("unpaid_leave");
 DOM.unjustifiedAbsenceBtn.onclick =
     activarSelectorAusenciaInjustificada;
+DOM.clockMarkBtn.onclick = activarSelectorMarcajeReloj;
 
 DOM.prevBtn.onclick = prevMonth;
 DOM.nextBtn.onclick = nextMonth;
@@ -3186,6 +3544,11 @@ document.addEventListener("click", async event => {
         Number(celda.dataset.month),
         Number(celda.dataset.day)
     );
+
+    if (selectionMode === "clockmark") {
+        await handleClockMarkSelection(fecha);
+        return;
+    }
 
     if (selectionMode === "license") {
         pushHistory();

@@ -19,6 +19,7 @@ import {
 
     getShiftAssigned,
     getCurrentProfile,
+    getRotativa,
     getManualLeaveBalances,
     saveManualLeaveBalances
 } from "./storage.js";
@@ -249,7 +250,8 @@ export async function aplicarAdministrativo(fecha, cantidad = 1){
                 legal,
                 comp,
                 absences,
-                shiftAssigned
+                shiftAssigned,
+                getRotativa(currentProfile)
             )
         ) {
             return false;

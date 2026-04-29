@@ -18,6 +18,10 @@ import {
 import { TURNO } from "./constants.js";
 import { esAusenciaInjustificada } from "./rulesEngine.js";
 import { getJSON } from "./persistence.js";
+import {
+    getWorkedIntervalsForState,
+    hasClockMark
+} from "./clockMarks.js";
 
 const HORA_BASE_DIARIA = 8.8;
 
@@ -34,11 +38,31 @@ function roundHour(value) {
 }
 
 function roundExtra(value) {
-    return Math.max(0, Math.round(Number(value) || 0));
+    return Math.max(
+        0,
+        Math.round((Number(value) || 0) * 2) / 2
+    );
+}
+
+function roundSignedExtra(value) {
+    const rounded =
+        Math.round((Number(value) || 0) * 2) / 2;
+
+    return Object.is(rounded, -0) ? 0 : rounded;
 }
 
 function formatHour(value) {
     const rounded = roundHour(value);
+
+    if (Number.isInteger(rounded)) {
+        return String(rounded);
+    }
+
+    return String(rounded).replace(".", ",");
+}
+
+function formatExtra(value) {
+    const rounded = roundSignedExtra(value);
 
     if (Number.isInteger(rounded)) {
         return String(rounded);
@@ -413,6 +437,8 @@ function baseStateForExtraComparison(nombre, keyDay) {
 
 function addAggregateWorkedHours(
     totals,
+    nombre,
+    keyDay,
     date,
     state,
     holidays,
@@ -422,6 +448,25 @@ function addAggregateWorkedHours(
     const turno = Number(state) || TURNO.LIBRE;
 
     if (turno === TURNO.LIBRE) {
+        return;
+    }
+
+    if (hasClockMark(nombre, keyDay)) {
+        addHours(
+            totals,
+            classifyIntervals(
+                getWorkedIntervalsForState(
+                    nombre,
+                    keyDay,
+                    date,
+                    turno,
+                    holidays
+                ),
+                holidays,
+                rangeStart,
+                rangeEnd
+            )
+        );
         return;
     }
 
@@ -498,6 +543,8 @@ function calculateWorkedTotals(
 
         addAggregateWorkedHours(
             totals,
+            nombre,
+            keyDay,
             date,
             actualStateForDay(nombre, data, keyDay),
             holidays,
@@ -630,7 +677,9 @@ function calculateDiurnoExtras(
             continue;
         }
 
-        const actualIntervals = intervalsForState(
+        const actualIntervals = getWorkedIntervalsForState(
+            nombre,
+            keyDay,
             date,
             actualStateForDay(nombre, data, keyDay),
             holidays
@@ -687,7 +736,9 @@ function calculateAssignedExtras(
             actualStateForDay(nombre, data, keyDay);
         const baseState =
             baseStateForExtraComparison(nombre, keyDay);
-        let actualIntervals = intervalsForState(
+        let actualIntervals = getWorkedIntervalsForState(
+            nombre,
+            keyDay,
             date,
             actualState,
             holidays
@@ -697,12 +748,37 @@ function calculateAssignedExtras(
             !baseCoversDiurnoComponent(baseState);
 
         if (hasExtraDiurno) {
-            extras.d += HORA_BASE_DIARIA;
-            actualIntervals = intervalsWithoutDiurnoComponent(
-                date,
-                actualState,
-                holidays
-            );
+            if (hasClockMark(nombre, keyDay)) {
+                addHours(
+                    extras,
+                    classifyIntervals(
+                        getWorkedIntervalsForState(
+                            nombre,
+                            keyDay,
+                            date,
+                            TURNO.DIURNO,
+                            holidays
+                        ),
+                        holidays,
+                        rangeStart,
+                        rangeEnd
+                    )
+                );
+                actualIntervals = getWorkedIntervalsForState(
+                    nombre,
+                    keyDay,
+                    date,
+                    TURNO.NOCHE,
+                    holidays
+                );
+            } else {
+                extras.d += HORA_BASE_DIARIA;
+                actualIntervals = intervalsWithoutDiurnoComponent(
+                    date,
+                    actualState,
+                    holidays
+                );
+            }
         }
 
         const baseIntervals = intervalsForState(
@@ -751,7 +827,9 @@ function calculateCarryForMode(
         return { d: 0, n: 0 };
     }
 
-    const actualIntervals = intervalsForState(
+    const actualIntervals = getWorkedIntervalsForState(
+        nombre,
+        keyDay,
         date,
         actualStateForDay(nombre, data, keyDay),
         holidays
@@ -780,6 +858,73 @@ function calculateCarryForMode(
         monthEnd,
         carryEnd
     );
+}
+
+function calculateClockAbsenceAdjustments(
+    mode,
+    nombre,
+    y,
+    m,
+    days,
+    holidays,
+    data,
+    maps
+) {
+    const total = { d: 0, n: 0 };
+    const rangeStart = new Date(y, m, 1);
+    const rangeEnd = new Date(y, m + 1, 1);
+
+    for (let d = 1; d <= days; d++) {
+        const date = new Date(y, m, d);
+        const keyDay = key(y, m, d);
+
+        if (!hasClockMark(nombre, keyDay)) {
+            continue;
+        }
+
+        if (
+            getApprovedCoverage(keyDay, maps) > 0 ||
+            hasUnjustifiedAbsence(keyDay, maps)
+        ) {
+            continue;
+        }
+
+        const baseIntervals = mode === "diurno"
+            ? normalDiurnoInterval(date, holidays)
+            : intervalsForState(
+                date,
+                baseStateForExtraComparison(nombre, keyDay),
+                holidays
+            );
+
+        if (!baseIntervals.length) {
+            continue;
+        }
+
+        const actualIntervals = getWorkedIntervalsForState(
+            nombre,
+            keyDay,
+            date,
+            actualStateForDay(nombre, data, keyDay),
+            holidays
+        );
+        const absenceIntervals = subtractIntervals(
+            baseIntervals,
+            actualIntervals
+        );
+
+        addHours(
+            total,
+            classifyIntervals(
+                absenceIntervals,
+                holidays,
+                rangeStart,
+                rangeEnd
+            )
+        );
+    }
+
+    return total;
 }
 
 function calculatePreviousCarryIn(nombre, y, m, holidays) {
@@ -877,6 +1022,24 @@ function buildStats({
         hheeDiurnas = roundExtra(extras.d);
         hheeNocturnas = roundExtra(extras.n);
     }
+
+    const clockAbsences = calculateClockAbsenceAdjustments(
+        mode,
+        nombre,
+        y,
+        m,
+        days,
+        holidays,
+        data,
+        maps
+    );
+
+    hheeDiurnas = roundSignedExtra(
+        hheeDiurnas - clockAbsences.d
+    );
+    hheeNocturnas = roundSignedExtra(
+        hheeNocturnas - clockAbsences.n
+    );
 
     return {
         totalD: roundHour(worked.d),
@@ -979,13 +1142,13 @@ export function renderSummaryHTML(stats) {
         <div class="summary-grid">
             <article class="summary-card">
                 <span class="summary-label">Diurnas</span>
-                <strong class="summary-value ${dayAlertClass}">${stats.hheeDiurnas}h</strong>
+                <strong class="summary-value ${dayAlertClass}">${formatExtra(stats.hheeDiurnas)}h</strong>
                 <span class="summary-amount">$${currency.format(pagoDiurno)}</span>
             </article>
 
             <article class="summary-card">
                 <span class="summary-label">Nocturnas</span>
-                <strong class="summary-value">${stats.hheeNocturnas}h</strong>
+                <strong class="summary-value">${formatExtra(stats.hheeNocturnas)}h</strong>
                 <span class="summary-amount">$${currency.format(pagoNocturno)}</span>
             </article>
         </div>

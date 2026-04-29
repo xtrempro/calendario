@@ -18,11 +18,25 @@
 
             <div class="brand-copy">
                 <strong>TURNO <span class="brand-accent">SALUD</span></strong>
-                <span>Gesti&#243;n de turnos</span>
+                <span>Gesti&#243;n de Turnos Hospitalarios</span>
             </div>
         </div>
 
         <div class="topbar-actions">
+            <form id="topProfileSearchForm" class="profile-viewer" autocomplete="off">
+                <label for="topProfileSearch">Visualizando el perfil de:</label>
+                <div class="profile-viewer__field">
+                    <input id="topProfileSearch" type="search" list="topProfileOptions" placeholder="Selecciona perfil">
+                    <button class="profile-viewer__button" type="submit" aria-label="Buscar perfil">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="7"></circle>
+                            <path d="M21 21l-4.35-4.35"></path>
+                        </svg>
+                    </button>
+                </div>
+                <datalist id="topProfileOptions"></datalist>
+            </form>
+
             <button id="themeToggle" class="theme-switch" type="button" aria-label="Cambiar tema" aria-pressed="true">
                 <svg class="theme-switch__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="4"></circle>
@@ -63,7 +77,9 @@
     </header>
 
     <div class="app-grid">
-        <aside class="panel sidebar">
+        <main class="dashboard">
+            <div class="profile-view-layout">
+                <aside class="panel sidebar">
             <div class="panel-title">Listado Colaboradores</div>
 
             <label class="field-shell field-shell--icon">
@@ -102,10 +118,9 @@
 
             <div id="profiles" class="profile-list"></div>
             <div id="emptyProfiles" class="empty-state hidden"></div>
-        </aside>
+                </aside>
 
-        <main class="dashboard">
-            <section class="panel overview-card" id="profileSection">
+                <section class="panel overview-card" id="profileSection">
                 <div class="profile-layout">
                     <section class="profile-area profile-area--personal">
                         <div class="section-head">
@@ -294,7 +309,8 @@
                         <div id="profileRecordsPanel" class="profile-records-grid"></div>
                     </section>
                 </div>
-            </section>
+                </section>
+            </div>
 
             <section class="panel actionbar">
                 <button class="nav-tile is-active" type="button" data-target="calendarPanel">
@@ -413,17 +429,6 @@
 
                 <div class="stacked-panels">
                     <section class="panel leave-panel" id="leavePanel">
-                        <div class="section-head">
-                            <span class="section-icon tone-blue">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                    <rect x="7" y="3" width="10" height="18" rx="2"></rect>
-                                    <path d="M10 7h4"></path>
-                                    <path d="M10 11h4"></path>
-                                </svg>
-                            </span>
-                            <h3>Vacaciones / Ausencias</h3>
-                        </div>
-
                         <div class="legend-list">
                             <button id="adminBtn" class="legend-action" type="button">
                                 <span class="legend-dot tone-orange">
@@ -532,25 +537,24 @@
                                 </span>
                                 <span>AUSENCIA INJUSTIFICADA</span>
                             </button>
+
+                            <button id="clockMarkBtn" class="legend-action" type="button">
+                                <span class="legend-dot tone-blue">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="12" r="8"></circle>
+                                        <path d="M12 8v5l3 2"></path>
+                                        <path d="M4 4l3 3"></path>
+                                        <path d="M20 4l-3 3"></path>
+                                    </svg>
+                                </span>
+                                <span>MARCAJES RELOJ CONTROL</span>
+                            </button>
                         </div>
 
                         <div id="adminInfo" class="helper-note hidden"></div>
                     </section>
 
                     <section class="panel staffing-report-panel" id="staffingReportPanel">
-                        <div class="section-head">
-                            <span class="section-icon tone-green">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M4 19V5"></path>
-                                    <path d="M4 19h16"></path>
-                                    <rect x="7" y="10" width="3" height="6" rx="1"></rect>
-                                    <rect x="12" y="7" width="3" height="9" rx="1"></rect>
-                                    <rect x="17" y="12" width="3" height="4" rx="1"></rect>
-                                </svg>
-                            </span>
-                            <h3>Reporte RRHH</h3>
-                        </div>
-
                         <div id="staffingReportInline" class="staffing-report-scroll"></div>
                     </section>
 
@@ -668,9 +672,6 @@
             </section>
 
             <section class="panel timeline-panel" id="reportsPanel">
-                <div class="section-head">
-                    <h3>Vista Mensual del Equipo</h3>
-                </div>
                 <div id="teamTimeline"></div>
             </section>
 

@@ -376,16 +376,21 @@ function renderMiniCalendar(id, trabajador, esCambio){
             turnoBase
         );
 
+        const turnoClass = turnoBase === 1
+            ? "mini-turn-larga"
+            : turnoBase === 2
+                ? "mini-turn-noche"
+                : "";
         let clase = "mini-off";
 
-        if (valido) clase = "mini-on";
+        if (valido) clase = `mini-on ${turnoClass}`;
 
         const seleccionada = esCambio
             ? fechaCambioSeleccionada === toISO(fecha)
             : fechaDevolucionSeleccionada === toISO(fecha);
 
         if (seleccionada) {
-            clase = "mini-selected";
+            clase = `mini-selected ${turnoClass}`;
         }
 
         html += `

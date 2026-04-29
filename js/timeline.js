@@ -20,6 +20,7 @@ import {
 } from "./rulesEngine.js";
 import {
     getBackedTurnForWorker,
+    getClockExtraBackupForWorker,
     getReplacementForCoveredShift,
     getReplacementForWorkerShift
 } from "./replacements.js";
@@ -27,6 +28,11 @@ import {
     hasContractForDate,
     isReplacementProfile
 } from "./contracts.js";
+import {
+    hasClockExtra,
+    hasSevereClockIncident,
+    hasSimpleClockIncident
+} from "./clockMarks.js";
 
 function getData(nombre){
     return getJSON("data_" + nombre, {});
@@ -60,9 +66,21 @@ function getCarry(nombre, y, m){
 }
 
 function formatTimelineHours(value){
-    const rounded = Math.round(Number(value) || 0);
+    const rounded =
+        Math.round((Number(value) || 0) * 2) / 2;
 
-    return rounded > 0 ? String(rounded) : "";
+    if (!rounded) return "";
+
+    return String(rounded).replace(".", ",");
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 }
 
 function dayExtraAlertClass(nombre, value) {
@@ -295,7 +313,18 @@ export async function renderTimeline(){
         );
 
         html += `<tr>`;
-        html += `<td class="namecol">${profile.name}</td>`;
+        html += `
+            <td class="namecol">
+                <button
+                    class="timeline-profile-link"
+                    type="button"
+                    data-profile-name="${escapeHtml(profile.name)}"
+                    title="Abrir perfil de ${escapeHtml(profile.name)}"
+                >
+                    ${escapeHtml(profile.name)}
+                </button>
+            </td>
+        `;
         html += `
             <td class="timeline-hhee timeline-hhee--day${dayExtraAlertClass(profile.name, stats.hheeDiurnas)}">
                 ${formatTimelineHours(stats.hheeDiurnas)}
@@ -314,6 +343,26 @@ export async function renderTimeline(){
                 needsReplacementMarker(profile.name, key);
             const pendingManualExtra =
                 pendingManualExtraMarker(profile.name, key);
+            const severeClockIncident =
+                hasSevereClockIncident(profile.name, key);
+            const simpleClockIncident =
+                !severeClockIncident &&
+                hasSimpleClockIncident(profile.name, key);
+            const clockExtra =
+                hasClockExtra(
+                    profile.name,
+                    key,
+                    new Date(year, month, d),
+                    aplicarCambiosTurno(
+                        profile.name,
+                        key,
+                        Number(data[key]) || 0
+                    ),
+                    holidays
+                );
+            const showClockExtra =
+                clockExtra &&
+                !getClockExtraBackupForWorker(profile.name, key);
             const showExtraReason =
                 !contractError &&
                 !needsReplacement &&
@@ -322,17 +371,27 @@ export async function renderTimeline(){
                 replacementMarker(profile.name, key);
             const marker = contractError
                 ? "X"
-                : needsReplacement
-                    ? "!"
-                    : showExtraReason
+                : severeClockIncident
+                    ? "!!!"
+                    : needsReplacement
+                        ? "!"
+                        : showExtraReason || showClockExtra
                         ? "?"
-                        : (replacement ? "R" : "");
+                        : simpleClockIncident
+                            ? "*"
+                            : (replacement ? "R" : "");
             const title = contractError
                 ? "No tiene contrato vigente en la fecha seleccionada"
-                : needsReplacement
-                    ? "Requiere reemplazo de turno base"
-                    : showExtraReason
+                : severeClockIncident
+                    ? "Incidencia grave de marcaje"
+                    : needsReplacement
+                        ? "Requiere reemplazo de turno base"
+                        : showExtraReason
                         ? "Requiere motivo de horas extras"
+                        : showClockExtra
+                            ? "Requiere motivo por horas extras de marcaje"
+                            : simpleClockIncident
+                                ? "Incidencia de marcaje"
                         : replacement
                             ? (
                                 replacement.replaced
@@ -343,12 +402,13 @@ export async function renderTimeline(){
 
             html += `
                 <td
-                    class="mini ${contractError ? "contract-error-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason ? "needs-extra-reason" : ""} ${replacement ? "replacement-day" : ""}"
+                    class="mini ${contractError ? "contract-error-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${replacement ? "replacement-day" : ""}"
                     style="background:${color}"
                     title="${title}"
                     ${contractError ? `data-contract-error-profile="${profile.name}" data-contract-error-key="${key}"` : ""}
                     ${needsReplacement ? `data-replacement-profile="${profile.name}" data-replacement-key="${key}"` : ""}
                     ${showExtraReason ? `data-extra-profile="${profile.name}" data-extra-key="${key}" data-extra-turn="${showExtraReason}"` : ""}
+                    ${showClockExtra && !showExtraReason ? `data-clock-extra-profile="${profile.name}" data-clock-extra-key="${key}" data-clock-extra-turn="${aplicarCambiosTurno(profile.name, key, Number(data[key]) || 0)}"` : ""}
                 >
                     ${marker ? `<span class="timeline-replacement-marker">${marker}</span>` : ""}
                 </td>
@@ -365,6 +425,18 @@ export async function renderTimeline(){
     `;
 
     div.innerHTML = html;
+    div.querySelectorAll("[data-profile-name]")
+        .forEach(button => {
+            button.onclick = () => {
+                window.selectProfileByName?.(
+                    button.dataset.profileName,
+                    {
+                        openTurns: true,
+                        scrollToTop: true
+                    }
+                );
+            };
+        });
     div.querySelectorAll("[data-replacement-profile]")
         .forEach(cell => {
             cell.onclick = () => {
@@ -381,6 +453,16 @@ export async function renderTimeline(){
                     cell.dataset.extraProfile,
                     cell.dataset.extraKey,
                     Number(cell.dataset.extraTurn) || 0
+                );
+            };
+        });
+    div.querySelectorAll("[data-clock-extra-profile]")
+        .forEach(cell => {
+            cell.onclick = () => {
+                window.openClockExtraReasonDialog?.(
+                    cell.dataset.clockExtraProfile,
+                    cell.dataset.clockExtraKey,
+                    Number(cell.dataset.clockExtraTurn) || 0
                 );
             };
         });

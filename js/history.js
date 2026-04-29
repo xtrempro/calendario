@@ -23,6 +23,7 @@ function snapshotProfile(p){
         abs: getRaw(key(p,"absences")),
         blocked: getRaw(key(p,"blocked")),
         shift: getRaw(key(p,"shift")),
+        clockMarks: getRaw(key(p,"clockMarks")),
         replacementContracts: getRaw(
             key(p,"replacementContracts")
         )
@@ -41,6 +42,7 @@ function restoreProfile(p, state){
     setRaw(key(p,"absences"), state.abs || "{}");
     setRaw(key(p,"blocked"), state.blocked || "{}");
     setRaw(key(p,"shift"), state.shift || "false");
+    setRaw(key(p,"clockMarks"), state.clockMarks || "{}");
     setRaw(
         key(p,"replacementContracts"),
         state.replacementContracts || "[]"

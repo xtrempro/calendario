@@ -266,8 +266,23 @@ function bloqueaCompensatorioPorAusencia(absence) {
     return !esAusenciaInjustificada(absence);
 }
 
-export function esTurnoAdministrativoValido(state) {
+function getRotativaType(rotativa) {
+    if (!rotativa) return "";
+    if (typeof rotativa === "string") return normalizeText(rotativa);
+
+    return normalizeText(rotativa.type || rotativa.rotativa || "");
+}
+
+export function esTurnoAdministrativoValido(state, rotativa = "") {
     const turno = Number(state) || TURNO.LIBRE;
+    const rotativaType = getRotativaType(rotativa);
+
+    if (
+        rotativaType === "diurno" &&
+        turno === TURNO.DIURNO
+    ) {
+        return true;
+    }
 
     return (
         turno === TURNO.LARGA ||
@@ -283,7 +298,8 @@ export function puedeAplicarAdministrativo(
     legal,
     comp,
     absences,
-    shiftAssigned
+    shiftAssigned,
+    rotativa = ""
 ) {
     if (legal[keyDay] || comp[keyDay]) {
         return false;
@@ -297,7 +313,7 @@ export function puedeAplicarAdministrativo(
         return false;
     }
 
-    if (!esTurnoAdministrativoValido(state)) {
+    if (!esTurnoAdministrativoValido(state, rotativa)) {
         return false;
     }
 
@@ -695,7 +711,8 @@ export function estaBloqueadoModo(
             legal,
             comp,
             absences,
-            shiftAssigned
+            shiftAssigned,
+            options.rotativa || ""
         );
     }
 
@@ -739,6 +756,19 @@ export function estaBloqueadoModo(
             legal,
             comp,
             absences
+        );
+    }
+
+    if (selectionMode === "clockmark") {
+        return (
+            !Number(state) ||
+            tieneAusencia(
+                keyDay,
+                admin,
+                legal,
+                comp,
+                absences
+            )
         );
     }
 
