@@ -102,6 +102,70 @@ function parseKey(keyDay) {
     };
 }
 
+function escapeHTML(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function firstName(name) {
+    return String(name || "")
+        .trim()
+        .split(/\s+/)[0] || "colaborador";
+}
+
+function birthDateParts(value) {
+    const source = String(value || "").trim();
+    let match = source.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+    if (match) {
+        return {
+            month: Number(match[2]) - 1,
+            day: Number(match[3])
+        };
+    }
+
+    match = source.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+
+    if (match) {
+        return {
+            month: Number(match[2]) - 1,
+            day: Number(match[1])
+        };
+    }
+
+    return null;
+}
+
+function birthdayDetailsForDay(month, day) {
+    return getProfiles()
+        .filter(isProfileActive)
+        .filter(profile => {
+            const parts = birthDateParts(profile.birthDate);
+
+            return parts &&
+                parts.month === month &&
+                parts.day === day;
+        })
+        .map(profile => ({
+            tipo: "birthday",
+            name: firstName(profile.name)
+        }));
+}
+
+function withBirthdayDetails(data, month) {
+    return data.map(item => ({
+        ...item,
+        detalle: [
+            ...item.detalle,
+            ...birthdayDetailsForDay(month, item.dia)
+        ]
+    }));
+}
+
 function formatMonth(year, month) {
     return new Date(year, month, 1)
         .toLocaleString("es-CL", {
@@ -533,6 +597,14 @@ export function renderStaffingPanel(){
 }
 
 function renderDetailBadge(detail){
+    if (detail.tipo === "birthday") {
+        return `
+            <span class="staffing-pill staffing-pill--birthday">
+                Cumplea&ntilde;os de ${escapeHTML(detail.name)}
+            </span>
+        `;
+    }
+
     if (detail.tipo === "faltante") {
         return `
             <span class="staffing-pill staffing-pill--bad">
@@ -584,11 +656,12 @@ function mostrarResultado(data){
         .join("");
 }
 
-function renderInlineStaffingReport(data){
+function renderInlineStaffingReport(data, month = currentDate.getMonth()){
     const div = document.getElementById("staffingReportInline");
     if (!div) return;
 
-    const issues = data.filter(item => item.detalle.length);
+    const reportData = withBirthdayDetails(data, month);
+    const issues = reportData.filter(item => item.detalle.length);
 
     if (!issues.length) {
         div.innerHTML = `
@@ -649,7 +722,7 @@ export function analizarStaffingMes(
 ){
     const data = analizarMes(year, month);
     mostrarResultado(data);
-    renderInlineStaffingReport(data);
+    renderInlineStaffingReport(data, month);
     return data;
 }
 

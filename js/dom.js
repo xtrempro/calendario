@@ -22,17 +22,21 @@ export const DOM = {
     profileUnitEntryDateInput: document.getElementById("profileUnitEntryDateField"),
     profileContractTypeSelect: document.getElementById("profileContractTypeField"),
     profileRoleSelect: document.getElementById("profileRoleField"),
+    profileProfessionSelect: document.getElementById("profileProfessionField"),
     profileRotationSelect: document.getElementById("profileRotationField"),
     profileGradeSelect: document.getElementById("profileGradeField"),
     profileRotationStatus: document.getElementById("profileRotationStatus"),
     replacementContractEditor: document.getElementById("replacementContractEditor"),
     replacementTargetInput: document.getElementById("replacementTargetField"),
     replacementContractStatus: document.getElementById("replacementContractStatus"),
+    profileContractHistory: document.getElementById("profileContractHistory"),
     profileEditorHint: document.getElementById("profileEditorHint"),
     profileRecordsPanel: document.getElementById("profileRecordsPanel"),
 
     /* config */
     checkbox: document.getElementById("shiftAssigned"),
+    authUserChip: document.getElementById("authUserChip"),
+    authUserName: document.getElementById("authUserName"),
     themeToggle: document.getElementById("themeToggle"),
     systemSettingsBtn: document.getElementById("systemSettingsBtn"),
 

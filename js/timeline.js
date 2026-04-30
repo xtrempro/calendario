@@ -1,7 +1,8 @@
 import {
     getProfiles,
     getCurrentProfile,
-    getShiftAssigned
+    getShiftAssigned,
+    profileCanCoverProfile
 } from "./storage.js";
 
 import * as calendar from "./calendar.js";
@@ -232,9 +233,8 @@ export async function renderTimeline(){
     }
 
     const grupo = profiles
-        .filter(
-            profile =>
-                profile.estamento === perfilActual.estamento
+        .filter(profile =>
+            profileCanCoverProfile(profile, perfilActual)
         )
         .sort((a, b) => {
             if (a.name === actual) return -1;
@@ -245,7 +245,7 @@ export async function renderTimeline(){
     if (!grupo.length) {
         div.innerHTML = `
             <div class="empty-state empty-state--compact">
-                No hay colaboradores del mismo estamento para comparar este mes.
+                No hay colaboradores compatibles para comparar este mes.
             </div>
         `;
         return;
@@ -377,9 +377,11 @@ export async function renderTimeline(){
                         ? "!"
                         : showExtraReason || showClockExtra
                         ? "?"
-                        : simpleClockIncident
+                    : simpleClockIncident
                             ? "*"
-                            : (replacement ? "R" : "");
+                            : (replacement
+                                ? (replacement.isLoan ? "P" : "R")
+                                : "");
             const title = contractError
                 ? "No tiene contrato vigente en la fecha seleccionada"
                 : severeClockIncident
@@ -395,7 +397,7 @@ export async function renderTimeline(){
                         : replacement
                             ? (
                                 replacement.replaced
-                                    ? `Reemplazo de ${replacement.replaced} por ${replacement.absenceType || "ausencia"}`
+                                    ? `${replacement.isLoan ? "Prestamo cubriendo a" : "Reemplazo de"} ${replacement.replaced} por ${replacement.absenceType || "ausencia"}`
                                     : `Motivo HHEE: ${replacement.reason || replacement.absenceType || "sin detalle"}`
                             )
                             : "";

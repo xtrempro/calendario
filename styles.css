@@ -459,6 +459,23 @@ body.theme-dark .theme-switch__thumb {
     border: 1px solid var(--border);
     background: var(--panel);
     font-weight: 700;
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+    transition:
+        transform 0.16s ease,
+        border-color 0.16s ease,
+        background 0.16s ease;
+}
+
+.user-chip:hover {
+    transform: translateY(-1px);
+    border-color: rgba(29, 108, 255, 0.34);
+    background: var(--panel-alt);
+}
+
+.user-chip--firebase {
+    border-color: rgba(34, 197, 94, 0.32);
 }
 
 .user-avatar {
@@ -1326,6 +1343,93 @@ body[data-active-view="log"] .secondary-grid {
     gap: 10px;
 }
 
+.contract-history-panel {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background:
+        linear-gradient(135deg, rgba(29, 108, 255, 0.08), transparent 46%),
+        var(--panel);
+}
+
+.contract-history-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.contract-history-head strong {
+    color: var(--text);
+    font-size: 0.98rem;
+    font-weight: 800;
+}
+
+.contract-history-head span,
+.contract-history-section small,
+.contract-history-muted {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+.contract-history-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.contract-history-section {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.contract-history-section h4 {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.contract-history-section ul {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.contract-history-section li {
+    display: grid;
+    gap: 4px;
+    padding: 10px 11px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel-alt);
+}
+
+.contract-history-section li strong {
+    color: var(--text);
+    font-size: 0.83rem;
+    font-weight: 800;
+}
+
+.contract-history-section li span {
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    line-height: 1.35;
+}
+
+.contract-history-empty {
+    color: var(--text-muted);
+    font-size: 0.84rem;
+}
+
 .actionbar {
     order: -1;
     padding: 10px;
@@ -1851,9 +1955,210 @@ body[data-active-view="log"] .secondary-grid {
     min-height: 52px;
 }
 
+.grade-effective-dialog {
+    width: min(560px, 100%);
+}
+
+.grade-effective-dialog p {
+    margin: 6px 0 10px;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.grade-effective-dialog b {
+    color: var(--text-strong);
+    font-weight: 850;
+}
+
+.firebase-dialog {
+    width: min(620px, 100%);
+    max-height: min(88vh, 760px);
+    overflow: auto;
+}
+
+.firebase-dialog code {
+    padding: 2px 6px;
+    border-radius: 8px;
+    background: var(--field);
+    color: var(--text-strong);
+    font-size: 0.9em;
+}
+
+.firebase-dialog-note,
+.firebase-empty {
+    padding: 12px 14px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 14px;
+    background: var(--panel-alt);
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.firebase-dialog-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.firebase-field {
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--panel-alt);
+}
+
+.firebase-field span {
+    color: var(--text-strong);
+    font-weight: 800;
+}
+
+.firebase-field input {
+    width: 100%;
+    min-height: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--field);
+    color: var(--text);
+    font: inherit;
+}
+
+.firebase-field input:focus {
+    outline: none;
+    border-color: rgba(29, 108, 255, 0.58);
+    box-shadow: 0 0 0 3px rgba(29, 108, 255, 0.12);
+}
+
+.firebase-workspace-list {
+    display: grid;
+    gap: 10px;
+    margin: 14px 0;
+}
+
+.firebase-workspace-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--field);
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+}
+
+.firebase-workspace-item span {
+    display: grid;
+    gap: 3px;
+}
+
+.firebase-workspace-item strong {
+    color: var(--text-strong);
+}
+
+.firebase-workspace-item small {
+    color: var(--text-muted);
+}
+
+.firebase-workspace-item em {
+    color: var(--blue);
+    font-style: normal;
+    font-weight: 900;
+}
+
+.firebase-workspace-item.is-active {
+    border-color: rgba(34, 197, 94, 0.55);
+    background:
+        linear-gradient(135deg, rgba(34, 197, 94, 0.13), rgba(29, 108, 255, 0.08)),
+        var(--panel);
+}
+
+.firebase-migration-panel {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid rgba(29, 108, 255, 0.16);
+    border-radius: 18px;
+    background:
+        linear-gradient(135deg, rgba(29, 108, 255, 0.09), rgba(34, 197, 94, 0.06)),
+        var(--panel-alt);
+}
+
+.firebase-migration-panel strong {
+    color: var(--text-strong);
+}
+
+.firebase-migration-panel p {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.firebase-migration-panel b {
+    color: var(--text-strong);
+    font-weight: 850;
+}
+
+.firebase-migration-status {
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: rgba(29, 108, 255, 0.1);
+    color: var(--blue);
+    font-weight: 750;
+}
+
+.firebase-migration-status--confirm {
+    background: rgba(245, 158, 11, 0.14);
+    color: #b45309;
+}
+
+.firebase-migration-status--success {
+    background: rgba(34, 197, 94, 0.14);
+    color: #15803d;
+}
+
+.firebase-migration-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.firebase-migration-actions .primary-button:only-child {
+    grid-column: 1 / -1;
+}
+
 .replacement-dialog .turn-change-dialog__actions {
     grid-template-columns: 1fr;
     margin-top: 14px;
+}
+
+.replacement-dialog-toolbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 6px 0 12px;
+}
+
+.replacement-dialog-toolbar button {
+    min-height: 40px;
+    padding-inline: 12px;
+    font-size: 0.78rem;
+}
+
+.replacement-dialog-note {
+    padding: 10px 12px;
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    border-radius: 14px;
+    background: rgba(245, 158, 11, 0.12);
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    line-height: 1.35;
 }
 
 .replacement-candidate-list {
@@ -1891,9 +2196,31 @@ body[data-active-view="log"] .secondary-grid {
     box-shadow: 0 0 0 3px rgba(29, 108, 255, 0.1);
 }
 
+.replacement-candidate--forced {
+    border-color: rgba(245, 158, 11, 0.46);
+    background:
+        linear-gradient(135deg, rgba(245, 158, 11, 0.1), transparent 54%),
+        var(--field);
+}
+
 .replacement-candidate span {
     display: grid;
     gap: 3px;
+}
+
+.replacement-candidate em {
+    justify-self: end;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(245, 158, 11, 0.18);
+    color: #b45309;
+    font-size: 0.66rem;
+    font-style: normal;
+    font-weight: 800;
+}
+
+.replacement-candidate b {
+    justify-self: end;
 }
 
 .replacement-candidate small {
@@ -2394,6 +2721,7 @@ body.theme-dark .overtime-backup-subsection {
     .settings-tabs,
     .settings-grade-grid,
     .settings-holiday-form,
+    .firebase-dialog-grid,
     .settings-actions {
         grid-template-columns: 1fr;
     }
@@ -3236,6 +3564,11 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
 .staffing-pill--night {
     background: rgba(143, 44, 201, 0.16);
     color: #d6a7ff;
+}
+
+.staffing-pill--birthday {
+    background: rgba(29, 108, 255, 0.14);
+    color: #60a5fa;
 }
 
 .staffing-report-panel {
@@ -4376,6 +4709,7 @@ body.mode-active .day.draft-selected {
 
     .medical-chart-head,
     .overview-card__grid,
+    .contract-history-grid,
     .profile-form-grid,
     .record-form,
     .profile-editor__grid,
@@ -4400,6 +4734,10 @@ body.mode-active .day.draft-selected {
     .metric-row--field {
         grid-template-columns: 1fr;
         gap: 8px;
+    }
+
+    .replacement-dialog-toolbar {
+        grid-template-columns: 1fr;
     }
 
     .metric-input input {

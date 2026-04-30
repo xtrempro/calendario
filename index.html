@@ -57,15 +57,15 @@
                 </svg>
             </button>
 
-            <div class="user-chip">
+            <button id="authUserChip" class="user-chip" type="button" aria-label="Cuenta y entorno de trabajo">
                 <span class="user-avatar" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M20 21a8 8 0 0 0-16 0"></path>
                         <circle cx="12" cy="8" r="4"></circle>
                     </svg>
                 </span>
-                <span>USUARIO</span>
-            </div>
+                <span id="authUserName">MODO LOCAL</span>
+            </button>
 
             <button id="systemSettingsBtn" class="icon-button" type="button" aria-label="Configuraci&#243;n">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -233,6 +233,25 @@
                             </label>
 
                             <label class="metric-row metric-row--field">
+                                <span class="metric-label">Profesi&#243;n:</span>
+                                <select id="profileProfessionField">
+                                    <option value="Enfermero">Enfermero</option>
+                                    <option value="Fonoaudiologia">Fonoaudiolog&#237;a</option>
+                                    <option value="Kinesiologo">Kinesi&#243;logo</option>
+                                    <option value="Sin informacion">Sin informaci&#243;n</option>
+                                    <option value="Tecnico en Enfermeria">T&#233;cnico en Enfermer&#237;a</option>
+                                    <option value="Tecnico en Imagenologia">T&#233;cnico en Imagenolog&#237;a</option>
+                                    <option value="Tecnico en Laboratorio">T&#233;cnico en Laboratorio</option>
+                                    <option value="Terapia Ocupacional">Terapia Ocupacional</option>
+                                    <option value="TM Anatomia Patologica">TM Anatom&#237;a Patol&#243;gica</option>
+                                    <option value="TM Imagenologia">TM Imagenolog&#237;a</option>
+                                    <option value="TM Laboratorio">TM Laboratorio</option>
+                                    <option value="TM Oftalmologia">TM Oftalmolog&#237;a</option>
+                                    <option value="TM Otorrinolaringologia">TM Otorrinolaringolog&#237;a</option>
+                                </select>
+                            </label>
+
+                            <label class="metric-row metric-row--field">
                                 <span class="metric-label">Rotativa Actual:</span>
                                 <select id="profileRotationField">
                                     <option value="">Seleccionar</option>
@@ -293,6 +312,8 @@
                                 Configura inicio y termino del contrato desde el modal de rotativa.
                             </div>
                         </div>
+
+                        <div id="profileContractHistory" class="contract-history-panel"></div>
                     </section>
 
                     <section class="profile-area profile-area--records">

@@ -227,6 +227,11 @@ export function saveReplacement(data) {
         turno: turnoToCode(data.turno),
         clockLabel: data.clockLabel || "",
         clockHours: data.clockHours || null,
+        isLoan: Boolean(data.isLoan),
+        workerWorkspaceId: data.workerWorkspaceId || "",
+        workerWorkspaceName: data.workerWorkspaceName || "",
+        hostWorkspaceId: data.hostWorkspaceId || "",
+        hostWorkspaceName: data.hostWorkspaceName || "",
         absenceType,
         year: date.getFullYear(),
         month: date.getMonth(),
@@ -240,15 +245,22 @@ export function saveReplacement(data) {
         data.source === "manual_extra" ||
         data.source === "clock_extra"
             ? "Respaldo horas extras manuales"
+            : data.isLoan
+                ? "Asigno prestamo entre unidades"
             : "Asigno reemplazo de turno",
         hasReplacedWorker
-            ? `${data.worker} reemplaza a ${data.replaced} el ${isoFromKey(data.keyDay)} por ${absenceType || "ausencia"}.`
+            ? `${data.worker} ${data.isLoan ? "cubre como prestamo a" : "reemplaza a"} ${data.replaced} el ${isoFromKey(data.keyDay)} por ${absenceType || "ausencia"}.`
             : `${data.worker}: ${String(data.reason || absenceType || "sin motivo").trim()} el ${isoFromKey(data.keyDay)}.`,
         {
             profile: data.worker,
             replacementId: id,
             worker: data.worker,
             replaced: data.replaced || "",
+            isLoan: Boolean(data.isLoan),
+            workerWorkspaceId: data.workerWorkspaceId || "",
+            workerWorkspaceName: data.workerWorkspaceName || "",
+            hostWorkspaceId: data.hostWorkspaceId || "",
+            hostWorkspaceName: data.hostWorkspaceName || "",
             source: data.source || "replacement"
         }
     );
@@ -328,8 +340,11 @@ export function renderReplacementLogHTML(profile, year, month, holidays = {}) {
                     ? ` · ${replacedProfile.estamento}`
                     : "";
 
+                const unitText = record.isLoan
+                    ? ` Prestamo en ${record.hostWorkspaceName || "otra unidad"}.`
+                    : "";
                 const detail = record.replaced
-                    ? `Reemplaza a ${record.replaced}${estamento} por ${record.absenceType || "ausencia"}.`
+                    ? `${record.isLoan ? "Prestamo cubriendo a" : "Reemplaza a"} ${record.replaced}${estamento} por ${record.absenceType || "ausencia"}.${unitText}`
                     : `Motivo: ${record.reason || record.absenceType || "sin detalle"}.`;
 
                 return `

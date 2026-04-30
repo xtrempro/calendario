@@ -1,4 +1,8 @@
 const LOCAL_DRIVER = "local";
+const INTERNAL_KEYS = new Set([
+    "proturnos_theme",
+    "firebaseActiveWorkspace"
+]);
 
 let activeDriver = LOCAL_DRIVER;
 
@@ -96,6 +100,35 @@ export function listKeys(prefix = "") {
     }
 
     return keys;
+}
+
+export function exportLocalSnapshot({
+    includeInternal = false
+} = {}) {
+    const store = storage();
+    if (!store) return {};
+
+    return listKeys().reduce((snapshot, key) => {
+        if (!includeInternal && INTERNAL_KEYS.has(key)) {
+            return snapshot;
+        }
+
+        snapshot[key] = store.getItem(key);
+        return snapshot;
+    }, {});
+}
+
+export function importLocalSnapshot(snapshot = {}, {
+    overwrite = true
+} = {}) {
+    if (!snapshot || typeof snapshot !== "object") return;
+
+    Object.entries(snapshot).forEach(([key, value]) => {
+        if (!overwrite && getRaw(key, null) !== null) return;
+        if (value === null || value === undefined) return;
+
+        setRaw(key, value);
+    });
 }
 
 export function moveKey(oldKey, newKey) {

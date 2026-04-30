@@ -5,6 +5,7 @@ import { DOM } from "./dom.js";
 import { renderSwapPanel } from "./swapUI.js";
 import { renderStaffingPanel } from "./staffing.js";
 import { initSystemSettings } from "./systemSettings.js";
+import { initFirebaseShell } from "./firebaseShell.js";
 import { exportHoursReport } from "./hoursReport.js";
 import {
     initHoursCharts,
@@ -61,7 +62,12 @@ import {
     getCarry,
     getSwaps,
     saveSwaps,
-    isProfileActive
+    isProfileActive,
+    initializeGradeHistory,
+    recordGradeHistoryChange,
+    getGradeHistory,
+    getContractHistory,
+    addContractHistoryEntry
 } from "./storage.js";
 import { cambioEstaAnulado } from "./swaps.js";
 import { renderReplacementLogHTML } from "./replacements.js";
@@ -100,12 +106,51 @@ let availabilityEditMode = false;
 let profileRotationMiniDate = new Date();
 let profileHoursSummaryRequest = 0;
 
+const PROFESSION_LABELS = {
+    "Fonoaudiologia": "Fonoaudiologia",
+    "Kinesiologo": "Kinesiologo",
+    "Sin informacion": "Sin informacion",
+    "Tecnico en Enfermeria": "Tecnico en Enfermeria",
+    "Tecnico en Imagenologia": "Tecnico en Imagenologia",
+    "Tecnico en Laboratorio": "Tecnico en Laboratorio",
+    "TM Anatomia Patologica": "TM Anatomia Patologica",
+    "TM Imagenologia": "TM Imagenologia",
+    "TM Oftalmologia": "TM Oftalmologia",
+    "TM Otorrinolaringologia": "TM Otorrinolaringologia"
+};
+
+function profileUsesProfession(profile = {}) {
+    return (
+        profile.estamento === "Profesional" ||
+        profile.estamento === "T\u00e9cnico"
+    );
+}
+
+function formatProfession(value) {
+    const clean = value || "Sin informacion";
+
+    return PROFESSION_LABELS[clean] || clean;
+}
+
+function getProfileMetaLabel(profile) {
+    const role = profile.estamento || "Sin estamento";
+
+    if (!profileUsesProfession(profile)) {
+        return role;
+    }
+
+    return `${role} | ${formatProfession(profile.profession)}`;
+}
+
 const profileDraft = {
     mode: PROFILE_MODE.VIEW,
     originalName: "",
     originalRotationType: "",
     originalRotationStart: "",
     originalRotationFirstTurn: "larga",
+    originalContractType: "",
+    originalEstamento: "",
+    originalGrade: "",
     name: "",
     email: "",
     rut: "",
@@ -117,6 +162,7 @@ const profileDraft = {
     unitEntryDate: "",
     contractType: "",
     estamento: "",
+    profession: "Sin informacion",
     grade: "",
     rotationType: "",
     rotationStart: "",
@@ -755,6 +801,7 @@ function describeProfileChanges(before, after) {
         ["unitEntryDate", "fecha de ingreso"],
         ["contractType", "tipo de contrato"],
         ["estamento", "estamento"],
+        ["profession", "profesion"],
         ["grade", "grado"]
     ];
 
@@ -819,6 +866,9 @@ function clearDraftValues(){
     profileDraft.originalRotationType = "";
     profileDraft.originalRotationStart = "";
     profileDraft.originalRotationFirstTurn = "larga";
+    profileDraft.originalContractType = "";
+    profileDraft.originalEstamento = "";
+    profileDraft.originalGrade = "";
     profileDraft.name = "";
     profileDraft.email = "";
     profileDraft.rut = "";
@@ -830,6 +880,7 @@ function clearDraftValues(){
     profileDraft.unitEntryDate = "";
     profileDraft.contractType = "";
     profileDraft.estamento = "";
+    profileDraft.profession = "Sin informacion";
     profileDraft.grade = "";
     profileDraft.rotationType = "";
     profileDraft.rotationStart = "";
@@ -852,6 +903,9 @@ function loadDraftFromProfile(profile){
         rotationStart;
     profileDraft.originalRotationFirstTurn =
         normalizeRotationFirstTurn(rotativa.firstTurn);
+    profileDraft.originalContractType = profile.contractType || "";
+    profileDraft.originalEstamento = profile.estamento || "";
+    profileDraft.originalGrade = String(profile.grade || "");
     profileDraft.name = profile.name;
     profileDraft.email = profile.email || "";
     profileDraft.rut = profile.rut || "";
@@ -865,6 +919,8 @@ function loadDraftFromProfile(profile){
     profileDraft.unitEntryDate = profile.unitEntryDate || "";
     profileDraft.contractType = profile.contractType || "";
     profileDraft.estamento = profile.estamento || "";
+    profileDraft.profession =
+        profile.profession || "Sin informacion";
     profileDraft.grade = String(profile.grade || "");
     profileDraft.rotationType = rotativa.type || "";
     profileDraft.rotationStart = rotationStart;
@@ -895,6 +951,19 @@ function hasRotationChanged() {
     );
 }
 
+function hasGradeValueChanged() {
+    if (profileDraft.mode !== PROFILE_MODE.EDIT) {
+        return false;
+    }
+
+    return (
+        String(profileDraft.grade || "") !==
+            String(profileDraft.originalGrade || "") ||
+        String(profileDraft.estamento || "") !==
+            String(profileDraft.originalEstamento || "")
+    );
+}
+
 function getDisplayedProfileData(){
     const profile = getPerfilActual();
 
@@ -911,6 +980,7 @@ function getDisplayedProfileData(){
             unitEntryDate: profileDraft.unitEntryDate,
             contractType: profileDraft.contractType,
             estamento: profileDraft.estamento,
+            profession: profileDraft.profession,
             grade: profileDraft.grade,
             rotationType: profileDraft.rotationType,
             rotationStart: profileDraft.rotationStart,
@@ -935,6 +1005,7 @@ function getDisplayedProfileData(){
             unitEntryDate: profileDraft.unitEntryDate,
             contractType: profileDraft.contractType,
             estamento: profileDraft.estamento,
+            profession: profileDraft.profession,
             grade: profileDraft.grade,
             rotationType: profileDraft.rotationType,
             rotationStart: profileDraft.rotationStart,
@@ -959,6 +1030,7 @@ function getDisplayedProfileData(){
             unitEntryDate: "",
             contractType: "",
             estamento: "",
+            profession: "Sin informacion",
             grade: "",
             rotationType: "",
             rotationStart: "",
@@ -984,6 +1056,7 @@ function getDisplayedProfileData(){
         unitEntryDate: profile.unitEntryDate || "",
         contractType: profile.contractType || "",
         estamento: profile.estamento,
+        profession: profile.profession || "Sin informacion",
         grade: String(profile.grade || ""),
         rotationType: rotativa.type || "",
         rotationStart: normalizeStoredStart(rotativa.start),
@@ -1118,6 +1191,263 @@ function renderProfileRotationStatus(data, editing) {
         ?.addEventListener("click", () => {
             openRotationConfigModal(data.rotationType);
         });
+}
+
+function formatHistoryDateTime(value) {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+        return value || "";
+    }
+
+    return date.toLocaleString("es-CL", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+    });
+}
+
+function formatHistoryValue(field, value) {
+    if (field === "profession") {
+        return formatProfession(value);
+    }
+
+    if (field === "rotation") {
+        return formatRotationValue(value);
+    }
+
+    if (field === "grade") {
+        return value ? `Grado ${value}` : "Sin grado";
+    }
+
+    if (field === "contractType") {
+        return value || "Sin contrato";
+    }
+
+    if (field === "estamento") {
+        return value || "Sin estamento";
+    }
+
+    return value || "Sin dato";
+}
+
+function formatRotationValue(rotativa = {}) {
+    const type = rotativa?.type || "";
+    const start = normalizeStoredStart(rotativa?.start || "");
+    const firstTurn =
+        normalizeRotationFirstTurn(rotativa?.firstTurn);
+    const startText = start
+        ? ` desde ${formatDisplayDate(start)}`
+        : "";
+    const firstTurnText =
+        requiresRotationFirstTurn(type) && start
+            ? `, inicia con ${getRotationFirstTurnLabel(firstTurn)}`
+            : "";
+
+    return `${getRotativaLabel(type)}${startText}${firstTurnText}`;
+}
+
+function contractHistoryChanges(
+    previousSnapshot,
+    nextSnapshot,
+    gradeEffectiveDate
+) {
+    if (!previousSnapshot || !nextSnapshot) return [];
+
+    const fieldConfig = [
+        {
+            key: "contractType",
+            label: "Tipo de contrato",
+            effectiveDate: gradeEffectiveDate
+        },
+        {
+            key: "estamento",
+            label: "Estamento",
+            effectiveDate: gradeEffectiveDate
+        },
+        {
+            key: "profession",
+            label: "Profesion"
+        },
+        {
+            key: "grade",
+            label: "Grado",
+            effectiveDate: gradeEffectiveDate
+        }
+    ];
+
+    const changes = fieldConfig
+        .filter(config =>
+            String(previousSnapshot[config.key] || "") !==
+            String(nextSnapshot[config.key] || "")
+        )
+        .map(config => ({
+            field: config.key,
+            label: config.label,
+            from: formatHistoryValue(
+                config.key,
+                previousSnapshot[config.key]
+            ),
+            to: formatHistoryValue(
+                config.key,
+                nextSnapshot[config.key]
+            ),
+            effectiveDate: config.effectiveDate || ""
+        }));
+
+    const previousRotation = previousSnapshot.rotativa || {};
+    const nextRotation = nextSnapshot.rotativa || {};
+    const rotationChanged =
+        String(previousRotation.type || "") !==
+            String(nextRotation.type || "") ||
+        normalizeStoredStart(previousRotation.start || "") !==
+            normalizeStoredStart(nextRotation.start || "") ||
+        normalizeRotationFirstTurn(previousRotation.firstTurn) !==
+            normalizeRotationFirstTurn(nextRotation.firstTurn);
+
+    if (rotationChanged) {
+        changes.push({
+            field: "rotation",
+            label: "Rotativa",
+            from: formatHistoryValue("rotation", previousRotation),
+            to: formatHistoryValue("rotation", nextRotation),
+            effectiveDate:
+                normalizeStoredStart(nextRotation.start || "") || ""
+        });
+    }
+
+    return changes;
+}
+
+function recordProfileContractHistory(
+    profileName,
+    previousSnapshot,
+    nextSnapshot,
+    gradeEffectiveDate
+) {
+    const changes = contractHistoryChanges(
+        previousSnapshot,
+        nextSnapshot,
+        gradeEffectiveDate
+    );
+
+    if (!changes.length) return;
+
+    addContractHistoryEntry(profileName, {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        createdAt: new Date().toISOString(),
+        effectiveDate:
+            gradeEffectiveDate ||
+            changes.find(change => change.effectiveDate)
+                ?.effectiveDate ||
+            "",
+        summary: "Cambio de datos contractuales",
+        changes
+    });
+}
+
+function renderContractHistory(profile) {
+    if (!DOM.profileContractHistory) return;
+
+    if (!profile || profileDraft.mode === PROFILE_MODE.CREATE) {
+        DOM.profileContractHistory.innerHTML = `
+            <div class="contract-history-empty">
+                Guarda el perfil para ver su historial contractual.
+            </div>
+        `;
+        return;
+    }
+
+    const gradeHistory = getGradeHistory(profile.name);
+    const contractHistory = getContractHistory(profile.name);
+    const replacementContracts = getContractsForProfile(profile.name);
+    const gradeItems = gradeHistory
+        .slice()
+        .sort((a, b) => b.start.localeCompare(a.start))
+        .map(entry => `
+            <li>
+                <strong>Desde ${escapeHTML(formatDisplayDate(entry.start))}</strong>
+                <span>
+                    ${escapeHTML(entry.estamento || "Sin estamento")} |
+                    ${escapeHTML(entry.contractType || "Sin contrato")} |
+                    Grado ${escapeHTML(entry.grade || "sin registro")}
+                </span>
+            </li>
+        `)
+        .join("");
+    const changeItems = contractHistory
+        .map(entry => `
+            <li>
+                <strong>${escapeHTML(formatHistoryDateTime(entry.createdAt))}</strong>
+                ${entry.effectiveDate ? `
+                    <small>Rige desde ${escapeHTML(formatDisplayDate(entry.effectiveDate))}</small>
+                ` : ""}
+                <span>
+                    ${entry.changes.map(change => `
+                        ${escapeHTML(change.label)}:
+                        ${escapeHTML(change.from || "Sin dato")}
+                        -> ${escapeHTML(change.to || "Sin dato")}
+                    `).join("<br>")}
+                </span>
+            </li>
+        `)
+        .join("");
+    const contractItems = replacementContracts
+        .map(contract => `
+            <li>
+                <strong>
+                    ${escapeHTML(formatContractDate(contract.start))}
+                    -
+                    ${escapeHTML(formatContractDate(contract.end))}
+                </strong>
+                <span>Reemplaza a: ${escapeHTML(contract.replaces)}</span>
+            </li>
+        `)
+        .join("");
+
+    DOM.profileContractHistory.innerHTML = `
+        <div class="contract-history-head">
+            <strong>Historial contractual</strong>
+            <span>Vigencias y cambios anteriores del perfil.</span>
+        </div>
+
+        <div class="contract-history-grid">
+            <section class="contract-history-section">
+                <h4>Grados, contrato y estamento</h4>
+                <ul>
+                    ${gradeItems || `
+                        <li class="contract-history-muted">
+                            Sin vigencias anteriores registradas.
+                        </li>
+                    `}
+                </ul>
+            </section>
+
+            <section class="contract-history-section">
+                <h4>Cambios registrados</h4>
+                <ul>
+                    ${changeItems || `
+                        <li class="contract-history-muted">
+                            Aun no hay cambios contractuales historicos.
+                        </li>
+                    `}
+                </ul>
+            </section>
+
+            <section class="contract-history-section">
+                <h4>Contratos de reemplazo</h4>
+                <ul>
+                    ${contractItems || `
+                        <li class="contract-history-muted">
+                            Sin contratos de reemplazo registrados.
+                        </li>
+                    `}
+                </ul>
+            </section>
+        </div>
+    `;
 }
 
 function getProfileRotationState(profileName, key) {
@@ -1479,6 +1809,87 @@ function openRotationConfigModal(type = profileDraft.rotationType) {
     });
 
     render();
+}
+
+function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
+    return new Promise(resolve => {
+        const backdrop = document.createElement("div");
+        const defaultDate = toInputDate(new Date());
+        const previousGrade = previousSnapshot?.grade || "sin grado";
+        const nextGrade = nextProfile?.grade || "sin grado";
+        const previousRole =
+            previousSnapshot?.estamento || "sin estamento";
+        const nextRole = nextProfile?.estamento || "sin estamento";
+
+        backdrop.className = "turn-change-dialog-backdrop";
+        document.body.appendChild(backdrop);
+
+        const close = value => {
+            backdrop.remove();
+            resolve(value);
+        };
+
+        backdrop.innerHTML = `
+            <div class="turn-change-dialog grade-effective-dialog" role="dialog" aria-modal="true">
+                <strong>Vigencia del nuevo grado</strong>
+                <p>
+                    El grado/estamento cambiara de
+                    <b>${escapeHTML(previousRole)} grado ${escapeHTML(previousGrade)}</b>
+                    a
+                    <b>${escapeHTML(nextRole)} grado ${escapeHTML(nextGrade)}</b>.
+                    Indica desde que fecha se debe usar el nuevo valor hora para calcular HHEE.
+                </p>
+
+                <label class="rotation-contract-field">
+                    <span>Fecha de inicio</span>
+                    <input data-grade-effective-date type="date" value="${defaultDate}">
+                </label>
+
+                <div class="firebase-dialog-note">
+                    Las horas extras anteriores a esta fecha mantendran el valor del grado anterior.
+                </div>
+
+                <div class="turn-change-dialog__actions">
+                    <button class="primary-button" type="button" data-action="save">Guardar vigencia</button>
+                    <button class="secondary-button" type="button" data-action="cancel">Cancelar</button>
+                </div>
+            </div>
+        `;
+
+        const dateInput =
+            backdrop.querySelector("[data-grade-effective-date]");
+
+        dateInput?.focus();
+
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) {
+                close(null);
+                return;
+            }
+
+            const action = event.target
+                ?.closest?.("[data-action]")
+                ?.dataset
+                ?.action;
+
+            if (!action) return;
+
+            if (action === "cancel") {
+                close(null);
+                return;
+            }
+
+            const value = dateInput?.value || "";
+
+            if (!value) {
+                alert("Debes indicar la fecha de inicio del nuevo grado.");
+                dateInput?.focus();
+                return;
+            }
+
+            close(value);
+        });
+    });
 }
 
 async function renderProfileHoursSummary(profile = getPerfilActual()) {
@@ -2125,6 +2536,8 @@ function renderDashboardState() {
     DOM.profileUnitEntryDateInput.value = data.unitEntryDate || "";
     DOM.profileContractTypeSelect.value = data.contractType || "";
     DOM.profileRoleSelect.value = data.estamento || "";
+    DOM.profileProfessionSelect.value =
+        data.profession || "Sin informacion";
     DOM.profileGradeSelect.value = data.grade || "";
     DOM.profileRotationSelect.value = data.rotationType || "";
     DOM.checkbox.checked = Boolean(data.shiftAssigned);
@@ -2140,6 +2553,7 @@ function renderDashboardState() {
     DOM.profileUnitEntryDateInput.disabled = !editing;
     DOM.profileContractTypeSelect.disabled = !editing;
     DOM.profileRoleSelect.disabled = !editing;
+    DOM.profileProfessionSelect.disabled = !editing;
     DOM.profileGradeSelect.disabled = !editing;
     DOM.profileRotationSelect.disabled = !editing;
     DOM.checkbox.disabled = !editing;
@@ -2191,6 +2605,7 @@ function renderDashboardState() {
     }
 
     renderProfileRotationStatus(data, editing);
+    renderContractHistory(profile);
     renderProfileHoursSummary(profile);
     renderProfileDocs(data, editing);
     renderProfileRecords(profile, editing);
@@ -2388,6 +2803,7 @@ function renderProfiles() {
             !query ||
             profile.name.toLowerCase().includes(query) ||
             profile.estamento.toLowerCase().includes(query) ||
+            formatProfession(profile.profession).toLowerCase().includes(query) ||
             String(profile.email || "").toLowerCase().includes(query) ||
             String(profile.rut || "").toLowerCase().includes(query);
 
@@ -2431,8 +2847,8 @@ function renderProfiles() {
 
         const meta = document.createElement("span");
         meta.textContent = isProfileActive(profile)
-            ? profile.estamento
-            : `${profile.estamento} | Desactivado`;
+            ? getProfileMetaLabel(profile)
+            : `${getProfileMetaLabel(profile)} | Desactivado`;
 
         content.append(name, meta);
         item.append(avatar, content);
@@ -2486,7 +2902,7 @@ function syncTopProfileSearch() {
     getTopSearchProfiles().forEach(profile => {
         const option = document.createElement("option");
         option.value = profile.name;
-        option.label = `${profile.name} | ${profile.estamento}`;
+        option.label = `${profile.name} | ${getProfileMetaLabel(profile)}`;
         DOM.topProfileOptions.appendChild(option);
     });
 }
@@ -3115,6 +3531,7 @@ async function guardarPerfil() {
         unitEntryDate: profileDraft.unitEntryDate,
         contractType: profileDraft.contractType,
         estamento: nextEstamento,
+        profession: profileDraft.profession,
         grade: profileDraft.grade
     };
     const nextRotationType =
@@ -3143,6 +3560,19 @@ async function guardarPerfil() {
             firstTurn: nextRotationFirstTurn
         }
     };
+    let gradeEffectiveDate = "";
+
+    if (isEditing && hasGradeValueChanged()) {
+        gradeEffectiveDate =
+            await requestGradeEffectiveDate(
+                previousSnapshot,
+                nextProfilePayload
+            );
+
+        if (!gradeEffectiveDate) {
+            return;
+        }
+    }
 
     try {
         if (isCreating) {
@@ -3161,6 +3591,13 @@ async function guardarPerfil() {
 
             saveProfiles(profiles);
             setCurrentProfile(nextName);
+            initializeGradeHistory(
+                nextName,
+                nextProfilePayload,
+                nextRotationStart ||
+                    profileDraft.unitEntryDate ||
+                    toInputDate(new Date())
+            );
         }
 
         if (isEditing) {
@@ -3170,6 +3607,22 @@ async function guardarPerfil() {
             );
 
             setCurrentProfile(nextName);
+
+            if (gradeEffectiveDate) {
+                recordGradeHistoryChange(
+                    nextName,
+                    previousSnapshot,
+                    nextProfilePayload,
+                    gradeEffectiveDate
+                );
+            }
+
+            recordProfileContractHistory(
+                nextName,
+                previousSnapshot,
+                nextSnapshot,
+                gradeEffectiveDate
+            );
         }
 
         setShiftAssigned(nextShiftAssigned);
@@ -3712,6 +4165,13 @@ function bindProfileForm() {
             DOM.profileRoleSelect.value;
     };
 
+    DOM.profileProfessionSelect.onchange = () => {
+        if (!isProfileEditing()) return;
+        profileDraft.profession =
+            DOM.profileProfessionSelect.value ||
+            "Sin informacion";
+    };
+
     DOM.profileGradeSelect.onchange = () => {
         if (!isProfileEditing()) return;
         profileDraft.grade = DOM.profileGradeSelect.value;
@@ -4049,6 +4509,14 @@ initTurnosSidePanelSync();
 initSystemSettings({
     button: DOM.systemSettingsBtn,
     onSaved: () => {
+        refreshAll();
+        renderDashboardState();
+    }
+});
+initFirebaseShell({
+    userChip: DOM.authUserChip,
+    userName: DOM.authUserName,
+    onWorkspaceChange: () => {
         refreshAll();
         renderDashboardState();
     }

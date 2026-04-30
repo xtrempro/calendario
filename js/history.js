@@ -26,7 +26,9 @@ function snapshotProfile(p){
         clockMarks: getRaw(key(p,"clockMarks")),
         replacementContracts: getRaw(
             key(p,"replacementContracts")
-        )
+        ),
+        gradeHistory: getRaw(key(p,"gradeHistory")),
+        contractHistory: getRaw(key(p,"contractHistory"))
     };
 }
 
@@ -47,6 +49,8 @@ function restoreProfile(p, state){
         key(p,"replacementContracts"),
         state.replacementContracts || "[]"
     );
+    setRaw(key(p,"gradeHistory"), state.gradeHistory || "[]");
+    setRaw(key(p,"contractHistory"), state.contractHistory || "[]");
 }
 
 function snapshot(){

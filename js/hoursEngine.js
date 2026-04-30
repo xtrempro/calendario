@@ -29,6 +29,18 @@ function key(y, m, d) {
     return `${y}-${m}-${d}`;
 }
 
+function keyToISODate(keyDay) {
+    const parts = String(keyDay || "").split("-");
+
+    if (parts.length !== 3) return "";
+
+    return [
+        parts[0],
+        String(Number(parts[1]) + 1).padStart(2, "0"),
+        String(Number(parts[2])).padStart(2, "0")
+    ].join("-");
+}
+
 function readProfileMap(prefix, nombre) {
     return getJSON(`${prefix}_${nombre}`, {});
 }
@@ -927,6 +939,482 @@ function calculateClockAbsenceAdjustments(
     return total;
 }
 
+function pushPaymentSegment(segments, keyDay, hours) {
+    const dayHours = Number(hours?.d) || 0;
+    const nightHours = Number(hours?.n) || 0;
+
+    if (dayHours) {
+        segments.push({
+            keyDay,
+            type: "d",
+            hours: dayHours
+        });
+    }
+
+    if (nightHours) {
+        segments.push({
+            keyDay,
+            type: "n",
+            hours: nightHours
+        });
+    }
+}
+
+function calculateDiurnoExtraSegments(
+    nombre,
+    y,
+    m,
+    days,
+    holidays,
+    data,
+    maps,
+    carryIn
+) {
+    const segments = [];
+    const rangeStart = new Date(y, m, 1);
+    const rangeEnd = new Date(y, m + 1, 1);
+
+    if (carryIn?.d || carryIn?.n) {
+        pushPaymentSegment(
+            segments,
+            key(y, m, 1),
+            carryIn
+        );
+    }
+
+    for (let d = 1; d <= days; d++) {
+        const date = new Date(y, m, d);
+        const keyDay = key(y, m, d);
+
+        if (getApprovedCoverage(keyDay, maps) > 0) {
+            continue;
+        }
+
+        if (hasUnjustifiedAbsence(keyDay, maps)) {
+            continue;
+        }
+
+        const actualIntervals = getWorkedIntervalsForState(
+            nombre,
+            keyDay,
+            date,
+            actualStateForDay(nombre, data, keyDay),
+            holidays
+        );
+        const extraIntervals = subtractIntervals(
+            actualIntervals,
+            normalDiurnoInterval(date, holidays)
+        );
+
+        pushPaymentSegment(
+            segments,
+            keyDay,
+            classifyIntervals(
+                extraIntervals,
+                holidays,
+                rangeStart,
+                rangeEnd
+            )
+        );
+    }
+
+    return segments;
+}
+
+function calculateAssignedExtraSegments(
+    nombre,
+    y,
+    m,
+    days,
+    holidays,
+    data,
+    maps,
+    carryIn
+) {
+    const segments = [];
+    const rangeStart = new Date(y, m, 1);
+    const rangeEnd = new Date(y, m + 1, 1);
+
+    if (carryIn?.d || carryIn?.n) {
+        pushPaymentSegment(
+            segments,
+            key(y, m, 1),
+            carryIn
+        );
+    }
+
+    for (let d = 1; d <= days; d++) {
+        const date = new Date(y, m, d);
+        const keyDay = key(y, m, d);
+
+        if (getApprovedCoverage(keyDay, maps) > 0) {
+            continue;
+        }
+
+        if (hasUnjustifiedAbsence(keyDay, maps)) {
+            continue;
+        }
+
+        const actualState =
+            actualStateForDay(nombre, data, keyDay);
+        const baseState =
+            baseStateForExtraComparison(nombre, keyDay);
+        let actualIntervals = getWorkedIntervalsForState(
+            nombre,
+            keyDay,
+            date,
+            actualState,
+            holidays
+        );
+        const hasExtraDiurno =
+            hasDiurnoComponent(actualState) &&
+            !baseCoversDiurnoComponent(baseState);
+
+        if (hasExtraDiurno) {
+            if (hasClockMark(nombre, keyDay)) {
+                pushPaymentSegment(
+                    segments,
+                    keyDay,
+                    classifyIntervals(
+                        getWorkedIntervalsForState(
+                            nombre,
+                            keyDay,
+                            date,
+                            TURNO.DIURNO,
+                            holidays
+                        ),
+                        holidays,
+                        rangeStart,
+                        rangeEnd
+                    )
+                );
+                actualIntervals = getWorkedIntervalsForState(
+                    nombre,
+                    keyDay,
+                    date,
+                    TURNO.NOCHE,
+                    holidays
+                );
+            } else {
+                pushPaymentSegment(
+                    segments,
+                    keyDay,
+                    { d: HORA_BASE_DIARIA, n: 0 }
+                );
+                actualIntervals = intervalsWithoutDiurnoComponent(
+                    date,
+                    actualState,
+                    holidays
+                );
+            }
+        }
+
+        const baseIntervals = intervalsForState(
+            date,
+            baseState,
+            holidays
+        );
+        const extraIntervals = subtractIntervals(
+            actualIntervals,
+            baseIntervals
+        );
+
+        pushPaymentSegment(
+            segments,
+            keyDay,
+            classifyIntervals(
+                extraIntervals,
+                holidays,
+                rangeStart,
+                rangeEnd
+            )
+        );
+    }
+
+    return segments;
+}
+
+function calculateAggregateExtraSegments(
+    nombre,
+    y,
+    m,
+    days,
+    holidays,
+    data,
+    maps,
+    carryIn,
+    horasHabiles
+) {
+    const daily = [];
+    const rangeStart = new Date(y, m, 1);
+    const rangeEnd = new Date(y, m + 1, 1);
+
+    for (let d = 1; d <= days; d++) {
+        const date = new Date(y, m, d);
+        const keyDay = key(y, m, d);
+        const dayTotals = { d: 0, n: 0 };
+        const coverage = getApprovedCoverage(keyDay, maps);
+
+        if (d === 1 && (carryIn?.d || carryIn?.n)) {
+            addHours(dayTotals, carryIn);
+        }
+
+        if (!shouldSkipWorkedShift(keyDay, maps)) {
+            if (coverage === 0.5) {
+                if (isBusinessDay(date, holidays)) {
+                    dayTotals.d += HORA_BASE_DIARIA / 2;
+                }
+            } else {
+                addAggregateWorkedHours(
+                    dayTotals,
+                    nombre,
+                    keyDay,
+                    date,
+                    actualStateForDay(nombre, data, keyDay),
+                    holidays,
+                    rangeStart,
+                    rangeEnd
+                );
+            }
+        }
+
+        daily.push({
+            keyDay,
+            ...dayTotals
+        });
+    }
+
+    const totalD = daily.reduce(
+        (sum, item) => sum + item.d,
+        0
+    );
+    const segments = [];
+
+    if (totalD > horasHabiles) {
+        let remainingBase = horasHabiles;
+
+        daily.forEach(item => {
+            const covered = Math.min(
+                item.d,
+                Math.max(0, remainingBase)
+            );
+            remainingBase -= covered;
+
+            pushPaymentSegment(
+                segments,
+                item.keyDay,
+                {
+                    d: item.d - covered,
+                    n: item.n
+                }
+            );
+        });
+
+        return segments;
+    }
+
+    let remainingBase = Math.max(
+        0,
+        horasHabiles - totalD
+    );
+
+    daily.forEach(item => {
+        const covered = Math.min(
+            item.n,
+            Math.max(0, remainingBase)
+        );
+        remainingBase -= covered;
+
+        pushPaymentSegment(
+            segments,
+            item.keyDay,
+            {
+                d: 0,
+                n: item.n - covered
+            }
+        );
+    });
+
+    return segments;
+}
+
+function calculateClockAbsenceSegments(
+    mode,
+    nombre,
+    y,
+    m,
+    days,
+    holidays,
+    data,
+    maps
+) {
+    const segments = [];
+    const rangeStart = new Date(y, m, 1);
+    const rangeEnd = new Date(y, m + 1, 1);
+
+    for (let d = 1; d <= days; d++) {
+        const date = new Date(y, m, d);
+        const keyDay = key(y, m, d);
+
+        if (!hasClockMark(nombre, keyDay)) {
+            continue;
+        }
+
+        if (
+            getApprovedCoverage(keyDay, maps) > 0 ||
+            hasUnjustifiedAbsence(keyDay, maps)
+        ) {
+            continue;
+        }
+
+        const baseIntervals = mode === "diurno"
+            ? normalDiurnoInterval(date, holidays)
+            : intervalsForState(
+                date,
+                baseStateForExtraComparison(nombre, keyDay),
+                holidays
+            );
+
+        if (!baseIntervals.length) {
+            continue;
+        }
+
+        const actualIntervals = getWorkedIntervalsForState(
+            nombre,
+            keyDay,
+            date,
+            actualStateForDay(nombre, data, keyDay),
+            holidays
+        );
+        const absenceIntervals = subtractIntervals(
+            baseIntervals,
+            actualIntervals
+        );
+        const absence = classifyIntervals(
+            absenceIntervals,
+            holidays,
+            rangeStart,
+            rangeEnd
+        );
+
+        pushPaymentSegment(
+            segments,
+            keyDay,
+            {
+                d: -absence.d,
+                n: -absence.n
+            }
+        );
+    }
+
+    return segments;
+}
+
+function calculatePaymentFromSegments(
+    nombre,
+    segments,
+    hheeDiurnas,
+    hheeNocturnas
+) {
+    function amountFor(type, target, multiplier) {
+        const typedSegments = segments.filter(segment =>
+            segment.type === type
+        );
+        const rawTotal = typedSegments.reduce(
+            (sum, segment) => sum + segment.hours,
+            0
+        );
+
+        if (!target || !typedSegments.length) return 0;
+
+        if (Math.abs(rawTotal) < 0.0001) {
+            return (
+                target *
+                multiplier *
+                getValorHora(nombre)
+            );
+        }
+
+        const factor = target / rawTotal;
+
+        return typedSegments.reduce((sum, segment) => {
+            const rate = getValorHora(
+                nombre,
+                keyToISODate(segment.keyDay)
+            );
+
+            return sum +
+                (segment.hours * factor * multiplier * rate);
+        }, 0);
+    }
+
+    return {
+        d: amountFor("d", hheeDiurnas, 1.25),
+        n: amountFor("n", hheeNocturnas, 1.5)
+    };
+}
+
+function calculatePaymentSegments({
+    mode,
+    nombre,
+    y,
+    m,
+    days,
+    holidays,
+    data,
+    maps,
+    carryIn,
+    horasHabiles
+}) {
+    const segments = mode === "aggregate"
+        ? calculateAggregateExtraSegments(
+            nombre,
+            y,
+            m,
+            days,
+            holidays,
+            data,
+            maps,
+            carryIn,
+            horasHabiles
+        )
+        : mode === "diurno"
+            ? calculateDiurnoExtraSegments(
+                nombre,
+                y,
+                m,
+                days,
+                holidays,
+                data,
+                maps,
+                carryIn
+            )
+            : calculateAssignedExtraSegments(
+                nombre,
+                y,
+                m,
+                days,
+                holidays,
+                data,
+                maps,
+                carryIn
+            );
+
+    return [
+        ...segments,
+        ...calculateClockAbsenceSegments(
+            mode,
+            nombre,
+            y,
+            m,
+            days,
+            holidays,
+            data,
+            maps
+        )
+    ];
+}
+
 function calculatePreviousCarryIn(nombre, y, m, holidays) {
     const previous = new Date(y, m, 0);
     const previousYear = previous.getFullYear();
@@ -1041,12 +1529,32 @@ function buildStats({
         hheeNocturnas - clockAbsences.n
     );
 
+    const payment = calculatePaymentFromSegments(
+        nombre,
+        calculatePaymentSegments({
+            mode,
+            nombre,
+            y,
+            m,
+            days,
+            holidays,
+            data,
+            maps,
+            carryIn: effectiveCarryIn,
+            horasHabiles
+        }),
+        hheeDiurnas,
+        hheeNocturnas
+    );
+
     return {
         totalD: roundHour(worked.d),
         totalN: roundHour(worked.n),
         horasHabiles: roundHour(horasHabiles),
         hheeDiurnas,
         hheeNocturnas,
+        paymentDiurno: payment.d,
+        paymentNocturno: payment.n,
         mode,
         carryOut: calculateCarryForMode(
             mode,
@@ -1099,6 +1607,8 @@ export function calcularHorasMesPerfil(
             horasHabiles: 0,
             hheeDiurnas: 0,
             hheeNocturnas: 0,
+            paymentDiurno: 0,
+            paymentNocturno: 0,
             mode: "aggregate",
             carryOut: { d: 0, n: 0 }
         };
@@ -1122,14 +1632,18 @@ export function renderSummaryHTML(stats) {
         getDayExtraAlertClass(stats.hheeDiurnas);
 
     const pagoDiurno =
-        stats.hheeDiurnas *
-        1.25 *
-        valorHora;
+        Number.isFinite(Number(stats.paymentDiurno))
+            ? Number(stats.paymentDiurno)
+            : stats.hheeDiurnas *
+                1.25 *
+                valorHora;
 
     const pagoNocturno =
-        stats.hheeNocturnas *
-        1.5 *
-        valorHora;
+        Number.isFinite(Number(stats.paymentNocturno))
+            ? Number(stats.paymentNocturno)
+            : stats.hheeNocturnas *
+                1.5 *
+                valorHora;
 
     const currency = new Intl.NumberFormat(
         "es-CL",

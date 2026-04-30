@@ -24,7 +24,8 @@ import {
     getCurrentProfile,
     getProfiles,
     getRotativa,
-    isProfileActive
+    isProfileActive,
+    profileCanCoverProfile
 } from "./storage.js";
 import {
     tieneAusencia,
@@ -291,8 +292,44 @@ function sameRoleProfiles(profileName) {
     return profiles.filter(profile =>
         profile.name !== profileName &&
         isProfileActive(profile) &&
-        profile.estamento === base.estamento
+        profileCanCoverProfile(profile, base)
     );
+}
+
+function replacementScopeProfiles(profileName, scope = "compatible") {
+    const profiles = getProfiles();
+    const base = profiles.find(profile =>
+        profile.name === profileName
+    );
+
+    if (!base || !isProfileActive(base)) return [];
+
+    return profiles.filter(profile =>
+        profile.name !== profileName &&
+        isProfileActive(profile) &&
+        (
+            scope === "all-local" ||
+            profileCanCoverProfile(profile, base)
+        )
+    );
+}
+
+function escapeHTML(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function candidateMeta(profile) {
+    const profession = profile.profession &&
+        profile.profession !== "Sin informacion"
+        ? ` | ${profile.profession}`
+        : "";
+
+    return `${profile.estamento || "Sin estamento"}${profession}`;
 }
 
 function getActualState(profileName, keyDay) {
@@ -342,7 +379,11 @@ function getPendingManualExtraTurn(
     );
 }
 
-async function getReplacementCandidates(profileName, keyDay) {
+async function getReplacementCandidates(
+    profileName,
+    keyDay,
+    options = {}
+) {
     const date = new Date(
         Number(keyDay.split("-")[0]),
         Number(keyDay.split("-")[1]),
@@ -353,8 +394,12 @@ async function getReplacementCandidates(profileName, keyDay) {
     const days = new Date(y, m + 1, 0).getDate();
     const holidays = await fetchHolidays(y);
     const neededTurn = getTurnoBase(profileName, keyDay);
+    const baseProfile = getProfiles().find(profile =>
+        profile.name === profileName
+    );
+    const scope = options.scope || "compatible";
 
-    return sameRoleProfiles(profileName)
+    return replacementScopeProfiles(profileName, scope)
         .map(profile => {
             const currentState =
                 getActualState(profile.name, keyDay);
@@ -373,6 +418,8 @@ async function getReplacementCandidates(profileName, keyDay) {
                 profile,
                 currentState,
                 isFree: currentState === 0,
+                isForced:
+                    !profileCanCoverProfile(profile, baseProfile),
                 hhee:
                     (Number(stats.hheeDiurnas) || 0) +
                     (Number(stats.hheeNocturnas) || 0)
@@ -400,16 +447,22 @@ function replacementDialogHTML({
     keyDay,
     neededTurn,
     absenceType,
-    candidates
+    candidates,
+    scope
 }) {
+    const forceMode = scope === "all-local";
     const items = candidates.length
         ? candidates.map(candidate => `
-            <button class="replacement-candidate" type="button" data-worker="${candidate.profile.name}">
+            <button class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""}" type="button" data-worker="${escapeHTML(candidate.profile.name)}">
                 <span>
-                    <strong>${candidate.profile.name}</strong>
-                    <small>${candidate.isFree ? "Libre ese dia" : `Turno actual: ${turnoReplacementLabel(candidate.currentState)}`}</small>
+                    <strong>${escapeHTML(candidate.profile.name)}</strong>
+                    <small>${escapeHTML(candidateMeta(candidate.profile))}</small>
+                    <small>${candidate.isFree ? "Libre ese dia" : `Turno actual: ${escapeHTML(turnoReplacementLabel(candidate.currentState))}`}</small>
                 </span>
-                <span>${candidate.hhee} HHEE</span>
+                <span>
+                    ${candidate.isForced ? "<em>Forzado</em>" : ""}
+                    <b>${candidate.hhee} HHEE</b>
+                </span>
             </button>
         `).join("")
         : `
@@ -422,9 +475,25 @@ function replacementDialogHTML({
         <div class="turn-change-dialog replacement-dialog" role="dialog" aria-modal="true" aria-labelledby="replacementDialogTitle">
             <strong id="replacementDialogTitle">Seleccionar reemplazo</strong>
             <p>
-                ${profileName} requiere cobertura para ${turnoReplacementLabel(neededTurn)}
-                por ${absenceType}.
+                ${escapeHTML(profileName)} requiere cobertura para ${escapeHTML(turnoReplacementLabel(neededTurn))}
+                por ${escapeHTML(absenceType)}.
             </p>
+            <div class="replacement-dialog-toolbar">
+                <button class="secondary-button" type="button" data-action="toggle-force">
+                    ${forceMode
+                        ? "Volver a profesiones/estamentos compatibles"
+                        : "Mostrar personal de otras profesiones y/o estamentos"
+                    }
+                </button>
+                <button class="ghost-button" type="button" data-action="linked-units">
+                    Cargar personal de unidades enlazadas
+                </button>
+            </div>
+            ${forceMode ? `
+                <div class="replacement-dialog-note">
+                    Modo forzado activo: se muestran trabajadores disponibles aunque no coincidan por profesion o estamento.
+                </div>
+            ` : ""}
             <div class="replacement-candidate-list">
                 ${items}
             </div>
@@ -450,18 +519,9 @@ async function openReplacementDialog(profileName, keyDay) {
     const neededTurn = getTurnoBase(profileName, keyDay);
     const absenceType =
         getAbsenceLabelForProfileDate(profileName, keyDay);
-    const candidates =
-        await getReplacementCandidates(profileName, keyDay);
-
+    let scope = "compatible";
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
-    backdrop.innerHTML = replacementDialogHTML({
-        profileName,
-        keyDay,
-        neededTurn,
-        absenceType,
-        candidates
-    });
 
     const close = () => {
         document.removeEventListener("keydown", onKeydown);
@@ -480,38 +540,81 @@ async function openReplacementDialog(profileName, keyDay) {
         }
     });
 
-    backdrop
-        .querySelector("[data-action='cancel']")
-        .onclick = close;
+    const bindActions = () => {
+        backdrop
+            .querySelector("[data-action='cancel']")
+            .onclick = close;
 
-    backdrop
-        .querySelectorAll(".replacement-candidate")
-        .forEach(button => {
-            button.onclick = async () => {
-                if (typeof window.pushUndoState === "function") {
-                    window.pushUndoState("Asignar reemplazo");
-                }
-
-                saveReplacement({
-                    worker: button.dataset.worker,
-                    replaced: profileName,
-                    keyDay,
-                    turno: neededTurn,
-                    absenceType
-                });
-
-                close();
-                await renderCalendar();
+        backdrop
+            .querySelector("[data-action='toggle-force']")
+            .onclick = async () => {
+                scope = scope === "all-local"
+                    ? "compatible"
+                    : "all-local";
+                await renderContent();
             };
+
+        backdrop
+            .querySelector("[data-action='linked-units']")
+            .onclick = () => {
+                alert(
+                    "La carga de unidades enlazadas quedara activa cuando los entornos trabajen con datos vivos en Firebase. Por ahora este sistema solo tiene snapshot de respaldo, por lo que no es seguro bloquear calendarios de otra unidad desde aqui."
+                );
+            };
+
+        backdrop
+            .querySelectorAll(".replacement-candidate")
+            .forEach(button => {
+                button.onclick = async () => {
+                    if (typeof window.pushUndoState === "function") {
+                        window.pushUndoState("Asignar reemplazo");
+                    }
+
+                    saveReplacement({
+                        worker: button.dataset.worker,
+                        replaced: profileName,
+                        keyDay,
+                        turno: neededTurn,
+                        absenceType,
+                        source: scope === "all-local"
+                            ? "forced_replacement"
+                            : "replacement"
+                    });
+
+                    close();
+                    await renderCalendar();
+                };
+            });
+    };
+
+    const renderContent = async () => {
+        const candidates =
+            await getReplacementCandidates(
+                profileName,
+                keyDay,
+                { scope }
+            );
+
+        backdrop.innerHTML = replacementDialogHTML({
+            profileName,
+            keyDay,
+            neededTurn,
+            absenceType,
+            candidates,
+            scope
         });
+
+        bindActions();
+
+        (
+            backdrop.querySelector(".replacement-candidate") ||
+            backdrop.querySelector("[data-action='cancel']")
+        )?.focus();
+    };
 
     document.addEventListener("keydown", onKeydown);
     document.body.appendChild(backdrop);
-
-    (
-        backdrop.querySelector(".replacement-candidate") ||
-        backdrop.querySelector("[data-action='cancel']")
-    )?.focus();
+    await renderContent();
 }
 
 window.openReplacementDialog = openReplacementDialog;
@@ -1213,12 +1316,16 @@ export async function renderCalendar() {
                     : simpleClockIncident
                         ? "*"
                         : workerReplacement
-                            ? (workerReplacement.reason ? "Motivo" : "Reemplazo")
+                            ? (
+                                workerReplacement.isLoan
+                                    ? "Prestamo"
+                                    : (workerReplacement.reason ? "Motivo" : "Reemplazo")
+                            )
                             : (showTurnChangeBadge ? "CCTT" : "");
         const replacementTitle = workerReplacement
             ? (
                 workerReplacement.replaced
-                    ? `Reemplazo de ${workerReplacement.replaced} por ${workerReplacement.absenceType || "ausencia"}.`
+                    ? `${workerReplacement.isLoan ? "Prestamo cubriendo a" : "Reemplazo de"} ${workerReplacement.replaced} por ${workerReplacement.absenceType || "ausencia"}.`
                     : `Motivo HHEE: ${workerReplacement.reason || workerReplacement.absenceType || "sin detalle"}.`
             )
             : "";

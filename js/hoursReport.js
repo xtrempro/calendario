@@ -373,8 +373,12 @@ function table(title, columns, rows) {
 
 function getCalculationRows(stats, profileName) {
     const valorHora = getValorHora(profileName);
-    const pagoDiurno = stats.hheeDiurnas * 1.25 * valorHora;
-    const pagoNocturno = stats.hheeNocturnas * 1.5 * valorHora;
+    const pagoDiurno = Number.isFinite(Number(stats.paymentDiurno))
+        ? Number(stats.paymentDiurno)
+        : stats.hheeDiurnas * 1.25 * valorHora;
+    const pagoNocturno = Number.isFinite(Number(stats.paymentNocturno))
+        ? Number(stats.paymentNocturno)
+        : stats.hheeNocturnas * 1.5 * valorHora;
     const modeLabel = stats.mode === "diurno"
         ? "Personal Diurno"
         : stats.mode === "assigned"
@@ -392,7 +396,8 @@ function getCalculationRows(stats, profileName) {
         { item: "Base habil ajustada del mes", valor: `${formatHour(stats.horasHabiles)}h` },
         { item: "HHEE diurnas redondeadas", valor: `${stats.hheeDiurnas}h` },
         { item: "HHEE nocturnas redondeadas", valor: `${stats.hheeNocturnas}h` },
-        { item: "Valor hora", valor: `$${formatMoney(valorHora)}` },
+        { item: "Valor hora actual", valor: `$${formatMoney(valorHora)}` },
+        { item: "Regla de valor hora", valor: "Se usa el grado vigente en la fecha de cada hora extra cuando existe historial." },
         { item: "Pago diurno estimado", valor: `$${formatMoney(pagoDiurno)}` },
         { item: "Pago nocturno estimado", valor: `$${formatMoney(pagoNocturno)}` },
         { item: "Traspaso al mes siguiente", valor: `${formatHour(stats.carryOut?.d)}h diurnas / ${formatHour(stats.carryOut?.n)}h nocturnas` }
@@ -416,6 +421,7 @@ function buildWorkbookHTML({
         { campo: "Unidad", valor: profile.unit || "Sin registro" },
         { campo: "Tipo de contrato", valor: profile.contractType || "Sin registro" },
         { campo: "Estamento", valor: profile.estamento || "Sin registro" },
+        { campo: "Profesion", valor: profile.profession || "Sin informacion" },
         { campo: "Grado", valor: profile.grade || "Sin registro" },
         { campo: "Rotativa", valor: rotationLabel(rotativa.type) },
         { campo: "Asignacion de turno", valor: getShiftAssigned(profile.name) ? "Si" : "No" },

@@ -37,6 +37,39 @@ export const DEFAULT_GRADE_HOUR_CONFIG = {
     }
 };
 
+export const PROFESSIONS = [
+    "Enfermero",
+    "Fonoaudiologia",
+    "Kinesiologo",
+    "Sin informacion",
+    "Tecnico en Enfermeria",
+    "Tecnico en Imagenologia",
+    "Tecnico en Laboratorio",
+    "Terapia Ocupacional",
+    "TM Anatomia Patologica",
+    "TM Imagenologia",
+    "TM Laboratorio",
+    "TM Oftalmologia",
+    "TM Otorrinolaringologia"
+];
+
+function normalizeTextKey(value) {
+    return String(value || "")
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+}
+
+function normalizeProfession(value) {
+    const key = normalizeTextKey(value);
+    const match = PROFESSIONS.find(profession =>
+        normalizeTextKey(profession) === key
+    );
+
+    return match || "Sin informacion";
+}
+
 function normalizeRateMap(map = {}, fallback = {}) {
     return Object.keys(fallback).reduce((acc, grade) => {
         const value = Number(map[grade]);
@@ -86,21 +119,326 @@ export function getGradeHourValue(estamento, grade) {
     return Number(config[group]?.[String(grade)] || 0);
 }
 
+function normalizeHistoryDate(value) {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return [
+            value.getFullYear(),
+            String(value.getMonth() + 1).padStart(2, "0"),
+            String(value.getDate()).padStart(2, "0")
+        ].join("-");
+    }
+
+    const match = String(value || "")
+        .match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+
+    if (!match) return "";
+
+    return [
+        match[1],
+        String(Number(match[2])).padStart(2, "0"),
+        String(Number(match[3])).padStart(2, "0")
+    ].join("-");
+}
+
+function gradeHistoryKey(profile = currentProfile) {
+    return `gradeHistory_${profile}`;
+}
+
+function contractHistoryKey(profile = currentProfile) {
+    return `contractHistory_${profile}`;
+}
+
+function normalizeGradeHistoryEntry(entry = {}) {
+    const start = normalizeHistoryDate(entry.start);
+    const grade = String(entry.grade || "").trim();
+
+    if (!start || !grade) return null;
+
+    return {
+        id: String(entry.id || `${start}_${grade}`),
+        start,
+        grade,
+        estamento: normalizeEstamento(entry.estamento),
+        contractType: String(entry.contractType || "").trim(),
+        createdAt: String(entry.createdAt || new Date().toISOString())
+    };
+}
+
+function normalizeGradeHistory(history = []) {
+    return (Array.isArray(history) ? history : [])
+        .map(normalizeGradeHistoryEntry)
+        .filter(Boolean)
+        .sort((a, b) =>
+            a.start.localeCompare(b.start) ||
+            a.createdAt.localeCompare(b.createdAt)
+        );
+}
+
+export function getGradeHistory(profile = currentProfile) {
+    if (!profile) return [];
+
+    return normalizeGradeHistory(
+        getJSON(gradeHistoryKey(profile), [])
+    );
+}
+
+export function saveGradeHistory(
+    profile = currentProfile,
+    history = []
+) {
+    if (!profile) return;
+
+    setJSON(
+        gradeHistoryKey(profile),
+        normalizeGradeHistory(history)
+    );
+}
+
+function compensationEntryFromProfile(
+    profileData = {},
+    start = "1900-01-01"
+) {
+    return normalizeGradeHistoryEntry({
+        start,
+        grade: profileData.grade,
+        estamento: profileData.estamento,
+        contractType: profileData.contractType
+    });
+}
+
+export function initializeGradeHistory(
+    profile,
+    profileData = {},
+    start = "1900-01-01"
+) {
+    if (!profile) return;
+
+    const entry = compensationEntryFromProfile(
+        profileData,
+        normalizeHistoryDate(start) || "1900-01-01"
+    );
+
+    if (!entry) return;
+
+    saveGradeHistory(profile, [entry]);
+}
+
+export function recordGradeHistoryChange(
+    profile,
+    previousProfile = {},
+    nextProfile = {},
+    start
+) {
+    if (!profile) return;
+
+    const startDate = normalizeHistoryDate(start);
+
+    if (!startDate) {
+        throw new Error(
+            "Debes indicar desde que fecha rige el nuevo grado."
+        );
+    }
+
+    const history = getGradeHistory(profile);
+    const previousEntry =
+        compensationEntryFromProfile(
+            previousProfile,
+            "1900-01-01"
+        );
+    const nextEntry =
+        compensationEntryFromProfile(
+            nextProfile,
+            startDate
+        );
+
+    if (!nextEntry) return;
+
+    const nextHistory = history.length
+        ? [...history]
+        : previousEntry
+            ? [previousEntry]
+            : [];
+
+    saveGradeHistory(
+        profile,
+        [
+            ...nextHistory.filter(entry =>
+                entry.start !== startDate
+            ),
+            nextEntry
+        ]
+    );
+}
+
+export function getCompensationProfileAt(
+    profile = currentProfile,
+    date = null
+) {
+    const profileData = getProfiles().find(item =>
+        item.name === profile
+    );
+
+    if (!profileData) return null;
+
+    const dateKey = normalizeHistoryDate(date);
+
+    if (!dateKey) {
+        return profileData;
+    }
+
+    const history = getGradeHistory(profile);
+    const matches = history.filter(item =>
+        item.start <= dateKey
+    );
+    const entry = matches[matches.length - 1];
+
+    if (!entry) {
+        return profileData;
+    }
+
+    return {
+        ...profileData,
+        grade: entry.grade,
+        estamento: entry.estamento || profileData.estamento,
+        contractType:
+            entry.contractType || profileData.contractType
+    };
+}
+
+function normalizeContractHistoryChange(change = {}) {
+    const field = String(change.field || "").trim();
+
+    if (!field) return null;
+
+    return {
+        field,
+        label: String(change.label || field).trim(),
+        from: String(change.from ?? "").trim(),
+        to: String(change.to ?? "").trim(),
+        effectiveDate:
+            normalizeHistoryDate(change.effectiveDate) || ""
+    };
+}
+
+function normalizeContractHistoryEntry(entry = {}) {
+    const changes = (Array.isArray(entry.changes)
+        ? entry.changes
+        : []
+    )
+        .map(normalizeContractHistoryChange)
+        .filter(Boolean);
+
+    if (!changes.length) return null;
+
+    const createdAt = String(
+        entry.createdAt || new Date().toISOString()
+    );
+    const id = String(
+        entry.id ||
+        `${createdAt}_${changes.map(change => change.field).join("_")}`
+    );
+
+    return {
+        id,
+        createdAt,
+        effectiveDate:
+            normalizeHistoryDate(entry.effectiveDate) || "",
+        summary: String(entry.summary || "").trim(),
+        changes
+    };
+}
+
+function normalizeContractHistory(history = []) {
+    return (Array.isArray(history) ? history : [])
+        .map(normalizeContractHistoryEntry)
+        .filter(Boolean)
+        .sort((a, b) =>
+            b.createdAt.localeCompare(a.createdAt) ||
+            b.id.localeCompare(a.id)
+        );
+}
+
+export function getContractHistory(profile = currentProfile) {
+    if (!profile) return [];
+
+    return normalizeContractHistory(
+        getJSON(contractHistoryKey(profile), [])
+    );
+}
+
+export function saveContractHistory(
+    profile = currentProfile,
+    history = []
+) {
+    if (!profile) return;
+
+    setJSON(
+        contractHistoryKey(profile),
+        normalizeContractHistory(history)
+    );
+}
+
+export function addContractHistoryEntry(profile, entry = {}) {
+    if (!profile) return null;
+
+    const normalized = normalizeContractHistoryEntry(entry);
+
+    if (!normalized) return null;
+
+    saveContractHistory(
+        profile,
+        [
+            normalized,
+            ...getContractHistory(profile).filter(item =>
+                item.id !== normalized.id
+            )
+        ]
+    );
+
+    return normalized;
+}
+
 function normalizeEstamento(value){
     const source = String(value || "").trim();
 
     if (!source) return "Profesional";
 
-    const normalized = source
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
+    const normalized = normalizeTextKey(source);
 
     if (normalized === "tecnico") return "T\u00e9cnico";
     if (normalized === "administrativo") return "Administrativo";
     if (normalized === "auxiliar") return "Auxiliar";
 
     return "Profesional";
+}
+
+function usesProfessionCoverage(profile = {}) {
+    const estamento = normalizeEstamento(profile.estamento);
+
+    return (
+        estamento === "Profesional" ||
+        estamento === "T\u00e9cnico"
+    );
+}
+
+function coverageGroupKey(profile = {}) {
+    if (usesProfessionCoverage(profile)) {
+        const profession = normalizeProfession(profile.profession);
+
+        if (profession === "Sin informacion") {
+            return `profession:${normalizeEstamento(profile.estamento)}:${profession}`;
+        }
+
+        return `profession:${profession}`;
+    }
+
+    return `role:${normalizeEstamento(profile.estamento)}`;
+}
+
+export function profileCanCoverProfile(candidate, target) {
+    if (!candidate || !target) return false;
+
+    return coverageGroupKey(candidate) === coverageGroupKey(target);
 }
 
 function normalizeRotativaType(value){
@@ -164,13 +502,15 @@ export function getProfiles(){
         if (typeof profile === "string") {
             return {
                 name: profile,
-                estamento: "Profesional"
+                estamento: "Profesional",
+                profession: "Sin informacion"
             };
         }
 
         return {
             ...profile,
-            estamento: normalizeEstamento(profile.estamento)
+            estamento: normalizeEstamento(profile.estamento),
+            profession: normalizeProfession(profile.profession)
         };
     });
 }
@@ -221,13 +561,28 @@ export function saveReplacementContracts(
     );
 }
 
-export function saveProfiles(profiles){
+export function saveProfiles(profiles, options = {}){
     const normalized = (profiles || []).map(profile => ({
         ...profile,
-        estamento: normalizeEstamento(profile.estamento)
+        estamento: normalizeEstamento(profile.estamento),
+        profession: normalizeProfession(profile.profession)
     }));
 
     setJSON("profiles", normalized);
+
+    if (
+        !options.silent &&
+        typeof window !== "undefined"
+    ) {
+        window.dispatchEvent(
+            new CustomEvent("proturnos:profilesSaved", {
+                detail: {
+                    profiles: normalized,
+                    remote: options.remote !== false
+                }
+            })
+        );
+    }
 }
 
 export function setCurrentProfile(profile){
@@ -270,10 +625,8 @@ export function setShiftAssigned(value, profile = currentProfile){
     setJSON("shift_" + profile, Boolean(value));
 }
 
-export function getValorHora(profile = currentProfile){
-    const profileData = getProfiles().find(item =>
-        item.name === profile
-    );
+export function getValorHora(profile = currentProfile, date = null){
+    const profileData = getCompensationProfileAt(profile, date);
     const configuredValue = profileData
         ? getGradeHourValue(
             profileData.estamento,
@@ -474,6 +827,9 @@ export function updateProfile(oldName, nextProfile){
             name: targetName,
             estamento: normalizeEstamento(
                 nextProfile.estamento ?? profile.estamento
+            ),
+            profession: normalizeProfession(
+                nextProfile.profession ?? profile.profession
             )
         };
     });
@@ -500,7 +856,9 @@ export function updateProfile(oldName, nextProfile){
         "leaveBalances_",
         "replacementContracts_",
         "clockMarks_",
-        "hrLogs_"
+        "hrLogs_",
+        "gradeHistory_",
+        "contractHistory_"
     ];
 
     keysToMove.forEach(prefix => {
@@ -549,5 +907,16 @@ export function updateProfile(oldName, nextProfile){
 
     if (currentProfile === oldName) {
         currentProfile = targetName;
+    }
+
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(
+            new CustomEvent("proturnos:profileRenamed", {
+                detail: {
+                    oldName,
+                    newName: targetName
+                }
+            })
+        );
     }
 }
