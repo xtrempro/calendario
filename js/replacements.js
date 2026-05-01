@@ -1,7 +1,10 @@
 import {
     getProfiles,
     getReplacements,
-    saveReplacements
+    saveReplacements,
+    getReplacementRequests,
+    saveReplacementRequests,
+    getReplacementRequestConfig
 } from "./storage.js";
 import { getJSON } from "./persistence.js";
 import { TURNO, TURNO_LABEL } from "./constants.js";
@@ -216,8 +219,10 @@ export function saveReplacement(data) {
 
     const id = Date.now();
 
-    replacements.push({
+    const record = {
         id,
+        requestId: data.requestId || "",
+        requestGroupId: data.requestGroupId || "",
         worker: data.worker,
         replaced: data.replaced || "",
         reason: String(data.reason || "").trim(),
@@ -237,7 +242,9 @@ export function saveReplacement(data) {
         month: date.getMonth(),
         createdAt: new Date().toISOString(),
         canceled: false
-    });
+    };
+
+    replacements.push(record);
 
     saveReplacements(replacements);
     addAuditLog(
@@ -264,6 +271,370 @@ export function saveReplacement(data) {
             source: data.source || "replacement"
         }
     );
+
+    return record;
+}
+
+function isExpiredRequest(request, now = new Date()) {
+    if (!request?.expiresAt) return false;
+
+    return new Date(request.expiresAt).getTime() <= now.getTime();
+}
+
+function requestId() {
+    return `rr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function requestGroupId() {
+    return `rrg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getProfileByName(name) {
+    return getProfiles().find(profile => profile.name === name) || null;
+}
+
+function whatsappPhone(value) {
+    const digits = String(value || "").replace(/\D/g, "");
+
+    if (!digits) return "";
+    if (digits.length === 8) return `569${digits}`;
+    if (digits.length === 9 && digits.startsWith("9")) return `56${digits}`;
+    if (digits.length >= 11 && digits.startsWith("56")) return digits;
+
+    return digits;
+}
+
+function workerHasMobileApp(profile = {}) {
+    return Boolean(
+        profile.mobileAppEnabled ||
+        profile.mobileAppUid ||
+        profile.appUid
+    );
+}
+
+export function expireReplacementRequests(now = new Date()) {
+    let changed = false;
+    const requests = getReplacementRequests().map(request => {
+        if (
+            request.status === "pending" &&
+            isExpiredRequest(request, now)
+        ) {
+            changed = true;
+            return {
+                ...request,
+                status: "expired",
+                expiredAt: now.toISOString()
+            };
+        }
+
+        return request;
+    });
+
+    if (changed) {
+        saveReplacementRequests(requests);
+    }
+
+    return requests;
+}
+
+export function getPendingReplacementRequestsForShift(
+    replaced,
+    keyDay,
+    turno = null
+) {
+    const iso = isoFromKey(keyDay);
+    const turnoCode = turno ? turnoToCode(turno) : "";
+
+    return expireReplacementRequests().filter(request =>
+        request.status === "pending" &&
+        request.replaced === replaced &&
+        request.date === iso &&
+        (
+            !turnoCode ||
+            request.turno === turnoCode
+        )
+    );
+}
+
+function buildReplacementRequest(data) {
+    const id = requestId();
+    const workerProfile = getProfileByName(data.worker);
+    const replacedProfile = getProfileByName(data.replaced);
+    const config = getReplacementRequestConfig();
+    const createdAt = new Date();
+    const expiresAt = new Date(
+        createdAt.getTime() +
+        config.expiresMinutes * 60 * 1000
+    );
+    const channel = workerHasMobileApp(workerProfile)
+        ? "app"
+        : "whatsapp";
+    const absenceType =
+        data.absenceType ||
+        getAbsenceLabelForProfileDate(data.replaced, data.keyDay);
+
+    return {
+        id,
+        groupId: data.groupId || id,
+        groupSize: Number(data.groupSize) || 1,
+        status: "pending",
+        worker: data.worker,
+        workerProfileId: workerProfile?.id || "",
+        replaced: data.replaced || "",
+        replacedProfileId: replacedProfile?.id || "",
+        keyDay: data.keyDay,
+        date: isoFromKey(data.keyDay),
+        turno: turnoToCode(data.turno),
+        turnoLabel: turnoReplacementLabel(data.turno),
+        absenceType,
+        source: data.source || "replacement_request",
+        channel,
+        phone: workerProfile?.phone || "",
+        scope: data.scope || "compatible",
+        createdAt: createdAt.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        canceledAt: "",
+        acceptedAt: "",
+        rejectedAt: "",
+        expiredAt: "",
+        appliedAt: "",
+        notificationStatus:
+            channel === "app"
+                ? "queued"
+                : "whatsapp_pending"
+    };
+}
+
+export function createReplacementRequest(data) {
+    const request = buildReplacementRequest(data);
+
+    saveReplacementRequests([
+        ...getReplacementRequests(),
+        request
+    ]);
+
+    addAuditLog(
+        AUDIT_CATEGORY.OVERTIME,
+        "Creo solicitud de reemplazo",
+        `${request.worker}: solicitud para cubrir ${request.turnoLabel} de ${request.replaced} el ${request.date}. Canal: ${request.channel}.`,
+        {
+            profile: request.worker,
+            requestId: request.id,
+            requestGroupId: request.groupId,
+            replaced: request.replaced,
+            channel: request.channel
+        }
+    );
+
+    return request;
+}
+
+export function createReplacementRequests(data, workers = []) {
+    const uniqueWorkers = [...new Set(
+        (workers || [])
+            .map(worker => String(worker || "").trim())
+            .filter(Boolean)
+    )];
+
+    if (!uniqueWorkers.length) return [];
+
+    const groupId = requestGroupId();
+    const requests = uniqueWorkers.map(worker =>
+        buildReplacementRequest({
+            ...data,
+            worker,
+            groupId,
+            groupSize: uniqueWorkers.length
+        })
+    );
+
+    saveReplacementRequests([
+        ...getReplacementRequests(),
+        ...requests
+    ]);
+
+    addAuditLog(
+        AUDIT_CATEGORY.OVERTIME,
+        requests.length > 1
+            ? "Creo solicitud masiva de reemplazo"
+            : "Creo solicitud de reemplazo",
+        requests.length > 1
+            ? `${requests.length} trabajadores invitados para cubrir ${requests[0].turnoLabel} de ${requests[0].replaced} el ${requests[0].date}.`
+            : `${requests[0].worker}: solicitud para cubrir ${requests[0].turnoLabel} de ${requests[0].replaced} el ${requests[0].date}. Canal: ${requests[0].channel}.`,
+        {
+            profile: requests[0].replaced,
+            requestGroupId: groupId,
+            requestIds: requests.map(request => request.id),
+            workers: uniqueWorkers,
+            replaced: requests[0].replaced
+        }
+    );
+
+    return requests;
+}
+
+export function cancelReplacementRequest(id, reason = "admin") {
+    let canceled = null;
+    const now = new Date().toISOString();
+    const requests = getReplacementRequests().map(request => {
+        if (
+            request.id !== id ||
+            request.status !== "pending"
+        ) {
+            return request;
+        }
+
+        canceled = {
+            ...request,
+            status: "canceled",
+            canceledAt: now,
+            cancelReason: reason
+        };
+
+        return canceled;
+    });
+
+    if (!canceled) return null;
+
+    saveReplacementRequests(requests);
+    addAuditLog(
+        AUDIT_CATEGORY.OVERTIME,
+        "Anulo solicitud de reemplazo",
+        `${canceled.worker}: solicitud anulada para ${canceled.date}.`,
+        {
+            profile: canceled.worker,
+            requestId: canceled.id
+        }
+    );
+
+    return canceled;
+}
+
+export function buildReplacementRequestWhatsAppUrl(request) {
+    const phone = whatsappPhone(request.phone);
+
+    if (!phone) return "";
+
+    const message = [
+        `Hola ${request.worker}.`,
+        `Se solicita cubrir un turno ${request.turnoLabel} el ${formatDate(request.date)}.`,
+        `Motivo: reemplazo de ${request.replaced} por ${request.absenceType}.`,
+        request.groupSize > 1
+            ? "Esta invitacion fue enviada a varios trabajadores; el primer SI confirmado se queda con el turno."
+            : "",
+        "Responde SI para aceptar o NO para rechazar.",
+        `La solicitud caduca el ${new Date(request.expiresAt).toLocaleString("es-CL")}.`
+    ].filter(Boolean).join("\n");
+
+    return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+}
+
+export function applyAcceptedReplacementRequests() {
+    let changed = false;
+    const replacements = getReplacements();
+    const requests = getReplacementRequests();
+    const nextRequests = requests.map(request => ({ ...request }));
+    const groupIds = [...new Set(
+        nextRequests
+            .filter(request =>
+                request.status === "accepted" &&
+                !request.appliedAt
+            )
+            .map(request => request.groupId || request.id)
+    )];
+
+    groupIds.forEach(groupId => {
+        const groupRequests = nextRequests.filter(request =>
+            (request.groupId || request.id) === groupId
+        );
+        const hasAppliedRequest = groupRequests.some(request =>
+            Boolean(request.appliedAt)
+        );
+        const hasAppliedReplacement = replacements.some(replacement =>
+            !replacement.canceled &&
+            (
+                replacement.requestGroupId === groupId ||
+                groupRequests.some(request =>
+                    replacement.requestId === request.id
+                )
+            )
+        );
+
+        if (hasAppliedRequest || hasAppliedReplacement) {
+            return;
+        }
+
+        const winner = groupRequests
+            .filter(request => request.status === "accepted")
+            .sort((a, b) =>
+                String(a.acceptedAt || a.createdAt).localeCompare(
+                    String(b.acceptedAt || b.createdAt)
+                )
+            )[0];
+
+        if (!winner) return;
+
+        const alreadyApplied = replacements.some(replacement =>
+            !replacement.canceled &&
+            (
+                replacement.requestId === winner.id ||
+                (
+                    replacement.worker === winner.worker &&
+                    replacement.replaced === winner.replaced &&
+                    replacement.date === winner.date &&
+                    replacement.turno === winner.turno
+                )
+            )
+        );
+
+        if (!alreadyApplied) {
+            saveReplacement({
+                worker: winner.worker,
+                replaced: winner.replaced,
+                keyDay: winner.keyDay,
+                turno: codeToTurno(winner.turno),
+                absenceType: winner.absenceType,
+                source:
+                    winner.source === "forced_replacement_request"
+                        ? "forced_replacement"
+                        : "replacement",
+                requestId: winner.id,
+                requestGroupId: groupId
+            });
+        }
+
+        const now = new Date().toISOString();
+
+        groupRequests.forEach(groupRequest => {
+            const target = nextRequests.find(request =>
+                request.id === groupRequest.id
+            );
+
+            if (!target) return;
+
+            if (target.id === winner.id) {
+                target.appliedAt = now;
+                return;
+            }
+
+            if (
+                target.status === "pending" ||
+                target.status === "accepted"
+            ) {
+                target.status = "superseded";
+                target.supersededAt = now;
+                target.supersededByRequestId = winner.id;
+            }
+        });
+
+        changed = true;
+    });
+
+    if (changed) {
+        saveReplacementRequests(nextRequests);
+    }
+
+    return changed;
 }
 
 function formatDate(value) {

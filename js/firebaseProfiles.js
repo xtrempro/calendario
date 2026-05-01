@@ -14,8 +14,12 @@ let syncInFlight = false;
 let servicesCache = null;
 let onProfilesChanged = () => {};
 
-function profileDocId(name) {
-    return encodeURIComponent(String(name || "").trim())
+function profileDocId(profileOrName) {
+    const value = typeof profileOrName === "object"
+        ? profileOrName.id || profileOrName.name
+        : profileOrName;
+
+    return encodeURIComponent(String(value || "").trim())
         .replace(/\./g, "%2E");
 }
 
@@ -23,12 +27,14 @@ function stripProfileDocuments(profile = {}) {
     const docs = Array.isArray(profile.docs)
         ? profile.docs
         : [];
-    const docsMeta = docs.map(doc => ({
-        name: String(doc.name || ""),
-        type: String(doc.type || ""),
-        size: Number(doc.size) || 0,
-        addedAt: String(doc.addedAt || "")
-    }));
+    const docsMeta = Array.isArray(profile.docsMeta)
+        ? profile.docsMeta
+        : docs.map(doc => ({
+            name: String(doc.name || ""),
+            type: String(doc.type || ""),
+            size: Number(doc.size) || 0,
+            addedAt: String(doc.addedAt || "")
+        }));
     const {
         docs: _docs,
         ...rest
@@ -105,7 +111,7 @@ async function uploadProfiles(profiles) {
                 "workspaces",
                 activeWorkspaceId,
                 "profiles",
-                profileDocId(profile.name)
+                profileDocId(profile)
             );
 
             batch.set(
@@ -172,7 +178,7 @@ function applyRemoteSnapshot(snapshot) {
 
         const current = getCurrentProfile();
         if (
-            current &&
+            !current ||
             !remoteProfiles.some(profile => profile.name === current)
         ) {
             setCurrentProfile(remoteProfiles[0]?.name || null);

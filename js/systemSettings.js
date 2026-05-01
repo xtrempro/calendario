@@ -1,7 +1,9 @@
 import {
     DEFAULT_GRADE_HOUR_CONFIG,
     getGradeHourConfig,
-    saveGradeHourConfig
+    saveGradeHourConfig,
+    getReplacementRequestConfig,
+    saveReplacementRequestConfig
 } from "./storage.js";
 import {
     getManualHolidays,
@@ -30,6 +32,7 @@ const GROUPS = [
 let activeTab = "grades";
 let manualHolidayDraft = [];
 let gradeConfigDraft = null;
+let replacementRequestConfigDraft = null;
 let onSettingsSaved = null;
 
 function escapeHTML(value) {
@@ -167,6 +170,43 @@ function renderHolidaysPanel() {
     `;
 }
 
+function renderRequestsPanel() {
+    const config =
+        replacementRequestConfigDraft ||
+        getReplacementRequestConfig();
+
+    return `
+        <section class="settings-card settings-card--wide">
+            <div class="settings-card__head">
+                <h4>Solicitudes de reemplazo</h4>
+                <span>
+                    Define cuanto tiempo tiene un trabajador para aceptar
+                    o rechazar una solicitud enviada a la app o por WhatsApp.
+                </span>
+            </div>
+
+            <label class="settings-request-field">
+                <span>Caducidad de solicitudes</span>
+                <input
+                    id="settingsReplacementRequestExpires"
+                    type="number"
+                    min="5"
+                    step="5"
+                    value="${Number(config.expiresMinutes) || 60}"
+                >
+                <small>Tiempo en minutos. Valor recomendado: 60.</small>
+            </label>
+        </section>
+    `;
+}
+
+function renderActivePanel(config) {
+    if (activeTab === "holidays") return renderHolidaysPanel();
+    if (activeTab === "requests") return renderRequestsPanel();
+
+    return renderGradesPanel(config);
+}
+
 function modalHTML() {
     const config = gradeConfigDraft || getGradeHourConfig();
 
@@ -192,12 +232,13 @@ function modalHTML() {
                 <button class="${activeTab === "holidays" ? "is-active" : ""}" type="button" data-settings-tab="holidays">
                     Feriados manuales
                 </button>
+                <button class="${activeTab === "requests" ? "is-active" : ""}" type="button" data-settings-tab="requests">
+                    Solicitudes
+                </button>
             </div>
 
             <div class="settings-panel">
-                ${activeTab === "grades"
-                    ? renderGradesPanel(config)
-                    : renderHolidaysPanel()}
+                ${renderActivePanel(config)}
             </div>
 
             <div class="turn-change-dialog__actions settings-actions">
@@ -232,6 +273,34 @@ function readRateConfig(backdrop) {
     return config;
 }
 
+function readRequestConfig(backdrop) {
+    const input =
+        backdrop.querySelector("#settingsReplacementRequestExpires");
+    const fallback =
+        replacementRequestConfigDraft ||
+        getReplacementRequestConfig();
+    const expiresMinutes = Number(input?.value);
+
+    return {
+        ...fallback,
+        expiresMinutes:
+            Number.isFinite(expiresMinutes) && expiresMinutes > 0
+                ? Math.round(expiresMinutes)
+                : fallback.expiresMinutes
+    };
+}
+
+function preserveActiveDraft(backdrop) {
+    if (activeTab === "grades") {
+        gradeConfigDraft = readRateConfig(backdrop);
+    }
+
+    if (activeTab === "requests") {
+        replacementRequestConfigDraft =
+            readRequestConfig(backdrop);
+    }
+}
+
 function rerenderHolidayList(backdrop) {
     const list = backdrop.querySelector("#settingsHolidayList");
     if (!list) return;
@@ -251,7 +320,7 @@ function bindBackdrop(backdrop) {
 
         const tab = event.target.closest("[data-settings-tab]");
         if (tab) {
-            gradeConfigDraft = readRateConfig(backdrop);
+            preserveActiveDraft(backdrop);
             activeTab = tab.dataset.settingsTab;
             backdrop.innerHTML = modalHTML();
             return;
@@ -295,13 +364,17 @@ function bindBackdrop(backdrop) {
         }
 
         if (event.target.closest("[data-settings-save]")) {
-            gradeConfigDraft = readRateConfig(backdrop);
+            preserveActiveDraft(backdrop);
             saveGradeHourConfig(gradeConfigDraft);
             saveManualHolidays(manualHolidayDraft);
+            saveReplacementRequestConfig(
+                replacementRequestConfigDraft ||
+                getReplacementRequestConfig()
+            );
             addAuditLog(
                 AUDIT_CATEGORY.SYSTEM_SETTINGS,
                 "Modifico ajustes del sistema",
-                "Actualizo valores por grado y/o feriados manuales.",
+                "Actualizo valores por grado, feriados manuales y/o caducidad de solicitudes.",
                 { scope: "system_settings" }
             );
             backdrop.remove();
@@ -317,6 +390,8 @@ export function openSystemSettings() {
 
     manualHolidayDraft = getManualHolidays();
     gradeConfigDraft = getGradeHourConfig();
+    replacementRequestConfigDraft =
+        getReplacementRequestConfig();
 
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
@@ -330,7 +405,9 @@ export function openSystemSettings() {
         .querySelector(
             activeTab === "grades"
                 ? "[data-rate-group]"
-                : "#settingsHolidayDate"
+                : activeTab === "holidays"
+                    ? "#settingsHolidayDate"
+                    : "#settingsReplacementRequestExpires"
         )
         ?.focus();
 }

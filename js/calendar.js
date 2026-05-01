@@ -59,6 +59,12 @@ import {
     getAbsenceLabelForProfileDate,
     getBackedTurnForWorker,
     getClockExtraBackupForWorker,
+    buildReplacementRequestWhatsAppUrl,
+    cancelReplacementRequest,
+    createReplacementRequest,
+    createReplacementRequests,
+    expireReplacementRequests,
+    getPendingReplacementRequestsForShift,
     getReplacementForCoveredShift,
     getReplacementForWorkerShift,
     renderReplacementLogHTML,
@@ -332,6 +338,14 @@ function candidateMeta(profile) {
     return `${profile.estamento || "Sin estamento"}${profession}`;
 }
 
+function formatCandidateHours(value) {
+    const hours = Math.round((Number(value) || 0) * 2) / 2;
+
+    return Number.isInteger(hours)
+        ? String(hours)
+        : String(hours).replace(".", ",");
+}
+
 function getActualState(profileName, keyDay) {
     const data = getProfileData(profileName);
 
@@ -413,6 +427,8 @@ async function getReplacementCandidates(
                 {},
                 { d: 0, n: 0 }
             );
+            const hheeDiurnas = Number(stats.hheeDiurnas) || 0;
+            const hheeNocturnas = Number(stats.hheeNocturnas) || 0;
 
             return {
                 profile,
@@ -420,9 +436,9 @@ async function getReplacementCandidates(
                 isFree: currentState === 0,
                 isForced:
                     !profileCanCoverProfile(profile, baseProfile),
-                hhee:
-                    (Number(stats.hheeDiurnas) || 0) +
-                    (Number(stats.hheeNocturnas) || 0)
+                hheeDiurnas,
+                hheeNocturnas,
+                hhee: hheeDiurnas + hheeNocturnas
             };
         })
         .filter(candidate =>
@@ -448,28 +464,113 @@ function replacementDialogHTML({
     neededTurn,
     absenceType,
     candidates,
-    scope
+    scope,
+    requestMode,
+    pendingRequests,
+    selectedRequestWorkers
 }) {
     const forceMode = scope === "all-local";
+    const pendingByWorker = new Map(
+        (pendingRequests || []).map(request => [request.worker, request])
+    );
+    const selectedWorkers =
+        selectedRequestWorkers || new Set();
+    const availableWorkers = candidates
+        .filter(candidate => !pendingByWorker.get(candidate.profile.name))
+        .map(candidate => candidate.profile.name);
+    const selectedCount = availableWorkers.filter(worker =>
+        selectedWorkers.has(worker)
+    ).length;
+    const allSelected =
+        Boolean(availableWorkers.length) &&
+        selectedCount === availableWorkers.length;
     const items = candidates.length
-        ? candidates.map(candidate => `
-            <button class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""}" type="button" data-worker="${escapeHTML(candidate.profile.name)}">
+        ? candidates.map(candidate => {
+            const pendingRequest =
+                pendingByWorker.get(candidate.profile.name);
+            const checked =
+                selectedWorkers.has(candidate.profile.name);
+
+            if (requestMode) {
+                return `
+                <label class="replacement-candidate replacement-candidate--request ${candidate.isForced ? "replacement-candidate--forced" : ""} ${pendingRequest ? "is-disabled" : ""}">
+                    <input
+                        class="replacement-candidate-checkbox"
+                        type="checkbox"
+                        data-request-worker="${escapeHTML(candidate.profile.name)}"
+                        ${checked ? "checked" : ""}
+                        ${pendingRequest ? "disabled" : ""}
+                    >
+                    <span>
+                        <strong>${escapeHTML(candidate.profile.name)}</strong>
+                        <small>${escapeHTML(candidateMeta(candidate.profile))}</small>
+                        <small>${pendingRequest ? "Solicitud pendiente" : candidate.isFree ? "Libre ese dia" : `Turno actual: ${escapeHTML(turnoReplacementLabel(candidate.currentState))}`}</small>
+                    </span>
+                    <span>
+                        ${pendingRequest ? "<em>Pendiente</em>" : ""}
+                        ${candidate.isForced ? "<em>Forzado</em>" : ""}
+                        <b>${formatCandidateHours(candidate.hhee)} HHEE</b>
+                        <small class="replacement-candidate-hours">
+                            D: ${formatCandidateHours(candidate.hheeDiurnas)}h · N: ${formatCandidateHours(candidate.hheeNocturnas)}h
+                        </small>
+                    </span>
+                </label>
+                `;
+            }
+
+            return `
+            <button class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${pendingRequest ? "is-disabled" : ""}" type="button" data-worker="${escapeHTML(candidate.profile.name)}" ${pendingRequest ? "disabled" : ""}>
                 <span>
                     <strong>${escapeHTML(candidate.profile.name)}</strong>
                     <small>${escapeHTML(candidateMeta(candidate.profile))}</small>
-                    <small>${candidate.isFree ? "Libre ese dia" : `Turno actual: ${escapeHTML(turnoReplacementLabel(candidate.currentState))}`}</small>
+                    <small>${pendingRequest ? "Solicitud pendiente" : candidate.isFree ? "Libre ese dia" : `Turno actual: ${escapeHTML(turnoReplacementLabel(candidate.currentState))}`}</small>
                 </span>
                 <span>
+                    ${pendingRequest ? "<em>Pendiente</em>" : ""}
                     ${candidate.isForced ? "<em>Forzado</em>" : ""}
-                    <b>${candidate.hhee} HHEE</b>
+                    <b>${formatCandidateHours(candidate.hhee)} HHEE</b>
+                    <small class="replacement-candidate-hours">
+                        D: ${formatCandidateHours(candidate.hheeDiurnas)}h · N: ${formatCandidateHours(candidate.hheeNocturnas)}h
+                    </small>
                 </span>
             </button>
-        `).join("")
+            `;
+        }).join("")
         : `
             <div class="empty-state empty-state--compact">
                 No hay trabajadores disponibles para este reemplazo.
             </div>
         `;
+    const pendingList = (pendingRequests || []).length
+        ? `
+            <div class="replacement-request-list">
+                ${(pendingRequests || []).map(request => `
+                    <article class="replacement-request-item">
+                        <span>
+                            <strong>${escapeHTML(request.worker)}</strong>
+                            <small>Caduca: ${escapeHTML(new Date(request.expiresAt).toLocaleString("es-CL"))}</small>
+                        </span>
+                        <button class="ghost-button" type="button" data-cancel-request="${escapeHTML(request.id)}">
+                            Anular
+                        </button>
+                    </article>
+                `).join("")}
+            </div>
+        `
+        : "";
+    const bulkActions = requestMode
+        ? `
+            <div class="replacement-bulk-actions">
+                <label>
+                    <input type="checkbox" data-action="select-all-requests" ${allSelected ? "checked" : ""} ${availableWorkers.length ? "" : "disabled"}>
+                    <span>Enviar solicitud a todos</span>
+                </label>
+                <button class="primary-button" type="button" data-action="send-selected-requests" ${selectedCount ? "" : "disabled"}>
+                    Enviar a seleccionados (${selectedCount})
+                </button>
+            </div>
+        `
+        : "";
 
     return `
         <div class="turn-change-dialog replacement-dialog" role="dialog" aria-modal="true" aria-labelledby="replacementDialogTitle">
@@ -489,6 +590,18 @@ function replacementDialogHTML({
                     Cargar personal de unidades enlazadas
                 </button>
             </div>
+            <label class="replacement-request-toggle">
+                <input type="checkbox" data-action="request-mode" ${requestMode ? "checked" : ""}>
+                <span>
+                    <strong>Solicitar aceptacion al trabajador</strong>
+                    <small>
+                        En vez de asignar el turno de inmediato, crea una solicitud
+                        para la app movil o WhatsApp.
+                    </small>
+                </span>
+            </label>
+            ${bulkActions}
+            ${pendingList}
             ${forceMode ? `
                 <div class="replacement-dialog-note">
                     Modo forzado activo: se muestran trabajadores disponibles aunque no coincidan por profesion o estamento.
@@ -520,6 +633,8 @@ async function openReplacementDialog(profileName, keyDay) {
     const absenceType =
         getAbsenceLabelForProfileDate(profileName, keyDay);
     let scope = "compatible";
+    let requestMode = false;
+    let selectedRequestWorkers = new Set();
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
 
@@ -562,12 +677,198 @@ async function openReplacementDialog(profileName, keyDay) {
                 );
             };
 
+        const requestToggle =
+            backdrop.querySelector("[data-action='request-mode']");
+        if (requestToggle) {
+            requestToggle.onchange = async () => {
+                requestMode = requestToggle.checked;
+                selectedRequestWorkers = new Set();
+                await renderContent();
+            };
+        }
+
+        const updateBulkControls = () => {
+            const inputs = [
+                ...backdrop.querySelectorAll("[data-request-worker]")
+            ];
+            const availableInputs = inputs.filter(input =>
+                !input.disabled
+            );
+            const selectedCount = availableInputs.filter(input =>
+                input.checked
+            ).length;
+            const selectAll =
+                backdrop.querySelector("[data-action='select-all-requests']");
+            const sendButton =
+                backdrop.querySelector("[data-action='send-selected-requests']");
+
+            if (selectAll) {
+                selectAll.checked =
+                    Boolean(availableInputs.length) &&
+                    selectedCount === availableInputs.length;
+            }
+
+            if (sendButton) {
+                sendButton.disabled = selectedCount === 0;
+                sendButton.textContent =
+                    `Enviar a seleccionados (${selectedCount})`;
+            }
+        };
+
         backdrop
-            .querySelectorAll(".replacement-candidate")
+            .querySelectorAll("[data-request-worker]")
+            .forEach(input => {
+                input.onchange = () => {
+                    if (input.checked) {
+                        selectedRequestWorkers.add(
+                            input.dataset.requestWorker
+                        );
+                    } else {
+                        selectedRequestWorkers.delete(
+                            input.dataset.requestWorker
+                        );
+                    }
+
+                    updateBulkControls();
+                };
+            });
+
+        const selectAllRequests =
+            backdrop.querySelector("[data-action='select-all-requests']");
+        if (selectAllRequests) {
+            selectAllRequests.onchange = () => {
+                backdrop
+                    .querySelectorAll("[data-request-worker]")
+                    .forEach(input => {
+                        if (input.disabled) return;
+
+                        input.checked = selectAllRequests.checked;
+
+                        if (input.checked) {
+                            selectedRequestWorkers.add(
+                                input.dataset.requestWorker
+                            );
+                        } else {
+                            selectedRequestWorkers.delete(
+                                input.dataset.requestWorker
+                            );
+                        }
+                    });
+
+                updateBulkControls();
+            };
+        }
+
+        const sendSelectedRequests =
+            backdrop.querySelector("[data-action='send-selected-requests']");
+        if (sendSelectedRequests) {
+            sendSelectedRequests.onclick = async () => {
+                const workers = [...selectedRequestWorkers];
+
+                if (!workers.length) {
+                    alert("Selecciona al menos un trabajador para enviar la solicitud.");
+                    return;
+                }
+
+                if (typeof window.pushUndoState === "function") {
+                    window.pushUndoState("Crear solicitud masiva de reemplazo");
+                }
+
+                const requests = createReplacementRequests(
+                    {
+                        replaced: profileName,
+                        keyDay,
+                        turno: neededTurn,
+                        absenceType,
+                        scope,
+                        source: scope === "all-local"
+                            ? "forced_replacement_request"
+                            : "replacement_request"
+                    },
+                    workers
+                );
+                const whatsappRequests = requests.filter(request =>
+                    request.channel === "whatsapp"
+                );
+                const missingPhones = whatsappRequests.filter(request =>
+                    !buildReplacementRequestWhatsAppUrl(request)
+                );
+
+                whatsappRequests
+                    .map(buildReplacementRequestWhatsAppUrl)
+                    .filter(Boolean)
+                    .forEach(url => {
+                        window.open(url, "_blank", "noopener");
+                    });
+
+                if (missingPhones.length) {
+                    alert(
+                        `${missingPhones.length} solicitud(es) quedaron pendientes, pero sin celular registrado para preparar WhatsApp.`
+                    );
+                }
+
+                selectedRequestWorkers = new Set();
+                await renderContent();
+            };
+        }
+
+        backdrop
+            .querySelectorAll("[data-cancel-request]")
             .forEach(button => {
                 button.onclick = async () => {
+                    cancelReplacementRequest(
+                        button.dataset.cancelRequest,
+                        "admin"
+                    );
+                    await renderContent();
+                };
+            });
+
+        backdrop
+            .querySelectorAll("[data-worker]")
+            .forEach(button => {
+                button.onclick = async () => {
+                    if (button.disabled) return;
+
                     if (typeof window.pushUndoState === "function") {
-                        window.pushUndoState("Asignar reemplazo");
+                        window.pushUndoState(
+                            requestMode
+                                ? "Crear solicitud de reemplazo"
+                                : "Asignar reemplazo"
+                        );
+                    }
+
+                    if (requestMode) {
+                        const request = createReplacementRequest({
+                            worker: button.dataset.worker,
+                            replaced: profileName,
+                            keyDay,
+                            turno: neededTurn,
+                            absenceType,
+                            scope,
+                            source: scope === "all-local"
+                                ? "forced_replacement_request"
+                                : "replacement_request"
+                        });
+                        const whatsappUrl =
+                            buildReplacementRequestWhatsAppUrl(request);
+
+                        if (request.channel === "whatsapp") {
+                            if (whatsappUrl) {
+                                window.open(
+                                    whatsappUrl,
+                                    "_blank",
+                                    "noopener"
+                                );
+                            } else {
+                                alert(
+                                    "La solicitud quedo pendiente, pero este trabajador no tiene celular registrado para preparar el WhatsApp."
+                                );
+                            }
+                        }
+
+                        await renderContent();
+                        return;
                     }
 
                     saveReplacement({
@@ -588,12 +889,34 @@ async function openReplacementDialog(profileName, keyDay) {
     };
 
     const renderContent = async () => {
+        expireReplacementRequests();
+
         const candidates =
             await getReplacementCandidates(
                 profileName,
                 keyDay,
                 { scope }
             );
+        const pendingRequests =
+            getPendingReplacementRequestsForShift(
+                profileName,
+                keyDay,
+                neededTurn
+            );
+        const pendingWorkers = new Set(
+            pendingRequests.map(request => request.worker)
+        );
+        const selectableWorkers = new Set(
+            candidates
+                .map(candidate => candidate.profile.name)
+                .filter(worker => !pendingWorkers.has(worker))
+        );
+
+        selectedRequestWorkers = new Set(
+            [...selectedRequestWorkers].filter(worker =>
+                selectableWorkers.has(worker)
+            )
+        );
 
         backdrop.innerHTML = replacementDialogHTML({
             profileName,
@@ -601,7 +924,10 @@ async function openReplacementDialog(profileName, keyDay) {
             neededTurn,
             absenceType,
             candidates,
-            scope
+            scope,
+            requestMode,
+            pendingRequests,
+            selectedRequestWorkers
         });
 
         bindActions();

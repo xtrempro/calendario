@@ -70,6 +70,32 @@ function normalizeProfession(value) {
     return match || "Sin informacion";
 }
 
+function normalizeProfileId(value) {
+    return String(value || "")
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 80);
+}
+
+function createProfileId(profile = {}) {
+    const existing = normalizeProfileId(profile.id);
+
+    if (existing) return existing;
+
+    const seed = normalizeProfileId(
+        profile.rut ||
+        profile.email ||
+        profile.name ||
+        `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    );
+
+    return `profile_${seed || Math.random().toString(36).slice(2, 10)}`;
+}
+
 function normalizeRateMap(map = {}, fallback = {}) {
     return Object.keys(fallback).reduce((acc, grade) => {
         const value = Number(map[grade]);
@@ -501,6 +527,7 @@ export function getProfiles(){
     return raw.map(profile => {
         if (typeof profile === "string") {
             return {
+                id: createProfileId({ name: profile }),
                 name: profile,
                 estamento: "Profesional",
                 profession: "Sin informacion"
@@ -509,6 +536,7 @@ export function getProfiles(){
 
         return {
             ...profile,
+            id: createProfileId(profile),
             estamento: normalizeEstamento(profile.estamento),
             profession: normalizeProfession(profile.profession)
         };
@@ -543,6 +571,99 @@ export function saveReplacements(data){
     setJSON("replacements", data);
 }
 
+const DEFAULT_REPLACEMENT_REQUEST_CONFIG = {
+    expiresMinutes: 60
+};
+
+function normalizeReplacementRequestConfig(config = {}) {
+    const expiresMinutes = Number(config.expiresMinutes);
+
+    return {
+        expiresMinutes:
+            Number.isFinite(expiresMinutes) && expiresMinutes > 0
+                ? Math.round(expiresMinutes)
+                : DEFAULT_REPLACEMENT_REQUEST_CONFIG.expiresMinutes
+    };
+}
+
+function normalizeReplacementRequest(request = {}) {
+    if (!request?.id) return null;
+
+    return {
+        ...request,
+        id: String(request.id),
+        groupId: String(request.groupId || request.id),
+        groupSize: Number(request.groupSize) || 1,
+        status: String(request.status || "pending"),
+        worker: String(request.worker || ""),
+        workerProfileId: String(request.workerProfileId || ""),
+        replaced: String(request.replaced || ""),
+        replacedProfileId: String(request.replacedProfileId || ""),
+        date: String(request.date || ""),
+        keyDay: String(request.keyDay || ""),
+        turno: String(request.turno || ""),
+        turnoLabel: String(request.turnoLabel || ""),
+        absenceType: String(request.absenceType || ""),
+        source: String(request.source || "replacement_request"),
+        channel: String(request.channel || "app"),
+        phone: String(request.phone || ""),
+        createdAt: String(request.createdAt || new Date().toISOString()),
+        expiresAt: String(request.expiresAt || ""),
+        canceledAt: String(request.canceledAt || ""),
+        acceptedAt: String(request.acceptedAt || ""),
+        rejectedAt: String(request.rejectedAt || ""),
+        expiredAt: String(request.expiredAt || ""),
+        appliedAt: String(request.appliedAt || ""),
+        supersededAt: String(request.supersededAt || ""),
+        supersededByRequestId:
+            String(request.supersededByRequestId || "")
+    };
+}
+
+export function getReplacementRequestConfig() {
+    return normalizeReplacementRequestConfig(
+        getJSON(
+            "replacementRequestConfig",
+            DEFAULT_REPLACEMENT_REQUEST_CONFIG
+        )
+    );
+}
+
+export function saveReplacementRequestConfig(config) {
+    setJSON(
+        "replacementRequestConfig",
+        normalizeReplacementRequestConfig(config)
+    );
+}
+
+export function getReplacementRequests() {
+    return getJSON("replacementRequests", [])
+        .map(normalizeReplacementRequest)
+        .filter(Boolean);
+}
+
+export function saveReplacementRequests(requests, options = {}) {
+    const normalized = (Array.isArray(requests) ? requests : [])
+        .map(normalizeReplacementRequest)
+        .filter(Boolean);
+
+    setJSON("replacementRequests", normalized);
+
+    if (
+        !options.silent &&
+        typeof window !== "undefined"
+    ) {
+        window.dispatchEvent(
+            new CustomEvent("proturnos:replacementRequestsSaved", {
+                detail: {
+                    requests: normalized,
+                    remote: options.remote !== false
+                }
+            })
+        );
+    }
+}
+
 export function getReplacementContracts(profile = currentProfile){
     if (!profile) return [];
 
@@ -564,6 +685,7 @@ export function saveReplacementContracts(
 export function saveProfiles(profiles, options = {}){
     const normalized = (profiles || []).map(profile => ({
         ...profile,
+        id: createProfileId(profile),
         estamento: normalizeEstamento(profile.estamento),
         profession: normalizeProfession(profile.profession)
     }));
@@ -904,6 +1026,18 @@ export function updateProfile(oldName, nextProfile){
     }));
 
     saveReplacements(replacements);
+
+    const replacementRequests = getReplacementRequests().map(request => ({
+        ...request,
+        worker: request.worker === oldName
+            ? targetName
+            : request.worker,
+        replaced: request.replaced === oldName
+            ? targetName
+            : request.replaced
+    }));
+
+    saveReplacementRequests(replacementRequests);
 
     if (currentProfile === oldName) {
         currentProfile = targetName;

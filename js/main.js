@@ -6,6 +6,14 @@ import { renderSwapPanel } from "./swapUI.js";
 import { renderStaffingPanel } from "./staffing.js";
 import { initSystemSettings } from "./systemSettings.js";
 import { initFirebaseShell } from "./firebaseShell.js";
+import {
+    startFirebaseProfileSync,
+    stopFirebaseProfileSync
+} from "./firebaseProfiles.js";
+import {
+    startFirebaseReplacementRequestSync,
+    stopFirebaseReplacementRequestSync
+} from "./firebaseReplacementRequests.js";
 import { exportHoursReport } from "./hoursReport.js";
 import {
     initHoursCharts,
@@ -4516,7 +4524,32 @@ initSystemSettings({
 initFirebaseShell({
     userChip: DOM.authUserChip,
     userName: DOM.authUserName,
-    onWorkspaceChange: () => {
+    onAuthChange: user => {
+        if (!user) {
+            stopFirebaseProfileSync();
+            stopFirebaseReplacementRequestSync();
+        }
+    },
+    onWorkspaceChange: workspace => {
+        if (workspace?.id) {
+            startFirebaseProfileSync(workspace, {
+                onChange: () => {
+                    renderProfiles();
+                    refreshAll();
+                    renderDashboardState();
+                }
+            });
+            startFirebaseReplacementRequestSync(workspace, {
+                onChange: () => {
+                    refreshAll();
+                    renderDashboardState();
+                }
+            });
+        } else {
+            stopFirebaseProfileSync();
+            stopFirebaseReplacementRequestSync();
+        }
+
         refreshAll();
         renderDashboardState();
     }
