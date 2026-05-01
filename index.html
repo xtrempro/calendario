@@ -338,6 +338,16 @@
                     <span>Turnos</span>
                 </button>
 
+                <button class="nav-tile" type="button" data-target="workerRequestsPanel">
+                    <svg class="nav-icon tone-violet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"></path>
+                        <path d="M7 8h10"></path>
+                        <path d="M7 12h6"></path>
+                        <path d="m15 16 2 2 4-4"></path>
+                    </svg>
+                    <span>Solicitudes</span>
+                </button>
+
                 <button class="nav-tile" type="button" data-target="staffingPanel">
                     <svg class="nav-icon tone-cyan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="7.5" r="3.3"></circle>
@@ -699,74 +709,8 @@
             <section class="secondary-grid">
                 <section id="staffingPanel" class="panel staffing-panel">
                     <div class="section-head">
-                        <h3>RRHH / Dotaci&#243;n Requerida</h3>
+                        <h3>RRHH</h3>
                     </div>
-
-                    <div id="staffingConfigSummary" class="staffing-config-summary"></div>
-
-                    <div class="staff-grid">
-                        <div>
-                            <label>Profesional H&#225;bil</label>
-                            <input id="cfg_Profesional_habil" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>Profesional Inh&#225;bil</label>
-                            <input id="cfg_Profesional_inhabil" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>Profesional Noche</label>
-                            <input id="cfg_Profesional_noche" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>T&#233;cnico H&#225;bil</label>
-                            <input id="cfg_T&#233;cnico_habil" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>T&#233;cnico Inh&#225;bil</label>
-                            <input id="cfg_T&#233;cnico_inhabil" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>T&#233;cnico Noche</label>
-                            <input id="cfg_T&#233;cnico_noche" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>Administrativo H&#225;bil</label>
-                            <input id="cfg_Administrativo_habil" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>Administrativo Inh&#225;bil</label>
-                            <input id="cfg_Administrativo_inhabil" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>Administrativo Noche</label>
-                            <input id="cfg_Administrativo_noche" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>Auxiliar H&#225;bil</label>
-                            <input id="cfg_Auxiliar_habil" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>Auxiliar Inh&#225;bil</label>
-                            <input id="cfg_Auxiliar_inhabil" type="number" min="0">
-                        </div>
-
-                        <div>
-                            <label>Auxiliar Noche</label>
-                            <input id="cfg_Auxiliar_noche" type="number" min="0">
-                        </div>
-                    </div>
-
-                    <button id="saveStaffingBtn" class="primary-button primary-button--wide" type="button">Modificar Dotaci&#243;n</button>
                     <div id="staffingMedicalChart"></div>
                     <div id="staffingResult"></div>
                     <div id="replacementContractsLog"></div>
@@ -775,6 +719,8 @@
                 <section id="turnChangesView" class="turn-changes-view">
                     <section id="swapPanel" class="panel swap-panel"></section>
                 </section>
+
+                <section id="workerRequestsPanel" class="panel worker-requests-panel"></section>
 
                 <section id="auditLogPanel" class="panel audit-log-panel"></section>
             </section>

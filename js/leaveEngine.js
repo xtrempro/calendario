@@ -280,6 +280,7 @@ export async function aplicarAdministrativo(fecha, cantidad = 1){
         {
             profile: currentProfile,
             date: isoFromKey(keyFromDate(fecha)),
+            type: "admin",
             amount: cantidad
         }
     );
@@ -317,6 +318,9 @@ export async function aplicarHalfAdministrativo(fecha, tipo="M"){
         {
             profile: getCurrentProfile(),
             date: isoFromKey(key),
+            type: tipo === "M"
+                ? "half_admin_morning"
+                : "half_admin_afternoon",
             amount: 0.5
         }
     );
@@ -525,6 +529,7 @@ export async function aplicarLegal(fecha, cantidad){
         {
             profile: getCurrentProfile(),
             date: isoFromKey(startKey),
+            type: "legal",
             amount: cantidad
         }
     );
@@ -644,6 +649,7 @@ export async function aplicarComp(fecha, cantidad = 10){
         {
             profile: getCurrentProfile(),
             date: isoFromKey(startKey),
+            type: "comp",
             amount: total
         }
     );

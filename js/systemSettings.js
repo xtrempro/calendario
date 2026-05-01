@@ -13,6 +13,12 @@ import {
     addAuditLog,
     AUDIT_CATEGORY
 } from "./auditLog.js";
+import {
+    buildStaffingRequirementRows,
+    getStaffingConfig,
+    saveStaffingConfig,
+    staffingConfigSummary
+} from "./staffing.js";
 
 const GROUPS = [
     {
@@ -33,6 +39,7 @@ let activeTab = "grades";
 let manualHolidayDraft = [];
 let gradeConfigDraft = null;
 let replacementRequestConfigDraft = null;
+let staffingConfigDraft = null;
 let onSettingsSaved = null;
 
 function escapeHTML(value) {
@@ -200,9 +207,63 @@ function renderRequestsPanel() {
     `;
 }
 
+function renderStaffingRows(config) {
+    const rows = buildStaffingRequirementRows(config);
+
+    if (!rows.length) {
+        return `
+            <div class="settings-empty">
+                Aun no hay trabajadores activos con rotativa Diurno,
+                4° Turno o 3er Turno para configurar dotacion.
+            </div>
+        `;
+    }
+
+    return rows
+        .map(row => `
+            <label class="settings-staffing-row">
+                <span>
+                    <strong>${escapeHTML(row.groupLabel)}</strong>
+                    <small>${escapeHTML(row.sectionLabel)}</small>
+                </span>
+                <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    data-staffing-modality="${escapeHTML(row.modality)}"
+                    data-staffing-estamento="${escapeHTML(row.estamento)}"
+                    data-staffing-group="${escapeHTML(row.groupKey)}"
+                    value="${Number(row.required) || 0}"
+                >
+            </label>
+        `)
+        .join("");
+}
+
+function renderStaffingPanel() {
+    const config = staffingConfigDraft || getStaffingConfig();
+
+    return `
+        <section class="settings-card settings-card--wide">
+            <div class="settings-card__head">
+                <h4>Dotacion requerida</h4>
+                <span>
+                    Se muestran solo las profesiones y rotativas que existen
+                    actualmente en la unidad.
+                </span>
+            </div>
+
+            <div class="settings-staffing-grid">
+                ${renderStaffingRows(config)}
+            </div>
+        </section>
+    `;
+}
+
 function renderActivePanel(config) {
     if (activeTab === "holidays") return renderHolidaysPanel();
     if (activeTab === "requests") return renderRequestsPanel();
+    if (activeTab === "staffing") return renderStaffingPanel();
 
     return renderGradesPanel(config);
 }
@@ -234,6 +295,9 @@ function modalHTML() {
                 </button>
                 <button class="${activeTab === "requests" ? "is-active" : ""}" type="button" data-settings-tab="requests">
                     Solicitudes
+                </button>
+                <button class="${activeTab === "staffing" ? "is-active" : ""}" type="button" data-settings-tab="staffing">
+                    Dotacion RRHH
                 </button>
             </div>
 
@@ -290,6 +354,31 @@ function readRequestConfig(backdrop) {
     };
 }
 
+function readStaffingConfig(backdrop) {
+    const config = {};
+
+    backdrop
+        .querySelectorAll("[data-staffing-modality][data-staffing-estamento][data-staffing-group]")
+        .forEach(input => {
+            const modality = input.dataset.staffingModality;
+            const estamento = input.dataset.staffingEstamento;
+            const group = input.dataset.staffingGroup;
+            const value = Number(input.value);
+
+            if (!config[modality]) config[modality] = {};
+            if (!config[modality][estamento]) {
+                config[modality][estamento] = {};
+            }
+
+            config[modality][estamento][group] =
+                Number.isFinite(value) && value > 0
+                    ? Math.round(value)
+                    : 0;
+        });
+
+    return config;
+}
+
 function preserveActiveDraft(backdrop) {
     if (activeTab === "grades") {
         gradeConfigDraft = readRateConfig(backdrop);
@@ -298,6 +387,10 @@ function preserveActiveDraft(backdrop) {
     if (activeTab === "requests") {
         replacementRequestConfigDraft =
             readRequestConfig(backdrop);
+    }
+
+    if (activeTab === "staffing") {
+        staffingConfigDraft = readStaffingConfig(backdrop);
     }
 }
 
@@ -365,16 +458,34 @@ function bindBackdrop(backdrop) {
 
         if (event.target.closest("[data-settings-save]")) {
             preserveActiveDraft(backdrop);
+            const previousStaffingConfig = getStaffingConfig();
+            const nextStaffingConfig =
+                staffingConfigDraft ||
+                getStaffingConfig();
             saveGradeHourConfig(gradeConfigDraft);
             saveManualHolidays(manualHolidayDraft);
             saveReplacementRequestConfig(
                 replacementRequestConfigDraft ||
                 getReplacementRequestConfig()
             );
+            saveStaffingConfig(nextStaffingConfig);
+
+            if (
+                staffingConfigSummary(previousStaffingConfig) !==
+                staffingConfigSummary(nextStaffingConfig)
+            ) {
+                addAuditLog(
+                    AUDIT_CATEGORY.STAFFING,
+                    "Modifico dotacion requerida",
+                    `Antes: ${staffingConfigSummary(previousStaffingConfig)}. Ahora: ${staffingConfigSummary(nextStaffingConfig)}.`,
+                    { scope: "staffing_settings" }
+                );
+            }
+
             addAuditLog(
                 AUDIT_CATEGORY.SYSTEM_SETTINGS,
                 "Modifico ajustes del sistema",
-                "Actualizo valores por grado, feriados manuales y/o caducidad de solicitudes.",
+                "Actualizo valores por grado, feriados manuales, caducidad de solicitudes y/o dotacion requerida.",
                 { scope: "system_settings" }
             );
             backdrop.remove();
@@ -392,6 +503,7 @@ export function openSystemSettings() {
     gradeConfigDraft = getGradeHourConfig();
     replacementRequestConfigDraft =
         getReplacementRequestConfig();
+    staffingConfigDraft = getStaffingConfig();
 
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
@@ -407,7 +519,9 @@ export function openSystemSettings() {
                 ? "[data-rate-group]"
                 : activeTab === "holidays"
                     ? "#settingsHolidayDate"
-                    : "#settingsReplacementRequestExpires"
+                    : activeTab === "requests"
+                        ? "#settingsReplacementRequestExpires"
+                        : "[data-staffing-modality]"
         )
         ?.focus();
 }

@@ -1,11 +1,11 @@
 import {
     getCurrentProfile,
     getProfiles,
+    getRotativa,
     isProfileActive
 } from "./storage.js";
 import { aplicarCambiosTurno } from "./turnEngine.js";
-import { ESTAMENTO } from "./constants.js";
-import { isWeekend } from "./calculations.js";
+import { ESTAMENTO, TURNO } from "./constants.js";
 import { currentDate } from "./calendar.js";
 import { getJSON, setJSON } from "./persistence.js";
 import {
@@ -19,17 +19,9 @@ import {
 } from "./auditLog.js";
 
 const KEY = "staffing_config";
-let staffingEditMode = false;
 
 function defaultConfig() {
-    const tecnico = ESTAMENTO[1];
-
-    return {
-        Profesional: { habil: 2, inhabil: 1, noche: 1 },
-        [tecnico]: { habil: 3, inhabil: 2, noche: 1 },
-        Administrativo: { habil: 2, inhabil: 0, noche: 0 },
-        Auxiliar: { habil: 2, inhabil: 1, noche: 1 }
-    };
+    return {};
 }
 
 function normalizeConfig(config = {}) {
@@ -59,11 +51,11 @@ function configSummary(config) {
 }
 
 export function getStaffingConfig() {
-    return normalizeConfig(getJSON(KEY, {}));
+    return normalizeStaffingConfig(getJSON(KEY, {}));
 }
 
 export function saveStaffingConfig(cfg) {
-    setJSON(KEY, normalizeConfig(cfg));
+    setJSON(KEY, normalizeStaffingConfig(cfg));
 }
 
 function renderStaffingConfigSummary(cfg) {
@@ -86,6 +78,227 @@ function trabajaDia(turno) {
 
 function trabajaNoche(turno) {
     return [2, 3, 5].includes(turno);
+}
+
+const STAFFING_ESTAMENTOS = [
+    "Profesional",
+    "Técnico",
+    "Administrativo",
+    "Auxiliar"
+];
+const PROFESSION_BASED_ESTAMENTOS = new Set([
+    "Profesional",
+    "Técnico"
+]);
+const STAFFING_MODALITIES = [
+    {
+        key: "diurno",
+        label: "Turno Diurno",
+        dayLabel: "Diurno",
+        checksNight: false
+    },
+    {
+        key: "4turno",
+        label: "4° Turno",
+        dayLabel: "Larga",
+        nightLabel: "Noche",
+        checksNight: true
+    },
+    {
+        key: "3turno",
+        label: "3er Turno",
+        dayLabel: "Larga",
+        nightLabel: "Noche",
+        checksNight: true
+    }
+];
+
+function emptyStaffingConfig() {
+    return STAFFING_MODALITIES.reduce((config, modality) => {
+        config[modality.key] = {};
+        STAFFING_ESTAMENTOS.forEach(estamento => {
+            config[modality.key][estamento] = {};
+        });
+        return config;
+    }, {});
+}
+
+function normalizeStaffingEstamento(value) {
+    const clean = String(value || "").trim();
+    const comparable = clean
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+
+    if (comparable === "tecnico") return "Técnico";
+
+    return STAFFING_ESTAMENTOS.find(estamento =>
+        estamento
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase() === comparable
+    ) || clean;
+}
+
+function isProfessionBasedStaffing(estamento) {
+    return PROFESSION_BASED_ESTAMENTOS.has(
+        normalizeStaffingEstamento(estamento)
+    );
+}
+
+function normalizeStaffingProfession(value) {
+    const clean = String(value || "").trim();
+
+    return clean || "Sin información";
+}
+
+function normalizeStaffingRotativa(type) {
+    const value = String(type || "")
+        .trim()
+        .toLowerCase();
+
+    if (value === "4° turno" || value === "4 turno") return "4turno";
+    if (value === "3er turno" || value === "3 turno") return "3turno";
+    if (value === "diurno") return "diurno";
+
+    return value;
+}
+
+function sanitizeStaffingAmount(value) {
+    const number = Number(value);
+
+    return Number.isFinite(number) && number > 0
+        ? Math.round(number)
+        : 0;
+}
+
+function normalizeStaffingConfig(config = {}) {
+    const normalized = emptyStaffingConfig();
+
+    STAFFING_MODALITIES.forEach(modality => {
+        const modalityValues = config?.[modality.key] || {};
+
+        STAFFING_ESTAMENTOS.forEach(estamento => {
+            const values = modalityValues[estamento] || {};
+
+            Object.entries(values).forEach(([group, value]) => {
+                const groupKey = isProfessionBasedStaffing(estamento)
+                    ? normalizeStaffingProfession(group)
+                    : "total";
+                const amount = sanitizeStaffingAmount(value);
+
+                if (amount > 0) {
+                    normalized[modality.key][estamento][groupKey] =
+                        amount;
+                }
+            });
+        });
+    });
+
+    return normalized;
+}
+
+function getStaffingProfileModality(profile) {
+    return normalizeStaffingRotativa(
+        getRotativa(profile.name)?.type ||
+        profile.rotativaActual ||
+        profile.rotation
+    );
+}
+
+function getStaffingProfileGroupKey(profile) {
+    const estamento = normalizeStaffingEstamento(profile.estamento);
+
+    return isProfessionBasedStaffing(estamento)
+        ? normalizeStaffingProfession(profile.profession)
+        : "total";
+}
+
+function getStaffingGroupLabel(estamento, groupKey) {
+    return isProfessionBasedStaffing(estamento)
+        ? normalizeStaffingProfession(groupKey)
+        : estamento;
+}
+
+export function getStaffingModalities() {
+    return STAFFING_MODALITIES.map(modality => ({ ...modality }));
+}
+
+export function buildStaffingRequirementRows(
+    config = getStaffingConfig()
+) {
+    const normalized = normalizeStaffingConfig(config);
+    const profiles = getProfiles()
+        .filter(isProfileActive)
+        .filter(profile =>
+            STAFFING_ESTAMENTOS.includes(
+                normalizeStaffingEstamento(profile.estamento)
+            )
+        );
+    const rows = [];
+
+    STAFFING_MODALITIES.forEach(modality => {
+        STAFFING_ESTAMENTOS.forEach(estamento => {
+            const profilesForGroup = profiles.filter(profile =>
+                normalizeStaffingEstamento(profile.estamento) === estamento &&
+                getStaffingProfileModality(profile) === modality.key
+            );
+
+            if (!profilesForGroup.length) return;
+
+            const groups = isProfessionBasedStaffing(estamento)
+                ? [...new Set(
+                    profilesForGroup.map(getStaffingProfileGroupKey)
+                )].sort((a, b) => a.localeCompare(b, "es"))
+                : ["total"];
+
+            groups.forEach(groupKey => {
+                rows.push({
+                    modality: modality.key,
+                    modalityLabel: modality.label,
+                    sectionLabel: `${estamento} en ${modality.label}`,
+                    estamento,
+                    groupKey,
+                    groupLabel:
+                        getStaffingGroupLabel(estamento, groupKey),
+                    required:
+                        normalized[modality.key]?.[estamento]?.[groupKey] ||
+                        0
+                });
+            });
+        });
+    });
+
+    return rows;
+}
+
+export function staffingConfigSummary(config = getStaffingConfig()) {
+    const rows = buildStaffingRequirementRows(config)
+        .filter(row => row.required > 0);
+
+    if (!rows.length) return "Sin dotacion requerida configurada.";
+
+    return rows
+        .map(row =>
+            `${row.sectionLabel} / ${row.groupLabel}: ${row.required}`
+        )
+        .join("; ");
+}
+
+function worksStaffingDiurno(turno) {
+    return turno === TURNO.DIURNO ||
+        turno === TURNO.DIURNO_NOCHE;
+}
+
+function worksStaffingLong(turno) {
+    return turno === TURNO.LARGA ||
+        turno === TURNO.TURNO24;
+}
+
+function worksStaffingNight(turno) {
+    return turno === TURNO.NOCHE ||
+        turno === TURNO.TURNO24 ||
+        turno === TURNO.DIURNO_NOCHE;
 }
 
 function key(y, m, d){
@@ -415,45 +628,58 @@ function getDataPerfil(nombre){
     return getJSON("data_" + nombre, {});
 }
 
-function contarGrupo(profiles, estamento, y, m, d){
-    let dia = 0;
-    let noche = 0;
+function staffingGroupMatches(profile, row) {
+    const estamento = normalizeStaffingEstamento(profile.estamento);
 
-    profiles
-        .filter(profile => profile.estamento === estamento)
-        .forEach(profile => {
-            const data = getDataPerfil(profile.name);
+    if (estamento !== row.estamento) return false;
 
-            let turno = data[key(y, m, d)] || 0;
-
-            turno = aplicarCambiosTurno(
-                profile.name,
-                key(y, m, d),
-                turno
-            );
-
-            if (trabajaDia(turno)) dia++;
-            if (trabajaNoche(turno)) noche++;
-        });
-
-    return { dia, noche };
+    return isProfessionBasedStaffing(estamento)
+        ? getStaffingProfileGroupKey(profile) === row.groupKey
+        : true;
 }
 
-function sugerirReemplazo(profiles, estamento, y, m, d){
+function getStaffingTurno(profile, y, m, d) {
+    const dayKey = key(y, m, d);
+    const data = getDataPerfil(profile.name);
+    const turno = data[dayKey] || 0;
+
+    return aplicarCambiosTurno(
+        profile.name,
+        dayKey,
+        turno
+    );
+}
+
+function worksForStaffing(row, turno, shiftKind) {
+    if (row.modality === "diurno") {
+        return worksStaffingDiurno(turno);
+    }
+
+    if (shiftKind === "night") {
+        return worksStaffingNight(turno);
+    }
+
+    return worksStaffingLong(turno);
+}
+
+function contarRequerimiento(profiles, row, y, m, d, shiftKind){
+    return profiles
+        .filter(profile => staffingGroupMatches(profile, row))
+        .filter(profile =>
+            worksForStaffing(
+                row,
+                getStaffingTurno(profile, y, m, d),
+                shiftKind
+            )
+        )
+        .length;
+}
+
+function sugerirReemplazo(profiles, row, y, m, d){
     const libres = profiles
-        .filter(profile => profile.estamento === estamento)
+        .filter(profile => staffingGroupMatches(profile, row))
         .filter(profile => {
-            const data = getDataPerfil(profile.name);
-
-            let turno = data[key(y, m, d)] || 0;
-
-            turno = aplicarCambiosTurno(
-                profile.name,
-                key(y, m, d),
-                turno
-            );
-
-            return turno === 0;
+            return getStaffingTurno(profile, y, m, d) === 0;
         });
 
     if (!libres.length) return null;
@@ -464,68 +690,74 @@ function sugerirReemplazo(profiles, estamento, y, m, d){
 }
 
 export function analizarMes(year, month){
-    const cfg = getStaffingConfig();
     const profiles = getProfiles().filter(isProfileActive);
+    const requirements = buildStaffingRequirementRows()
+        .filter(row => row.required > 0);
     const diasMes =
         new Date(year, month + 1, 0).getDate();
 
     const salida = [];
 
     for (let d = 1; d <= diasMes; d++) {
-        const fecha = new Date(year, month, d);
-        const habil = !isWeekend(fecha);
         const detalle = [];
 
-        ESTAMENTO.forEach(est => {
-            const req = habil
-                ? cfg[est].habil
-                : cfg[est].inhabil;
+        requirements.forEach(row => {
+            const checks = row.modality === "diurno"
+                ? [{
+                    kind: "diurno",
+                    label: "Diurno",
+                    badgeType: "faltante"
+                }]
+                : [
+                    {
+                        kind: "day",
+                        label: "Larga",
+                        badgeType: "faltante"
+                    },
+                    {
+                        kind: "night",
+                        label: "Noche",
+                        badgeType: "noche"
+                    }
+                ];
 
-            const reqN = cfg[est].noche;
-
-            const real =
-                contarGrupo(
+            checks.forEach(check => {
+                const real = contarRequerimiento(
                     profiles,
-                    est,
+                    row,
                     year,
                     month,
-                    d
+                    d,
+                    check.kind
                 );
 
-            if (real.dia < req) {
-                const faltan = req - real.dia;
-                const sug =
-                    sugerirReemplazo(
-                        profiles,
-                        est,
-                        year,
-                        month,
-                        d
-                    );
+                if (real < row.required) {
+                    detalle.push({
+                        tipo: check.badgeType,
+                        estamento: row.estamento,
+                        groupLabel: row.groupLabel,
+                        shiftLabel: check.label,
+                        cantidad: row.required - real,
+                        sugerencia: sugerirReemplazo(
+                            profiles,
+                            row,
+                            year,
+                            month,
+                            d
+                        )
+                    });
+                }
 
-                detalle.push({
-                    tipo: "faltante",
-                    estamento: est,
-                    cantidad: faltan,
-                    sugerencia: sug
-                });
-            }
-
-            if (real.dia > req) {
-                detalle.push({
-                    tipo: "exceso",
-                    estamento: est,
-                    cantidad: real.dia - req
-                });
-            }
-
-            if (real.noche < reqN) {
-                detalle.push({
-                    tipo: "noche",
-                    estamento: est,
-                    cantidad: reqN - real.noche
-                });
-            }
+                if (real > row.required) {
+                    detalle.push({
+                        tipo: "exceso",
+                        estamento: row.estamento,
+                        groupLabel: row.groupLabel,
+                        shiftLabel: check.label,
+                        cantidad: real - row.required
+                    });
+                }
+            });
         });
 
         salida.push({
@@ -538,62 +770,7 @@ export function analizarMes(year, month){
 }
 
 export function renderStaffingPanel(){
-    const btn = document.getElementById("saveStaffingBtn");
-    const grid = document.querySelector(".staff-grid");
-    if (!btn) return;
-
-    const cfg = getStaffingConfig();
-    renderStaffingConfigSummary(cfg);
-
-    ESTAMENTO.forEach(est => {
-        document.getElementById(`cfg_${est}_habil`).value =
-            cfg[est].habil;
-
-        document.getElementById(`cfg_${est}_inhabil`).value =
-            cfg[est].inhabil;
-
-        document.getElementById(`cfg_${est}_noche`).value =
-            cfg[est].noche;
-    });
-
-    if (grid) {
-        grid.classList.toggle("is-collapsed", !staffingEditMode);
-    }
-
-    btn.textContent = staffingEditMode
-        ? "Guardar Dotaci\u00f3n"
-        : "Modificar Dotaci\u00f3n";
-
-    btn.onclick = () => {
-        if (!staffingEditMode) {
-            staffingEditMode = true;
-            renderStaffingPanel();
-            return;
-        }
-
-        const nuevo = {};
-
-        ESTAMENTO.forEach(est => {
-            nuevo[est] = {
-                habil: Number(document.getElementById(`cfg_${est}_habil`).value) || 0,
-                inhabil: Number(document.getElementById(`cfg_${est}_inhabil`).value) || 0,
-                noche: Number(document.getElementById(`cfg_${est}_noche`).value) || 0
-            };
-        });
-
-        saveStaffingConfig(nuevo);
-        addAuditLog(
-            AUDIT_CATEGORY.STAFFING,
-            "Modifico dotacion requerida",
-            `Antes: ${configSummary(cfg)}. Ahora: ${configSummary(nuevo)}.`
-        );
-        staffingEditMode = false;
-        renderStaffingPanel();
-        renderStaffingAnalysis();
-    };
-
-    renderReplacementContractsLog();
-    renderStaffingMedicalChart();
+    renderStaffingAnalysis();
 }
 
 function renderDetailBadge(detail){
@@ -608,8 +785,9 @@ function renderDetailBadge(detail){
     if (detail.tipo === "faltante") {
         return `
             <span class="staffing-pill staffing-pill--bad">
-                Falta ${detail.cantidad} ${detail.estamento}
-                ${detail.sugerencia ? ` - Sugerido: ${detail.sugerencia}` : ""}
+                Falta ${detail.cantidad} ${escapeHTML(detail.groupLabel || detail.estamento)}
+                en turno ${escapeHTML(detail.shiftLabel || "Diurno")}
+                ${detail.sugerencia ? ` - Sugerido: ${escapeHTML(detail.sugerencia)}` : ""}
             </span>
         `;
     }
@@ -617,14 +795,16 @@ function renderDetailBadge(detail){
     if (detail.tipo === "exceso") {
         return `
             <span class="staffing-pill staffing-pill--warn">
-                Exceso ${detail.cantidad} ${detail.estamento}
+                Exceso ${detail.cantidad} ${escapeHTML(detail.groupLabel || detail.estamento)}
+                en turno ${escapeHTML(detail.shiftLabel || "Diurno")}
             </span>
         `;
     }
 
     return `
         <span class="staffing-pill staffing-pill--night">
-            Falta noche ${detail.cantidad} ${detail.estamento}
+            Falta ${detail.cantidad} ${escapeHTML(detail.groupLabel || detail.estamento)}
+            en turno ${escapeHTML(detail.shiftLabel || "Noche")}
         </span>
     `;
 }

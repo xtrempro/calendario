@@ -67,6 +67,7 @@ export const DOM = {
     calendar: document.getElementById("calendar"),
     teamTimeline: document.getElementById("teamTimeline"),
     swapPanel: document.getElementById("swapPanel"),
+    workerRequestsPanel: document.getElementById("workerRequestsPanel"),
     availabilitySummary: document.getElementById("availabilitySummary"),
     availabilityEditBtn: document.getElementById("availabilityEditBtn"),
     printHoursReportBtn: document.getElementById("printHoursReportBtn"),

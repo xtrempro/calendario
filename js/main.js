@@ -14,6 +14,10 @@ import {
     startFirebaseReplacementRequestSync,
     stopFirebaseReplacementRequestSync
 } from "./firebaseReplacementRequests.js";
+import {
+    startFirebaseWorkerRequestSync,
+    stopFirebaseWorkerRequestSync
+} from "./firebaseWorkerRequests.js";
 import { exportHoursReport } from "./hoursReport.js";
 import {
     initHoursCharts,
@@ -79,6 +83,7 @@ import {
 } from "./storage.js";
 import { cambioEstaAnulado } from "./swaps.js";
 import { renderReplacementLogHTML } from "./replacements.js";
+import { renderWorkerRequestsPanel } from "./workerRequests.js";
 import {
     addReplacementContract,
     formatContractDate,
@@ -2719,6 +2724,10 @@ function getViewForTarget(targetId) {
         return "swap";
     }
 
+    if (targetId === "workerRequestsPanel") {
+        return "requests";
+    }
+
     if (targetId === "auditLogPanel") {
         return "log";
     }
@@ -2751,6 +2760,10 @@ function setActiveShortcut(targetId) {
 
     if (nextView === "log") {
         renderAuditLogPanel();
+    }
+
+    if (nextView === "requests") {
+        renderWorkerRequestsPanel();
     }
 
     document
@@ -4512,12 +4525,25 @@ document.addEventListener("click", async event => {
 
 });
 
+window.addEventListener("proturnos:workerRequestsChanged", () => {
+    renderWorkerRequestsPanel();
+    refreshAll();
+    renderDashboardState();
+});
+
+window.addEventListener("proturnos:auditUndoApplied", () => {
+    refreshAll();
+    renderStaffingPanel();
+    renderDashboardState();
+});
+
 initTheme();
 initTurnosSidePanelSync();
 initSystemSettings({
     button: DOM.systemSettingsBtn,
     onSaved: () => {
         refreshAll();
+        renderStaffingPanel();
         renderDashboardState();
     }
 });
@@ -4528,6 +4554,7 @@ initFirebaseShell({
         if (!user) {
             stopFirebaseProfileSync();
             stopFirebaseReplacementRequestSync();
+            stopFirebaseWorkerRequestSync();
         }
     },
     onWorkspaceChange: workspace => {
@@ -4545,9 +4572,17 @@ initFirebaseShell({
                     renderDashboardState();
                 }
             });
+            startFirebaseWorkerRequestSync(workspace, {
+                onChange: () => {
+                    renderWorkerRequestsPanel();
+                    refreshAll();
+                    renderDashboardState();
+                }
+            });
         } else {
             stopFirebaseProfileSync();
             stopFirebaseReplacementRequestSync();
+            stopFirebaseWorkerRequestSync();
         }
 
         refreshAll();
@@ -4559,6 +4594,7 @@ bindShellInteractions();
 initHoursCharts(getPerfilActual);
 renderStaffingPanel();
 renderSwapPanel();
+renderWorkerRequestsPanel();
 renderProfiles();
 renderBotones();
 

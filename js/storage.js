@@ -664,6 +664,195 @@ export function saveReplacementRequests(requests, options = {}) {
     }
 }
 
+function normalizeWorkerRequestType(value) {
+    const key = normalizeTextKey(value)
+        .replace(/1\/2/g, "half")
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+
+    if (
+        key.includes("p_administrativo") ||
+        key.includes("permiso_administrativo") ||
+        key === "admin" ||
+        key === "administrativo"
+    ) {
+        return "admin";
+    }
+
+    if (
+        key.includes("adm_manana") ||
+        key.includes("half_adm_manana") ||
+        key.includes("half_admin_morning")
+    ) {
+        return "half_admin_morning";
+    }
+
+    if (
+        key.includes("adm_tarde") ||
+        key.includes("half_adm_tarde") ||
+        key.includes("half_admin_afternoon")
+    ) {
+        return "half_admin_afternoon";
+    }
+
+    if (
+        key.includes("f_legal") ||
+        key.includes("feriado_legal") ||
+        key === "legal"
+    ) {
+        return "legal";
+    }
+
+    if (
+        key.includes("f_compensatorio") ||
+        key.includes("compensatorio") ||
+        key === "comp"
+    ) {
+        return "comp";
+    }
+
+    if (
+        key.includes("permiso_sin_goce") ||
+        key.includes("sin_goce") ||
+        key.includes("unpaid")
+    ) {
+        return "unpaid_leave";
+    }
+
+    if (
+        key.includes("olvido") ||
+        key.includes("sin_marcaje") ||
+        key.includes("missing_clock")
+    ) {
+        return "missing_clock";
+    }
+
+    if (
+        key.includes("incidencia") ||
+        key.includes("marcaje_tardio") ||
+        key.includes("clock_incident")
+    ) {
+        return "clock_incident";
+    }
+
+    if (
+        key.includes("cambio_turno") ||
+        key.includes("swap")
+    ) {
+        return "swap";
+    }
+
+    return key || "unknown";
+}
+
+function normalizeWorkerRequestDate(value, keyDay = "") {
+    const normalized = normalizeHistoryDate(value);
+
+    if (normalized) return normalized;
+
+    const match = String(keyDay || "")
+        .match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+
+    if (!match) return "";
+
+    return [
+        match[1],
+        String(Number(match[2]) + 1).padStart(2, "0"),
+        String(Number(match[3])).padStart(2, "0")
+    ].join("-");
+}
+
+function normalizeWorkerRequest(request = {}) {
+    if (!request?.id) return null;
+
+    const profile = String(
+        request.profile ||
+        request.worker ||
+        request.workerName ||
+        request.profileName ||
+        request.from ||
+        ""
+    ).trim();
+    const rawDate =
+        request.date ||
+        request.startDate ||
+        request.fecha ||
+        request.keyDay ||
+        "";
+    const days = Number(
+        request.days ??
+        request.amount ??
+        request.cantidad ??
+        request.totalDays ??
+        0
+    );
+
+    return {
+        ...request,
+        id: String(request.id),
+        type: normalizeWorkerRequestType(
+            request.type ||
+            request.requestType ||
+            request.kind
+        ),
+        status: String(request.status || "pending"),
+        profile,
+        profileId: String(request.profileId || request.workerProfileId || ""),
+        date: normalizeWorkerRequestDate(rawDate, request.keyDay),
+        endDate: normalizeWorkerRequestDate(
+            request.endDate || request.fechaTermino || "",
+            request.endKeyDay
+        ),
+        days: Number.isFinite(days) && days > 0 ? days : 0,
+        halfType: String(request.halfType || request.period || ""),
+        note: String(request.note || request.comment || request.detalle || ""),
+        rejectReason: String(request.rejectReason || request.rejectionNote || ""),
+        adminNote: String(request.adminNote || ""),
+        source: String(request.source || "worker_app"),
+        channel: String(request.channel || "app"),
+        createdAt: String(request.createdAt || new Date().toISOString()),
+        updatedAt: String(request.updatedAt || ""),
+        acceptedAt: String(request.acceptedAt || ""),
+        rejectedAt: String(request.rejectedAt || ""),
+        appliedAt: String(request.appliedAt || ""),
+        createdByUid: String(request.createdByUid || request.uid || ""),
+        createdByEmail: String(request.createdByEmail || request.email || "")
+    };
+}
+
+export function getWorkerRequests() {
+    return getJSON("workerRequests", [])
+        .map(normalizeWorkerRequest)
+        .filter(Boolean)
+        .sort((a, b) =>
+            String(b.createdAt || "").localeCompare(
+                String(a.createdAt || "")
+            )
+        );
+}
+
+export function saveWorkerRequests(requests, options = {}) {
+    const normalized = (Array.isArray(requests) ? requests : [])
+        .map(normalizeWorkerRequest)
+        .filter(Boolean);
+
+    setJSON("workerRequests", normalized);
+
+    if (
+        !options.silent &&
+        typeof window !== "undefined"
+    ) {
+        window.dispatchEvent(
+            new CustomEvent("proturnos:workerRequestsSaved", {
+                detail: {
+                    requests: normalized,
+                    remote: options.remote !== false
+                }
+            })
+        );
+    }
+}
+
 export function getReplacementContracts(profile = currentProfile){
     if (!profile) return [];
 
@@ -1038,6 +1227,30 @@ export function updateProfile(oldName, nextProfile){
     }));
 
     saveReplacementRequests(replacementRequests);
+
+    const workerRequests = getWorkerRequests().map(request => ({
+        ...request,
+        profile: request.profile === oldName
+            ? targetName
+            : request.profile,
+        worker: request.worker === oldName
+            ? targetName
+            : request.worker,
+        workerName: request.workerName === oldName
+            ? targetName
+            : request.workerName,
+        targetProfile: request.targetProfile === oldName
+            ? targetName
+            : request.targetProfile,
+        from: request.from === oldName
+            ? targetName
+            : request.from,
+        to: request.to === oldName
+            ? targetName
+            : request.to
+    }));
+
+    saveWorkerRequests(workerRequests);
 
     if (currentProfile === oldName) {
         currentProfile = targetName;
