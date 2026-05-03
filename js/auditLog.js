@@ -1,5 +1,12 @@
 import { getJSON, setJSON } from "./persistence.js";
-import { getCurrentProfile } from "./storage.js";
+import {
+    getCurrentProfile,
+    getProfiles,
+    getReplacementRequests,
+    getReplacements,
+    saveReplacementRequests,
+    saveReplacements
+} from "./storage.js";
 import { fetchHolidays } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
 
@@ -146,6 +153,18 @@ function keyToDate(keyDay) {
     return new Date(year, month, day);
 }
 
+function keyToISO(keyDay) {
+    const date = keyToDate(keyDay);
+
+    if (!date) return "";
+
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0")
+    ].join("-");
+}
+
 function keyFromDate(date) {
     return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
@@ -177,6 +196,49 @@ function getCurrentActorLabel() {
         "Usuario";
 }
 
+function getProfileByName(profileName) {
+    return getProfiles().find(profile =>
+        profile.name === profileName
+    ) || null;
+}
+
+function hasWorkerApp(profile = {}) {
+    return Boolean(
+        profile.appUid ||
+        profile.mobileAppUid ||
+        profile.workerAppUid
+    );
+}
+
+function queueWorkerNotification(profileName, message, meta = {}) {
+    if (!profileName || !message) return;
+
+    const profile = getProfileByName(profileName);
+    const notifications = getJSON("workerNotifications", []);
+    const channel = hasWorkerApp(profile)
+        ? "app"
+        : "whatsapp";
+
+    notifications.push({
+        id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
+        profile: profileName,
+        profileId: profile?.id || "",
+        channel,
+        phone: profile?.phone || "",
+        message,
+        status: channel === "app" ? "app_pending" : "whatsapp_pending",
+        createdAt: new Date().toISOString(),
+        meta: {
+            ...meta
+        }
+    });
+
+    setJSON(
+        "workerNotifications",
+        notifications.slice(-1000)
+    );
+}
+
 function getLeaveUndoType(log) {
     const metaType = String(log?.meta?.type || "").trim();
     const action = String(log?.action || "").toLowerCase();
@@ -206,13 +268,20 @@ function getLeaveUndoType(log) {
 
 function canUndoAuditLog(log) {
     if (log?.canceledAt) return false;
-    if (log?.category !== AUDIT_CATEGORY.LEAVE_ABSENCE) return false;
 
-    return Boolean(
-        log?.profile &&
-        log?.meta?.date &&
-        getLeaveUndoType(log)
-    );
+    if (log?.category === AUDIT_CATEGORY.LEAVE_ABSENCE) {
+        return Boolean(
+            log?.profile &&
+            log?.meta?.date &&
+            getLeaveUndoType(log)
+        );
+    }
+
+    if (log?.category === AUDIT_CATEGORY.OVERTIME) {
+        return Boolean(log?.meta?.replacementId);
+    }
+
+    return false;
 }
 
 function updateLog(logId, updater) {
@@ -271,11 +340,11 @@ function removeAdminLog(profile, startKey, type, amount) {
         }
     }
 
-    if (!removed.length) return false;
+    if (!removed.length) return [];
 
     saveProfileMap("admin", profile, admin);
     cleanBlockedDays(profile, removed);
-    return true;
+    return removed;
 }
 
 async function removeBusinessBlock(profile, prefix, startKey, amount) {
@@ -315,11 +384,11 @@ async function removeBusinessBlock(profile, prefix, startKey, amount) {
         guard++;
     }
 
-    if (!removed.length) return false;
+    if (!removed.length) return [];
 
     saveProfileMap(prefix, profile, map);
     cleanBlockedDays(profile, removed);
-    return true;
+    return removed;
 }
 
 function absenceTypeOf(value) {
@@ -343,11 +412,11 @@ function removeAbsenceBlock(profile, startKey, amount, type) {
         keyDay = addDaysKey(keyDay, 1);
     }
 
-    if (!removed.length) return false;
+    if (!removed.length) return [];
 
     saveProfileMap("absences", profile, absences);
     cleanBlockedDays(profile, removed);
-    return true;
+    return removed;
 }
 
 async function undoLeaveAbsenceLog(log) {
@@ -356,34 +425,237 @@ async function undoLeaveAbsenceLog(log) {
     const type = getLeaveUndoType(log);
     const amount = Number(log.meta?.amount || 1);
 
-    if (!profile || !startKey || !type) return false;
+    if (!profile || !startKey || !type) {
+        return { ok: false, canceledReplacements: [] };
+    }
+
+    let removedKeys = [];
 
     if (
         type === "admin" ||
         type === "half_admin_morning" ||
         type === "half_admin_afternoon"
     ) {
-        return removeAdminLog(profile, startKey, type, amount);
-    }
-
-    if (type === "legal") {
-        return removeBusinessBlock(profile, "legal", startKey, amount);
-    }
-
-    if (type === "comp") {
-        return removeBusinessBlock(profile, "comp", startKey, amount);
-    }
-
-    if (
+        removedKeys = removeAdminLog(profile, startKey, type, amount);
+    } else if (type === "legal") {
+        removedKeys = await removeBusinessBlock(
+            profile,
+            "legal",
+            startKey,
+            amount
+        );
+    } else if (type === "comp") {
+        removedKeys = await removeBusinessBlock(
+            profile,
+            "comp",
+            startKey,
+            amount
+        );
+    } else if (
         type === "license" ||
         type === "professional_license" ||
         type === "unpaid_leave" ||
         type === "unjustified_absence"
     ) {
-        return removeAbsenceBlock(profile, startKey, amount, type);
+        removedKeys = removeAbsenceBlock(
+            profile,
+            startKey,
+            amount,
+            type
+        );
     }
 
-    return false;
+    if (!removedKeys.length) {
+        return { ok: false, canceledReplacements: [] };
+    }
+
+    const canceledReplacements =
+        cancelReplacementsForAbsence(profile, removedKeys, log);
+
+    queueWorkerNotification(
+        profile,
+        `Se anulo ${log.action || "una ausencia/permiso"} desde el sistema. Revisa tu calendario actualizado.`,
+        {
+            source: "audit_undo",
+            logId: log.id,
+            type: "leave_absence_canceled"
+        }
+    );
+
+    return {
+        ok: true,
+        canceledReplacements
+    };
+}
+
+function cancelReplacementsForAbsence(profile, removedKeys, sourceLog) {
+    const isoDates = new Set(
+        removedKeys.map(keyToISO).filter(Boolean)
+    );
+    const now = new Date().toISOString();
+    const actor = getCurrentActorLabel();
+    const canceled = [];
+    const nextReplacements = getReplacements().map(replacement => {
+        if (
+            !replacement ||
+            replacement.canceled ||
+            replacement.replaced !== profile ||
+            !isoDates.has(replacement.date)
+        ) {
+            return replacement;
+        }
+
+        const nextReplacement = {
+            ...replacement,
+            canceled: true,
+            canceledAt: now,
+            canceledBy: actor,
+            cancelReason: "leave_absence_canceled",
+            cancellationDetails:
+                `Asociado a anulacion desde LOG: ${sourceLog.action || "permiso/ausencia"}.`
+        };
+
+        canceled.push(nextReplacement);
+        return nextReplacement;
+    });
+
+    if (!canceled.length) return [];
+
+    saveReplacements(nextReplacements);
+    cancelLinkedReplacementRequests(canceled, sourceLog);
+
+    canceled.forEach(replacement => {
+        const date = replacement.date || "fecha sin detalle";
+        const turn = replacement.turno || "turno";
+
+        queueWorkerNotification(
+            replacement.worker,
+            `Se anularon las horas extras del ${date} (${turn}) porque se anulo el permiso/ausencia de ${profile}.`,
+            {
+                source: "audit_undo",
+                logId: sourceLog.id,
+                replacementId: replacement.id,
+                type: "overtime_canceled"
+            }
+        );
+    });
+
+    return canceled;
+}
+
+function cancelReplacementFromLog(log) {
+    const replacementId = String(log?.meta?.replacementId || "");
+
+    if (!replacementId) {
+        return { ok: false, canceledReplacements: [] };
+    }
+
+    const now = new Date().toISOString();
+    const actor = getCurrentActorLabel();
+    const canceled = [];
+    const nextReplacements = getReplacements().map(replacement => {
+        if (
+            !replacement ||
+            replacement.canceled ||
+            String(replacement.id) !== replacementId
+        ) {
+            return replacement;
+        }
+
+        const nextReplacement = {
+            ...replacement,
+            canceled: true,
+            canceledAt: now,
+            canceledBy: actor,
+            cancelReason: "overtime_canceled_from_log",
+            cancellationDetails:
+                `Horas extras anuladas desde LOG: ${log.action || ""}.`
+        };
+
+        canceled.push(nextReplacement);
+        return nextReplacement;
+    });
+
+    if (!canceled.length) {
+        return { ok: false, canceledReplacements: [] };
+    }
+
+    saveReplacements(nextReplacements);
+    cancelLinkedReplacementRequests(canceled, log);
+
+    canceled.forEach(replacement => {
+        const date = replacement.date || "fecha sin detalle";
+        const turn = replacement.turno || "turno";
+
+        queueWorkerNotification(
+            replacement.worker,
+            `Se anularon tus horas extras del ${date} (${turn}). Revisa tu calendario actualizado.`,
+            {
+                source: "audit_undo",
+                logId: log.id,
+                replacementId: replacement.id,
+                type: "overtime_canceled"
+            }
+        );
+
+        if (replacement.replaced) {
+            queueWorkerNotification(
+                replacement.replaced,
+                `Se anulo la cobertura de ${replacement.worker} para el ${date} (${turn}).`,
+                {
+                    source: "audit_undo",
+                    logId: log.id,
+                    replacementId: replacement.id,
+                    type: "replacement_canceled"
+                }
+            );
+        }
+    });
+
+    return {
+        ok: true,
+        canceledReplacements: canceled
+    };
+}
+
+function cancelLinkedReplacementRequests(replacements, sourceLog) {
+    const requestIds = new Set();
+    const groupIds = new Set();
+
+    replacements.forEach(replacement => {
+        if (replacement.requestId) {
+            requestIds.add(String(replacement.requestId));
+        }
+
+        if (replacement.requestGroupId) {
+            groupIds.add(String(replacement.requestGroupId));
+        }
+    });
+
+    if (!requestIds.size && !groupIds.size) return;
+
+    const now = new Date().toISOString();
+    let changed = false;
+    const requests = getReplacementRequests().map(request => {
+        const belongsToCanceledReplacement =
+            requestIds.has(String(request.id)) ||
+            groupIds.has(String(request.groupId || request.id));
+
+        if (!belongsToCanceledReplacement) return request;
+
+        changed = true;
+        return {
+            ...request,
+            status: "canceled",
+            canceledAt: now,
+            cancellationReason:
+                `Asociada a anulacion desde LOG: ${sourceLog.action || "registro"}.`
+        };
+    });
+
+    if (changed) {
+        saveReplacementRequests(requests);
+    }
 }
 
 function sortedLogs() {
@@ -445,10 +717,15 @@ function undoPanelHTML(log) {
         `;
     }
 
+    const buttonText =
+        log.category === AUDIT_CATEGORY.OVERTIME
+            ? "Anular horas extras"
+            : "Deshacer accion";
+
     return `
         <div class="audit-entry__actions">
             <button class="secondary-button secondary-button--small" type="button" data-audit-undo="${escapeHTML(log.id)}">
-                Deshacer accion
+                ${buttonText}
             </button>
             <small>
                 La accion se marcara como anulada y no desaparecera del log.
@@ -527,15 +804,19 @@ async function undoAuditLogEntry(logId) {
 
     if (!log || !canUndoAuditLog(log)) return false;
 
-    const undone = await undoLeaveAbsenceLog(log);
+    const result = log.category === AUDIT_CATEGORY.OVERTIME
+        ? cancelReplacementFromLog(log)
+        : await undoLeaveAbsenceLog(log);
 
-    if (!undone) return false;
+    if (!result?.ok) return false;
 
     updateLog(logId, entry => ({
         ...entry,
         canceledAt: new Date().toISOString(),
         canceledBy: getCurrentActorLabel(),
-        cancellationDetails: "Accion anulada desde el menu LOG."
+        cancellationDetails: result.canceledReplacements?.length
+            ? `Accion anulada desde el menu LOG. Se anularon ${result.canceledReplacements.length} reemplazo(s)/HHEE asociado(s).`
+            : "Accion anulada desde el menu LOG."
     }));
 
     window.dispatchEvent(

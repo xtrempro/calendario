@@ -20,6 +20,7 @@
     --orange: #f97316;
     --red: #ef4444;
     --muted: #9ca3af;
+    --timeline-holiday: rgba(239, 68, 68, 0.12);
 }
 
 * {
@@ -691,6 +692,7 @@ body:not([data-active-view="hours"]) .hours-panel,
 body:not([data-active-view="hours"]) .hours-charts-panel,
 body:not([data-active-view="turnos"]) .staffing-report-panel,
 body:not([data-active-view="requests"]) #workerRequestsPanel,
+body:not([data-active-view="clockmarks"]) #clockMarksPanel,
 body:not([data-active-view="log"]) #auditLogPanel {
     display: none;
 }
@@ -718,6 +720,13 @@ body[data-active-view="requests"] .timeline-panel,
 body[data-active-view="requests"] #staffingPanel,
 body[data-active-view="requests"] #turnChangesView,
 body[data-active-view="requests"] .primary-grid,
+body[data-active-view="clockmarks"] .calendar-panel,
+body[data-active-view="clockmarks"] .leave-panel,
+body[data-active-view="clockmarks"] .timeline-panel,
+body[data-active-view="clockmarks"] #staffingPanel,
+body[data-active-view="clockmarks"] #turnChangesView,
+body[data-active-view="clockmarks"] #workerRequestsPanel,
+body[data-active-view="clockmarks"] .primary-grid,
 body[data-active-view="swap"] .calendar-panel,
 body[data-active-view="swap"] .leave-panel,
 body[data-active-view="swap"] .timeline-panel,
@@ -744,6 +753,10 @@ body[data-active-view="hours"] .primary-grid {
 }
 
 body[data-active-view="requests"] .secondary-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-active-view="clockmarks"] .secondary-grid {
     grid-template-columns: minmax(0, 1fr);
 }
 
@@ -776,7 +789,7 @@ body[data-active-view="log"] .secondary-grid {
 
 .profile-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.45fr);
     gap: 18px;
     align-items: start;
 }
@@ -880,6 +893,10 @@ body[data-active-view="log"] .secondary-grid {
 
 .profile-actions-card {
     align-content: start;
+}
+
+.profile-availability-card {
+    grid-column: 2;
 }
 
 .profile-active-toggle {
@@ -1604,6 +1621,7 @@ body[data-active-view="log"] .secondary-grid {
 .timeline-panel,
 .staffing-panel,
 .swap-panel,
+.clockmarks-panel,
 .audit-log-panel {
     padding: 18px;
 }
@@ -2952,6 +2970,9 @@ body.theme-dark .overtime-backup-subsection {
 .purple,
 .lightgreen,
 .yellow,
+.half-morning,
+.half-afternoon,
+.eighteen,
 .admin-day,
 .half-admin-day,
 .legal-day,
@@ -2987,13 +3008,27 @@ body.theme-dark .overtime-backup-subsection {
     color: #1c1c1c !important;
 }
 
-.weekend:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.admin-day):not(.half-admin-day):not(.license-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.legal-day):not(.comp-day),
-.holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.admin-day):not(.half-admin-day):not(.license-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.legal-day):not(.comp-day) {
+.half-morning {
+    background: linear-gradient(135deg, #eab308, #facc15) !important;
+    color: #1c1c1c !important;
+}
+
+.half-afternoon {
+    background: linear-gradient(135deg, #f59e0b, #fb923c) !important;
+    color: #1c1c1c !important;
+}
+
+.eighteen {
+    background: linear-gradient(135deg, #6d28d9, #8b5cf6) !important;
+}
+
+.weekend:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.license-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.legal-day):not(.comp-day),
+.holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.license-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.legal-day):not(.comp-day) {
     background: rgba(255, 255, 255, 0.06);
 }
 
-body.theme-light .weekend:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.admin-day):not(.half-admin-day):not(.license-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.legal-day):not(.comp-day),
-body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.admin-day):not(.half-admin-day):not(.license-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.legal-day):not(.comp-day) {
+body.theme-light .weekend:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.license-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.legal-day):not(.comp-day),
+body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.license-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.legal-day):not(.comp-day) {
     background: rgba(17, 32, 56, 0.05);
 }
 
@@ -3627,6 +3662,10 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
     box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.72);
 }
 
+.mini.timeline-holiday:not(.needs-replacement):not(.needs-extra-reason):not(.contract-error-day):not(.replacement-day):not(.clock-incident-day):not(.clock-severe-day) {
+    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.14);
+}
+
 .timeline-replacement-marker {
     position: absolute;
     inset: 50% auto auto 50%;
@@ -4060,6 +4099,174 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
 .worker-requests-panel {
     display: grid;
     gap: 14px;
+}
+
+.clockmarks-view {
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.clockmarks-sidebar {
+    position: sticky;
+    top: 18px;
+}
+
+.clockmarks-panel {
+    display: grid;
+    gap: 14px;
+}
+
+.clockmarks-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.clockmarks-header h3 {
+    margin: 0 0 4px;
+    font-size: 1.15rem;
+}
+
+.clockmarks-header p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.clockmarks-all-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 16px;
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+}
+
+.clockmarks-all-toggle span {
+    display: grid;
+    gap: 2px;
+}
+
+.clockmarks-all-toggle small {
+    color: var(--text-muted);
+    font-size: 0.76rem;
+}
+
+.clockmarks-all-toggle input {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--accent);
+}
+
+.clockmarks-list {
+    display: grid;
+    gap: 10px;
+}
+
+.clockmark-record,
+.clockmarks-empty {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border-radius: 18px;
+    background: var(--panel-alt);
+    border: 1px solid var(--border);
+}
+
+.clockmark-record--warning {
+    background:
+        linear-gradient(135deg, rgba(245, 158, 11, 0.14), rgba(245, 158, 11, 0.05)),
+        var(--panel-alt);
+    border-color: rgba(245, 158, 11, 0.34);
+}
+
+.clockmark-record--severe {
+    background:
+        linear-gradient(135deg, rgba(239, 68, 68, 0.14), rgba(239, 68, 68, 0.05)),
+        var(--panel-alt);
+    border-color: rgba(239, 68, 68, 0.34);
+}
+
+.clockmark-record.is-approved {
+    border-color: rgba(34, 197, 94, 0.38);
+}
+
+.clockmark-record__main {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.clockmark-record__main > div:first-child {
+    display: grid;
+    gap: 2px;
+}
+
+.clockmark-record__main strong {
+    color: var(--text-strong);
+    font-size: 1rem;
+}
+
+.clockmark-record__main span,
+.clockmark-record__detail,
+.clockmarks-empty {
+    color: var(--text-muted);
+}
+
+.clockmark-record__detail {
+    margin: 0;
+    font-size: 0.9rem;
+}
+
+.clockmark-record__badges {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.clockmark-record__badges span {
+    padding: 5px 8px;
+    border-radius: 999px;
+    background: rgba(29, 108, 255, 0.1);
+    color: var(--blue);
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.clockmark-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-soft);
+    font-weight: 700;
+}
+
+.clockmark-check input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+}
+
+.clockmark-note {
+    display: grid;
+    gap: 6px;
+}
+
+.clockmark-note span {
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.clockmark-note textarea {
+    min-height: 68px;
+    resize: vertical;
 }
 
 .worker-request-counter {
@@ -5089,6 +5296,10 @@ body.mode-active .day.draft-selected {
     .profile-layout,
     .profile-records-grid {
         grid-template-columns: 1fr;
+    }
+
+    .profile-availability-card {
+        grid-column: auto;
     }
 
     .overview-card__grid {

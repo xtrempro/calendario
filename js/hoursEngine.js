@@ -20,6 +20,8 @@ import { esAusenciaInjustificada } from "./rulesEngine.js";
 import { getJSON } from "./persistence.js";
 import {
     getWorkedIntervalsForState,
+    getClockScheduleState,
+    getScheduledSegmentsForProfile,
     hasClockMark
 } from "./clockMarks.js";
 
@@ -161,6 +163,33 @@ function isHalfAdmin(value) {
     );
 }
 
+function halfAdminWorkState(keyDay, maps) {
+    if (maps.admin[keyDay] === "0.5M") {
+        return TURNO.MEDIA_TARDE;
+    }
+
+    if (maps.admin[keyDay] === "0.5T") {
+        return TURNO.MEDIA_MANANA;
+    }
+
+    return TURNO.LIBRE;
+}
+
+function halfAdminWorkIntervals(nombre, keyDay, date, state, holidays) {
+    if (!state) return [];
+
+    return getScheduledSegmentsForProfile(
+        nombre,
+        keyDay,
+        date,
+        state,
+        holidays
+    ).map(segment => ({
+        start: segment.start,
+        end: segment.end
+    }));
+}
+
 function isApprovedAbsence(value) {
     return Boolean(value) && !esAusenciaInjustificada(value);
 }
@@ -265,6 +294,27 @@ function intervalsForState(date, state, holidays) {
         ];
     }
 
+    if (turno === TURNO.MEDIA_MANANA) {
+        return [{
+            start: dateAt(date, 8),
+            end: dateAt(date, 14)
+        }];
+    }
+
+    if (turno === TURNO.MEDIA_TARDE) {
+        return [{
+            start: dateAt(date, 14),
+            end: dateAt(date, 20)
+        }];
+    }
+
+    if (turno === TURNO.TURNO18) {
+        return [{
+            start: dateAt(date, 14),
+            end: nextDateAt(date, 8)
+        }];
+    }
+
     return [];
 }
 
@@ -273,7 +323,20 @@ function hasDiurnoComponent(state) {
 
     return (
         turno === TURNO.DIURNO ||
-        turno === TURNO.DIURNO_NOCHE
+        turno === TURNO.DIURNO_NOCHE ||
+        turno === TURNO.MEDIA_MANANA ||
+        turno === TURNO.MEDIA_TARDE ||
+        turno === TURNO.TURNO18
+    );
+}
+
+function usesPartialDayCoverageState(state) {
+    const turno = Number(state) || TURNO.LIBRE;
+
+    return (
+        turno === TURNO.MEDIA_MANANA ||
+        turno === TURNO.MEDIA_TARDE ||
+        turno === TURNO.TURNO18
     );
 }
 
@@ -296,6 +359,20 @@ function intervalsWithoutDiurnoComponent(date, state, holidays) {
     }
 
     if (turno === TURNO.DIURNO_NOCHE) {
+        return [{
+            start: dateAt(date, 20),
+            end: nextDateAt(date, 8)
+        }];
+    }
+
+    if (
+        turno === TURNO.MEDIA_MANANA ||
+        turno === TURNO.MEDIA_TARDE
+    ) {
+        return [];
+    }
+
+    if (turno === TURNO.TURNO18) {
         return [{
             start: dateAt(date, 20),
             end: nextDateAt(date, 8)
@@ -547,9 +624,29 @@ function calculateWorkedTotals(
         }
 
         if (coverage === 0.5) {
-            if (isBusinessDay(date, holidays)) {
+            const halfAdminState =
+                halfAdminWorkState(keyDay, maps);
+
+            if (halfAdminState) {
+                addHours(
+                    totals,
+                    classifyIntervals(
+                        halfAdminWorkIntervals(
+                            nombre,
+                            keyDay,
+                            date,
+                            halfAdminState,
+                            holidays
+                        ),
+                        holidays,
+                        rangeStart,
+                        rangeEnd
+                    )
+                );
+            } else if (isBusinessDay(date, holidays)) {
                 totals.d += HORA_BASE_DIARIA / 2;
             }
+
             continue;
         }
 
@@ -757,7 +854,8 @@ function calculateAssignedExtras(
         );
         const hasExtraDiurno =
             hasDiurnoComponent(actualState) &&
-            !baseCoversDiurnoComponent(baseState);
+            !baseCoversDiurnoComponent(baseState) &&
+            !usesPartialDayCoverageState(actualState);
 
         if (hasExtraDiurno) {
             if (hasClockMark(nombre, keyDay)) {
@@ -894,20 +992,34 @@ function calculateClockAbsenceAdjustments(
             continue;
         }
 
+        const halfAdminState =
+            halfAdminWorkState(keyDay, maps);
+
         if (
-            getApprovedCoverage(keyDay, maps) > 0 ||
-            hasUnjustifiedAbsence(keyDay, maps)
+            !halfAdminState &&
+            (
+                getApprovedCoverage(keyDay, maps) > 0 ||
+                hasUnjustifiedAbsence(keyDay, maps)
+            )
         ) {
             continue;
         }
 
-        const baseIntervals = mode === "diurno"
-            ? normalDiurnoInterval(date, holidays)
-            : intervalsForState(
+        const baseIntervals = halfAdminState
+            ? halfAdminWorkIntervals(
+                nombre,
+                keyDay,
                 date,
-                baseStateForExtraComparison(nombre, keyDay),
+                halfAdminState,
                 holidays
-            );
+            )
+            : mode === "diurno"
+                ? normalDiurnoInterval(date, holidays)
+                : intervalsForState(
+                    date,
+                    baseStateForExtraComparison(nombre, keyDay),
+                    holidays
+                );
 
         if (!baseIntervals.length) {
             continue;
@@ -917,7 +1029,12 @@ function calculateClockAbsenceAdjustments(
             nombre,
             keyDay,
             date,
-            actualStateForDay(nombre, data, keyDay),
+            halfAdminState ||
+                getClockScheduleState(
+                    nombre,
+                    keyDay,
+                    actualStateForDay(nombre, data, keyDay)
+                ),
             holidays
         );
         const absenceIntervals = subtractIntervals(
@@ -1068,7 +1185,8 @@ function calculateAssignedExtraSegments(
         );
         const hasExtraDiurno =
             hasDiurnoComponent(actualState) &&
-            !baseCoversDiurnoComponent(baseState);
+            !baseCoversDiurnoComponent(baseState) &&
+            !usesPartialDayCoverageState(actualState);
 
         if (hasExtraDiurno) {
             if (hasClockMark(nombre, keyDay)) {
@@ -1260,20 +1378,34 @@ function calculateClockAbsenceSegments(
             continue;
         }
 
+        const halfAdminState =
+            halfAdminWorkState(keyDay, maps);
+
         if (
-            getApprovedCoverage(keyDay, maps) > 0 ||
-            hasUnjustifiedAbsence(keyDay, maps)
+            !halfAdminState &&
+            (
+                getApprovedCoverage(keyDay, maps) > 0 ||
+                hasUnjustifiedAbsence(keyDay, maps)
+            )
         ) {
             continue;
         }
 
-        const baseIntervals = mode === "diurno"
-            ? normalDiurnoInterval(date, holidays)
-            : intervalsForState(
+        const baseIntervals = halfAdminState
+            ? halfAdminWorkIntervals(
+                nombre,
+                keyDay,
                 date,
-                baseStateForExtraComparison(nombre, keyDay),
+                halfAdminState,
                 holidays
-            );
+            )
+            : mode === "diurno"
+                ? normalDiurnoInterval(date, holidays)
+                : intervalsForState(
+                    date,
+                    baseStateForExtraComparison(nombre, keyDay),
+                    holidays
+                );
 
         if (!baseIntervals.length) {
             continue;
@@ -1283,7 +1415,12 @@ function calculateClockAbsenceSegments(
             nombre,
             keyDay,
             date,
-            actualStateForDay(nombre, data, keyDay),
+            halfAdminState ||
+                getClockScheduleState(
+                    nombre,
+                    keyDay,
+                    actualStateForDay(nombre, data, keyDay)
+                ),
             holidays
         );
         const absenceIntervals = subtractIntervals(

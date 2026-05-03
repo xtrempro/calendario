@@ -534,8 +534,10 @@ export function getProfiles(){
             };
         }
 
+        const { unit, ...profileWithoutUnit } = profile || {};
+
         return {
-            ...profile,
+            ...profileWithoutUnit,
             id: createProfileId(profile),
             estamento: normalizeEstamento(profile.estamento),
             profession: normalizeProfession(profile.profession)
@@ -872,12 +874,16 @@ export function saveReplacementContracts(
 }
 
 export function saveProfiles(profiles, options = {}){
-    const normalized = (profiles || []).map(profile => ({
-        ...profile,
-        id: createProfileId(profile),
-        estamento: normalizeEstamento(profile.estamento),
-        profession: normalizeProfession(profile.profession)
-    }));
+    const normalized = (profiles || []).map(profile => {
+        const { unit, ...profileWithoutUnit } = profile || {};
+
+        return {
+            ...profileWithoutUnit,
+            id: createProfileId(profile),
+            estamento: normalizeEstamento(profile.estamento),
+            profession: normalizeProfession(profile.profession)
+        };
+    });
 
     setJSON("profiles", normalized);
 

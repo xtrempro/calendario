@@ -12,7 +12,10 @@ export const TURNO = {
     NOCHE: 2,
     TURNO24: 3,
     DIURNO: 4,
-    DIURNO_NOCHE: 5
+    DIURNO_NOCHE: 5,
+    MEDIA_MANANA: 6,
+    MEDIA_TARDE: 7,
+    TURNO18: 8
 };
 
 /* ==========================================
@@ -25,7 +28,10 @@ export const TURNO_LABEL = {
     2: "Noche",
     3: "24",
     4: "Diurno",
-    5: "D+N"
+    5: "D+N",
+    6: "1/2M",
+    7: "1/2T",
+    8: "18 horas"
 };
 
 /* ==========================================
@@ -37,7 +43,10 @@ export const TURNO_CLASS = {
     2: "blue",
     3: "purple",
     4: "lightgreen",
-    5: "yellow"
+    5: "yellow",
+    6: "half-morning",
+    7: "half-afternoon",
+    8: "eighteen"
 };
 
 export const TURNO_COLOR = {
@@ -46,7 +55,10 @@ export const TURNO_COLOR = {
    2:"#1d6cff",
    3:"#8b2bd9",
    4:"#13b981",
-   5:"#f0b100"
+   5:"#f0b100",
+   6:"#fbbf24",
+   7:"#f59e0b",
+   8:"#7c3aed"
 };
 
 /* ==========================================

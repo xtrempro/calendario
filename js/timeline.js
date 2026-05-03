@@ -337,6 +337,11 @@ export async function renderTimeline(){
         for (let d = 1; d <= diasMes; d++) {
             const key = `${year}-${month}-${d}`;
             const color = getColor(profile.name, key);
+            const isHoliday = Boolean(holidays[key]);
+            const background =
+                isHoliday && color === TURNO_COLOR[0]
+                    ? "var(--timeline-holiday)"
+                    : color;
             const contractError =
                 contractErrorMarker(profile.name, key);
             const needsReplacement =
@@ -404,8 +409,8 @@ export async function renderTimeline(){
 
             html += `
                 <td
-                    class="mini ${contractError ? "contract-error-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${replacement ? "replacement-day" : ""}"
-                    style="background:${color}"
+                    class="mini ${isHoliday ? "timeline-holiday" : ""} ${contractError ? "contract-error-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${replacement ? "replacement-day" : ""}"
+                    style="background:${background}"
                     title="${title}"
                     ${contractError ? `data-contract-error-profile="${profile.name}" data-contract-error-key="${key}"` : ""}
                     ${needsReplacement ? `data-replacement-profile="${profile.name}" data-replacement-key="${key}"` : ""}

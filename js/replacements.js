@@ -49,6 +49,9 @@ export function codeToTurno(code) {
     if (code === "24") return TURNO.TURNO24;
     if (code === "D") return TURNO.DIURNO;
     if (code === "D+N") return TURNO.DIURNO_NOCHE;
+    if (code === "HM") return TURNO.MEDIA_MANANA;
+    if (code === "HT") return TURNO.MEDIA_TARDE;
+    if (code === "18") return TURNO.TURNO18;
 
     return TURNO.LIBRE;
 }
@@ -61,6 +64,9 @@ export function turnoToCode(turno) {
     if (state === TURNO.TURNO24) return "24";
     if (state === TURNO.DIURNO) return "D";
     if (state === TURNO.DIURNO_NOCHE) return "D+N";
+    if (state === TURNO.MEDIA_MANANA) return "HM";
+    if (state === TURNO.MEDIA_TARDE) return "HT";
+    if (state === TURNO.TURNO18) return "18";
 
     return "";
 }

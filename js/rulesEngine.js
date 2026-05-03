@@ -57,6 +57,10 @@ export function getTurnoExtraAgregado(baseState, actualState) {
     if (base === actual) return TURNO.LIBRE;
     if (base === TURNO.LIBRE) return actual;
 
+    if (base === TURNO.DIURNO && actual === TURNO.LARGA) {
+        return TURNO.MEDIA_TARDE;
+    }
+
     if (base === TURNO.LARGA && actual === TURNO.TURNO24) {
         return TURNO.NOCHE;
     }
@@ -73,6 +77,10 @@ export function getTurnoExtraAgregado(baseState, actualState) {
         return TURNO.DIURNO;
     }
 
+    if (base === TURNO.NOCHE && actual === TURNO.TURNO18) {
+        return TURNO.MEDIA_TARDE;
+    }
+
     return actual;
 }
 
@@ -84,6 +92,9 @@ export function getTurnoComponentes(turno) {
     if (state === TURNO.DIURNO) return ["D"];
     if (state === TURNO.TURNO24) return ["L", "N"];
     if (state === TURNO.DIURNO_NOCHE) return ["D", "N"];
+    if (state === TURNO.MEDIA_MANANA) return ["HM"];
+    if (state === TURNO.MEDIA_TARDE) return ["HT"];
+    if (state === TURNO.TURNO18) return ["HT", "N"];
 
     return [];
 }
@@ -95,6 +106,18 @@ export function turnoDesdeComponentes(componentes) {
         return TURNO.DIURNO_NOCHE;
     }
 
+    if (set.has("HM") && set.has("HT") && set.has("N")) {
+        return TURNO.TURNO24;
+    }
+
+    if (set.has("HT") && set.has("N")) {
+        return TURNO.TURNO18;
+    }
+
+    if (set.has("HM") && set.has("HT")) {
+        return TURNO.LARGA;
+    }
+
     if (set.has("L") && set.has("N")) {
         return TURNO.TURNO24;
     }
@@ -102,6 +125,8 @@ export function turnoDesdeComponentes(componentes) {
     if (set.has("D")) return TURNO.DIURNO;
     if (set.has("L")) return TURNO.LARGA;
     if (set.has("N")) return TURNO.NOCHE;
+    if (set.has("HM")) return TURNO.MEDIA_MANANA;
+    if (set.has("HT")) return TURNO.MEDIA_TARDE;
 
     return TURNO.LIBRE;
 }
@@ -124,7 +149,10 @@ export function turnoExtraCubreTurno(extraState, coveredState) {
         return (
             covered === TURNO.LARGA ||
             covered === TURNO.NOCHE ||
-            covered === TURNO.TURNO24
+            covered === TURNO.TURNO24 ||
+            covered === TURNO.MEDIA_MANANA ||
+            covered === TURNO.MEDIA_TARDE ||
+            covered === TURNO.TURNO18
         );
     }
 
@@ -133,6 +161,21 @@ export function turnoExtraCubreTurno(extraState, coveredState) {
             covered === TURNO.DIURNO ||
             covered === TURNO.NOCHE ||
             covered === TURNO.DIURNO_NOCHE
+        );
+    }
+
+    if (extra === TURNO.LARGA) {
+        return (
+            covered === TURNO.MEDIA_MANANA ||
+            covered === TURNO.MEDIA_TARDE
+        );
+    }
+
+    if (extra === TURNO.TURNO18) {
+        return (
+            covered === TURNO.MEDIA_TARDE ||
+            covered === TURNO.NOCHE ||
+            covered === TURNO.TURNO18
         );
     }
 
@@ -760,15 +803,19 @@ export function estaBloqueadoModo(
     }
 
     if (selectionMode === "clockmark") {
-        return (
-            !Number(state) ||
+        const hasBlockingAbsence =
             tieneAusencia(
                 keyDay,
                 admin,
                 legal,
                 comp,
                 absences
-            )
+            ) &&
+            !esMedioAdministrativo(admin[keyDay]);
+
+        return (
+            !Number(state) ||
+            hasBlockingAbsence
         );
     }
 

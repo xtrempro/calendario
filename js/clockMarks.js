@@ -1,6 +1,10 @@
 import { TURNO, TURNO_LABEL } from "./constants.js";
 import { isBusinessDay } from "./calculations.js";
 import { getJSON, setJSON } from "./persistence.js";
+import {
+    getRotativa,
+    getShiftAssigned
+} from "./storage.js";
 
 const BLOCK_MINUTES = 30;
 
@@ -232,6 +236,102 @@ export function hasClockMark(profile, keyDay) {
     );
 }
 
+export function getClockScheduleState(profile, keyDay, state) {
+    const admin = getJSON(`admin_${profile}`, {});
+
+    if (admin[keyDay] === "0.5M") {
+        return TURNO.MEDIA_TARDE;
+    }
+
+    if (admin[keyDay] === "0.5T") {
+        return TURNO.MEDIA_MANANA;
+    }
+
+    return Number(state) || TURNO.LIBRE;
+}
+
+function usesAssignedHalfAdminSchedule(profile) {
+    return getShiftAssigned(profile) &&
+        getRotativa(profile).type !== "diurno";
+}
+
+function halfAdminDiurnoSplit(date) {
+    const friday = date.getDay() === 5;
+
+    return {
+        morningEndHour: friday ? 12 : 12,
+        morningEndMinute: friday ? 0 : 30,
+        afternoonStartHour: friday ? 12 : 12,
+        afternoonStartMinute: friday ? 0 : 30,
+        endHour: friday ? 16 : 17
+    };
+}
+
+function getHalfAdminScheduledSegments(profile, keyDay, date) {
+    const admin = getJSON(`admin_${profile}`, {});
+    const assignedSchedule = usesAssignedHalfAdminSchedule(profile);
+
+    if (admin[keyDay] === "0.5M") {
+        const split = halfAdminDiurnoSplit(date);
+
+        return [{
+            id: "half_admin_morning",
+            label: "1/2 ADM Manana",
+            start: assignedSchedule
+                ? dateAt(date, 14)
+                : dateAt(
+                    date,
+                    split.afternoonStartHour,
+                    split.afternoonStartMinute
+                ),
+            end: dateAt(
+                date,
+                assignedSchedule ? 20 : split.endHour
+            )
+        }];
+    }
+
+    if (admin[keyDay] === "0.5T") {
+        const split = halfAdminDiurnoSplit(date);
+
+        return [{
+            id: "half_admin_afternoon",
+            label: "1/2 ADM Tarde",
+            start: dateAt(date, 8),
+            end: assignedSchedule
+                ? dateAt(date, 14)
+                : dateAt(
+                    date,
+                    split.morningEndHour,
+                    split.morningEndMinute
+                )
+        }];
+    }
+
+    return null;
+}
+
+export function getScheduledSegmentsForProfile(
+    profile,
+    keyDay,
+    date,
+    state,
+    holidays = {}
+) {
+    const halfAdminSegments =
+        getHalfAdminScheduledSegments(profile, keyDay, date);
+
+    if (halfAdminSegments) {
+        return halfAdminSegments;
+    }
+
+    return getScheduledSegmentsForState(
+        date,
+        state,
+        holidays
+    );
+}
+
 export function getScheduledSegmentsForState(date, state, holidays = {}) {
     const turno = Number(state) || TURNO.LIBRE;
 
@@ -297,6 +397,33 @@ export function getScheduledSegmentsForState(date, state, holidays = {}) {
         return segments;
     }
 
+    if (turno === TURNO.MEDIA_MANANA) {
+        return [{
+            id: "half_morning",
+            label: "1/2 ADM Manana",
+            start: dateAt(date, 8),
+            end: dateAt(date, 14)
+        }];
+    }
+
+    if (turno === TURNO.MEDIA_TARDE) {
+        return [{
+            id: "half_afternoon",
+            label: "1/2 ADM Tarde",
+            start: dateAt(date, 14),
+            end: dateAt(date, 20)
+        }];
+    }
+
+    if (turno === TURNO.TURNO18) {
+        return [{
+            id: "turno18",
+            label: "18 horas",
+            start: dateAt(date, 14),
+            end: nextDateAt(date, 8)
+        }];
+    }
+
     return [];
 }
 
@@ -305,6 +432,13 @@ function adjustedSegment(baseDate, segment, mark) {
         start: cloneDate(segment.start),
         end: cloneDate(segment.end)
     };
+
+    if (mark.rrhhPayApproved || mark.discountWaived) {
+        return {
+            start: cloneDate(segment.start),
+            end: cloneDate(segment.end)
+        };
+    }
 
     if (mark.missingEntry || mark.missingExit) {
         return null;
@@ -370,6 +504,21 @@ function adjustedSegment(baseDate, segment, mark) {
     return { start, end };
 }
 
+function getSegmentMark(mark, segment) {
+    if (!mark?.segments) return null;
+
+    const aliases = {
+        half_admin_morning: ["half_afternoon"],
+        half_admin_afternoon: ["half_morning"]
+    };
+
+    return mark.segments[segment.id] ||
+        (aliases[segment.id] || [])
+            .map(alias => mark.segments[alias])
+            .find(Boolean) ||
+        null;
+}
+
 export function getWorkedIntervalsForState(
     profile,
     keyDay,
@@ -378,9 +527,16 @@ export function getWorkedIntervalsForState(
     holidays = {}
 ) {
     const mark = getClockMark(profile, keyDay);
-    const segments = getScheduledSegmentsForState(
+    const scheduledState = getClockScheduleState(
+        profile,
+        keyDay,
+        state
+    );
+    const segments = getScheduledSegmentsForProfile(
+        profile,
+        keyDay,
         date,
-        state,
+        scheduledState,
         holidays
     );
 
@@ -396,7 +552,7 @@ export function getWorkedIntervalsForState(
             adjustedSegment(
                 date,
                 segment,
-                mark.segments?.[segment.id]
+                getSegmentMark(mark, segment)
             )
         )
         .filter(Boolean);
@@ -424,9 +580,15 @@ export function hasClockExtra(profile, keyDay, date, state, holidays = {}) {
 
     if (!mark) return false;
 
-    return getScheduledSegmentsForState(date, state, holidays)
+    return getScheduledSegmentsForProfile(
+        profile,
+        keyDay,
+        date,
+        getClockScheduleState(profile, keyDay, state),
+        holidays
+    )
         .some(segment =>
-            segmentHasExtra(segment, mark.segments?.[segment.id])
+            segmentHasExtra(segment, getSegmentMark(mark, segment))
         );
 }
 
@@ -437,9 +599,16 @@ export function getClockExtraHours(
     state,
     holidays = {}
 ) {
-    const scheduled = getScheduledSegmentsForState(
+    const scheduledState = getClockScheduleState(
+        profile,
+        keyDay,
+        state
+    );
+    const scheduled = getScheduledSegmentsForProfile(
+        profile,
+        keyDay,
         date,
-        state,
+        scheduledState,
         holidays
     ).map(segment => ({
         start: segment.start,
@@ -514,6 +683,11 @@ function segmentTitle(segment) {
     if (segment.id === "noche") return "Turno Noche";
     if (segment.id === "larga") return "Turno Larga";
     if (segment.id === "turno24") return "Turno 24";
+    if (segment.id === "turno18") return "Turno 18 horas";
+    if (segment.id === "half_morning") return "1/2 ADM Manana";
+    if (segment.id === "half_afternoon") return "1/2 ADM Tarde";
+    if (segment.id === "half_admin_morning") return "1/2 ADM Manana";
+    if (segment.id === "half_admin_afternoon") return "1/2 ADM Tarde";
 
     return `Turno ${segment.label}`;
 }
@@ -585,7 +759,7 @@ function clockTimeColumnHTML({
 
 function clockSegmentHTML(segment, currentMark) {
     const currentSegmentMark =
-        currentMark.segments?.[segment.id] || {};
+        getSegmentMark(currentMark, segment) || {};
 
     return `
         <section class="clock-mark-segment">
@@ -643,12 +817,17 @@ function clockMarkDialogHTML({
     currentMark
 }) {
     const split = segments.length > 1;
+    const visibleState = getClockScheduleState(
+        profile,
+        currentMark?.keyDay || "",
+        state
+    );
 
     return `
         <form class="turn-change-dialog clock-mark-dialog ${split ? "clock-mark-dialog--split" : "clock-mark-dialog--simple"}" role="dialog" aria-modal="true">
             <strong>Marcajes reloj control</strong>
             <p>
-                ${profile} | ${TURNO_LABEL[Number(state) || 0] || "Turno"}
+                ${profile} | ${TURNO_LABEL[Number(visibleState) || 0] || "Turno"}
             </p>
 
             <div class="clock-mark-segments">
@@ -741,9 +920,16 @@ export function openClockMarkDialog({
     holidays = {}
 }) {
     return new Promise(resolve => {
-        const segments = getScheduledSegmentsForState(
+        const scheduledState = getClockScheduleState(
+            profile,
+            keyDay,
+            state
+        );
+        const segments = getScheduledSegmentsForProfile(
+            profile,
+            keyDay,
             date,
-            state,
+            scheduledState,
             holidays
         );
 
@@ -760,9 +946,12 @@ export function openClockMarkDialog({
         backdrop.className = "turn-change-dialog-backdrop";
         backdrop.innerHTML = clockMarkDialogHTML({
             profile,
-            state,
+            state: scheduledState,
             segments,
-            currentMark
+            currentMark: {
+                ...currentMark,
+                keyDay
+            }
         });
 
         const dialog = backdrop.querySelector("form");

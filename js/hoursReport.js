@@ -33,6 +33,7 @@ import {
     formatContractDate,
     getContractsForProfile
 } from "./contracts.js";
+import { getActiveWorkspace } from "./workspaces.js";
 
 function key(year, month, day) {
     return `${year}-${month}-${day}`;
@@ -415,10 +416,12 @@ function buildWorkbookHTML({
 }) {
     const rotativa = getRotativa(profile.name);
     const title = `Reporte Horas Extras - ${profile.name} - ${monthLabel(monthDate)}`;
+    const workspace = getActiveWorkspace();
+    const workspaceUnit = workspace?.name || "Sin entorno activo";
     const profileRows = [
         { campo: "Nombre", valor: profile.name },
         { campo: "RUT", valor: profile.rut || "Sin registro" },
-        { campo: "Unidad", valor: profile.unit || "Sin registro" },
+        { campo: "Unidad", valor: workspaceUnit },
         { campo: "Tipo de contrato", valor: profile.contractType || "Sin registro" },
         { campo: "Estamento", valor: profile.estamento || "Sin registro" },
         { campo: "Profesion", valor: profile.profession || "Sin informacion" },

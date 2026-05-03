@@ -28,6 +28,45 @@ export function fusionarTurnos(actual, recibido) {
     if (recibido === TURNO.LIBRE) return actual;
     if (actual === TURNO.LIBRE) return recibido;
 
+    if (recibido === TURNO.MEDIA_MANANA) {
+        if (actual === TURNO.MEDIA_TARDE) return TURNO.LARGA;
+
+        return actual;
+    }
+
+    if (recibido === TURNO.MEDIA_TARDE) {
+        if (actual === TURNO.MEDIA_MANANA) return TURNO.LARGA;
+        if (actual === TURNO.DIURNO) return TURNO.LARGA;
+        if (actual === TURNO.NOCHE) return TURNO.TURNO18;
+        if (actual === TURNO.DIURNO_NOCHE) return TURNO.TURNO24;
+
+        return actual;
+    }
+
+    if (recibido === TURNO.TURNO18) {
+        if (
+            actual === TURNO.MEDIA_MANANA ||
+            actual === TURNO.DIURNO ||
+            actual === TURNO.LARGA ||
+            actual === TURNO.DIURNO_NOCHE ||
+            actual === TURNO.TURNO24
+        ) {
+            return TURNO.TURNO24;
+        }
+
+        if (actual === TURNO.NOCHE) return TURNO.TURNO18;
+
+        return actual;
+    }
+
+    if (
+        actual === TURNO.MEDIA_MANANA ||
+        actual === TURNO.MEDIA_TARDE ||
+        actual === TURNO.TURNO18
+    ) {
+        return fusionarTurnos(recibido, actual);
+    }
+
     /* si ya tiene 24, mantener */
     if (actual === TURNO.TURNO24) {
         return TURNO.TURNO24;
@@ -225,6 +264,7 @@ export function siguienteTurno(actual, isHab = true) {
             case TURNO.LARGA: return TURNO.NOCHE;
             case TURNO.NOCHE: return TURNO.TURNO24;
             case TURNO.TURNO24: return TURNO.LIBRE;
+            case TURNO.TURNO18: return TURNO.LIBRE;
             default: return TURNO.LIBRE;
         }
     }
@@ -237,6 +277,7 @@ export function siguienteTurno(actual, isHab = true) {
         case TURNO.TURNO24: return TURNO.DIURNO;
         case TURNO.DIURNO: return TURNO.DIURNO_NOCHE;
         case TURNO.DIURNO_NOCHE: return TURNO.LIBRE;
+        case TURNO.TURNO18: return TURNO.LIBRE;
         default: return TURNO.LIBRE;
     }
 }

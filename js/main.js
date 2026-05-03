@@ -1,4 +1,4 @@
-import { prevMonth, nextMonth } from "./calendar.js";
+import { prevMonth, nextMonth, currentDate } from "./calendar.js";
 import { pushHistory, undo, redo } from "./history.js";
 import { refreshAll } from "./refresh.js";
 import { DOM } from "./dom.js";
@@ -33,13 +33,17 @@ import {
     getCachedHolidays
 } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
+import { TURNO } from "./constants.js";
 import {
     turnoLabel,
     aplicarClaseTurno,
     initTurnosSidePanelSync,
     syncTurnosSidePanelHeight
 } from "./uiEngine.js";
-import { aplicarCambiosTurno } from "./turnEngine.js";
+import {
+    aplicarCambiosTurno,
+    getTurnoBase
+} from "./turnEngine.js";
 import {
     calcularHorasMesPerfil,
     renderSummaryHTML
@@ -89,7 +93,13 @@ import {
     formatContractDate,
     getContractsForProfile
 } from "./contracts.js";
-import { openClockMarkDialog } from "./clockMarks.js";
+import {
+    getClockMarks,
+    saveClockMarks,
+    getClockScheduleState,
+    getScheduledSegmentsForProfile,
+    openClockMarkDialog
+} from "./clockMarks.js";
 import {
     totalAdministrativosUsados,
     aplicarAdministrativo,
@@ -118,6 +128,7 @@ let licenseType = "license";
 let availabilityEditMode = false;
 let profileRotationMiniDate = new Date();
 let profileHoursSummaryRequest = 0;
+let clockMarksRenderRequest = 0;
 
 const PROFESSION_LABELS = {
     "Fonoaudiologia": "Fonoaudiologia",
@@ -810,7 +821,6 @@ function describeProfileChanges(before, after) {
         ["rut", "RUT"],
         ["phone", "celular"],
         ["birthDate", "fecha de nacimiento"],
-        ["unit", "unidad"],
         ["unitEntryDate", "fecha de ingreso"],
         ["contractType", "tipo de contrato"],
         ["estamento", "estamento"],
@@ -928,7 +938,7 @@ function loadDraftFromProfile(profile){
         ? [...profile.docs]
         : [];
     profileDraft.active = isProfileActive(profile);
-    profileDraft.unit = profile.unit || "";
+    profileDraft.unit = "";
     profileDraft.unitEntryDate = profile.unitEntryDate || "";
     profileDraft.contractType = profile.contractType || "";
     profileDraft.estamento = profile.estamento || "";
@@ -989,7 +999,6 @@ function getDisplayedProfileData(){
             birthDate: profileDraft.birthDate,
             docs: profileDraft.docs,
             active: profileDraft.active,
-            unit: profileDraft.unit,
             unitEntryDate: profileDraft.unitEntryDate,
             contractType: profileDraft.contractType,
             estamento: profileDraft.estamento,
@@ -1014,7 +1023,6 @@ function getDisplayedProfileData(){
             birthDate: profileDraft.birthDate,
             docs: profileDraft.docs,
             active: profileDraft.active,
-            unit: profileDraft.unit,
             unitEntryDate: profileDraft.unitEntryDate,
             contractType: profileDraft.contractType,
             estamento: profileDraft.estamento,
@@ -1039,7 +1047,6 @@ function getDisplayedProfileData(){
             birthDate: "",
             docs: [],
             active: true,
-            unit: "",
             unitEntryDate: "",
             contractType: "",
             estamento: "",
@@ -1065,7 +1072,6 @@ function getDisplayedProfileData(){
         birthDate: profile.birthDate || "",
         docs: Array.isArray(profile.docs) ? profile.docs : [],
         active: isProfileActive(profile),
-        unit: profile.unit || "",
         unitEntryDate: profile.unitEntryDate || "",
         contractType: profile.contractType || "",
         estamento: profile.estamento,
@@ -1173,10 +1179,10 @@ function buildEditorHint(profile){
     }
 
     if (profile) {
-        return "Presiona Editar para modificar nombre, estamento, rotativa y asignacion de turno.";
+        return "";
     }
 
-    return "Selecciona un colaborador para editarlo o crea uno nuevo.";
+    return "";
 }
 
 function renderProfileRotationStatus(data, editing) {
@@ -2406,11 +2412,6 @@ function renderDisponibilidadVacaciones() {
             </div>
         `;
 
-        if (DOM.availabilityEditBtn) {
-            DOM.availabilityEditBtn.textContent = "EDITAR";
-            DOM.availabilityEditBtn.disabled = true;
-        }
-
         return;
     }
 
@@ -2420,12 +2421,6 @@ function renderDisponibilidadVacaciones() {
     const showCompBalance = isProfileEditing()
         ? Boolean(profileDraft.shiftAssigned)
         : getShiftAssigned(profile.name);
-
-    if (DOM.availabilityEditBtn) {
-        DOM.availabilityEditBtn.textContent =
-            availabilityEditMode ? "GUARDAR" : "EDITAR";
-        DOM.availabilityEditBtn.disabled = false;
-    }
 
     if (availabilityEditMode) {
         DOM.availabilitySummary.innerHTML = `
@@ -2545,7 +2540,6 @@ function renderDashboardState() {
     syncRutValidity(false);
     DOM.profilePhoneInput.value = data.phone || "";
     DOM.profileBirthDateInput.value = data.birthDate || "";
-    DOM.profileUnitInput.value = data.unit || "";
     DOM.profileUnitEntryDateInput.value = data.unitEntryDate || "";
     DOM.profileContractTypeSelect.value = data.contractType || "";
     DOM.profileRoleSelect.value = data.estamento || "";
@@ -2562,7 +2556,6 @@ function renderDashboardState() {
     DOM.profilePhoneInput.disabled = !editing;
     DOM.profileBirthDateInput.disabled = !editing;
     DOM.profileDocsInput.disabled = !editing;
-    DOM.profileUnitInput.disabled = !editing;
     DOM.profileUnitEntryDateInput.disabled = !editing;
     DOM.profileContractTypeSelect.disabled = !editing;
     DOM.profileRoleSelect.disabled = !editing;
@@ -2570,10 +2563,25 @@ function renderDashboardState() {
     DOM.profileGradeSelect.disabled = !editing;
     DOM.profileRotationSelect.disabled = !editing;
     DOM.checkbox.disabled = !editing;
-    DOM.profileActiveToggle.disabled =
-        profileDraft.mode === PROFILE_MODE.CREATE
-            ? false
-            : !profile;
+    DOM.profileActiveToggle.disabled = !editing;
+
+    const canUseShiftAssignment =
+        data.rotationType === "3turno" ||
+        data.rotationType === "4turno";
+
+    if (DOM.shiftAssignedRow) {
+        DOM.shiftAssignedRow.classList.toggle(
+            "hidden",
+            !canUseShiftAssignment
+        );
+    }
+
+    if (!canUseShiftAssignment) {
+        DOM.checkbox.checked = false;
+        if (editing) {
+            profileDraft.shiftAssigned = false;
+        }
+    }
 
     const isReplacementRotation =
         data.rotationType === "reemplazo";
@@ -2623,8 +2631,10 @@ function renderDashboardState() {
     renderProfileDocs(data, editing);
     renderProfileRecords(profile, editing);
 
-    DOM.profileEditorHint.textContent =
-        buildEditorHint(profile);
+    if (DOM.profileEditorHint) {
+        DOM.profileEditorHint.textContent =
+            buildEditorHint(profile);
+    }
 
     DOM.openCreateProfileBtn.textContent =
         profileDraft.mode === PROFILE_MODE.CREATE
@@ -2728,6 +2738,10 @@ function getViewForTarget(targetId) {
         return "requests";
     }
 
+    if (targetId === "clockMarksPanel") {
+        return "clockmarks";
+    }
+
     if (targetId === "auditLogPanel") {
         return "log";
     }
@@ -2764,6 +2778,10 @@ function setActiveShortcut(targetId) {
 
     if (nextView === "requests") {
         renderWorkerRequestsPanel();
+    }
+
+    if (nextView === "clockmarks") {
+        renderClockMarksPanel();
     }
 
     document
@@ -2881,6 +2899,604 @@ function renderProfiles() {
 
     renderDashboardState();
 }
+
+function renderClockMarksProfiles() {
+    if (!DOM.clockMarksProfiles) return;
+
+    const profiles = getProfiles();
+    const showInactive =
+        DOM.clockMarksShowInactiveProfiles?.checked ?? true;
+    const current = getCurrentProfile();
+    const filtro = DOM.clockMarksFilterRole?.value || "Todos";
+    const query = normalizeProfileSearch(
+        DOM.clockMarksProfileSearch?.value || ""
+    );
+
+    DOM.clockMarksProfiles.innerHTML = "";
+
+    const visibles = profiles.filter(profile => {
+        const matchActive =
+            showInactive || isProfileActive(profile);
+        const matchRole =
+            filtro === "Todos" ||
+            profile.estamento === filtro;
+        const haystack = normalizeProfileSearch([
+            profile.name,
+            profile.estamento,
+            formatProfession(profile.profession),
+            profile.email,
+            profile.rut
+        ].join(" "));
+
+        return matchActive &&
+            matchRole &&
+            (!query || haystack.includes(query));
+    });
+
+    if (DOM.clockMarksEmptyProfiles) {
+        DOM.clockMarksEmptyProfiles.classList.toggle(
+            "hidden",
+            Boolean(visibles.length)
+        );
+        DOM.clockMarksEmptyProfiles.textContent = profiles.length
+            ? "No hay resultados con ese filtro."
+            : "Aun no hay colaboradores creados.";
+    }
+
+    visibles.forEach(profile => {
+        const item = document.createElement("div");
+        item.className = "profile-item";
+
+        if (!isProfileActive(profile)) {
+            item.classList.add("is-inactive");
+        }
+
+        if (profile.name === current) {
+            item.classList.add("active");
+        }
+
+        const avatar = document.createElement("div");
+        avatar.className = "profile-item__avatar";
+        avatar.textContent =
+            profile.name.trim().charAt(0).toUpperCase() || "T";
+
+        const content = document.createElement("div");
+        content.className = "profile-item__content";
+
+        const name = document.createElement("strong");
+        name.textContent = profile.name;
+
+        const meta = document.createElement("span");
+        meta.textContent = isProfileActive(profile)
+            ? getProfileMetaLabel(profile)
+            : `${getProfileMetaLabel(profile)} | Desactivado`;
+
+        content.append(name, meta);
+        item.append(avatar, content);
+
+        item.onclick = () => {
+            selectProfileByName(profile.name, {
+                scrollToTop: true
+            });
+            setActiveShortcut("clockMarksPanel");
+        };
+
+        DOM.clockMarksProfiles.appendChild(item);
+    });
+}
+
+function formatClockMarkDate(keyDay) {
+    return formatDisplayDate(calendarKeyToInputDate(keyDay));
+}
+
+function formatClockMinute(date) {
+    return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function parseClockTimeValue(value) {
+    const match = String(value || "").match(/^(\d{1,2}):(\d{2})$/);
+
+    if (!match) return null;
+
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return null;
+    }
+
+    return { hour, minute };
+}
+
+function clockDateAt(base, hour, minute = 0) {
+    return new Date(
+        base.getFullYear(),
+        base.getMonth(),
+        base.getDate(),
+        hour,
+        minute
+    );
+}
+
+function clockTimeNearReference(baseDate, value, reference) {
+    const parsed = parseClockTimeValue(value);
+
+    if (!parsed) return null;
+
+    const same = clockDateAt(
+        baseDate,
+        parsed.hour,
+        parsed.minute
+    );
+    const next = new Date(same);
+    next.setDate(next.getDate() + 1);
+    const previous = new Date(same);
+    previous.setDate(previous.getDate() - 1);
+
+    return [same, next, previous].sort((a, b) =>
+        Math.abs(a - reference) - Math.abs(b - reference)
+    )[0];
+}
+
+function clockSegmentsOverlap(a, b) {
+    return a.start < b.end && b.start < a.end;
+}
+
+function findClockMarkEntry(mark, segment) {
+    if (!mark?.segments || !segment) return null;
+
+    const aliases = {
+        half_admin_morning: ["half_afternoon"],
+        half_admin_afternoon: ["half_morning"],
+        half_morning: ["half_admin_afternoon"],
+        half_afternoon: ["half_admin_morning"]
+    };
+    const keys = [segment.id, ...(aliases[segment.id] || [])];
+    const key = keys.find(item => mark.segments[item]);
+
+    return key
+        ? { key, value: mark.segments[key] }
+        : null;
+}
+
+function findClockSegmentForKey(segmentKey, segments) {
+    const aliases = {
+        half_admin_morning: ["half_afternoon"],
+        half_admin_afternoon: ["half_morning"],
+        half_morning: ["half_admin_afternoon"],
+        half_afternoon: ["half_admin_morning"]
+    };
+
+    return segments.find(segment =>
+        segment.id === segmentKey ||
+        (aliases[segmentKey] || []).includes(segment.id)
+    ) || null;
+}
+
+function fallbackClockSegment(date, segmentKey) {
+    return {
+        id: segmentKey,
+        label: segmentKey
+            .replace(/_/g, " ")
+            .replace(/\b\w/g, char => char.toUpperCase()),
+        start: clockDateAt(date, 0),
+        end: clockDateAt(date, 0)
+    };
+}
+
+function hasClockMarkRecordData(segmentMark) {
+    return Boolean(
+        segmentMark?.entryTime ||
+        segmentMark?.exitTime ||
+        segmentMark?.missingEntry ||
+        segmentMark?.missingExit
+    );
+}
+
+function getClockMarkTimingFlags(date, segment, segmentMark) {
+    const entry = segmentMark?.entryTime
+        ? clockTimeNearReference(
+            date,
+            segmentMark.entryTime,
+            segment.start
+        )
+        : null;
+    const exit = segmentMark?.exitTime
+        ? clockTimeNearReference(
+            date,
+            segmentMark.exitTime,
+            segment.end
+        )
+        : null;
+
+    return {
+        entry,
+        exit,
+        lateEntry: Boolean(entry && entry > segment.start),
+        earlyEntry: Boolean(entry && entry < segment.start),
+        earlyExit: Boolean(exit && exit < segment.end),
+        lateExit: Boolean(exit && exit > segment.end)
+    };
+}
+
+function getClockActualState(profileName, keyDay) {
+    const data = getProfileData(profileName);
+    const hasData =
+        Object.prototype.hasOwnProperty.call(data, keyDay);
+    const rawState = hasData
+        ? Number(data[keyDay]) || TURNO.LIBRE
+        : getTurnoBase(profileName, keyDay);
+
+    return aplicarCambiosTurno(
+        profileName,
+        keyDay,
+        rawState
+    );
+}
+
+function getClockBaseState(profileName, keyDay) {
+    return aplicarCambiosTurno(
+        profileName,
+        keyDay,
+        getTurnoBase(profileName, keyDay),
+        { includeReplacements: false }
+    );
+}
+
+function isClockBaseOrSwapSegment(
+    profileName,
+    keyDay,
+    date,
+    segment,
+    holidays
+) {
+    const baseState = getClockBaseState(profileName, keyDay);
+    const scheduledBaseState = getClockScheduleState(
+        profileName,
+        keyDay,
+        baseState
+    );
+    const baseSegments = getScheduledSegmentsForProfile(
+        profileName,
+        keyDay,
+        date,
+        scheduledBaseState,
+        holidays
+    );
+
+    return baseSegments.some(base =>
+        base.id === segment.id ||
+        clockSegmentsOverlap(base, segment)
+    );
+}
+
+function buildClockMarkRecordsForProfile(profile, monthDate, holidays) {
+    const records = [];
+    const y = monthDate.getFullYear();
+    const m = monthDate.getMonth();
+    const marks = getClockMarks(profile.name);
+
+    Object.entries(marks).forEach(([keyDay, dayMark]) => {
+        const date = parseKey(keyDay);
+
+        if (
+            Number.isNaN(date.getTime()) ||
+            date.getFullYear() !== y ||
+            date.getMonth() !== m ||
+            !dayMark?.segments
+        ) {
+            return;
+        }
+
+        const actualState = getClockActualState(
+            profile.name,
+            keyDay
+        );
+        const scheduledState = getClockScheduleState(
+            profile.name,
+            keyDay,
+            actualState
+        );
+        const scheduledSegments = getScheduledSegmentsForProfile(
+            profile.name,
+            keyDay,
+            date,
+            scheduledState,
+            holidays
+        );
+        const consumed = new Set();
+
+        scheduledSegments.forEach(segment => {
+            const entry = findClockMarkEntry(dayMark, segment);
+
+            if (!entry || !hasClockMarkRecordData(entry.value)) {
+                return;
+            }
+
+            consumed.add(entry.key);
+            records.push({
+                profile,
+                keyDay,
+                date,
+                segment,
+                segmentKey: entry.key,
+                segmentMark: entry.value,
+                isBaseOrSwap: isClockBaseOrSwapSegment(
+                    profile.name,
+                    keyDay,
+                    date,
+                    segment,
+                    holidays
+                )
+            });
+        });
+
+        Object.entries(dayMark.segments)
+            .filter(([segmentKey, segmentMark]) =>
+                !consumed.has(segmentKey) &&
+                hasClockMarkRecordData(segmentMark)
+            )
+            .forEach(([segmentKey, segmentMark]) => {
+                const segment =
+                    findClockSegmentForKey(
+                        segmentKey,
+                        scheduledSegments
+                    ) ||
+                    fallbackClockSegment(date, segmentKey);
+
+                records.push({
+                    profile,
+                    keyDay,
+                    date,
+                    segment,
+                    segmentKey,
+                    segmentMark,
+                    isBaseOrSwap: isClockBaseOrSwapSegment(
+                        profile.name,
+                        keyDay,
+                        date,
+                        segment,
+                        holidays
+                    )
+                });
+            });
+    });
+
+    return records;
+}
+
+function renderClockMarkRecord(record) {
+    const timing = getClockMarkTimingFlags(
+        record.date,
+        record.segment,
+        record.segmentMark
+    );
+    const isMissing =
+        record.segmentMark.missingEntry ||
+        record.segmentMark.missingExit;
+    const isReduction =
+        record.isBaseOrSwap &&
+        !isMissing &&
+        (timing.lateEntry || timing.earlyExit);
+    const classes = [
+        "clockmark-record",
+        isMissing ? "clockmark-record--severe" : "",
+        isReduction ? "clockmark-record--warning" : "",
+        record.segmentMark.rrhhPayApproved ||
+        record.segmentMark.discountWaived
+            ? "is-approved"
+            : ""
+    ].filter(Boolean).join(" ");
+    const badges = [];
+
+    if (record.segmentMark.missingEntry) {
+        badges.push("Sin entrada");
+    }
+
+    if (record.segmentMark.missingExit) {
+        badges.push("Sin salida");
+    }
+
+    if (isReduction) {
+        badges.push("Reduccion de jornada");
+    }
+
+    if (timing.earlyEntry || timing.lateExit) {
+        badges.push("Genera horas extra");
+    }
+
+    const details = [];
+
+    if (record.segmentMark.entryTime) {
+        details.push(
+            `Entrada ${formatClockMinute(record.segment.start)} -> ${escapeHTML(record.segmentMark.entryTime)}`
+        );
+    }
+
+    if (record.segmentMark.exitTime) {
+        details.push(
+            `Salida ${formatClockMinute(record.segment.end)} -> ${escapeHTML(record.segmentMark.exitTime)}`
+        );
+    }
+
+    if (!details.length) {
+        details.push(
+            `${formatClockMinute(record.segment.start)} - ${formatClockMinute(record.segment.end)}`
+        );
+    }
+
+    return `
+        <article class="${classes}"
+            data-profile="${escapeHTML(record.profile.name)}"
+            data-key-day="${escapeHTML(record.keyDay)}"
+            data-segment-key="${escapeHTML(record.segmentKey)}">
+            <div class="clockmark-record__main">
+                <div>
+                    <strong>${escapeHTML(record.profile.name)}</strong>
+                    <span>${formatClockMarkDate(record.keyDay)} | ${escapeHTML(record.segment.label || turnoLabel(getClockActualState(record.profile.name, record.keyDay)))}</span>
+                </div>
+
+                <div class="clockmark-record__badges">
+                    ${badges.map(badge =>
+                        `<span>${escapeHTML(badge)}</span>`
+                    ).join("")}
+                </div>
+            </div>
+
+            <p class="clockmark-record__detail">
+                ${details.join(" | ")}
+            </p>
+
+            ${isMissing ? `
+                <label class="clockmark-check">
+                    <input type="checkbox" data-clock-review="rrhhPayApproved" ${record.segmentMark.rrhhPayApproved ? "checked" : ""}>
+                    <span>RRHH autoriza pago pese a falta de marcaje</span>
+                </label>
+            ` : ""}
+
+            ${isReduction ? `
+                <label class="clockmark-check">
+                    <input type="checkbox" data-clock-review="discountWaived" ${record.segmentMark.discountWaived ? "checked" : ""}>
+                    <span>No descontar horas por incidencia justificada</span>
+                </label>
+
+                <label class="clockmark-note">
+                    <span>Nota administrativa</span>
+                    <textarea data-clock-note rows="2" placeholder="Ej: El colaborador informa que llego a la hora, pero olvido registrar el marcaje.">${escapeHTML(record.segmentMark.adminNote || "")}</textarea>
+                </label>
+            ` : ""}
+        </article>
+    `;
+}
+
+function updateClockMarkReview(profileName, keyDay, segmentKey, patch) {
+    const marks = getClockMarks(profileName);
+    const dayMark = marks[keyDay] || { segments: {} };
+    const currentSegment = dayMark.segments?.[segmentKey] || {};
+
+    marks[keyDay] = {
+        ...dayMark,
+        segments: {
+            ...(dayMark.segments || {}),
+            [segmentKey]: {
+                ...currentSegment,
+                ...patch,
+                reviewedAt: new Date().toISOString()
+            }
+        },
+        updatedAt: new Date().toISOString()
+    };
+
+    saveClockMarks(profileName, marks);
+}
+
+async function renderClockMarksPanel() {
+    if (!DOM.clockMarksPanel || !DOM.clockMarksList) return;
+
+    renderClockMarksProfiles();
+
+    const requestId = ++clockMarksRenderRequest;
+    const monthDate = new Date(
+        currentDate.getFullYear(),
+        currentDate.getMonth(),
+        1
+    );
+    const holidays = await fetchHolidays(monthDate.getFullYear());
+
+    if (requestId !== clockMarksRenderRequest) return;
+
+    const showAll = Boolean(
+        DOM.clockMarksAllWorkersToggle?.checked
+    );
+    const currentProfile = getCurrentProfile();
+    const profiles = getProfiles()
+        .filter(profile =>
+            showAll || profile.name === currentProfile
+        )
+        .filter(profile => showAll || isProfileActive(profile));
+    const records = profiles
+        .flatMap(profile =>
+            buildClockMarkRecordsForProfile(
+                profile,
+                monthDate,
+                holidays
+            )
+        )
+        .sort((a, b) =>
+            a.date - b.date ||
+            a.profile.name.localeCompare(b.profile.name)
+        );
+
+    if (DOM.clockMarksSubtitle) {
+        DOM.clockMarksSubtitle.textContent = showAll
+            ? `Mostrando registros de todos los colaboradores en ${formatMonthHeading(monthDate)}.`
+            : currentProfile
+                ? `Mostrando registros de ${currentProfile} en ${formatMonthHeading(monthDate)}.`
+                : "Selecciona un colaborador para revisar sus marcajes.";
+    }
+
+    if (!records.length) {
+        DOM.clockMarksList.innerHTML = `
+            <div class="clockmarks-empty">
+                No hay registros de marcaje para el filtro actual.
+            </div>
+        `;
+        return;
+    }
+
+    DOM.clockMarksList.innerHTML =
+        records.map(renderClockMarkRecord).join("");
+
+    DOM.clockMarksList
+        .querySelectorAll("[data-clock-review]")
+        .forEach(input => {
+            input.onchange = () => {
+                const card = input.closest(".clockmark-record");
+
+                updateClockMarkReview(
+                    card.dataset.profile,
+                    card.dataset.keyDay,
+                    card.dataset.segmentKey,
+                    {
+                        [input.dataset.clockReview]: input.checked
+                    }
+                );
+
+                addAuditLog(
+                    AUDIT_CATEGORY.OVERTIME,
+                    "Revision de marcaje",
+                    `${card.dataset.profile} | ${formatClockMarkDate(card.dataset.keyDay)}: ${input.dataset.clockReview} ${input.checked ? "activado" : "desactivado"}.`,
+                    { profile: card.dataset.profile }
+                );
+                refreshAll();
+            };
+        });
+
+    DOM.clockMarksList
+        .querySelectorAll("[data-clock-note]")
+        .forEach(textarea => {
+            textarea.onchange = () => {
+                const card = textarea.closest(".clockmark-record");
+
+                updateClockMarkReview(
+                    card.dataset.profile,
+                    card.dataset.keyDay,
+                    card.dataset.segmentKey,
+                    { adminNote: textarea.value.trim() }
+                );
+
+                addAuditLog(
+                    AUDIT_CATEGORY.OVERTIME,
+                    "Nota en incidencia de marcaje",
+                    `${card.dataset.profile} | ${formatClockMarkDate(card.dataset.keyDay)}: se actualizo la nota administrativa.`,
+                    { profile: card.dataset.profile }
+                );
+                renderClockMarksPanel();
+            };
+        });
+}
+
+window.renderClockMarksPanel = renderClockMarksPanel;
 
 function normalizeProfileSearch(value) {
     return String(value || "")
@@ -3071,7 +3687,7 @@ function startEditMode() {
     if (!profile) return;
 
     clearSelectionMode(false);
-    availabilityEditMode = false;
+    availabilityEditMode = true;
     loadDraftFromProfile(profile);
     profileRotationMiniDate = profileDraft.rotationStart
         ? parseInputDate(profileDraft.rotationStart)
@@ -3132,6 +3748,12 @@ function handleRotationSelectionChange() {
 
     profileDraft.rotationType =
         DOM.profileRotationSelect.value;
+    if (
+        profileDraft.rotationType !== "3turno" &&
+        profileDraft.rotationType !== "4turno"
+    ) {
+        profileDraft.shiftAssigned = false;
+    }
     profileDraft.rotationStart = "";
     profileDraft.rotationFirstTurn = "larga";
     profileDraft.contractStart = "";
@@ -3536,7 +4158,13 @@ async function guardarPerfil() {
         : null;
     const nextName = profileDraft.name.trim();
     const nextEstamento = profileDraft.estamento;
+    const nextRotationType =
+        profileDraft.rotationType;
     const nextShiftAssigned =
+        (
+            nextRotationType === "3turno" ||
+            nextRotationType === "4turno"
+        ) &&
         Boolean(profileDraft.shiftAssigned);
     const nextProfilePayload = {
         name: nextName,
@@ -3548,15 +4176,12 @@ async function guardarPerfil() {
             ? [...profileDraft.docs]
             : [],
         active: profileDraft.active !== false,
-        unit: profileDraft.unit.trim(),
         unitEntryDate: profileDraft.unitEntryDate,
         contractType: profileDraft.contractType,
         estamento: nextEstamento,
         profession: profileDraft.profession,
         grade: profileDraft.grade
     };
-    const nextRotationType =
-        profileDraft.rotationType;
     const nextRotationStart =
         nextRotationType === "reemplazo"
             ? (
@@ -3660,6 +4285,10 @@ async function guardarPerfil() {
                 replaces:
                     profileDraft.contractReplaces.trim()
             });
+        }
+
+        if (isEditing && availabilityEditMode) {
+            saveAvailabilityBalancesFromInputs(nextName);
         }
 
         if (isCreating) {
@@ -3770,6 +4399,54 @@ function handleAvailabilityEdit() {
 
     availabilityEditMode = false;
     refreshAll();
+}
+
+function saveAvailabilityBalancesFromInputs(profileName) {
+    const legalInput =
+        document.getElementById("availabilityLegalInput");
+    const adminInput =
+        document.getElementById("availabilityAdminInput");
+
+    if (!profileName || !legalInput || !adminInput) {
+        return false;
+    }
+
+    const year = new Date().getFullYear();
+    const previous = getManualLeaveBalances(year, profileName);
+    const balances = {
+        legal: normalizeBalanceValue(legalInput.value),
+        admin: normalizeBalanceValue(adminInput.value)
+    };
+    const compInput =
+        document.getElementById("availabilityCompInput");
+
+    if (compInput) {
+        balances.comp = normalizeBalanceValue(compInput.value);
+    }
+
+    const changed =
+        Number(previous.legal) !== Number(balances.legal) ||
+        Number(previous.admin) !== Number(balances.admin) ||
+        (
+            balances.comp !== undefined &&
+            Number(previous.comp) !== Number(balances.comp)
+        );
+
+    saveManualLeaveBalances(year, balances, profileName);
+
+    if (changed) {
+        addAuditLog(
+            AUDIT_CATEGORY.LEAVE_ABSENCE,
+            "Modifico saldos de vacaciones",
+            `${profileName}: FL ${formatSaldo(balances.legal)}, ADM ${formatSaldo(balances.admin)}${balances.comp !== undefined ? `, FC ${formatSaldo(balances.comp)}` : ""}.`,
+            {
+                profile: profileName,
+                year
+            }
+        );
+    }
+
+    return changed;
 }
 
 async function activarSelectorLegal() {
@@ -4163,11 +4840,6 @@ function bindProfileForm() {
         }
     };
 
-    DOM.profileUnitInput.oninput = () => {
-        if (!isProfileEditing()) return;
-        profileDraft.unit = DOM.profileUnitInput.value;
-    };
-
     DOM.profileUnitEntryDateInput.onchange = () => {
         if (!isProfileEditing()) return;
         profileDraft.unitEntryDate =
@@ -4238,23 +4910,10 @@ function bindProfileForm() {
             return;
         }
 
-        const profile = getPerfilActual();
-        if (!profile) return;
-
-        const nextActive = DOM.profileActiveToggle.checked;
-        updateProfile(profile.name, {
-            ...profile,
-            active: nextActive
-        });
-        addAuditLog(
-            AUDIT_CATEGORY.PROFILE_STATUS,
-            nextActive ? "Reactivo perfil" : "Inactivo perfil",
-            `${profile.name} quedo ${activeLabel(nextActive)}.`,
-            { profile: profile.name }
-        );
-
-        renderProfiles();
-        refreshAll();
+        DOM.profileActiveToggle.checked =
+            getPerfilActual()
+                ? isProfileActive(getPerfilActual())
+                : false;
     };
 
     DOM.openCreateProfileBtn.onclick = async () => {
@@ -4303,6 +4962,28 @@ function bindShellInteractions() {
     DOM.profileSearch.oninput = renderProfiles;
     if (DOM.showInactiveProfiles) {
         DOM.showInactiveProfiles.onchange = renderProfiles;
+    }
+
+    if (DOM.clockMarksFilterRole) {
+        DOM.clockMarksFilterRole.onchange = () => {
+            renderClockMarksProfiles();
+            renderClockMarksPanel();
+        };
+    }
+
+    if (DOM.clockMarksProfileSearch) {
+        DOM.clockMarksProfileSearch.oninput =
+            renderClockMarksProfiles;
+    }
+
+    if (DOM.clockMarksShowInactiveProfiles) {
+        DOM.clockMarksShowInactiveProfiles.onchange =
+            renderClockMarksProfiles;
+    }
+
+    if (DOM.clockMarksAllWorkersToggle) {
+        DOM.clockMarksAllWorkersToggle.onchange =
+            renderClockMarksPanel;
     }
 
     if (DOM.topProfileSearchForm) {

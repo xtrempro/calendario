@@ -21,4 +21,11 @@ export function refreshAll(){
     if (document.body.dataset.activeView === "log") {
         renderAuditLogPanel();
     }
+
+    if (
+        document.body.dataset.activeView === "clockmarks" &&
+        typeof window.renderClockMarksPanel === "function"
+    ) {
+        window.renderClockMarksPanel();
+    }
 }

@@ -78,6 +78,28 @@ export function calcDiaNoche(date,h){
     };
 }
 
+export function calcMediaManana(date,h={}){
+    return isBusinessDay(date,h)
+        ? {d:6,n:0}
+        : {d:0,n:6};
+}
+
+export function calcMediaTarde(date,h={}){
+    return isBusinessDay(date,h)
+        ? {d:6,n:0}
+        : {d:0,n:6};
+}
+
+export function calc18(date,h={}){
+    const tarde = calcMediaTarde(date,h);
+    const noche = calcNight(date,h);
+
+    return {
+        d: tarde.d + noche.d,
+        n: tarde.n + noche.n
+    };
+}
+
 export function calcHours(date,state,h){
     if(state===0) return {d:0,n:0};
 
@@ -88,10 +110,15 @@ export function calcHours(date,state,h){
     if(state===3) return calc24(date,h);
     if(state===4) return calcDiurno(date,h);
     if(state===5) return calcDiaNoche(date,h);
+    if(state===6) return calcMediaManana(date,h);
+    if(state===7) return calcMediaTarde(date,h);
+    if(state===8) return calc18(date,h);
+
+    return {d:0,n:0};
 }
 
 export function calcCarry(lastDate,state,h){
-    if(![2,3,5].includes(state)) return {d:0,n:0};
+    if(![2,3,5,8].includes(state)) return {d:0,n:0};
 
     const isHab=isBusinessDay(lastDate,h);
 

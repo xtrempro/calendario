@@ -86,6 +86,8 @@ import {
     hasSevereClockIncident,
     hasSimpleClockIncident
 } from "./clockMarks.js";
+import { TURNO } from "./constants.js";
+import { getJSON } from "./persistence.js";
 
 export let currentDate = new Date();
 
@@ -356,6 +358,45 @@ function getActualState(profileName, keyDay) {
     );
 }
 
+function isHalfAdminValue(value) {
+    return (
+        value === "0.5M" ||
+        value === "0.5T" ||
+        value === 0.5
+    );
+}
+
+function getHalfAdminCoverageTurn(profileName, keyDay) {
+    if (
+        !getShiftAssigned(profileName) ||
+        getRotativa(profileName).type === "diurno"
+    ) {
+        return TURNO.LIBRE;
+    }
+
+    const admin = getJSON(`admin_${profileName}`, {});
+
+    if (admin[keyDay] === "0.5M") {
+        return TURNO.MEDIA_MANANA;
+    }
+
+    if (admin[keyDay] === "0.5T") {
+        return TURNO.MEDIA_TARDE;
+    }
+
+    return TURNO.LIBRE;
+}
+
+function getReplacementNeededTurn(profileName, keyDay) {
+    const admin = getJSON(`admin_${profileName}`, {});
+
+    if (isHalfAdminValue(admin[keyDay])) {
+        return getHalfAdminCoverageTurn(profileName, keyDay);
+    }
+
+    return getTurnoBase(profileName, keyDay);
+}
+
 function canCoverShift(currentState, neededTurn) {
     if (!neededTurn) return false;
 
@@ -407,7 +448,9 @@ async function getReplacementCandidates(
     const m = date.getMonth();
     const days = new Date(y, m + 1, 0).getDate();
     const holidays = await fetchHolidays(y);
-    const neededTurn = getTurnoBase(profileName, keyDay);
+    const neededTurn =
+        options.neededTurn ||
+        getReplacementNeededTurn(profileName, keyDay);
     const baseProfile = getProfiles().find(profile =>
         profile.name === profileName
     );
@@ -629,7 +672,15 @@ async function openReplacementDialog(profileName, keyDay) {
         return;
     }
 
-    const neededTurn = getTurnoBase(profileName, keyDay);
+    const neededTurn = getReplacementNeededTurn(
+        profileName,
+        keyDay
+    );
+
+    if (!neededTurn) {
+        return;
+    }
+
     const absenceType =
         getAbsenceLabelForProfileDate(profileName, keyDay);
     let scope = "compatible";
@@ -952,7 +1003,7 @@ function getExtraReasonMatches(
 ) {
     return sameRoleProfiles(profileName)
         .map(profile => {
-            const coveredTurn = getTurnoBase(
+            const coveredTurn = getReplacementNeededTurn(
                 profile.name,
                 keyDay
             );
@@ -1406,7 +1457,10 @@ async function clickDia(
     if (window.selectionMode === "halfadmin") return;
     if (window.selectionMode) return;
 
+    const replacementNeededTurn =
+        getReplacementNeededTurn(getCurrentProfile(), keyDay);
     const needsReplacement =
+        Boolean(replacementNeededTurn) &&
         requiereReemplazoTurnoBase(
             keyDay,
             getTurnoBase(getCurrentProfile(), keyDay),
