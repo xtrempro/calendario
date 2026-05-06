@@ -10,17 +10,9 @@ import {
 import { initSystemSettings } from "./systemSettings.js";
 import { initFirebaseShell } from "./firebaseShell.js";
 import {
-    startFirebaseProfileSync,
-    stopFirebaseProfileSync
-} from "./firebaseProfiles.js";
-import {
-    startFirebaseReplacementRequestSync,
-    stopFirebaseReplacementRequestSync
-} from "./firebaseReplacementRequests.js";
-import {
-    startFirebaseWorkerRequestSync,
-    stopFirebaseWorkerRequestSync
-} from "./firebaseWorkerRequests.js";
+    startFirebaseAppStateSync,
+    stopFirebaseAppStateSync
+} from "./firebaseAppState.js";
 import { exportHoursReport } from "./hoursReport.js";
 import {
     initHoursCharts,
@@ -5650,37 +5642,40 @@ initFirebaseShell({
     userName: DOM.authUserName,
     onAuthChange: user => {
         if (!user) {
-            stopFirebaseProfileSync();
-            stopFirebaseReplacementRequestSync();
-            stopFirebaseWorkerRequestSync();
+            stopFirebaseAppStateSync();
         }
     },
     onWorkspaceChange: workspace => {
         if (workspace?.id) {
-            startFirebaseProfileSync(workspace, {
+            startFirebaseAppStateSync(workspace, {
                 onChange: () => {
+                    const profiles = getProfiles();
+                    const current = getCurrentProfile();
+
+                    if (
+                        profiles.length &&
+                        !profiles.some(profile =>
+                            profile.name === current
+                        )
+                    ) {
+                        setCurrentProfile(profiles[0].name);
+                    }
+
+                    if (!profiles.length) {
+                        setCurrentProfile(null);
+                    }
+
                     renderProfiles();
-                    refreshAll();
-                    renderDashboardState();
-                }
-            });
-            startFirebaseReplacementRequestSync(workspace, {
-                onChange: () => {
-                    refreshAll();
-                    renderDashboardState();
-                }
-            });
-            startFirebaseWorkerRequestSync(workspace, {
-                onChange: () => {
+                    renderBotones();
+                    renderSwapPanel();
                     renderWorkerRequestsPanel();
+                    renderStaffingPanel();
                     refreshAll();
                     renderDashboardState();
                 }
             });
         } else {
-            stopFirebaseProfileSync();
-            stopFirebaseReplacementRequestSync();
-            stopFirebaseWorkerRequestSync();
+            stopFirebaseAppStateSync();
         }
 
         refreshAll();

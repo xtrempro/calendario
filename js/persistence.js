@@ -1,10 +1,16 @@
 const LOCAL_DRIVER = "local";
 const INTERNAL_KEYS = new Set([
     "proturnos_theme",
-    "firebaseActiveWorkspace"
+    "firebaseActiveWorkspace",
+    "proturnos_firebase_client_id"
 ]);
+const INTERNAL_KEY_PREFIXES = [
+    "firebase:",
+    "firebase-"
+];
 
 let activeDriver = LOCAL_DRIVER;
+let suppressChangeEvents = 0;
 
 // Persistence boundary: Firebase can later hydrate a cache and keep this API sync.
 function storage() {
@@ -46,6 +52,36 @@ export function configureStorageDriver(driver = LOCAL_DRIVER) {
     activeDriver = driver || LOCAL_DRIVER;
 }
 
+export function isInternalKey(key) {
+    const cleanKey = String(key || "");
+
+    return (
+        INTERNAL_KEYS.has(cleanKey) ||
+        INTERNAL_KEY_PREFIXES.some(prefix =>
+            cleanKey.startsWith(prefix)
+        )
+    );
+}
+
+function notifyPersistenceChanged(keys = [], action = "change") {
+    if (
+        suppressChangeEvents ||
+        typeof window === "undefined" ||
+        !keys.length
+    ) {
+        return;
+    }
+
+    window.dispatchEvent(
+        new CustomEvent("proturnos:persistenceChanged", {
+            detail: {
+                action,
+                keys
+            }
+        })
+    );
+}
+
 export function getRaw(key, fallback = null) {
     const store = storage();
     if (!store) return fallback;
@@ -58,14 +94,27 @@ export function setRaw(key, value) {
     const store = storage();
     if (!store) return;
 
-    store.setItem(key, String(value));
+    const nextValue = String(value);
+    const previousValue = store.getItem(key);
+
+    store.setItem(key, nextValue);
+
+    if (previousValue !== nextValue) {
+        notifyPersistenceChanged([key], "set");
+    }
 }
 
 export function removeKey(key) {
     const store = storage();
     if (!store) return;
 
+    const hadKey = store.getItem(key) !== null;
+
     store.removeItem(key);
+
+    if (hadKey) {
+        notifyPersistenceChanged([key], "remove");
+    }
 }
 
 export function getJSON(key, fallback = {}) {
@@ -109,7 +158,7 @@ export function exportLocalSnapshot({
     if (!store) return {};
 
     return listKeys().reduce((snapshot, key) => {
-        if (!includeInternal && INTERNAL_KEYS.has(key)) {
+        if (!includeInternal && isInternalKey(key)) {
             return snapshot;
         }
 
@@ -119,16 +168,68 @@ export function exportLocalSnapshot({
 }
 
 export function importLocalSnapshot(snapshot = {}, {
-    overwrite = true
+    overwrite = true,
+    includeInternal = false
 } = {}) {
     if (!snapshot || typeof snapshot !== "object") return;
 
     Object.entries(snapshot).forEach(([key, value]) => {
+        if (!includeInternal && isInternalKey(key)) return;
         if (!overwrite && getRaw(key, null) !== null) return;
         if (value === null || value === undefined) return;
 
         setRaw(key, value);
     });
+}
+
+export function replaceLocalSnapshot(snapshot = {}, {
+    includeInternal = false,
+    silent = true
+} = {}) {
+    const store = storage();
+    if (!store || !snapshot || typeof snapshot !== "object") return;
+
+    const changedKeys = new Set();
+    const snapshotEntries = Object.entries(snapshot)
+        .filter(([key, value]) =>
+            (includeInternal || !isInternalKey(key)) &&
+            value !== null &&
+            value !== undefined
+        );
+    const snapshotKeys = new Set(
+        snapshotEntries.map(([key]) => key)
+    );
+
+    if (silent) {
+        suppressChangeEvents++;
+    }
+
+    try {
+        listKeys().forEach(key => {
+            if (!includeInternal && isInternalKey(key)) return;
+            if (snapshotKeys.has(key)) return;
+
+            store.removeItem(key);
+            changedKeys.add(key);
+        });
+
+        snapshotEntries.forEach(([key, value]) => {
+            const nextValue = String(value);
+
+            if (store.getItem(key) !== nextValue) {
+                store.setItem(key, nextValue);
+                changedKeys.add(key);
+            }
+        });
+    } finally {
+        if (silent) {
+            suppressChangeEvents--;
+        }
+    }
+
+    if (!silent && changedKeys.size) {
+        notifyPersistenceChanged([...changedKeys], "replace");
+    }
 }
 
 export function moveKey(oldKey, newKey) {

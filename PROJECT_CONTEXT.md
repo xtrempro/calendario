@@ -113,7 +113,8 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/
 - `js/hoursEngine.js`, `js/hoursCharts.js`, `js/hoursReport.js`: calculos, graficos y reportes de horas.
 - `js/systemSettings.js`: modal de ajustes, valores hora por grado, feriados manuales, solicitudes de reemplazo y dotacion.
 - `js/holidays.js`: feriados de Chile por API Nager.Date y feriados manuales.
-- `js/firebase*.js`, `js/workspaces.js`: autenticacion/shell Firebase, workspaces y sincronizacion opcional.
+- `js/firebase*.js`, `js/workspaces.js`: autenticacion/shell Firebase, workspaces, copia manual de respaldo y sincronizacion del estado completo.
+- `js/firebaseAppState.js`: sincronizacion automatica por workspace del snapshot completo de `localStorage`, con manifiesto y chunks en Firestore.
 - `firebase.rules` y `storage.rules`: reglas de Firestore y Storage para workspaces y miembros.
 
 ## Vistas Principales
@@ -176,6 +177,12 @@ Layout actual del menu Perfil:
 - El grafico de licencias `#staffingMedicalChart` se muestra al final del Perfil, despues de `Registros RRHH`.
 - El resumen de `Vacaciones Disponibles` no debe mostrar el texto `Licencias medicas cargadas`.
 - En tema claro, los textbox (`input`, `select`, `textarea`, incluidos disabled/readonly) usan fondo blanco para contrastar con formularios y paneles grises.
+
+Migracion Firebase:
+
+- La seleccion de un workspace Firebase ahora inicia sincronizacion automatica del estado completo de la app, no solo perfiles o solicitudes.
+- `js/firebaseAppState.js` guarda un manifiesto en `workspaces/{workspaceId}/system/appState` y el contenido en chunks bajo `workspaces/{workspaceId}/appStateChunks`.
+- `localStorage` sigue siendo la cache local de trabajo; Firebase replica esa cache entre usuarios del mismo workspace.
 
 Reglas actuales:
 
@@ -323,15 +330,36 @@ Pendiente conocido desde el chat:
 
 Arquitectura:
 
-- Modo local sigue usando `localStorage`.
-- Firebase sincroniza perfiles, solicitudes de reemplazo, solicitudes de trabajadores y workspaces.
+- Modo local sigue usando `localStorage` como cache sincronica de la app.
+- Al iniciar sesion y seleccionar un workspace, `js/main.js` llama `startFirebaseAppStateSync()` desde `js/firebaseAppState.js`.
+- Firebase sincroniza automaticamente el estado completo de la app por workspace:
+  - Manifiesto: `workspaces/{workspaceId}/system/appState`.
+  - Chunks: `workspaces/{workspaceId}/appStateChunks/part_0000`, `part_0001`, etc.
+- El snapshot excluye claves internas, de tema, workspace activo, id local del cliente y claves tecnicas de Firebase Auth (`firebase:` / `firebase-`).
+- `js/persistence.js` emite `proturnos:persistenceChanged` cuando cambian datos locales; `firebaseAppState.js` escucha ese evento y sube cambios con debounce.
+- Cuando llega un estado remoto, `replaceLocalSnapshot()` reemplaza la cache local en silencio y `main.js` refresca perfiles, calendario, cambios de turno, solicitudes, RRHH y dashboard.
+- Los modulos granulares `firebaseProfiles.js`, `firebaseReplacementRequests.js` y `firebaseWorkerRequests.js` siguen en el repo, pero `main.js` ya no los inicia; la sincronizacion completa los reemplaza como camino principal.
+- `js/firebaseMigration.js` sigue disponible como copia manual de respaldo en `workspaces/{workspaceId}/system/localStorageSnapshot`; no es el flujo automatico principal.
 - `firebase.rules` exige usuario autenticado y miembro de workspace para leer/escribir.
 - `storage.rules` permite archivos bajo `workspaces/{workspaceId}/...` solo a miembros.
+- Si Google login devuelve `auth/unauthorized-domain`, agregar el hostname usado en navegador en Firebase Console > Authentication > Settings > Authorized domains. Para desarrollo local, autorizar `127.0.0.1` y `localhost` sin puerto.
+
+Verificacion ejecutada tras este avance:
+
+```powershell
+node --check js\persistence.js
+node --check js\firebaseAppState.js
+node --check js\firebaseShell.js
+node --check js\firebaseMigration.js
+node --check js\main.js
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/
+```
 
 Antes de cambiar Firebase, revisar:
 
 - `js/firebaseClient.js`
 - `js/firebaseShell.js`
+- `js/firebaseAppState.js`
 - `js/firebaseProfiles.js`
 - `js/firebaseReplacementRequests.js`
 - `js/firebaseWorkerRequests.js`

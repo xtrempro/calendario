@@ -97,7 +97,7 @@ function renderDisabledModal() {
                 <code>FIREBASE_ENABLED</code> a <code>true</code>.
             </p>
             <div class="firebase-dialog-note">
-                Siguiente etapa: migrar los datos locales al entorno Firebase seleccionado.
+                Siguiente etapa: iniciar sesion, crear un entorno y sincronizar el estado completo del sistema.
             </div>
             <div class="turn-change-dialog__actions">
                 <button class="primary-button" type="button" data-action="close">Entendido</button>
@@ -151,13 +151,33 @@ function migrationStatusHTML() {
     `;
 }
 
+function friendlyFirebaseError(error) {
+    const code = error?.code || "";
+
+    if (code === "auth/unauthorized-domain") {
+        const hostname =
+            typeof window !== "undefined"
+                ? window.location.hostname
+                : "este dominio";
+
+        return [
+            `Firebase no permite iniciar sesion desde ${hostname}.`,
+            "Agrega ese dominio en Firebase Console > Authentication > Settings > Authorized domains.",
+            "Si estas usando ProTurnos localmente, agrega 127.0.0.1 y localhost, sin puerto."
+        ].join(" ");
+    }
+
+    return error?.message || "No se pudo completar la accion.";
+}
+
 function migrationPanelHTML() {
     if (!currentWorkspace) {
         return `
             <div class="firebase-migration-panel">
-                <strong>Migracion inicial</strong>
+                <strong>Sincronizacion del entorno</strong>
                 <p>
-                    Selecciona o crea un entorno antes de subir los datos locales.
+                    Selecciona o crea un entorno para activar la sincronizacion
+                    completa del sistema.
                 </p>
             </div>
         `;
@@ -170,18 +190,18 @@ function migrationPanelHTML() {
         "upload-local-snapshot" :
         "prepare-local-snapshot-upload";
     const primaryLabel = isLoading ?
-        "Subiendo..." :
+        "Guardando..." :
         isConfirming ?
-        "Confirmar subida" :
-        "Subir datos locales";
+        "Confirmar copia" :
+        "Guardar copia manual";
 
     return `
         <div class="firebase-migration-panel">
-            <strong>Migracion inicial</strong>
+            <strong>Sincronizacion del entorno</strong>
             <p>
-                Se subiran <b>${keyCount}</b> registros locales al entorno
-                <b>${escapeHTML(currentWorkspace.name)}</b>. Esto crea una copia
-                de respaldo en Firebase y no cambia aun el uso principal del sistema.
+                El entorno <b>${escapeHTML(currentWorkspace.name)}</b> sincroniza
+                automaticamente el estado completo del sistema. Puedes crear ademas
+                una copia manual con <b>${keyCount}</b> registros locales como respaldo.
             </p>
             ${migrationStatusHTML()}
             <div class="firebase-migration-actions">
@@ -246,7 +266,7 @@ function renderSignedOutModal(backdrop) {
                 o unirte a uno existente.
             </p>
             <div class="firebase-dialog-note">
-                Hasta configurar Firebase, el sistema seguira usando localStorage.
+                Hasta iniciar sesion y elegir un entorno, el sistema seguira trabajando en este equipo.
             </div>
             <div class="turn-change-dialog__actions">
                 <button class="primary-button" type="button" data-action="sign-in">Ingresar con Google</button>
@@ -303,7 +323,7 @@ async function handleAction(action, backdrop) {
             migrationState = {
                 mode: "confirm",
                 message:
-                    "Confirma solo si este es el entorno correcto. La copia local se mantendra intacta."
+                    "Confirma solo si este es el entorno correcto. Esto guarda una copia manual adicional; la sincronizacion automatica ya sigue activa."
             };
             renderSignedInModal(backdrop);
             return;
@@ -362,7 +382,7 @@ async function handleAction(action, backdrop) {
             renderSignedInModal(backdrop);
         }
     } catch (error) {
-        alert(error.message || "No se pudo completar la accion.");
+        alert(friendlyFirebaseError(error));
     }
 }
 
