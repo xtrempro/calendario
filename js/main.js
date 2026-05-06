@@ -3,7 +3,10 @@ import { pushHistory, undo, redo } from "./history.js";
 import { refreshAll } from "./refresh.js";
 import { DOM } from "./dom.js";
 import { renderSwapPanel } from "./swapUI.js";
-import { renderStaffingPanel } from "./staffing.js";
+import {
+    renderStaffingPanel,
+    syncStaffingConfigForProfileChange
+} from "./staffing.js";
 import { initSystemSettings } from "./systemSettings.js";
 import { initFirebaseShell } from "./firebaseShell.js";
 import {
@@ -83,7 +86,11 @@ import {
     recordGradeHistoryChange,
     getGradeHistory,
     getContractHistory,
-    addContractHistoryEntry
+    addContractHistoryEntry,
+    estamentoAllowsCustomProfession,
+    getProfessionOptionsForEstamento,
+    normalizeProfession,
+    SIN_INFORMACION_PROFESSION
 } from "./storage.js";
 import { cambioEstaAnulado } from "./swaps.js";
 import { renderReplacementLogHTML } from "./replacements.js";
@@ -129,18 +136,15 @@ let availabilityEditMode = false;
 let profileRotationMiniDate = new Date();
 let profileHoursSummaryRequest = 0;
 let clockMarksRenderRequest = 0;
+let clockMarksMonthDate = new Date(
+    currentDate.getFullYear(),
+    currentDate.getMonth(),
+    1
+);
+let clockMarksMonthTouched = false;
 
 const PROFESSION_LABELS = {
-    "Fonoaudiologia": "Fonoaudiologia",
-    "Kinesiologo": "Kinesiologo",
-    "Sin informacion": "Sin informacion",
-    "Tecnico en Enfermeria": "Tecnico en Enfermeria",
-    "Tecnico en Imagenologia": "Tecnico en Imagenologia",
-    "Tecnico en Laboratorio": "Tecnico en Laboratorio",
-    "TM Anatomia Patologica": "TM Anatomia Patologica",
-    "TM Imagenologia": "TM Imagenologia",
-    "TM Oftalmologia": "TM Oftalmologia",
-    "TM Otorrinolaringologia": "TM Otorrinolaringologia"
+    [SIN_INFORMACION_PROFESSION]: "Sin informaci\u00f3n"
 };
 
 function profileUsesProfession(profile = {}) {
@@ -151,9 +155,77 @@ function profileUsesProfession(profile = {}) {
 }
 
 function formatProfession(value) {
-    const clean = value || "Sin informacion";
+    const clean = value || SIN_INFORMACION_PROFESSION;
 
     return PROFESSION_LABELS[clean] || clean;
+}
+
+function professionOptionElement(value) {
+    const option = document.createElement("option");
+
+    option.value = value;
+    option.textContent = formatProfession(value);
+
+    return option;
+}
+
+function replaceProfessionOptions(element, options = []) {
+    if (!element) return;
+
+    element.replaceChildren(
+        ...options.map(professionOptionElement)
+    );
+}
+
+function syncProfileProfessionField(data, editing) {
+    if (!DOM.profileProfessionSelect) return;
+
+    const estamento = data.estamento || "";
+    const allowsCustom =
+        estamentoAllowsCustomProfession(estamento);
+    const options = getProfessionOptionsForEstamento(estamento);
+    const normalizedProfession = normalizeProfession(
+        data.profession,
+        estamento
+    );
+
+    replaceProfessionOptions(
+        DOM.profileProfessionSelect,
+        options
+    );
+    replaceProfessionOptions(
+        DOM.profileProfessionOptions,
+        getProfessionOptionsForEstamento("Administrativo")
+    );
+
+    DOM.profileProfessionSelect.classList.toggle(
+        "hidden",
+        allowsCustom
+    );
+    DOM.profileProfessionSelect.disabled =
+        !editing || allowsCustom;
+    DOM.profileProfessionSelect.value = normalizedProfession;
+
+    if (
+        !allowsCustom &&
+        DOM.profileProfessionSelect.value !== normalizedProfession
+    ) {
+        DOM.profileProfessionSelect.value =
+            SIN_INFORMACION_PROFESSION;
+    }
+
+    if (DOM.profileProfessionCustomInput) {
+        DOM.profileProfessionCustomInput.classList.toggle(
+            "hidden",
+            !allowsCustom
+        );
+        DOM.profileProfessionCustomInput.disabled =
+            !editing || !allowsCustom;
+        DOM.profileProfessionCustomInput.value =
+            normalizedProfession === SIN_INFORMACION_PROFESSION
+                ? ""
+                : normalizedProfession;
+    }
 }
 
 function getProfileMetaLabel(profile) {
@@ -746,6 +818,34 @@ function changeHoursMonth(offset) {
 
 window.setHoursMonthFromValue = setHoursMonthFromValue;
 
+function syncClockMarksMonthFromCurrent(force = false) {
+    if (!force && clockMarksMonthTouched) return;
+
+    clockMarksMonthDate = new Date(
+        currentDate.getFullYear(),
+        currentDate.getMonth(),
+        1
+    );
+}
+
+function renderClockMarksMonthControls() {
+    if (DOM.clockMarksMonthLabel) {
+        DOM.clockMarksMonthLabel.textContent =
+            formatMonthHeading(clockMarksMonthDate);
+    }
+}
+
+function changeClockMarksMonth(offset) {
+    clockMarksMonthTouched = true;
+    clockMarksMonthDate = new Date(
+        clockMarksMonthDate.getFullYear(),
+        clockMarksMonthDate.getMonth() + offset,
+        1
+    );
+
+    renderClockMarksPanel();
+}
+
 function getRotativaLabel(type){
     if (type === "3turno") return "3er Turno";
     if (type === "4turno") return "4° Turno";
@@ -942,8 +1042,10 @@ function loadDraftFromProfile(profile){
     profileDraft.unitEntryDate = profile.unitEntryDate || "";
     profileDraft.contractType = profile.contractType || "";
     profileDraft.estamento = profile.estamento || "";
-    profileDraft.profession =
-        profile.profession || "Sin informacion";
+    profileDraft.profession = normalizeProfession(
+        profile.profession,
+        profileDraft.estamento
+    );
     profileDraft.grade = String(profile.grade || "");
     profileDraft.rotationType = rotativa.type || "";
     profileDraft.rotationStart = rotationStart;
@@ -1913,6 +2015,7 @@ function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
 
 async function renderProfileHoursSummary(profile = getPerfilActual()) {
     const summary = document.getElementById("summary");
+    const records = DOM.hheeMonthlyRecords;
 
     if (!summary) return;
 
@@ -1923,6 +2026,13 @@ async function renderProfileHoursSummary(profile = getPerfilActual()) {
                 Selecciona un colaborador para ver sus horas extras.
             </div>
         `;
+        if (records) {
+            records.innerHTML = `
+                <div class="empty-state empty-state--compact">
+                    Selecciona un colaborador para ver los registros del mes.
+                </div>
+            `;
+        }
         return;
     }
 
@@ -1957,8 +2067,16 @@ async function renderProfileHoursSummary(profile = getPerfilActual()) {
             Mes HH.EE visualizado: ${monthLabel}
         </div>
         ${renderSummaryHTML(stats)}
-        ${renderReplacementLogHTML(profile.name, y, m, holidays)}
     `;
+
+    if (records) {
+        records.innerHTML = `
+            <div class="hhee-records-context">
+                ${escapeHTML(profile.name)} | ${monthLabel}
+            </div>
+            ${renderReplacementLogHTML(profile.name, y, m, holidays)}
+        `;
+    }
 }
 
 function renderProfileRotationMiniCalendar() {
@@ -2416,7 +2534,6 @@ function renderDisponibilidadVacaciones() {
     }
 
     const saldos = getLeaveBalances();
-    const licencias = Object.keys(getAbsences()).length;
     const year = new Date().getFullYear();
     const showCompBalance = isProfileEditing()
         ? Boolean(profileDraft.shiftAssigned)
@@ -2444,7 +2561,7 @@ function renderDisponibilidadVacaciones() {
             </div>
 
             <div class="availability-note">
-                Editando saldos vigentes del ano ${year}. Licencias medicas cargadas: ${licencias}
+                Editando saldos vigentes del ano ${year}.
             </div>
         `;
 
@@ -2472,7 +2589,7 @@ function renderDisponibilidadVacaciones() {
         </div>
 
         <div class="availability-note">
-            Saldos vigentes del ano ${year}. Licencias medicas cargadas: ${licencias}
+            Saldos vigentes del ano ${year}.
         </div>
     `;
 }
@@ -2543,8 +2660,7 @@ function renderDashboardState() {
     DOM.profileUnitEntryDateInput.value = data.unitEntryDate || "";
     DOM.profileContractTypeSelect.value = data.contractType || "";
     DOM.profileRoleSelect.value = data.estamento || "";
-    DOM.profileProfessionSelect.value =
-        data.profession || "Sin informacion";
+    syncProfileProfessionField(data, editing);
     DOM.profileGradeSelect.value = data.grade || "";
     DOM.profileRotationSelect.value = data.rotationType || "";
     DOM.checkbox.checked = Boolean(data.shiftAssigned);
@@ -2559,7 +2675,6 @@ function renderDashboardState() {
     DOM.profileUnitEntryDateInput.disabled = !editing;
     DOM.profileContractTypeSelect.disabled = !editing;
     DOM.profileRoleSelect.disabled = !editing;
-    DOM.profileProfessionSelect.disabled = !editing;
     DOM.profileGradeSelect.disabled = !editing;
     DOM.profileRotationSelect.disabled = !editing;
     DOM.checkbox.disabled = !editing;
@@ -2630,6 +2745,7 @@ function renderDashboardState() {
     renderProfileHoursSummary(profile);
     renderProfileDocs(data, editing);
     renderProfileRecords(profile, editing);
+    renderHheeProfiles();
 
     if (DOM.profileEditorHint) {
         DOM.profileEditorHint.textContent =
@@ -2664,6 +2780,9 @@ function renderDashboardState() {
 
     renderLeaveActionLabels();
     renderDisponibilidadVacaciones();
+    if (typeof window.renderStaffingMedicalChart === "function") {
+        window.renderStaffingMedicalChart();
+    }
     syncTurnosSidePanelHeight();
     if (document.body.dataset.activeView === "hours") {
         renderHoursCharts(profile);
@@ -2769,6 +2888,7 @@ function setActiveShortcut(targetId) {
 
     if (nextView === "hours") {
         syncHoursMonthControls(true);
+        renderHheeProfiles();
         renderHoursCharts(getPerfilActual());
     }
 
@@ -2781,7 +2901,12 @@ function setActiveShortcut(targetId) {
     }
 
     if (nextView === "clockmarks") {
+        syncClockMarksMonthFromCurrent();
         renderClockMarksPanel();
+    }
+
+    if (nextView === "staffing") {
+        renderStaffingPanel();
     }
 
     document
@@ -2898,6 +3023,86 @@ function renderProfiles() {
     });
 
     renderDashboardState();
+}
+
+function renderHheeProfiles() {
+    if (!DOM.hheeProfiles) return;
+
+    const profiles = getProfiles();
+    const showInactive =
+        DOM.hheeShowInactiveProfiles?.checked ?? true;
+    const current = getCurrentProfile();
+    const filtro = DOM.hheeFilterRole?.value || "Todos";
+    const query = normalizeProfileSearch(
+        DOM.hheeProfileSearch?.value || ""
+    );
+
+    DOM.hheeProfiles.innerHTML = "";
+
+    const visibles = profiles.filter(profile => {
+        const matchActive =
+            showInactive || isProfileActive(profile);
+        const matchRole =
+            filtro === "Todos" ||
+            profile.estamento === filtro;
+        const haystack = normalizeProfileSearch([
+            profile.name,
+            profile.estamento,
+            formatProfession(profile.profession),
+            profile.email,
+            profile.rut
+        ].join(" "));
+
+        return matchActive &&
+            matchRole &&
+            (!query || haystack.includes(query));
+    });
+
+    if (DOM.hheeEmptyProfiles) {
+        DOM.hheeEmptyProfiles.classList.toggle(
+            "hidden",
+            Boolean(visibles.length)
+        );
+        DOM.hheeEmptyProfiles.textContent = profiles.length
+            ? "No hay resultados con ese filtro."
+            : "Aun no hay colaboradores creados.";
+    }
+
+    visibles.forEach(profile => {
+        const item = document.createElement("div");
+        item.className = "profile-item";
+
+        if (!isProfileActive(profile)) {
+            item.classList.add("is-inactive");
+        }
+
+        if (profile.name === current) {
+            item.classList.add("active");
+        }
+
+        const avatar = document.createElement("div");
+        avatar.className = "profile-item__avatar";
+        avatar.textContent =
+            profile.name.trim().charAt(0).toUpperCase() || "T";
+
+        const content = document.createElement("div");
+        content.className = "profile-item__content";
+
+        const name = document.createElement("strong");
+        name.textContent = profile.name;
+
+        const meta = document.createElement("span");
+        meta.textContent = isProfileActive(profile)
+            ? getProfileMetaLabel(profile)
+            : `${getProfileMetaLabel(profile)} | Desactivado`;
+
+        content.append(name, meta);
+        item.append(avatar, content);
+
+        item.onclick = () => selectProfileByName(profile.name);
+
+        DOM.hheeProfiles.appendChild(item);
+    });
 }
 
 function renderClockMarksProfiles() {
@@ -3325,6 +3530,11 @@ function renderClockMarkRecord(record) {
         );
     }
 
+    const clockDocuments =
+        Array.isArray(record.segmentMark.documents)
+            ? record.segmentMark.documents
+            : [];
+
     return `
         <article class="${classes}"
             data-profile="${escapeHTML(record.profile.name)}"
@@ -3365,6 +3575,46 @@ function renderClockMarkRecord(record) {
                     <textarea data-clock-note rows="2" placeholder="Ej: El colaborador informa que llego a la hora, pero olvido registrar el marcaje.">${escapeHTML(record.segmentMark.adminNote || "")}</textarea>
                 </label>
             ` : ""}
+
+            <label class="clockmark-note">
+                <span>Comentarios</span>
+                <textarea data-clock-comments rows="2" placeholder="Ingresa comentarios del registro.">${escapeHTML(record.segmentMark.comments || "")}</textarea>
+            </label>
+
+            <div class="clockmark-documents">
+                <label class="clockmark-file">
+                    <span>Documentos</span>
+                    <input data-clock-documents type="file" multiple>
+                </label>
+
+                <div class="attachment-list">
+                    ${clockDocuments.length
+                        ? clockDocuments.map((doc, index) => `
+                            <div class="attachment-item">
+                                <span>
+                                    <strong>${escapeHTML(doc.name || "Documento")}</strong>
+                                    <small>
+                                        ${doc.type ? escapeHTML(doc.type) : "Archivo"}
+                                        ${doc.dataUrl ? "" : " | volver a adjuntar para visualizar"}
+                                    </small>
+                                </span>
+                                <span class="attachment-actions">
+                                    <button class="secondary-button attachment-view" type="button" data-clock-doc-view="${index}" ${doc.dataUrl ? "" : "disabled"}>
+                                        Ver
+                                    </button>
+                                    <button class="ghost-button attachment-remove" type="button" data-clock-doc-remove="${index}">
+                                        Quitar
+                                    </button>
+                                </span>
+                            </div>
+                        `).join("")
+                        : `
+                            <div class="attachment-empty">
+                                Sin documentos adjuntos.
+                            </div>
+                        `}
+                </div>
+            </div>
         </article>
     `;
 }
@@ -3394,11 +3644,12 @@ async function renderClockMarksPanel() {
     if (!DOM.clockMarksPanel || !DOM.clockMarksList) return;
 
     renderClockMarksProfiles();
+    renderClockMarksMonthControls();
 
     const requestId = ++clockMarksRenderRequest;
     const monthDate = new Date(
-        currentDate.getFullYear(),
-        currentDate.getMonth(),
+        clockMarksMonthDate.getFullYear(),
+        clockMarksMonthDate.getMonth(),
         1
     );
     const holidays = await fetchHolidays(monthDate.getFullYear());
@@ -3438,7 +3689,7 @@ async function renderClockMarksPanel() {
     if (!records.length) {
         DOM.clockMarksList.innerHTML = `
             <div class="clockmarks-empty">
-                No hay registros de marcaje para el filtro actual.
+                No hay registros de marcaje para el filtro actual en ${formatMonthHeading(monthDate)}.
             </div>
         `;
         return;
@@ -3489,6 +3740,114 @@ async function renderClockMarksPanel() {
                     AUDIT_CATEGORY.OVERTIME,
                     "Nota en incidencia de marcaje",
                     `${card.dataset.profile} | ${formatClockMarkDate(card.dataset.keyDay)}: se actualizo la nota administrativa.`,
+                    { profile: card.dataset.profile }
+                );
+                renderClockMarksPanel();
+            };
+        });
+
+    DOM.clockMarksList
+        .querySelectorAll("[data-clock-comments]")
+        .forEach(textarea => {
+            textarea.onchange = () => {
+                const card = textarea.closest(".clockmark-record");
+
+                updateClockMarkReview(
+                    card.dataset.profile,
+                    card.dataset.keyDay,
+                    card.dataset.segmentKey,
+                    { comments: textarea.value.trim() }
+                );
+
+                addAuditLog(
+                    AUDIT_CATEGORY.OVERTIME,
+                    "Comentario en marcaje",
+                    `${card.dataset.profile} | ${formatClockMarkDate(card.dataset.keyDay)}: se actualizo comentario del registro.`,
+                    { profile: card.dataset.profile }
+                );
+                renderClockMarksPanel();
+            };
+        });
+
+    DOM.clockMarksList
+        .querySelectorAll("[data-clock-documents]")
+        .forEach(input => {
+            input.onchange = async () => {
+                const card = input.closest(".clockmark-record");
+                const marks = getClockMarks(card.dataset.profile);
+                const currentDocuments =
+                    marks[card.dataset.keyDay]
+                        ?.segments?.[card.dataset.segmentKey]
+                        ?.documents || [];
+                const attachments =
+                    await readAttachmentFiles(input.files);
+
+                updateClockMarkReview(
+                    card.dataset.profile,
+                    card.dataset.keyDay,
+                    card.dataset.segmentKey,
+                    {
+                        documents: [
+                            ...currentDocuments,
+                            ...attachments
+                        ]
+                    }
+                );
+
+                addAuditLog(
+                    AUDIT_CATEGORY.OVERTIME,
+                    "Adjunto documento a marcaje",
+                    `${card.dataset.profile} | ${formatClockMarkDate(card.dataset.keyDay)}: ${attachments.length} documento(s) adjunto(s).`,
+                    { profile: card.dataset.profile }
+                );
+                renderClockMarksPanel();
+            };
+        });
+
+    DOM.clockMarksList
+        .querySelectorAll("[data-clock-doc-view]")
+        .forEach(button => {
+            button.onclick = () => {
+                const card = button.closest(".clockmark-record");
+                const marks = getClockMarks(card.dataset.profile);
+                const doc =
+                    marks[card.dataset.keyDay]
+                        ?.segments?.[card.dataset.segmentKey]
+                        ?.documents?.[Number(button.dataset.clockDocView)];
+
+                openAttachment(doc);
+            };
+        });
+
+    DOM.clockMarksList
+        .querySelectorAll("[data-clock-doc-remove]")
+        .forEach(button => {
+            button.onclick = () => {
+                const card = button.closest(".clockmark-record");
+                const marks = getClockMarks(card.dataset.profile);
+                const currentDocuments =
+                    marks[card.dataset.keyDay]
+                        ?.segments?.[card.dataset.segmentKey]
+                        ?.documents || [];
+                const indexToRemove =
+                    Number(button.dataset.clockDocRemove);
+
+                updateClockMarkReview(
+                    card.dataset.profile,
+                    card.dataset.keyDay,
+                    card.dataset.segmentKey,
+                    {
+                        documents: currentDocuments.filter(
+                            (_doc, index) =>
+                                index !== indexToRemove
+                        )
+                    }
+                );
+
+                addAuditLog(
+                    AUDIT_CATEGORY.OVERTIME,
+                    "Quito documento de marcaje",
+                    `${card.dataset.profile} | ${formatClockMarkDate(card.dataset.keyDay)}: se quito un documento adjunto.`,
                     { profile: card.dataset.profile }
                 );
                 renderClockMarksPanel();
@@ -4158,6 +4517,10 @@ async function guardarPerfil() {
         : null;
     const nextName = profileDraft.name.trim();
     const nextEstamento = profileDraft.estamento;
+    const nextProfession = normalizeProfession(
+        profileDraft.profession,
+        nextEstamento
+    );
     const nextRotationType =
         profileDraft.rotationType;
     const nextShiftAssigned =
@@ -4179,7 +4542,7 @@ async function guardarPerfil() {
         unitEntryDate: profileDraft.unitEntryDate,
         contractType: profileDraft.contractType,
         estamento: nextEstamento,
-        profession: profileDraft.profession,
+        profession: nextProfession,
         grade: profileDraft.grade
     };
     const nextRotationStart =
@@ -4277,6 +4640,13 @@ async function guardarPerfil() {
             start: nextRotationStart,
             firstTurn: nextRotationFirstTurn
         });
+
+        if (isEditing) {
+            syncStaffingConfigForProfileChange(
+                previousSnapshot,
+                nextSnapshot
+            );
+        }
 
         if (shouldSaveReplacementContract) {
             addReplacementContract(nextName, {
@@ -4856,14 +5226,39 @@ function bindProfileForm() {
         if (!isProfileEditing()) return;
         profileDraft.estamento =
             DOM.profileRoleSelect.value;
+        profileDraft.profession = normalizeProfession(
+            profileDraft.profession,
+            profileDraft.estamento
+        );
+        renderDashboardState();
     };
 
     DOM.profileProfessionSelect.onchange = () => {
         if (!isProfileEditing()) return;
-        profileDraft.profession =
-            DOM.profileProfessionSelect.value ||
-            "Sin informacion";
+        profileDraft.profession = normalizeProfession(
+            DOM.profileProfessionSelect.value,
+            profileDraft.estamento
+        );
     };
+
+    if (DOM.profileProfessionCustomInput) {
+        DOM.profileProfessionCustomInput.oninput = () => {
+            if (!isProfileEditing()) return;
+            profileDraft.profession = normalizeProfession(
+                DOM.profileProfessionCustomInput.value,
+                profileDraft.estamento
+            );
+        };
+
+        DOM.profileProfessionCustomInput.onchange = () => {
+            if (!isProfileEditing()) return;
+            profileDraft.profession = normalizeProfession(
+                DOM.profileProfessionCustomInput.value,
+                profileDraft.estamento
+            );
+            renderDashboardState();
+        };
+    }
 
     DOM.profileGradeSelect.onchange = () => {
         if (!isProfileEditing()) return;
@@ -4955,6 +5350,16 @@ function bindProfileForm() {
         DOM.hheeNextMonthBtn.onclick = () =>
             changeHoursMonth(1);
     }
+
+    if (DOM.clockMarksPrevMonthBtn) {
+        DOM.clockMarksPrevMonthBtn.onclick = () =>
+            changeClockMarksMonth(-1);
+    }
+
+    if (DOM.clockMarksNextMonthBtn) {
+        DOM.clockMarksNextMonthBtn.onclick = () =>
+            changeClockMarksMonth(1);
+    }
 }
 
 function bindShellInteractions() {
@@ -4962,6 +5367,18 @@ function bindShellInteractions() {
     DOM.profileSearch.oninput = renderProfiles;
     if (DOM.showInactiveProfiles) {
         DOM.showInactiveProfiles.onchange = renderProfiles;
+    }
+
+    if (DOM.hheeFilterRole) {
+        DOM.hheeFilterRole.onchange = renderHheeProfiles;
+    }
+
+    if (DOM.hheeProfileSearch) {
+        DOM.hheeProfileSearch.oninput = renderHheeProfiles;
+    }
+
+    if (DOM.hheeShowInactiveProfiles) {
+        DOM.hheeShowInactiveProfiles.onchange = renderHheeProfiles;
     }
 
     if (DOM.clockMarksFilterRole) {

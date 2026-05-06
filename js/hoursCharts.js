@@ -56,6 +56,15 @@ function formatHour(value) {
     return String(number).replace(".", ",");
 }
 
+function escapeHTML(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 async function holidaysForYear(year) {
     if (!holidayCache.has(year)) {
         holidayCache.set(year, await fetchHolidays(year));
@@ -147,6 +156,36 @@ async function buildHistoryRows(role, year, month, years) {
     return rows;
 }
 
+async function buildProfileHistoryRows(profileName, year, month) {
+    const months = 12;
+    const start = new Date(year, month - months + 1, 1);
+    const rows = [];
+
+    for (let index = 0; index < months; index++) {
+        const date = new Date(
+            start.getFullYear(),
+            start.getMonth() + index,
+            1
+        );
+        const stats = await getProfileStats(
+            profileName,
+            date.getFullYear(),
+            date.getMonth()
+        );
+
+        rows.push({
+            label: formatMonth(
+                date.getFullYear(),
+                date.getMonth()
+            ),
+            day: Number(stats.hheeDiurnas) || 0,
+            night: Number(stats.hheeNocturnas) || 0
+        });
+    }
+
+    return rows;
+}
+
 function emptyChart(message) {
     return `
         <div class="empty-state empty-state--compact">
@@ -162,6 +201,10 @@ function renderLegend() {
             <span><i class="hhee-color-night"></i> Nocturnas</span>
         </div>
     `;
+}
+
+function getProfileChartTarget() {
+    return DOM.hheeProfileHistoryChart || DOM.hheeHistoryChart;
 }
 
 function renderMonthlyChart(rows, role, year, month) {
@@ -255,59 +298,114 @@ function renderHistoryChart(rows, role, years) {
     `;
 }
 
+function renderProfileHistoryChart(rows, profileName, year, month) {
+    const target = getProfileChartTarget();
+
+    if (!target) return;
+
+    if (!rows.length) {
+        target.innerHTML =
+            emptyChart("No hay datos historicos para este perfil.");
+        return;
+    }
+
+    const max = Math.max(
+        1,
+        ...rows.map(row => row.day + row.night)
+    );
+
+    target.innerHTML = `
+        ${renderLegend()}
+        <div class="hhee-chart-context">
+            ${escapeHTML(profileName)} | Ultimos 12 meses hasta ${formatMonth(year, month)}
+        </div>
+        <div class="hhee-history-bars hhee-profile-history-bars">
+            ${rows.map(row => {
+                const total = row.day + row.night;
+                const height = Math.max(
+                    total ? (total / max) * 100 : 0,
+                    total ? 5 : 0
+                );
+                const dayPercent = total
+                    ? (row.day / total) * 100
+                    : 0;
+                const nightPercent = total
+                    ? (row.night / total) * 100
+                    : 0;
+
+                return `
+                    <div class="hhee-history-item" title="${row.label}: ${formatHour(row.day)}h diurnas / ${formatHour(row.night)}h nocturnas">
+                        <div class="hhee-history-stack" style="height:${height}%">
+                            <span class="hhee-bar-night" style="height:${nightPercent}%"></span>
+                            <span class="hhee-bar-day" style="height:${dayPercent}%"></span>
+                        </div>
+                        <small>${row.label}</small>
+                    </div>
+                `;
+            }).join("")}
+        </div>
+    `;
+}
+
 function setLoadingState() {
+    const profileTarget = getProfileChartTarget();
+
+    if (profileTarget) {
+        profileTarget.innerHTML =
+            emptyChart("Calculando ultimos 12 meses...");
+    }
+
     if (DOM.hheeMonthlyChart) {
         DOM.hheeMonthlyChart.innerHTML =
             emptyChart("Calculando comparacion mensual...");
     }
 
-    if (DOM.hheeHistoryChart) {
+    if (
+        DOM.hheeHistoryChart &&
+        DOM.hheeHistoryChart !== profileTarget
+    ) {
         DOM.hheeHistoryChart.innerHTML =
             emptyChart("Calculando historico...");
     }
 }
 
 export async function renderHoursCharts(currentProfile = null) {
-    if (
-        !DOM.hheeChartRole ||
-        !DOM.hheeChartMonth ||
-        !DOM.hheeHistoryYears
-    ) {
+    const target = getProfileChartTarget();
+
+    if (!target) {
         return;
     }
 
-    if (!DOM.hheeChartMonth.value) {
+    if (DOM.hheeChartMonth && !DOM.hheeChartMonth.value) {
         DOM.hheeChartMonth.value = monthValue(currentDate);
     }
 
-    if (
-        currentProfile?.estamento &&
-        !selectedRoleTouched
-    ) {
-        DOM.hheeChartRole.value = currentProfile.estamento;
-    }
-
-    if (!DOM.hheeChartRole.value) {
-        DOM.hheeChartRole.value = ESTAMENTO[0];
+    if (!currentProfile?.name) {
+        target.innerHTML =
+            emptyChart("Selecciona un colaborador para ver su historico de HH.EE.");
+        return;
     }
 
     const requestId = ++renderRequest;
-    const role = DOM.hheeChartRole.value;
     const { year, month } =
-        parseMonthValue(DOM.hheeChartMonth.value);
-    const years = Number(DOM.hheeHistoryYears.value) || 1;
+        parseMonthValue(DOM.hheeChartMonth?.value || monthValue(currentDate));
 
     setLoadingState();
 
-    const [monthlyRows, historyRows] = await Promise.all([
-        buildMonthlyRows(role, year, month),
-        buildHistoryRows(role, year, month, years)
-    ]);
+    const rows = await buildProfileHistoryRows(
+        currentProfile.name,
+        year,
+        month
+    );
 
     if (requestId !== renderRequest) return;
 
-    renderMonthlyChart(monthlyRows, role, year, month);
-    renderHistoryChart(historyRows, role, years);
+    renderProfileHistoryChart(
+        rows,
+        currentProfile.name,
+        year,
+        month
+    );
 }
 
 export function initHoursCharts(getCurrentProfileData) {
@@ -315,7 +413,7 @@ export function initHoursCharts(getCurrentProfileData) {
 
     initialized = true;
 
-    if (!DOM.hheeChartMonth?.value) {
+    if (DOM.hheeChartMonth && !DOM.hheeChartMonth.value) {
         DOM.hheeChartMonth.value = monthValue(currentDate);
     }
 

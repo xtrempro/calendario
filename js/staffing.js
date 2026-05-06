@@ -1,13 +1,18 @@
 import {
     getCurrentProfile,
     getProfiles,
+    getReplacements,
     getRotativa,
-    isProfileActive
+    isProfileActive,
+    getProfessionOptionsForEstamento,
+    normalizeProfession
 } from "./storage.js";
 import { aplicarCambiosTurno } from "./turnEngine.js";
 import { ESTAMENTO, TURNO } from "./constants.js";
 import { currentDate } from "./calendar.js";
 import { getJSON, setJSON } from "./persistence.js";
+import { fetchHolidays } from "./holidays.js";
+import { isBusinessDay } from "./calculations.js";
 import {
     formatContractDate,
     getAllReplacementContracts
@@ -19,6 +24,9 @@ import {
 } from "./auditLog.js";
 
 const KEY = "staffing_config";
+const APPLICANTS_KEY = "staffing_applicants";
+
+let staffingViewBound = false;
 
 function defaultConfig() {
     return {};
@@ -125,6 +133,7 @@ function emptyStaffingConfig() {
 
 function normalizeStaffingEstamento(value) {
     const clean = String(value || "").trim();
+
     const comparable = clean
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
@@ -146,10 +155,25 @@ function isProfessionBasedStaffing(estamento) {
     );
 }
 
-function normalizeStaffingProfession(value) {
+function professionEstamento(estamento) {
+    const normalized = normalizeStaffingEstamento(estamento);
+    const source = String(normalized || estamento || "")
+        .toLowerCase();
+
+    if (source.includes("cnico")) return "T\u00e9cnico";
+    if (normalized === "Administrativo") return "Administrativo";
+    if (normalized === "Auxiliar") return "Auxiliar";
+
+    return "Profesional";
+}
+
+function normalizeStaffingProfession(value, estamento = "Profesional") {
     const clean = String(value || "").trim();
 
-    return clean || "Sin información";
+    return normalizeProfession(
+        clean || "Sin informacion",
+        professionEstamento(estamento)
+    );
 }
 
 function normalizeStaffingRotativa(type) {
@@ -183,7 +207,7 @@ function normalizeStaffingConfig(config = {}) {
 
             Object.entries(values).forEach(([group, value]) => {
                 const groupKey = isProfessionBasedStaffing(estamento)
-                    ? normalizeStaffingProfession(group)
+                    ? normalizeStaffingProfession(group, estamento)
                     : "total";
                 const amount = sanitizeStaffingAmount(value);
 
@@ -210,14 +234,117 @@ function getStaffingProfileGroupKey(profile) {
     const estamento = normalizeStaffingEstamento(profile.estamento);
 
     return isProfessionBasedStaffing(estamento)
-        ? normalizeStaffingProfession(profile.profession)
+        ? normalizeStaffingProfession(profile.profession, estamento)
         : "total";
 }
 
 function getStaffingGroupLabel(estamento, groupKey) {
     return isProfessionBasedStaffing(estamento)
-        ? normalizeStaffingProfession(groupKey)
+        ? normalizeStaffingProfession(groupKey, estamento)
         : estamento;
+}
+
+function profileMatchesStaffingGroup(profile, {
+    modality,
+    estamento,
+    groupKey
+}) {
+    const profileEstamento =
+        normalizeStaffingEstamento(profile.estamento);
+
+    if (profileEstamento !== estamento) return false;
+    if (getStaffingProfileModality(profile) !== modality) return false;
+
+    return isProfessionBasedStaffing(estamento)
+        ? getStaffingProfileGroupKey(profile) === groupKey
+        : true;
+}
+
+function ensureStaffingConfigBucket(config, modality, estamento) {
+    if (!config[modality]) config[modality] = {};
+    if (!config[modality][estamento]) {
+        config[modality][estamento] = {};
+    }
+}
+
+export function syncStaffingConfigForProfileChange(
+    previousProfile = {},
+    nextProfile = {}
+) {
+    const previousModality =
+        normalizeStaffingRotativa(previousProfile.rotativa?.type);
+    const nextModality =
+        normalizeStaffingRotativa(nextProfile.rotativa?.type);
+    const previousEstamento =
+        normalizeStaffingEstamento(previousProfile.estamento);
+    const nextEstamento =
+        normalizeStaffingEstamento(nextProfile.estamento);
+
+    if (
+        !previousModality ||
+        !nextModality ||
+        !isProfessionBasedStaffing(previousEstamento) ||
+        !isProfessionBasedStaffing(nextEstamento)
+    ) {
+        return false;
+    }
+
+    const previousGroup = normalizeStaffingProfession(
+        previousProfile.profession,
+        previousEstamento
+    );
+    const nextGroup = normalizeStaffingProfession(
+        nextProfile.profession,
+        nextEstamento
+    );
+
+    if (
+        previousModality === nextModality &&
+        previousEstamento === nextEstamento &&
+        previousGroup === nextGroup
+    ) {
+        return false;
+    }
+
+    const config = getStaffingConfig();
+    const previousAmount = Number(
+        config[previousModality]?.[previousEstamento]?.[previousGroup]
+    ) || 0;
+
+    if (!previousAmount) return false;
+
+    ensureStaffingConfigBucket(
+        config,
+        nextModality,
+        nextEstamento
+    );
+
+    if (
+        !Number(
+            config[nextModality]?.[nextEstamento]?.[nextGroup]
+        )
+    ) {
+        config[nextModality][nextEstamento][nextGroup] =
+            previousAmount;
+    }
+
+    const stillHasPreviousGroup = getProfiles()
+        .filter(isProfileActive)
+        .some(profile =>
+            profileMatchesStaffingGroup(profile, {
+                modality: previousModality,
+                estamento: previousEstamento,
+                groupKey: previousGroup
+            })
+        );
+
+    if (!stillHasPreviousGroup) {
+        delete config[previousModality][previousEstamento][previousGroup];
+    }
+
+    saveStaffingConfig(config);
+
+    return true;
 }
 
 export function getStaffingModalities() {
@@ -301,8 +428,115 @@ function worksStaffingNight(turno) {
         turno === TURNO.DIURNO_NOCHE;
 }
 
+const STAFFING_SEGMENT = {
+    DAY_MORNING: "day_morning",
+    DAY_AFTERNOON: "day_afternoon",
+    NIGHT: "night"
+};
+
+function addDaySegments(segments) {
+    segments.add(STAFFING_SEGMENT.DAY_MORNING);
+    segments.add(STAFFING_SEGMENT.DAY_AFTERNOON);
+}
+
+function turnSegmentsForStaffing(row, turno) {
+    const state = Number(turno) || TURNO.LIBRE;
+    const segments = new Set();
+
+    if (
+        state === TURNO.NOCHE ||
+        state === TURNO.TURNO24 ||
+        state === TURNO.DIURNO_NOCHE ||
+        state === TURNO.TURNO18
+    ) {
+        segments.add(STAFFING_SEGMENT.NIGHT);
+    }
+
+    if (row.modality === "diurno") {
+        if (
+            state === TURNO.DIURNO ||
+            state === TURNO.DIURNO_NOCHE
+        ) {
+            addDaySegments(segments);
+        }
+    } else if (
+        state === TURNO.LARGA ||
+        state === TURNO.TURNO24
+    ) {
+        addDaySegments(segments);
+    }
+
+    if (state === TURNO.MEDIA_MANANA) {
+        segments.add(STAFFING_SEGMENT.DAY_MORNING);
+    }
+
+    if (
+        state === TURNO.MEDIA_TARDE ||
+        state === TURNO.TURNO18
+    ) {
+        segments.add(STAFFING_SEGMENT.DAY_AFTERNOON);
+    }
+
+    return segments;
+}
+
+function checkSegmentsForShift(shiftKind) {
+    if (shiftKind === "night") {
+        return [STAFFING_SEGMENT.NIGHT];
+    }
+
+    return [
+        STAFFING_SEGMENT.DAY_MORNING,
+        STAFFING_SEGMENT.DAY_AFTERNOON
+    ];
+}
+
+function segmentLabel(segments) {
+    const hasMorning =
+        segments.includes(STAFFING_SEGMENT.DAY_MORNING);
+    const hasAfternoon =
+        segments.includes(STAFFING_SEGMENT.DAY_AFTERNOON);
+
+    if (hasMorning && !hasAfternoon) return "manana";
+    if (!hasMorning && hasAfternoon) return "tarde";
+
+    return "";
+}
+
+function removeSegmentsByAbsence(absence, currentSegments) {
+    const removed = new Set();
+
+    if (!absence) return removed;
+
+    if (absence.kind === "half_morning") {
+        removed.add(STAFFING_SEGMENT.DAY_MORNING);
+        return removed;
+    }
+
+    if (absence.kind === "half_afternoon") {
+        removed.add(STAFFING_SEGMENT.DAY_AFTERNOON);
+        return removed;
+    }
+
+    if (absence.kind === "half_unknown") {
+        removed.add(STAFFING_SEGMENT.DAY_MORNING);
+        removed.add(STAFFING_SEGMENT.DAY_AFTERNOON);
+        return removed;
+    }
+
+    currentSegments.forEach(segment => removed.add(segment));
+
+    return removed;
+}
+
 function key(y, m, d){
     return `${y}-${m}-${d}`;
+}
+
+function isoFromKey(keyDay) {
+    const parts = String(keyDay || "").split("-");
+
+    return `${parts[0]}-${String(Number(parts[1]) + 1).padStart(2, "0")}-${String(Number(parts[2])).padStart(2, "0")}`;
 }
 
 function parseKey(keyDay) {
@@ -322,6 +556,81 @@ function escapeHTML(value) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function normalizeSearch(value) {
+    return String(value || "")
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+}
+
+function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+    });
+}
+
+async function readApplicantDocuments(files) {
+    const docs = [];
+
+    for (const file of Array.from(files || [])) {
+        docs.push({
+            name: file.name,
+            type: file.type || "Archivo",
+            size: file.size || 0,
+            dataUrl: await readFileAsDataURL(file)
+        });
+    }
+
+    return docs;
+}
+
+function dataUrlToBlob(dataUrl) {
+    const [header, data] = String(dataUrl || "").split(",");
+    const mimeMatch = header.match(/data:([^;]+);base64/);
+    const mime = mimeMatch?.[1] || "application/octet-stream";
+    const binary = atob(data || "");
+    const bytes = new Uint8Array(binary.length);
+
+    for (let index = 0; index < binary.length; index++) {
+        bytes[index] = binary.charCodeAt(index);
+    }
+
+    return new Blob([bytes], { type: mime });
+}
+
+function openApplicantDocument(doc) {
+    if (!doc?.dataUrl) {
+        alert("Este documento no tiene contenido disponible para visualizar.");
+        return;
+    }
+
+    const url = URL.createObjectURL(dataUrlToBlob(doc.dataUrl));
+    const opened = window.open(url, "_blank", "noopener");
+
+    if (!opened) {
+        alert("El navegador bloqueo la ventana emergente. Permite pop-ups para visualizar el documento.");
+    }
+
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function formatFileSize(size) {
+    const bytes = Number(size) || 0;
+
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) {
+        return `${Math.round(bytes / 102.4) / 10} KB`;
+    }
+
+    return `${Math.round(bytes / 1024 / 102.4) / 10} MB`;
 }
 
 function firstName(name) {
@@ -490,7 +799,7 @@ function formatDecimal(value) {
     return String(rounded).replace(".", ",");
 }
 
-function renderStaffingMedicalChart() {
+export function renderStaffingMedicalChart() {
     const target = document.getElementById("staffingMedicalChart");
     if (!target) return;
 
@@ -624,21 +933,686 @@ function renderStaffingMedicalChart() {
     `;
 }
 
+function getApplicants() {
+    return getJSON(APPLICANTS_KEY, [])
+        .map(applicant => ({
+            id: applicant.id || `app_${Date.now()}`,
+            name: String(applicant.name || "").trim(),
+            phone: String(applicant.phone || "").trim(),
+            receivedDate: applicant.receivedDate || "",
+            estamento: normalizeStaffingEstamento(
+                applicant.estamento || "Profesional"
+            ),
+            profession: normalizeProfession(
+                applicant.profession,
+                applicant.estamento || "Profesional"
+            ),
+            institution: String(applicant.institution || "").trim(),
+            graduationYear:
+                String(applicant.graduationYear || "").trim(),
+            experience: String(applicant.experience || "").trim(),
+            interviewImpressions:
+                String(applicant.interviewImpressions || "").trim(),
+            documents: Array.isArray(applicant.documents)
+                ? applicant.documents
+                : [],
+            createdAt: applicant.createdAt || new Date().toISOString()
+        }))
+        .sort((a, b) =>
+            String(b.receivedDate || "").localeCompare(
+                String(a.receivedDate || "")
+            ) ||
+            a.name.localeCompare(b.name, "es")
+        );
+}
+
+function saveApplicants(applicants) {
+    setJSON(APPLICANTS_KEY, applicants);
+}
+
+function applicantRoleOptions(selected = "") {
+    return ["Profesional", "T\u00e9cnico", "Administrativo", "Auxiliar"]
+        .map(estamento => `
+            <option value="${escapeHTML(estamento)}" ${normalizeStaffingEstamento(selected) === normalizeStaffingEstamento(estamento) ? "selected" : ""}>
+                ${escapeHTML(estamento)}
+            </option>
+        `)
+        .join("");
+}
+
+function formatEstamentoLabel(value) {
+    const normalized = normalizeSearch(value);
+
+    if (normalized.includes("cnico")) return "T\u00e9cnico";
+    if (normalized.includes("administrativo")) return "Administrativo";
+    if (normalized.includes("auxiliar")) return "Auxiliar";
+
+    return "Profesional";
+}
+
+function applicantProfessionOptions(estamento = "Profesional") {
+    return getProfessionOptionsForEstamento(estamento)
+        .filter(value => value !== "Sin informacion")
+        .map(value => `
+            <option value="${escapeHTML(value)}"></option>
+        `)
+        .join("");
+}
+
+function applicantFilterProfessionOptions(applicants, selected) {
+    const professions = [...new Set(
+        applicants
+            .map(applicant => applicant.profession)
+            .filter(Boolean)
+            .filter(value => value !== "Sin informacion")
+    )].sort((a, b) => a.localeCompare(b, "es"));
+
+    return `
+        <option value="Todas">Todas</option>
+        ${professions.map(profession => `
+            <option value="${escapeHTML(profession)}" ${profession === selected ? "selected" : ""}>
+                ${escapeHTML(profession)}
+            </option>
+        `).join("")}
+    `;
+}
+
+function applicantMatchesFilters(applicant, roleFilter, professionFilter) {
+    const roleMatches =
+        roleFilter === "Todos" ||
+        normalizeStaffingEstamento(applicant.estamento) ===
+            normalizeStaffingEstamento(roleFilter);
+    const professionMatches =
+        professionFilter === "Todas" ||
+        applicant.profession === professionFilter;
+
+    return roleMatches && professionMatches;
+}
+
+function renderApplicantDocuments(applicant) {
+    const docs = applicant.documents || [];
+
+    if (!docs.length) {
+        return `
+            <div class="attachment-empty">
+                Sin documentos adjuntos.
+            </div>
+        `;
+    }
+
+    return docs.map((doc, index) => `
+        <div class="attachment-item">
+            <span>
+                <strong>${escapeHTML(doc.name || "Documento")}</strong>
+                <small>
+                    ${escapeHTML(doc.type || "Archivo")}
+                    ${doc.size ? ` | ${escapeHTML(formatFileSize(doc.size))}` : ""}
+                </small>
+            </span>
+            <span class="attachment-actions">
+                <button class="secondary-button attachment-view" type="button" data-applicant-doc="${escapeHTML(applicant.id)}" data-doc-index="${index}" ${doc.dataUrl ? "" : "disabled"}>
+                    Ver
+                </button>
+            </span>
+        </div>
+    `).join("");
+}
+
+function renderApplicantCard(applicant) {
+    return `
+        <article class="applicant-card" data-applicant-id="${escapeHTML(applicant.id)}">
+            <div class="applicant-card__head">
+                <div class="applicant-card__title">
+                    <strong>${escapeHTML(applicant.name || "Sin nombre")}</strong>
+                    <span>
+                        ${escapeHTML(formatEstamentoLabel(applicant.estamento))}
+                        ${applicant.profession && applicant.profession !== "Sin informacion" ? ` | ${escapeHTML(applicant.profession)}` : ""}
+                    </span>
+                </div>
+                <button class="ghost-button" type="button" data-applicant-delete="${escapeHTML(applicant.id)}">
+                    Eliminar
+                </button>
+            </div>
+
+            <div class="applicant-card__meta">
+                <span>Tel: <strong>${escapeHTML(applicant.phone || "Sin informacion")}</strong></span>
+                <span>Recepcion: <strong>${escapeHTML(applicant.receivedDate || "Sin fecha")}</strong></span>
+                <span>Egreso: <strong>${escapeHTML(applicant.graduationYear || "Sin informacion")}</strong></span>
+                <span>Institucion: <strong>${escapeHTML(applicant.institution || "Sin informacion")}</strong></span>
+            </div>
+
+            <div class="applicant-card__notes">
+                <div>
+                    <small>Experiencia Laboral</small>
+                    <p>${escapeHTML(applicant.experience || "Sin informacion")}</p>
+                </div>
+                <div>
+                    <small>Impresiones de la Entrevista</small>
+                    <p>${escapeHTML(applicant.interviewImpressions || "Sin informacion")}</p>
+                </div>
+            </div>
+
+            <div class="applicant-documents">
+                ${renderApplicantDocuments(applicant)}
+            </div>
+        </article>
+    `;
+}
+
+function renderApplicantsPanel() {
+    const target = document.getElementById("staffingApplicantsPanel");
+
+    if (!target) return;
+
+    const applicants = getApplicants();
+    const roleFilter =
+        document.getElementById("applicantFilterRole")?.value ||
+        "Todos";
+    const currentProfessionFilter =
+        document.getElementById("applicantFilterProfession")?.value ||
+        "Todas";
+    const professions = new Set(
+        applicants.map(applicant => applicant.profession)
+    );
+    const professionFilter = professions.has(currentProfessionFilter)
+        ? currentProfessionFilter
+        : "Todas";
+    const visible = applicants.filter(applicant =>
+        applicantMatchesFilters(
+            applicant,
+            roleFilter,
+            professionFilter
+        )
+    );
+    const today = new Date().toISOString().slice(0, 10);
+
+    target.innerHTML = `
+        <div class="section-head">
+            <h3>Postulantes</h3>
+        </div>
+
+        <div class="applicant-toolbar">
+            <label>
+                <span>Filtrar estamento</span>
+                <select id="applicantFilterRole">
+                    <option value="Todos">Todos</option>
+                    ${applicantRoleOptions(roleFilter)}
+                </select>
+            </label>
+
+            <label>
+                <span>Filtrar profesi\u00f3n</span>
+                <select id="applicantFilterProfession">
+                    ${applicantFilterProfessionOptions(applicants, professionFilter)}
+                </select>
+            </label>
+        </div>
+
+        <form id="applicantForm" class="applicant-form">
+            <label>
+                <span>Nombre</span>
+                <input name="name" type="text" required>
+            </label>
+            <label>
+                <span>Telefono</span>
+                <input name="phone" type="tel">
+            </label>
+            <label>
+                <span>Fecha de Recepci\u00f3n</span>
+                <input name="receivedDate" type="date" value="${today}">
+            </label>
+            <label>
+                <span>Estamento</span>
+                <select name="estamento">
+                    ${applicantRoleOptions("Profesional")}
+                </select>
+            </label>
+            <label>
+                <span>Profesi\u00f3n</span>
+                <input name="profession" type="text" list="applicantProfessionOptions">
+                <datalist id="applicantProfessionOptions">
+                    ${applicantProfessionOptions("Profesional")}
+                </datalist>
+            </label>
+            <label>
+                <span>Universidad/Instituto</span>
+                <input name="institution" type="text">
+            </label>
+            <label>
+                <span>A\u00f1o de egreso</span>
+                <input name="graduationYear" type="number" min="1950" max="2100">
+            </label>
+            <label>
+                <span>Documentos</span>
+                <input name="documents" type="file" multiple>
+            </label>
+            <label>
+                <span>Experiencia Laboral</span>
+                <textarea name="experience"></textarea>
+            </label>
+            <label>
+                <span>Impresiones de la Entrevista</span>
+                <textarea name="interviewImpressions"></textarea>
+            </label>
+            <div class="applicant-form-actions">
+                <button class="primary-button" type="submit">
+                    Guardar postulante
+                </button>
+            </div>
+        </form>
+
+        <div class="applicant-list">
+            ${visible.length
+                ? visible.map(renderApplicantCard).join("")
+                : `
+                    <div class="attachment-empty">
+                        ${applicants.length ? "No hay postulantes para los filtros seleccionados." : "Sin postulantes registrados."}
+                    </div>
+                `}
+        </div>
+    `;
+
+    bindApplicantsPanel(target);
+}
+
+function bindApplicantsPanel(target) {
+    const form = target.querySelector("#applicantForm");
+    const roleFilter = target.querySelector("#applicantFilterRole");
+    const professionFilter =
+        target.querySelector("#applicantFilterProfession");
+    const roleInput = form?.elements.estamento;
+    const professionOptions =
+        target.querySelector("#applicantProfessionOptions");
+
+    if (roleFilter) {
+        roleFilter.onchange = renderApplicantsPanel;
+    }
+
+    if (professionFilter) {
+        professionFilter.onchange = renderApplicantsPanel;
+    }
+
+    if (roleInput && professionOptions) {
+        roleInput.onchange = () => {
+            professionOptions.innerHTML =
+                applicantProfessionOptions(roleInput.value);
+        };
+    }
+
+    if (form) {
+        form.onsubmit = async event => {
+            event.preventDefault();
+
+            const formData = new FormData(form);
+            const estamento = normalizeStaffingEstamento(
+                formData.get("estamento")
+            );
+            const name = String(formData.get("name") || "").trim();
+
+            if (!name) {
+                alert("Debes indicar el nombre del postulante.");
+                return;
+            }
+
+            const submitButton = form.querySelector("[type='submit']");
+
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = "Guardando...";
+            }
+
+            try {
+                const documents = await readApplicantDocuments(
+                    form.elements.documents?.files
+                );
+                const applicants = getApplicants();
+                const record = {
+                    id: `app_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    name,
+                    phone: String(formData.get("phone") || "").trim(),
+                    receivedDate:
+                        String(formData.get("receivedDate") || "").trim(),
+                    estamento,
+                    profession: normalizeProfession(
+                        formData.get("profession"),
+                        estamento
+                    ),
+                    institution:
+                        String(formData.get("institution") || "").trim(),
+                    graduationYear:
+                        String(formData.get("graduationYear") || "").trim(),
+                    experience:
+                        String(formData.get("experience") || "").trim(),
+                    interviewImpressions:
+                        String(formData.get("interviewImpressions") || "").trim(),
+                    documents,
+                    createdAt: new Date().toISOString()
+                };
+
+                saveApplicants([record, ...applicants]);
+                addAuditLog(
+                    AUDIT_CATEGORY.STAFFING,
+                    "Agrego postulante",
+                    `${record.name}: ${formatEstamentoLabel(record.estamento)} | ${record.profession}.`,
+                    { applicantId: record.id }
+                );
+                renderApplicantsPanel();
+            } catch (error) {
+                console.error(error);
+                alert("No se pudieron guardar los documentos del postulante.");
+            }
+        };
+    }
+
+    target
+        .querySelectorAll("[data-applicant-delete]")
+        .forEach(button => {
+            button.onclick = () => {
+                const id = button.dataset.applicantDelete;
+                const applicants = getApplicants();
+                const applicant = applicants.find(item =>
+                    item.id === id
+                );
+
+                if (
+                    !applicant ||
+                    !confirm(`Eliminar postulante ${applicant.name}?`)
+                ) {
+                    return;
+                }
+
+                saveApplicants(applicants.filter(item => item.id !== id));
+                addAuditLog(
+                    AUDIT_CATEGORY.STAFFING,
+                    "Elimino postulante",
+                    `${applicant.name}: registro eliminado.`,
+                    { applicantId: applicant.id }
+                );
+                renderApplicantsPanel();
+            };
+        });
+
+    target
+        .querySelectorAll("[data-applicant-doc]")
+        .forEach(button => {
+            button.onclick = () => {
+                const applicant = getApplicants().find(item =>
+                    item.id === button.dataset.applicantDoc
+                );
+                const doc =
+                    applicant?.documents?.[Number(button.dataset.docIndex)];
+
+                openApplicantDocument(doc);
+            };
+        });
+}
+
+function renderStaffingProfiles() {
+    const target = document.getElementById("staffingProfiles");
+
+    if (!target) return;
+
+    const profiles = getProfiles();
+    const showInactive =
+        document.getElementById("staffingShowInactiveProfiles")?.checked ??
+        true;
+    const roleFilter =
+        document.getElementById("staffingFilterRole")?.value ||
+        "Todos";
+    const query = normalizeSearch(
+        document.getElementById("staffingProfileSearch")?.value || ""
+    );
+    const current = getCurrentProfile();
+    const visible = profiles.filter(profile => {
+        const activeMatches =
+            showInactive || isProfileActive(profile);
+        const roleMatches =
+            roleFilter === "Todos" ||
+            normalizeStaffingEstamento(profile.estamento) ===
+                normalizeStaffingEstamento(roleFilter);
+        const haystack = normalizeSearch([
+            profile.name,
+            profile.estamento,
+            profile.profession,
+            profile.email,
+            profile.rut
+        ].join(" "));
+
+        return activeMatches &&
+            roleMatches &&
+            (!query || haystack.includes(query));
+    });
+    const empty = document.getElementById("staffingEmptyProfiles");
+
+    target.innerHTML = "";
+
+    if (empty) {
+        empty.classList.toggle("hidden", Boolean(visible.length));
+        empty.textContent = profiles.length
+            ? "No hay resultados con ese filtro."
+            : "Aun no hay colaboradores creados.";
+    }
+
+    visible.forEach(profile => {
+        const item = document.createElement("div");
+        item.className = "profile-item";
+
+        if (!isProfileActive(profile)) {
+            item.classList.add("is-inactive");
+        }
+
+        if (profile.name === current) {
+            item.classList.add("active");
+        }
+
+        const avatar = document.createElement("div");
+        avatar.className = "profile-item__avatar";
+        avatar.textContent =
+            profile.name.trim().charAt(0).toUpperCase() || "T";
+
+        const content = document.createElement("div");
+        content.className = "profile-item__content";
+
+        const name = document.createElement("strong");
+        name.textContent = profile.name;
+
+        const meta = document.createElement("span");
+        meta.textContent = [
+            formatEstamentoLabel(profile.estamento),
+            profile.profession && profile.profession !== "Sin informacion"
+                ? profile.profession
+                : ""
+        ]
+            .filter(Boolean)
+            .join(" | ");
+
+        content.append(name, meta);
+        item.append(avatar, content);
+
+        item.onclick = () => {
+            if (typeof window.selectProfileByName === "function") {
+                window.selectProfileByName(profile.name);
+            }
+
+            renderStaffingProfiles();
+            renderStaffingMedicalChart();
+        };
+
+        target.appendChild(item);
+    });
+}
+
+function bindStaffingView() {
+    if (staffingViewBound) return;
+
+    staffingViewBound = true;
+
+    const search = document.getElementById("staffingProfileSearch");
+    const role = document.getElementById("staffingFilterRole");
+    const showInactive =
+        document.getElementById("staffingShowInactiveProfiles");
+
+    if (search) {
+        search.oninput = renderStaffingProfiles;
+    }
+
+    if (role) {
+        role.onchange = renderStaffingProfiles;
+    }
+
+    if (showInactive) {
+        showInactive.onchange = renderStaffingProfiles;
+    }
+}
+
 function getDataPerfil(nombre){
     return getJSON("data_" + nombre, {});
+}
+
+function absenceCacheKey(profileName, keyDay) {
+    return `${profileName}::${keyDay}`;
+}
+
+function absenceLabelFromType(type) {
+    if (type === "professional_license") return "LM Profesional";
+    if (type === "unpaid_leave") return "Permiso sin goce";
+    if (type === "license") return "Licencia Medica";
+    if (type === "unjustified_absence") {
+        return "Ausencia injustificada";
+    }
+
+    return type ? "Ausencia" : "";
+}
+
+function getProfileStaffingAbsence(profileName, keyDay, cache) {
+    const cacheKey = absenceCacheKey(profileName, keyDay);
+
+    if (cache?.has(cacheKey)) {
+        return cache.get(cacheKey);
+    }
+
+    const admin = getJSON(`admin_${profileName}`, {});
+    const legal = getJSON(`legal_${profileName}`, {});
+    const comp = getJSON(`comp_${profileName}`, {});
+    const absences = getJSON(`absences_${profileName}`, {});
+    let absence = null;
+
+    if (admin[keyDay] === 1) {
+        absence = {
+            kind: "full",
+            label: "P. Administrativo"
+        };
+    } else if (admin[keyDay] === "0.5M") {
+        absence = {
+            kind: "half_morning",
+            label: "1/2 ADM Manana"
+        };
+    } else if (admin[keyDay] === "0.5T") {
+        absence = {
+            kind: "half_afternoon",
+            label: "1/2 ADM Tarde"
+        };
+    } else if (admin[keyDay] === 0.5) {
+        absence = {
+            kind: "half_unknown",
+            label: "1/2 ADM"
+        };
+    } else if (legal[keyDay]) {
+        absence = {
+            kind: "full",
+            label: "F. Legal"
+        };
+    } else if (comp[keyDay]) {
+        absence = {
+            kind: "full",
+            label: "F. Compensatorio"
+        };
+    } else if (absences[keyDay]) {
+        const type = getAbsenceType(absences[keyDay]);
+
+        absence = {
+            kind: "full",
+            label: absenceLabelFromType(type)
+        };
+    }
+
+    if (cache) {
+        cache.set(cacheKey, absence);
+    }
+
+    return absence;
+}
+
+function replacementCodeToTurno(code) {
+    if (code === "L") return TURNO.LARGA;
+    if (code === "N") return TURNO.NOCHE;
+    if (code === "24") return TURNO.TURNO24;
+    if (code === "D") return TURNO.DIURNO;
+    if (code === "D+N") return TURNO.DIURNO_NOCHE;
+    if (code === "HM") return TURNO.MEDIA_MANANA;
+    if (code === "HT") return TURNO.MEDIA_TARDE;
+    if (code === "18") return TURNO.TURNO18;
+
+    return TURNO.LIBRE;
+}
+
+function replacementAddsStaffingCoverage(replacement) {
+    return Boolean(replacement) &&
+        !replacement.canceled &&
+        replacement.addsShift !== false &&
+        replacement.source !== "clock_extra" &&
+        Boolean(replacement.replaced);
 }
 
 function staffingGroupMatches(profile, row) {
     const estamento = normalizeStaffingEstamento(profile.estamento);
 
     if (estamento !== row.estamento) return false;
+    if (getStaffingProfileModality(profile) !== row.modality) {
+        return false;
+    }
 
     return isProfessionBasedStaffing(estamento)
         ? getStaffingProfileGroupKey(profile) === row.groupKey
         : true;
 }
 
-function getStaffingTurno(profile, y, m, d) {
+function replacementTargetsStaffingRow(replacement, row) {
+    const target = getProfiles().find(profile =>
+        profile.name === replacement.replaced
+    );
+
+    return target
+        ? profileMatchesStaffingGroup(target, row)
+        : false;
+}
+
+function getReplacementSegmentsForStaffingRow(
+    profile,
+    row,
+    keyDay
+) {
+    const iso = isoFromKey(keyDay);
+    const segments = new Set();
+
+    getReplacements()
+        .filter(replacement =>
+            replacementAddsStaffingCoverage(replacement) &&
+            replacement.worker === profile.name &&
+            replacement.date === iso &&
+            replacementTargetsStaffingRow(replacement, row)
+        )
+        .forEach(replacement => {
+            turnSegmentsForStaffing(
+                row,
+                replacementCodeToTurno(replacement.turno)
+            ).forEach(segment => segments.add(segment));
+        });
+
+    return segments;
+}
+
+function getStaffingTurno(profile, y, m, d, options = {}) {
     const dayKey = key(y, m, d);
     const data = getDataPerfil(profile.name);
     const turno = data[dayKey] || 0;
@@ -646,38 +1620,148 @@ function getStaffingTurno(profile, y, m, d) {
     return aplicarCambiosTurno(
         profile.name,
         dayKey,
-        turno
+        turno,
+        options
     );
 }
 
-function worksForStaffing(row, turno, shiftKind) {
-    if (row.modality === "diurno") {
-        return worksStaffingDiurno(turno);
+function getProfileStaffingCoverage(
+    profile,
+    row,
+    y,
+    m,
+    d,
+    absenceCache
+) {
+    const dayKey = key(y, m, d);
+    const beforeSegments = new Set();
+    const ownCoverage =
+        staffingGroupMatches(profile, row);
+
+    if (ownCoverage) {
+        turnSegmentsForStaffing(
+            row,
+            getStaffingTurno(profile, y, m, d)
+        ).forEach(segment => beforeSegments.add(segment));
     }
 
-    if (shiftKind === "night") {
-        return worksStaffingNight(turno);
-    }
+    getReplacementSegmentsForStaffingRow(
+        profile,
+        row,
+        dayKey
+    ).forEach(segment => beforeSegments.add(segment));
 
-    return worksStaffingLong(turno);
-}
-
-function contarRequerimiento(profiles, row, y, m, d, shiftKind){
-    return profiles
-        .filter(profile => staffingGroupMatches(profile, row))
-        .filter(profile =>
-            worksForStaffing(
-                row,
-                getStaffingTurno(profile, y, m, d),
-                shiftKind
-            )
+    const absence = getProfileStaffingAbsence(
+        profile.name,
+        dayKey,
+        absenceCache
+    );
+    const removedSegments =
+        removeSegmentsByAbsence(absence, beforeSegments);
+    const activeSegments = new Set(
+        [...beforeSegments].filter(segment =>
+            !removedSegments.has(segment)
         )
-        .length;
+    );
+
+    return {
+        activeSegments,
+        beforeSegments,
+        removedSegments,
+        absence
+    };
 }
 
-function sugerirReemplazo(profiles, row, y, m, d){
+function uniqueAbsences(absences) {
+    const seen = new Set();
+
+    return absences.filter(item => {
+        const key = `${item.profile}|${item.label}`;
+
+        if (seen.has(key)) return false;
+
+        seen.add(key);
+        return true;
+    });
+}
+
+function contarRequerimiento(
+    profiles,
+    row,
+    y,
+    m,
+    d,
+    shiftKind,
+    absenceCache
+) {
+    const checkSegments = checkSegmentsForShift(shiftKind);
+    const segmentCounts = new Map(
+        checkSegments.map(segment => [segment, 0])
+    );
+    const absences = [];
+
+    profiles
+        .forEach(profile => {
+            const coverage = getProfileStaffingCoverage(
+                profile,
+                row,
+                y,
+                m,
+                d,
+                absenceCache
+            );
+
+            checkSegments.forEach(segment => {
+                if (coverage.activeSegments.has(segment)) {
+                    segmentCounts.set(
+                        segment,
+                        (segmentCounts.get(segment) || 0) + 1
+                    );
+                }
+            });
+
+            const absenceAffectsShift = Boolean(coverage.absence) &&
+                checkSegments.some(segment =>
+                    coverage.beforeSegments.has(segment) &&
+                    coverage.removedSegments.has(segment)
+                );
+
+            if (absenceAffectsShift) {
+                absences.push({
+                    profile: profile.name,
+                    label: coverage.absence.label
+                });
+            }
+        });
+
+    const counts = checkSegments.map(segment =>
+        segmentCounts.get(segment) || 0
+    );
+    const real = counts.length
+        ? Math.min(...counts)
+        : 0;
+    const missingSegments = checkSegments.filter(segment =>
+        (segmentCounts.get(segment) || 0) < row.required
+    );
+
+    return {
+        real,
+        missingSegments,
+        absences: uniqueAbsences(absences)
+    };
+}
+
+function sugerirReemplazo(profiles, row, y, m, d, absenceCache){
+    const dayKey = key(y, m, d);
     const libres = profiles
         .filter(profile => staffingGroupMatches(profile, row))
+        .filter(profile =>
+            !getProfileStaffingAbsence(
+                profile.name,
+                dayKey,
+                absenceCache
+            )
+        )
         .filter(profile => {
             return getStaffingTurno(profile, y, m, d) === 0;
         });
@@ -689,19 +1773,26 @@ function sugerirReemplazo(profiles, row, y, m, d){
     return libres[0].name;
 }
 
-export function analizarMes(year, month){
+export function analizarMes(year, month, holidays = {}){
     const profiles = getProfiles().filter(isProfileActive);
     const requirements = buildStaffingRequirementRows()
         .filter(row => row.required > 0);
     const diasMes =
         new Date(year, month + 1, 0).getDate();
+    const absenceCache = new Map();
 
     const salida = [];
 
     for (let d = 1; d <= diasMes; d++) {
         const detalle = [];
+        const date = new Date(year, month, d);
+        const isHab = isBusinessDay(date, holidays);
 
         requirements.forEach(row => {
+            if (row.modality === "diurno" && !isHab) {
+                return;
+            }
+
             const checks = row.modality === "diurno"
                 ? [{
                     kind: "diurno",
@@ -719,17 +1810,19 @@ export function analizarMes(year, month){
                         label: "Noche",
                         badgeType: "noche"
                     }
-                ];
+            ];
 
             checks.forEach(check => {
-                const real = contarRequerimiento(
+                const coverage = contarRequerimiento(
                     profiles,
                     row,
                     year,
                     month,
                     d,
-                    check.kind
+                    check.kind,
+                    absenceCache
                 );
+                const real = coverage.real;
 
                 if (real < row.required) {
                     detalle.push({
@@ -737,13 +1830,18 @@ export function analizarMes(year, month){
                         estamento: row.estamento,
                         groupLabel: row.groupLabel,
                         shiftLabel: check.label,
+                        segmentLabel: segmentLabel(
+                            coverage.missingSegments
+                        ),
+                        absences: coverage.absences,
                         cantidad: row.required - real,
                         sugerencia: sugerirReemplazo(
                             profiles,
                             row,
                             year,
                             month,
-                            d
+                            d,
+                            absenceCache
                         )
                     });
                 }
@@ -770,7 +1868,36 @@ export function analizarMes(year, month){
 }
 
 export function renderStaffingPanel(){
+    bindStaffingView();
+    renderStaffingProfiles();
+    renderApplicantsPanel();
     renderStaffingAnalysis();
+}
+
+function formatShiftLabel(detail, fallback) {
+    const base = detail.shiftLabel || fallback;
+
+    return detail.segmentLabel
+        ? `${base} (${detail.segmentLabel})`
+        : base;
+}
+
+function formatAbsenceReason(detail) {
+    const absences = detail.absences || [];
+
+    if (!absences.length) return "";
+
+    const summary = absences
+        .slice(0, 3)
+        .map(item =>
+            `${item.profile} (${item.label})`
+        )
+        .join(", ");
+    const extra = absences.length > 3
+        ? ` y ${absences.length - 3} mas`
+        : "";
+
+    return ` por ausencia: ${summary}${extra}`;
 }
 
 function renderDetailBadge(detail){
@@ -786,7 +1913,8 @@ function renderDetailBadge(detail){
         return `
             <span class="staffing-pill staffing-pill--bad">
                 Falta ${detail.cantidad} ${escapeHTML(detail.groupLabel || detail.estamento)}
-                en turno ${escapeHTML(detail.shiftLabel || "Diurno")}
+                en turno ${escapeHTML(formatShiftLabel(detail, "Diurno"))}
+                ${escapeHTML(formatAbsenceReason(detail))}
                 ${detail.sugerencia ? ` - Sugerido: ${escapeHTML(detail.sugerencia)}` : ""}
             </span>
         `;
@@ -804,7 +1932,8 @@ function renderDetailBadge(detail){
     return `
         <span class="staffing-pill staffing-pill--night">
             Falta ${detail.cantidad} ${escapeHTML(detail.groupLabel || detail.estamento)}
-            en turno ${escapeHTML(detail.shiftLabel || "Noche")}
+            en turno ${escapeHTML(formatShiftLabel(detail, "Noche"))}
+            ${escapeHTML(formatAbsenceReason(detail))}
         </span>
     `;
 }
@@ -896,24 +2025,30 @@ export function renderReplacementContractsLog(){
     `;
 }
 
-export function analizarStaffingMes(
+export async function analizarStaffingMes(
     year = currentDate.getFullYear(),
     month = currentDate.getMonth()
 ){
-    const data = analizarMes(year, month);
+    const holidays = await fetchHolidays(year);
+    const data = analizarMes(year, month, holidays);
+
     mostrarResultado(data);
     renderInlineStaffingReport(data, month);
     return data;
 }
 
-export function renderStaffingAnalysis(){
+export async function renderStaffingAnalysis(){
+    bindStaffingView();
+    renderStaffingProfiles();
     renderReplacementContractsLog();
     renderStaffingMedicalChart();
 
-    return analizarStaffingMes(
+    return await analizarStaffingMes(
         currentDate.getFullYear(),
         currentDate.getMonth()
     );
 }
 
 window.renderStaffingAnalysis = renderStaffingAnalysis;
+window.renderStaffingPanel = renderStaffingPanel;
+window.renderStaffingMedicalChart = renderStaffingMedicalChart;

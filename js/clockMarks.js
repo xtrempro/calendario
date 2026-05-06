@@ -640,7 +640,8 @@ export function hasSevereClockIncident(profile, keyDay) {
     if (!mark?.segments) return false;
 
     return Object.values(mark.segments).some(segment =>
-        segment?.missingEntry || segment?.missingExit
+        (segment?.missingEntry || segment?.missingExit) &&
+        !segment?.rrhhPayApproved
     );
 }
 
@@ -652,7 +653,9 @@ export function hasSimpleClockIncident(profile, keyDay) {
     }
 
     return Object.values(mark.segments).some(segment =>
-        segment?.entryTime || segment?.exitTime
+        (segment?.entryTime || segment?.exitTime) &&
+        !segment?.rrhhPayApproved &&
+        !segment?.discountWaived
     );
 }
 

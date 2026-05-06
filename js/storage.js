@@ -37,21 +37,71 @@ export const DEFAULT_GRADE_HOUR_CONFIG = {
     }
 };
 
-export const PROFESSIONS = [
-    "Enfermero",
-    "Fonoaudiologia",
-    "Kinesiologo",
-    "Sin informacion",
-    "Tecnico en Enfermeria",
-    "Tecnico en Imagenologia",
-    "Tecnico en Laboratorio",
-    "Terapia Ocupacional",
-    "TM Anatomia Patologica",
-    "TM Imagenologia",
+export const SIN_INFORMACION_PROFESSION = "Sin informacion";
+
+export const PROFESSIONAL_PROFESSIONS = [
+    "Kinesiolog\u00eda",
+    "Enfermer\u00eda",
+    "TM Imagenolog\u00eda",
+    "TM Otorrinolaringolog\u00eda",
+    "TM Oftalmolog\u00eda",
+    "TM Morfofisiopatolog\u00eda",
     "TM Laboratorio",
-    "TM Oftalmologia",
-    "TM Otorrinolaringologia"
+    "Terapia Ocupacional",
+    "Fonoaudiolog\u00eda",
+    "Obstetricia",
+    "Nutricionista",
+    SIN_INFORMACION_PROFESSION
 ];
+
+export const TECHNICAL_PROFESSIONS = [
+    "T\u00e9cnico en Enfermer\u00eda",
+    "T\u00e9cnico en Odontolog\u00eda",
+    "T\u00e9cnico en Farmacia",
+    "T\u00e9cnico en Imagenolog\u00eda",
+    "T\u00e9cnico en Nutrici\u00f3n",
+    "T\u00e9cnico en Laboratorio",
+    SIN_INFORMACION_PROFESSION
+];
+
+export const ADMINISTRATIVE_PROFESSIONS = [
+    "T\u00e9cnico en Administraci\u00f3n de Empresas",
+    "T\u00e9cnico en Contabilidad",
+    "T\u00e9cnico en Log\u00edstica",
+    "T\u00e9cnico en Comercio Exterior",
+    "Ingenier\u00eda en Administraci\u00f3n de Empresas",
+    "Ingenier\u00eda Comercial",
+    "Ingenier\u00eda en RRHH"
+];
+
+export const PROFESSIONS = [
+    ...new Set([
+        ...PROFESSIONAL_PROFESSIONS,
+        ...TECHNICAL_PROFESSIONS,
+        ...ADMINISTRATIVE_PROFESSIONS
+    ])
+];
+
+const PROFESSION_ALIASES = {
+    enfermero: "Enfermer\u00eda",
+    enfermera: "Enfermer\u00eda",
+    enfermeria: "Enfermer\u00eda",
+    fonoaudiologia: "Fonoaudiolog\u00eda",
+    kinesiologo: "Kinesiolog\u00eda",
+    kinesiologa: "Kinesiolog\u00eda",
+    kinesiologia: "Kinesiolog\u00eda",
+    "sin informacion": SIN_INFORMACION_PROFESSION,
+    "sin info": SIN_INFORMACION_PROFESSION,
+    "tecnico en enfermeria": "T\u00e9cnico en Enfermer\u00eda",
+    "tecnico en imagenologia": "T\u00e9cnico en Imagenolog\u00eda",
+    "tecnico en laboratorio": "T\u00e9cnico en Laboratorio",
+    "tm anatomia patologica": "TM Morfofisiopatolog\u00eda",
+    "tm imagenologia": "TM Imagenolog\u00eda",
+    "tm laboratorio": "TM Laboratorio",
+    "tm morfofisiopatologia": "TM Morfofisiopatolog\u00eda",
+    "tm oftalmologia": "TM Oftalmolog\u00eda",
+    "tm otorrinolaringologia": "TM Otorrinolaringolog\u00eda"
+};
 
 function normalizeTextKey(value) {
     return String(value || "")
@@ -61,13 +111,59 @@ function normalizeTextKey(value) {
         .toLowerCase();
 }
 
-function normalizeProfession(value) {
+function findProfessionOption(value, options = []) {
     const key = normalizeTextKey(value);
-    const match = PROFESSIONS.find(profession =>
+
+    return options.find(profession =>
         normalizeTextKey(profession) === key
     );
+}
 
-    return match || "Sin informacion";
+export function estamentoAllowsCustomProfession(estamento) {
+    const normalized = normalizeEstamento(estamento);
+
+    return (
+        normalized === "Administrativo" ||
+        normalized === "Auxiliar"
+    );
+}
+
+export function getProfessionOptionsForEstamento(estamento) {
+    const normalized = normalizeEstamento(estamento);
+
+    if (normalized === "T\u00e9cnico") {
+        return TECHNICAL_PROFESSIONS;
+    }
+
+    if (estamentoAllowsCustomProfession(normalized)) {
+        return ADMINISTRATIVE_PROFESSIONS;
+    }
+
+    return PROFESSIONAL_PROFESSIONS;
+}
+
+export function normalizeProfession(value, estamento = "Profesional") {
+    const raw = String(value || "").trim();
+
+    if (!raw) return SIN_INFORMACION_PROFESSION;
+
+    const normalizedEstamento = normalizeEstamento(estamento);
+    const options = getProfessionOptionsForEstamento(normalizedEstamento);
+    const optionMatch = findProfessionOption(raw, options);
+
+    if (optionMatch) return optionMatch;
+
+    if (estamentoAllowsCustomProfession(normalizedEstamento)) {
+        return raw;
+    }
+
+    const alias = PROFESSION_ALIASES[normalizeTextKey(raw)];
+
+    if (alias && findProfessionOption(alias, options)) {
+        return alias;
+    }
+
+    return SIN_INFORMACION_PROFESSION;
 }
 
 function normalizeProfileId(value) {
@@ -449,9 +545,12 @@ function usesProfessionCoverage(profile = {}) {
 
 function coverageGroupKey(profile = {}) {
     if (usesProfessionCoverage(profile)) {
-        const profession = normalizeProfession(profile.profession);
+        const profession = normalizeProfession(
+            profile.profession,
+            profile.estamento
+        );
 
-        if (profession === "Sin informacion") {
+        if (profession === SIN_INFORMACION_PROFESSION) {
             return `profession:${normalizeEstamento(profile.estamento)}:${profession}`;
         }
 
@@ -535,12 +634,16 @@ export function getProfiles(){
         }
 
         const { unit, ...profileWithoutUnit } = profile || {};
+        const estamento = normalizeEstamento(profile.estamento);
 
         return {
             ...profileWithoutUnit,
             id: createProfileId(profile),
-            estamento: normalizeEstamento(profile.estamento),
-            profession: normalizeProfession(profile.profession)
+            estamento,
+            profession: normalizeProfession(
+                profile.profession,
+                estamento
+            )
         };
     });
 }
@@ -876,12 +979,16 @@ export function saveReplacementContracts(
 export function saveProfiles(profiles, options = {}){
     const normalized = (profiles || []).map(profile => {
         const { unit, ...profileWithoutUnit } = profile || {};
+        const estamento = normalizeEstamento(profile.estamento);
 
         return {
             ...profileWithoutUnit,
             id: createProfileId(profile),
-            estamento: normalizeEstamento(profile.estamento),
-            profession: normalizeProfession(profile.profession)
+            estamento,
+            profession: normalizeProfession(
+                profile.profession,
+                estamento
+            )
         };
     });
 
@@ -1138,15 +1245,18 @@ export function updateProfile(oldName, nextProfile){
             return profile;
         }
 
+        const estamento = normalizeEstamento(
+            nextProfile.estamento ?? profile.estamento
+        );
+
         return {
             ...profile,
             ...nextProfile,
             name: targetName,
-            estamento: normalizeEstamento(
-                nextProfile.estamento ?? profile.estamento
-            ),
+            estamento,
             profession: normalizeProfession(
-                nextProfile.profession ?? profile.profession
+                nextProfile.profession ?? profile.profession,
+                estamento
             )
         };
     });

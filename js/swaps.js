@@ -2,6 +2,8 @@ import {
     getBaseProfileData,
     getBlockedDays,
     getProfileData,
+    getProfiles,
+    getRotativa,
     getSwaps,
     saveBlockedDays,
     saveProfileData,
@@ -35,6 +37,125 @@ function isMedicalLicense(absence) {
     );
 }
 
+function normalizeTextKey(value) {
+    return String(value || "")
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+}
+
+function getProfileByName(name) {
+    return getProfiles().find(profile =>
+        profile.name === name
+    ) || null;
+}
+
+function parseKeyDate(key) {
+    const parts = String(key || "").split("-");
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
+
+    if (!year || month < 0 || !day) return null;
+
+    const date = new Date(year, month, day);
+
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function keyFromDate(date) {
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function baseDataRange(data = {}) {
+    const dates = Object.keys(data)
+        .map(parseKeyDate)
+        .filter(Boolean)
+        .sort((a, b) => a - b);
+
+    if (!dates.length) return null;
+
+    return {
+        start: dates[0],
+        end: dates[dates.length - 1]
+    };
+}
+
+function baseTurnForDate(data, date) {
+    return Number(data[keyFromDate(date)]) || 0;
+}
+
+export function haveSameBaseRotation(fromName, toName) {
+    const fromRotativa = getRotativa(fromName);
+    const toRotativa = getRotativa(toName);
+
+    if (
+        !fromRotativa.type ||
+        !toRotativa.type ||
+        fromRotativa.type === "reemplazo" ||
+        toRotativa.type === "reemplazo" ||
+        fromRotativa.type !== toRotativa.type
+    ) {
+        return false;
+    }
+
+    const fromBase = getBaseProfileData(fromName);
+    const toBase = getBaseProfileData(toName);
+    const fromRange = baseDataRange(fromBase);
+    const toRange = baseDataRange(toBase);
+
+    if (!fromRange || !toRange) return false;
+
+    const start =
+        fromRange.start > toRange.start
+            ? new Date(fromRange.start)
+            : new Date(toRange.start);
+    const end =
+        fromRange.end < toRange.end
+            ? new Date(fromRange.end)
+            : new Date(toRange.end);
+
+    if (start > end) return false;
+
+    let compared = 0;
+    const day = new Date(start);
+
+    while (day <= end && compared < 42) {
+        if (baseTurnForDate(fromBase, day) !== baseTurnForDate(toBase, day)) {
+            return false;
+        }
+
+        compared++;
+        day.setDate(day.getDate() + 1);
+    }
+
+    return compared >= 7;
+}
+
+function usesProfessionCompatibility(profile = {}) {
+    return (
+        profile.estamento === "Profesional" ||
+        profile.estamento === "T\u00e9cnico"
+    );
+}
+
+export function canSwapProfiles(fromName, toName) {
+    const from = getProfileByName(fromName);
+    const to = getProfileByName(toName);
+
+    if (!from || !to || from.name === to.name) return false;
+    if (from.estamento !== to.estamento) return false;
+    if (haveSameBaseRotation(fromName, toName)) return false;
+
+    if (usesProfessionCompatibility(from)) {
+        return normalizeTextKey(from.profession) ===
+            normalizeTextKey(to.profession);
+    }
+
+    return true;
+}
+
 export function cambioEstaAnulado(swap) {
     return Boolean(
         swap?.canceled ||
@@ -48,10 +169,20 @@ function resetDayToBase(profile, keyDay) {
     const data = getProfileData(profile);
     const baseData = getBaseProfileData(profile);
     const blocked = getBlockedDays(profile);
+    const hasAbsence =
+        Boolean(getJSON(`admin_${profile}`, {})[keyDay]) ||
+        Boolean(getJSON(`legal_${profile}`, {})[keyDay]) ||
+        Boolean(getJSON(`comp_${profile}`, {})[keyDay]) ||
+        Boolean(getJSON(`absences_${profile}`, {})[keyDay]);
     const hasBase =
         Object.prototype.hasOwnProperty.call(baseData, keyDay);
 
     if (!hasBase) {
+        if (hasAbsence) {
+            blocked[keyDay] = true;
+            saveBlockedDays(blocked, profile);
+        }
+
         return;
     }
 
@@ -59,6 +190,9 @@ function resetDayToBase(profile, keyDay) {
 
     if (baseTurno) {
         data[keyDay] = baseTurno;
+        blocked[keyDay] = true;
+    } else if (hasAbsence) {
+        delete data[keyDay];
         blocked[keyDay] = true;
     } else {
         delete data[keyDay];
@@ -144,14 +278,16 @@ export function getCambioTurnoRecibido(nombre, keyDay) {
     return getSwaps().find(swap =>
         !cambioEstaAnulado(swap) &&
         (
-            !swap.skipFecha &&
-            swap.to === nombre &&
-            swap.fecha === fecha
-        ) ||
-        (
-            !swap.skipDevolucion &&
-            swap.from === nombre &&
-            swap.devolucion === fecha
+            (
+                !swap.skipFecha &&
+                swap.to === nombre &&
+                swap.fecha === fecha
+            ) ||
+            (
+                !swap.skipDevolucion &&
+                swap.from === nombre &&
+                swap.devolucion === fecha
+            )
         )
     ) || null;
 }
@@ -220,6 +356,157 @@ export function deshacerCambioTurno(swap) {
             to: swap.to
         }
     );
+}
+
+export function activeSwapConflictsProfileDate(profile, keyDay) {
+    const fecha = isoFromKey(keyDay);
+
+    return getSwaps().some(swap =>
+        !cambioEstaAnulado(swap) &&
+        (swap.from === profile || swap.to === profile) &&
+        (
+            (!swap.skipFecha && swap.fecha === fecha) ||
+            (!swap.skipDevolucion && swap.devolucion === fecha)
+        )
+    );
+}
+
+export function profileHasSwapAbsence(profile, keyDay) {
+    return Boolean(
+        getJSON(`admin_${profile}`, {})[keyDay] ||
+        getJSON(`legal_${profile}`, {})[keyDay] ||
+        getJSON(`comp_${profile}`, {})[keyDay] ||
+        getJSON(`absences_${profile}`, {})[keyDay]
+    );
+}
+
+export function getSwapTurnState(profile, keyDay) {
+    const data = getProfileData(profile);
+    const rotativa = getRotativa(profile);
+
+    if (rotativa.type === "reemplazo") {
+        return Number(data[keyDay]) || 0;
+    }
+
+    const baseData = getBaseProfileData(profile);
+    const hasBaseData =
+        Object.keys(baseData).length > 0;
+
+    if (Object.prototype.hasOwnProperty.call(baseData, keyDay)) {
+        return Number(baseData[keyDay]) || 0;
+    }
+
+    if (hasBaseData) {
+        return 0;
+    }
+
+    if (!getBlockedDays(profile)[keyDay]) {
+        return 0;
+    }
+
+    return Number(data[keyDay]) || 0;
+}
+
+export function isSwapExchangeableTurn(turno) {
+    const value = Number(turno) || 0;
+
+    return value === 1 || value === 2;
+}
+
+export function isComplementarySwapTurn(incomingTurn, existingTurn) {
+    const incoming = Number(incomingTurn) || 0;
+    const existing = Number(existingTurn) || 0;
+
+    return (
+        (incoming === 1 && existing === 2) ||
+        (incoming === 2 && existing === 1)
+    );
+}
+
+export function isProfileClearForSwap(profile, keyDay) {
+    return (
+        !profileHasSwapAbsence(profile, keyDay) &&
+        !activeSwapConflictsProfileDate(profile, keyDay) &&
+        getSwapTurnState(profile, keyDay) === 0
+    );
+}
+
+export function canGiveSwapTurn(profile, keyDay) {
+    return (
+        !profileHasSwapAbsence(profile, keyDay) &&
+        !activeSwapConflictsProfileDate(profile, keyDay) &&
+        isSwapExchangeableTurn(getSwapTurnState(profile, keyDay))
+    );
+}
+
+export function getSwapDateBlockReason({
+    giver,
+    receiver,
+    keyDay
+}) {
+    if (!giver || !receiver || !keyDay) {
+        return "Seleccion incompleta.";
+    }
+
+    if (profileHasSwapAbsence(giver, keyDay)) {
+        return `${giver} tiene permiso, vacaciones o licencia en esta fecha.`;
+    }
+
+    if (profileHasSwapAbsence(receiver, keyDay)) {
+        return `${receiver} tiene permiso, vacaciones o licencia en esta fecha.`;
+    }
+
+    if (activeSwapConflictsProfileDate(giver, keyDay)) {
+        return `${giver} ya tiene un cambio de turno en esta fecha.`;
+    }
+
+    if (activeSwapConflictsProfileDate(receiver, keyDay)) {
+        return `${receiver} ya tiene un cambio de turno en esta fecha.`;
+    }
+
+    const giverTurn = getSwapTurnState(giver, keyDay);
+    const receiverTurn = getSwapTurnState(receiver, keyDay);
+
+    if (!isSwapExchangeableTurn(giverTurn)) {
+        return `${giver} no tiene turno Larga o Noche para entregar.`;
+    }
+
+    if (
+        receiverTurn !== 0 &&
+        !isComplementarySwapTurn(giverTurn, receiverTurn)
+    ) {
+        return `${receiver} no tiene calendario libre ni turno complementario para recibir.`;
+    }
+
+    return "";
+}
+
+export function getActiveSwapsForProfileKeys(profile, keys = []) {
+    const keySet = new Set(keys.map(isoFromKey));
+
+    if (!profile || !keySet.size) return [];
+
+    return getSwaps().filter(swap =>
+        !cambioEstaAnulado(swap) &&
+        (swap.from === profile || swap.to === profile) &&
+        (
+            (!swap.skipFecha && keySet.has(swap.fecha)) ||
+            (!swap.skipDevolucion && keySet.has(swap.devolucion))
+        )
+    );
+}
+
+export function cancelSwapsForProfileKeys(profile, keys = []) {
+    const swaps = getActiveSwapsForProfileKeys(profile, keys);
+    const unique = new Map();
+
+    swaps.forEach(swap => {
+        unique.set(String(swap.id), swap);
+    });
+
+    Array.from(unique.values()).forEach(deshacerCambioTurno);
+
+    return Array.from(unique.values());
 }
 
 /* =========================================

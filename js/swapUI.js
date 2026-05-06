@@ -1,23 +1,20 @@
 import {
     cambiosDelMes,
     cambioEstaAnulado,
+    canSwapProfiles,
+    getSwapDateBlockReason,
+    getSwapTurnState,
+    isSwapExchangeableTurn,
     registrarCambio
 } from "./swaps.js";
 import {
     getCurrentProfile,
-    getProfileData,
     getProfiles,
-    getRotativa,
-    getSwaps,
-    isProfileActive
+    isProfileActive,
+    setCurrentProfile
 } from "./storage.js";
 import { refreshAll } from "./refresh.js";
 import { pushHistory } from "./history.js";
-import {
-    aplicarCambiosTurno,
-    getTurnoBase
-} from "./turnEngine.js";
-import { getJSON } from "./persistence.js";
 
 let fechaCambioSeleccionada = "";
 let fechaDevolucionSeleccionada = "";
@@ -43,14 +40,7 @@ function formatFecha(fechaStr){
 
 function getBaseState(nombre, year, month, day = 1){
     const key = `${year}-${month}-${day}`;
-    const turno = getRotativa(nombre).type === "reemplazo"
-        ? aplicarCambiosTurno(
-            nombre,
-            key,
-            Number(getProfileData(nombre)[key]) || 0,
-            { includeReplacements: false }
-        )
-        : getTurnoBase(nombre, key);
+    const turno = getSwapTurnState(nombre, key);
 
     return turno ? turno : null;
 }
@@ -61,18 +51,41 @@ function getPerfil(nombre) {
     ) || null;
 }
 
+function normalizeSearch(value) {
+    return String(value || "")
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+}
+
+function escapeHTML(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function profileMetaLabel(profile = {}) {
+    const role = profile.estamento || "Sin estamento";
+    const profession = profile.profession &&
+        normalizeSearch(profile.profession) !== "sin informacion"
+        ? ` | ${profile.profession}`
+        : "";
+
+    return `${role}${profession}`;
+}
+
 function noPuedeIntercambiar(nombre) {
     if (!isProfileActive(nombre)) return true;
 
-    const type = getRotativa(nombre).type;
-
-    return type === "diurno";
+    return false;
 }
 
 function esTurnoIntercambiable(turno) {
-    const base = Number(turno) || 0;
-
-    return base === 1 || base === 2;
+    return isSwapExchangeableTurn(turno);
 }
 
 function codigoTurno(valor){
@@ -84,40 +97,14 @@ function codigoTurno(valor){
     return "";
 }
 
-function mismaRotativa(nombre1, nombre2){
-    const y = swapDate.getFullYear();
-    const m = swapDate.getMonth();
-
-    let iguales = 0;
-    let comparados = 0;
-
-    for (let d = 1; d <= 20; d++) {
-        const a = getBaseState(nombre1, y, m, d);
-        const b = getBaseState(nombre2, y, m, d);
-
-        if (a === null || b === null) continue;
-
-        comparados++;
-
-        if (a === b) iguales++;
-    }
-
-    if (comparados < 4) return false;
-
-    return iguales === comparados;
-}
-
 function getTrabajadoresDisponibles(nombreFrom) {
-    const perfilFrom = getPerfil(nombreFrom);
-
-    if (!perfilFrom) return [];
+    if (!getPerfil(nombreFrom)) return [];
 
     return getProfiles().filter(profile =>
         profile.name !== nombreFrom &&
         isProfileActive(profile) &&
-        profile.estamento === perfilFrom.estamento &&
         !noPuedeIntercambiar(profile.name) &&
-        !mismaRotativa(nombreFrom, profile.name)
+        canSwapProfiles(nombreFrom, profile.name)
     );
 }
 
@@ -158,11 +145,6 @@ function toISO(date){
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-function keyISO(key){
-    const parts = key.split("-");
-    return `${parts[0]}-${String(Number(parts[1]) + 1).padStart(2, "0")}-${String(parts[2]).padStart(2, "0")}`;
-}
-
 function textoTurno(turno){
     if (turno === 1) return "L";
     if (turno === 2) return "N";
@@ -173,39 +155,110 @@ function textoTurno(turno){
     return "";
 }
 
-function getProfileMap(prefix, nombre) {
-    return getJSON(`${prefix}_${nombre}`, {});
+function keyFromInputDate(value) {
+    const date = parseInputDate(value);
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-function fechaDisponible(nombre, key, turno){
-    if (!esTurnoIntercambiable(turno)) return false;
+function bindSwapProfileFilters() {
+    ["swapProfileSearch", "swapFilterRole", "swapShowInactiveProfiles"]
+        .forEach(id => {
+            const element = document.getElementById(id);
 
-    const swaps = getSwaps();
+            if (!element || element.dataset.swapBound) return;
 
-    if (
-        swaps.some(swap =>
-            !cambioEstaAnulado(swap) &&
-            (swap.from === nombre || swap.to === nombre) &&
-            (
-                (!swap.skipFecha && swap.fecha === keyISO(key)) ||
-                (!swap.skipDevolucion && swap.devolucion === keyISO(key))
-            )
-        )
-    ) {
-        return false;
+            element.dataset.swapBound = "true";
+            element.addEventListener("input", renderSwapProfiles);
+            element.addEventListener("change", renderSwapProfiles);
+        });
+}
+
+function renderSwapProfiles() {
+    const list = document.getElementById("swapProfiles");
+    const empty = document.getElementById("swapEmptyProfiles");
+
+    if (!list || !empty) return;
+
+    const profiles = getProfiles();
+    const current = getCurrentProfile();
+    const query = normalizeSearch(
+        document.getElementById("swapProfileSearch")?.value || ""
+    );
+    const filtro =
+        document.getElementById("swapFilterRole")?.value || "Todos";
+    const showInactive =
+        document.getElementById("swapShowInactiveProfiles")?.checked ?? true;
+    const visibles = profiles.filter(profile => {
+        const active = showInactive || isProfileActive(profile);
+        const role = filtro === "Todos" || profile.estamento === filtro;
+        const search = !query ||
+            normalizeSearch(profile.name).includes(query) ||
+            normalizeSearch(profile.estamento).includes(query) ||
+            normalizeSearch(profile.profession).includes(query);
+
+        return active && role && search;
+    });
+
+    list.innerHTML = "";
+
+    if (!visibles.length) {
+        empty.classList.remove("hidden");
+        empty.textContent = profiles.length
+            ? "No hay resultados con ese filtro."
+            : "Aun no hay colaboradores creados.";
+        return;
     }
 
-    if (getProfileMap("admin", nombre)[key]) return false;
-    if (getProfileMap("legal", nombre)[key]) return false;
-    if (getProfileMap("comp", nombre)[key]) return false;
-    if (getProfileMap("absences", nombre)[key]) return false;
+    empty.classList.add("hidden");
 
-    return true;
+    visibles.forEach(profile => {
+        const item = document.createElement("button");
+        item.className = "profile-item swap-profile-item";
+        item.type = "button";
+
+        if (!isProfileActive(profile)) {
+            item.classList.add("is-inactive");
+        }
+
+        if (profile.name === current) {
+            item.classList.add("active");
+        }
+
+        item.innerHTML = `
+            <span class="profile-item__avatar">
+                ${escapeHTML(profile.name.trim().charAt(0).toUpperCase() || "T")}
+            </span>
+            <span class="profile-item__content">
+                <strong>${escapeHTML(profile.name)}</strong>
+                <span>${escapeHTML(profileMetaLabel(profile))}${isProfileActive(profile) ? "" : " | Desactivado"}</span>
+            </span>
+        `;
+
+        item.onclick = () => {
+            fechaCambioSeleccionada = "";
+            fechaDevolucionSeleccionada = "";
+            if (typeof window.selectProfileByName === "function") {
+                window.selectProfileByName(profile.name);
+            } else {
+                setCurrentProfile(profile.name);
+                renderSwapPanel();
+                refreshAll();
+            }
+        };
+
+        list.appendChild(item);
+    });
 }
 
 export function renderSwapPanel(){
     const box = document.getElementById("swapPanel");
     if (!box) return;
+
+    renderSwapProfiles();
+    bindSwapProfileFilters();
 
     const perfiles = getProfiles();
     const selectedFrom = getCurrentProfile();
@@ -231,7 +284,7 @@ export function renderSwapPanel(){
                 <h3>Cambios de Turno</h3>
             </div>
             <div class="empty-state">
-                ${selectedFrom} no puede intercambiar turnos por estar desactivado o tener rotativa Diurno.
+                ${escapeHTML(selectedFrom)} no puede intercambiar turnos porque el perfil esta desactivado.
             </div>
         `;
         return;
@@ -254,10 +307,10 @@ export function renderSwapPanel(){
     )
         .map(profile => `
             <option
-                value="${profile.name}"
+                value="${escapeHTML(profile.name)}"
                 ${profile.name === previousTo ? "selected" : ""}
             >
-                ${profile.name}
+                ${escapeHTML(profile.name)}
             </option>
         `)
         .join("");
@@ -283,7 +336,7 @@ export function renderSwapPanel(){
             <label class="field-stack">
                 <span>Entrega turno</span>
                 <div id="swapFromLabel" class="swap-readonly-worker">
-                    ${selectedFrom}
+                    ${escapeHTML(selectedFrom)}
                 </div>
             </label>
 
@@ -337,28 +390,60 @@ function renderMiniCalendarios(){
 
     if (!from || !to) return;
 
+    if (
+        fechaCambioSeleccionada &&
+        getSwapDateBlockReason({
+            giver: from,
+            receiver: to,
+            keyDay: keyFromInputDate(fechaCambioSeleccionada)
+        })
+    ) {
+        fechaCambioSeleccionada = "";
+    }
+
+    if (
+        fechaDevolucionSeleccionada &&
+        getSwapDateBlockReason({
+            giver: to,
+            receiver: from,
+            keyDay: keyFromInputDate(fechaDevolucionSeleccionada)
+        })
+    ) {
+        fechaDevolucionSeleccionada = "";
+    }
+
     renderMiniCalendar(
         "swapCalendar1",
         from,
-        true
+        true,
+        from,
+        to
     );
 
     renderMiniCalendar(
         "swapCalendar2",
         to,
-        false
+        false,
+        to,
+        from
     );
 }
 
-function renderMiniCalendar(id, trabajador, esCambio){
+function renderMiniCalendar(id, trabajador, esCambio, giver, receiver){
     const div = document.getElementById(id);
     if (!div) return;
 
     const y = getSwapYear();
     const m = getSwapMonth();
     const days = new Date(y, m + 1, 0).getDate();
+    const first = (new Date(y, m, 1).getDay() + 6) % 7;
+    const totalCells = 42;
 
     let html = `<div class="mini-grid">`;
+
+    for (let i = 0; i < first; i++) {
+        html += `<div class="mini-day mini-spacer" aria-hidden="true"></div>`;
+    }
 
     for (let d = 1; d <= days; d++) {
         const fecha = new Date(y, m, d);
@@ -370,11 +455,13 @@ function renderMiniCalendar(id, trabajador, esCambio){
             m,
             d
         );
-        const valido = fechaDisponible(
-            trabajador,
-            key,
-            turnoBase
-        );
+        const motivoBloqueo =
+            getSwapDateBlockReason({
+                giver,
+                receiver,
+                keyDay: key
+            });
+        const valido = !motivoBloqueo;
 
         const turnoClass = turnoBase === 1
             ? "mini-turn-larga"
@@ -398,11 +485,16 @@ function renderMiniCalendar(id, trabajador, esCambio){
                 class="mini-day ${clase}"
                 data-fecha="${toISO(fecha)}"
                 data-tipo="${esCambio ? 1 : 2}"
+                title="${escapeHTML(motivoBloqueo || `${giver} entrega ${textoTurno(turnoBase)}`)}"
             >
                 <span>${d}</span>
                 <small>${textoTurno(turnoBase)}</small>
             </div>
         `;
+    }
+
+    for (let i = first + days; i < totalCells; i++) {
+        html += `<div class="mini-day mini-spacer" aria-hidden="true"></div>`;
     }
 
     html += `</div>`;
@@ -441,10 +533,10 @@ function actualizarSwapTo(preferredTo = ""){
     toSelect.innerHTML = filtrados
         .map(profile => `
             <option
-                value="${profile.name}"
+                value="${escapeHTML(profile.name)}"
                 ${profile.name === selectedTo ? "selected" : ""}
             >
-                ${profile.name}
+                ${escapeHTML(profile.name)}
             </option>
         `)
         .join("");
@@ -506,8 +598,8 @@ function renderSwapList(){
         .sort((a, b) => a.fecha.localeCompare(b.fecha))
         .map(swap => `
             <div class="swap-item ${cambioEstaAnulado(swap) ? "is-canceled" : ""}">
-                ${swap.from} -> ${swap.to}
-                (${formatFecha(swap.fecha)})
+                ${escapeHTML(swap.from)} -> ${escapeHTML(swap.to)}
+                (${escapeHTML(formatFecha(swap.fecha))})
                 ${cambioEstaAnulado(swap) ? "| ANULADO" : ""}
                 | devolución ${formatFecha(swap.devolucion)}
             </div>
@@ -556,9 +648,9 @@ function guardarCambioTurno(){
     if (
         !perfilFrom ||
         !perfilTo ||
-        perfilFrom.estamento !== perfilTo.estamento
+        !canSwapProfiles(from, to)
     ) {
-        alert("Solo se pueden intercambiar turnos entre trabajadores del mismo estamento.");
+        alert("Los trabajadores no son compatibles para cambio de turno. Revisa estamento, profesion y que no tengan la misma rotativa base.");
         return;
     }
 
@@ -566,12 +658,30 @@ function guardarCambioTurno(){
         noPuedeIntercambiar(from) ||
         noPuedeIntercambiar(to)
     ) {
-        alert("Los trabajadores con rotativa Diurno no pueden intercambiar turnos.");
+        alert("No se puede registrar el cambio con perfiles desactivados.");
         return;
     }
 
-    if (mismaRotativa(from, to)) {
-        alert("No se puede intercambiar con un trabajador que tiene la misma rotativa base.");
+    const keyCambio = `${f1.getFullYear()}-${f1.getMonth()}-${f1.getDate()}`;
+    const keyDevolucion = `${f2.getFullYear()}-${f2.getMonth()}-${f2.getDate()}`;
+    const motivoCambio = getSwapDateBlockReason({
+        giver: from,
+        receiver: to,
+        keyDay: keyCambio
+    });
+    const motivoDevolucion = getSwapDateBlockReason({
+        giver: to,
+        receiver: from,
+        keyDay: keyDevolucion
+    });
+
+    if (motivoCambio) {
+        alert(`No se puede usar la fecha de cambio: ${motivoCambio}`);
+        return;
+    }
+
+    if (motivoDevolucion) {
+        alert(`No se puede usar la fecha de devolucion: ${motivoDevolucion}`);
         return;
     }
 

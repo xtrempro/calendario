@@ -27,7 +27,12 @@ import {
     getScheduledSegmentsForState,
     saveClockMarks
 } from "./clockMarks.js";
-import { registrarCambio } from "./swaps.js";
+import {
+    canSwapProfiles,
+    getSwapDateBlockReason,
+    getSwapTurnState,
+    registrarCambio
+} from "./swaps.js";
 
 const REQUEST_TYPE_LABELS = {
     admin: "P. Administrativo",
@@ -382,6 +387,15 @@ function swapDateValue(request, ...keys) {
     return "";
 }
 
+function swapTurnCode(turno) {
+    const value = Number(turno) || 0;
+
+    if (value === 2) return "N";
+    if (value === 1) return "L";
+
+    return "";
+}
+
 async function applySwapRequest(request, profile) {
     const fecha = swapDateValue(
         request,
@@ -411,18 +425,80 @@ async function applySwapRequest(request, profile) {
     }
 
     const date = parseISODate(fecha);
+    const returnDate = parseISODate(devolucion);
+
+    if (!date || !returnDate) {
+        return {
+            ok: false,
+            message: "La solicitud de cambio de turno tiene fechas invalidas."
+        };
+    }
+
+    if (
+        date.getFullYear() !== returnDate.getFullYear() ||
+        date.getMonth() !== returnDate.getMonth()
+    ) {
+        return {
+            ok: false,
+            message: "La fecha de cambio y devolucion deben pertenecer al mismo mes."
+        };
+    }
+
+    if (!canSwapProfiles(from, to)) {
+        return {
+            ok: false,
+            message: "Los trabajadores no cumplen la regla de compatibilidad para cambios de turno: revisa estamento, profesion y que no tengan la misma rotativa base."
+        };
+    }
+
+    const keyCambio = keyFromDate(date);
+    const keyDevolucion = keyFromDate(returnDate);
+    const motivoCambio = getSwapDateBlockReason({
+        giver: from,
+        receiver: to,
+        keyDay: keyCambio
+    });
+    const motivoDevolucion = getSwapDateBlockReason({
+        giver: to,
+        receiver: from,
+        keyDay: keyDevolucion
+    });
+
+    if (motivoCambio) {
+        return {
+            ok: false,
+            message: `No se puede aceptar la fecha de cambio: ${motivoCambio}`
+        };
+    }
+
+    if (motivoDevolucion) {
+        return {
+            ok: false,
+            message: `No se puede aceptar la fecha de devolucion: ${motivoDevolucion}`
+        };
+    }
+
+    const turno = swapTurnCode(
+        getSwapTurnState(from, keyCambio)
+    );
+    const turnoDevuelto = swapTurnCode(
+        getSwapTurnState(to, keyDevolucion)
+    );
+
+    if (!turno || !turnoDevuelto) {
+        return {
+            ok: false,
+            message: "El cambio solo puede registrarse con turnos Larga o Noche."
+        };
+    }
 
     registrarCambio({
         from,
         to,
         fecha,
         devolucion,
-        turno: request.turno || request.shiftCode || "L",
-        turnoDevuelto:
-            request.turnoDevuelto ||
-            request.returnShiftCode ||
-            request.shiftReturnCode ||
-            "L",
+        turno,
+        turnoDevuelto,
         year: date.getFullYear(),
         month: date.getMonth()
     });

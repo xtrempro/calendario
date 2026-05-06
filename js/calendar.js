@@ -51,7 +51,6 @@ import {
 } from "./uiEngine.js";
 import { renderTimeline } from "./timeline.js";
 import {
-    cambioTieneLicenciaEnTurnosBase,
     deshacerCambioTurno,
     getCambioTurnoRecibido
 } from "./swaps.js";
@@ -272,19 +271,13 @@ async function handleTurnChangeDayClick(swap) {
         return true;
     }
 
-    if (cambioTieneLicenciaEnTurnosBase(swap)) {
-        alert(
-            "No se puede deshacer el cambio de turno porque existe una Licencia Medica o LM Profesional en uno de los turnos base del trabajador."
-        );
-        return true;
-    }
-
     if (typeof window.pushUndoState === "function") {
         window.pushUndoState("Deshacer cambio de turno");
     }
 
     deshacerCambioTurno(swap);
     await renderCalendar();
+    refreshStaffingAnalysisPanel();
 
     return true;
 }
@@ -329,6 +322,12 @@ function escapeHTML(value) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function refreshStaffingAnalysisPanel() {
+    if (typeof window.renderStaffingAnalysis === "function") {
+        window.renderStaffingAnalysis();
+    }
 }
 
 function candidateMeta(profile) {
@@ -935,6 +934,7 @@ async function openReplacementDialog(profileName, keyDay) {
 
                     close();
                     await renderCalendar();
+                    refreshStaffingAnalysisPanel();
                 };
             });
     };
@@ -1335,6 +1335,7 @@ async function openExtraReasonDialog(
 
         close();
         await renderCalendar();
+        refreshStaffingAnalysisPanel();
     };
 
     backdrop.addEventListener("click", event => {
@@ -1523,6 +1524,7 @@ async function clickDia(
     });
 
     await renderCalendar();
+    refreshStaffingAnalysisPanel();
 }
 
 export async function renderCalendar() {

@@ -35,6 +35,10 @@ import {
     getTurnoReal
 } from "./turnEngine.js";
 import {
+    cancelSwapsForProfileKeys,
+    getActiveSwapsForProfileKeys
+} from "./swaps.js";
+import {
     esAusenciaInjustificada,
     getAbsenceType,
     puedeAplicarAdministrativo,
@@ -63,6 +67,36 @@ function formatKey(key) {
     const parts = iso.split("-");
 
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+function confirmCancelTurnChanges(profile, keys, label) {
+    const swaps = getActiveSwapsForProfileKeys(profile, keys);
+
+    if (!swaps.length) return true;
+
+    const detail = swaps
+        .map(swap =>
+            `- ${swap.from} -> ${swap.to}: cambio ${swap.fecha}, devolucion ${swap.devolucion}`
+        )
+        .join("\n");
+    const message = [
+        `La aplicacion de ${label} pasa por sobre ${swaps.length} cambio(s) de turno registrado(s).`,
+        "Si continuas, se anularan esos cambios y ambos trabajadores volveran a sus turnos base.",
+        "",
+        detail,
+        "",
+        "Deseas continuar?"
+    ].join("\n");
+    const accepted =
+        typeof window === "undefined" ||
+        typeof window.confirm !== "function" ||
+        window.confirm(message);
+
+    if (!accepted) return false;
+
+    cancelSwapsForProfileKeys(profile, keys);
+
+    return true;
 }
 
 function absenceLabel(type) {
@@ -153,6 +187,16 @@ export function aplicarAusenciaInjustificada(fecha){
         return false;
     }
 
+    if (
+        !confirmCancelTurnChanges(
+            currentProfile,
+            [key],
+            "Ausencia Injustificada"
+        )
+    ) {
+        return false;
+    }
+
     absences[key] = {
         type: "unjustified_absence"
     };
@@ -228,6 +272,7 @@ export async function aplicarAdministrativo(fecha, cantidad = 1){
 
     let d = new Date(fecha);
     let changedAbsences = false;
+    const keys = [];
 
     for(let i=0;i<cantidad;i++){
 
@@ -257,15 +302,28 @@ export async function aplicarAdministrativo(fecha, cantidad = 1){
             return false;
         }
 
+        keys.push(key);
+        d.setDate(d.getDate()+1);
+    }
+
+    if (
+        !confirmCancelTurnChanges(
+            currentProfile,
+            keys,
+            "P. Administrativo"
+        )
+    ) {
+        return false;
+    }
+
+    keys.forEach(key => {
         if (esAusenciaInjustificada(absences[key])) {
             delete absences[key];
             changedAbsences = true;
         }
 
         admin[key] = 1;
-
-        d.setDate(d.getDate()+1);
-    }
+    });
 
     saveAdminDays(admin);
 
@@ -294,6 +352,7 @@ export async function aplicarAdministrativo(fecha, cantidad = 1){
 export async function aplicarHalfAdministrativo(fecha, tipo="M"){
 
     const admin = getAdminDays();
+    const currentProfile = getCurrentProfile();
 
     const holidays =
         await fetchHolidays(fecha.getFullYear());
@@ -303,6 +362,18 @@ export async function aplicarHalfAdministrativo(fecha, tipo="M"){
     const key = keyFromDate(fecha);
 
     if(admin[key]) return false;
+
+    if (
+        !confirmCancelTurnChanges(
+            currentProfile,
+            [key],
+            tipo === "M"
+                ? "1/2 ADM Manana"
+                : "1/2 ADM Tarde"
+        )
+    ) {
+        return false;
+    }
 
     admin[key] =
         tipo === "M" ? "0.5M" : "0.5T";
@@ -503,6 +574,16 @@ export async function aplicarLegal(fecha, cantidad){
 
     if(!validarRangoAusencias(nuevos)) return false;
 
+    if (
+        !confirmCancelTurnChanges(
+            getCurrentProfile(),
+            nuevos,
+            "F. Legal"
+        )
+    ) {
+        return false;
+    }
+
     let changedAbsences = false;
 
     nuevos.forEach(k=>{
@@ -623,6 +704,16 @@ export async function aplicarComp(fecha, cantidad = 10){
         }
 
         d.setDate(d.getDate()+1);
+    }
+
+    if (
+        !confirmCancelTurnChanges(
+            getCurrentProfile(),
+            nuevos,
+            "F. Compensatorio"
+        )
+    ) {
+        return false;
     }
 
     nuevos.forEach(k=>{
@@ -823,6 +914,16 @@ export async function aplicarLicencia(
         keys.push(key);
 
         d.setDate(d.getDate()+1);
+    }
+
+    if (
+        !confirmCancelTurnChanges(
+            getCurrentProfile(),
+            keys,
+            absenceLabel(type)
+        )
+    ) {
+        return false;
     }
 
     const returnedLegal = {};
