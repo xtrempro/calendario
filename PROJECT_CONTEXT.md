@@ -343,6 +343,7 @@ Arquitectura:
 - `firebase.rules` exige usuario autenticado y miembro de workspace para leer/escribir.
 - `storage.rules` permite archivos bajo `workspaces/{workspaceId}/...` solo a miembros.
 - Si Google login devuelve `auth/unauthorized-domain`, agregar el hostname usado en navegador en Firebase Console > Authentication > Settings > Authorized domains. Para desarrollo local, autorizar `127.0.0.1` y `localhost` sin puerto.
+- En el modal `Cuenta y entornos`, cada entorno muestra el ID en un input seleccionable y botones para `Copiar ID`, `Copiar invitacion` y `Enviar correo` con `mailto:` prellenado.
 
 Verificacion ejecutada tras este avance:
 

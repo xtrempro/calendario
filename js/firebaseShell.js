@@ -50,6 +50,97 @@ function workspaceText() {
     return `Entorno: ${currentWorkspace.name}`;
 }
 
+function appShareURL() {
+    if (typeof window === "undefined") return "";
+
+    const url = new URL(window.location.href);
+
+    url.search = "";
+    url.hash = "";
+
+    return url.toString();
+}
+
+function workspaceInviteURL(workspace) {
+    const baseURL = appShareURL();
+
+    if (!baseURL) return "";
+
+    const url = new URL(baseURL);
+
+    url.searchParams.set("joinWorkspace", workspace.id);
+
+    return url.toString();
+}
+
+function pendingJoinWorkspaceId() {
+    if (typeof window === "undefined") return "";
+
+    return new URL(window.location.href)
+        .searchParams
+        .get("joinWorkspace") || "";
+}
+
+function clearPendingJoinWorkspaceId() {
+    if (
+        typeof window === "undefined" ||
+        !window.history?.replaceState
+    ) {
+        return;
+    }
+
+    const url = new URL(window.location.href);
+
+    if (!url.searchParams.has("joinWorkspace")) return;
+
+    url.searchParams.delete("joinWorkspace");
+    window.history.replaceState(
+        {},
+        "",
+        `${url.pathname}${url.search}${url.hash}`
+    );
+}
+
+function workspaceById(workspaceId) {
+    return workspaceList.find(workspace =>
+        workspace.id === workspaceId
+    );
+}
+
+function workspaceInvitationText(workspace) {
+    const inviteURL = workspaceInviteURL(workspace);
+
+    return [
+        `Te invito a unirte al entorno "${workspace.name || workspace.id}" en ProTurnos.`,
+        "",
+        inviteURL ? `Abre esta invitacion: ${inviteURL}` : "",
+        "Inicia sesion con Google.",
+        "Si el ID no aparece automaticamente, pegalo en Unirse a entorno existente:",
+        workspace.id
+    ].filter(Boolean).join("\n");
+}
+
+async function copyTextToClipboard(text) {
+    if (
+        navigator.clipboard &&
+        window.isSecureContext
+    ) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+
+    const textArea = document.createElement("textarea");
+
+    textArea.value = text;
+    textArea.setAttribute("readonly", "");
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand("copy");
+    textArea.remove();
+}
+
 function updateTopbar() {
     if (options.userName) {
         options.userName.textContent =
@@ -120,15 +211,44 @@ function workspaceListHTML() {
         `;
     }
 
-    return workspaceList.map(workspace => `
-        <button class="firebase-workspace-item ${currentWorkspace?.id === workspace.id ? "is-active" : ""}" type="button" data-workspace-id="${escapeHTML(workspace.id)}">
-            <span>
-                <strong>${escapeHTML(workspace.name || workspace.id)}</strong>
-                <small>${escapeHTML(workspace.role || "member")} | ID: ${escapeHTML(workspace.id)}</small>
-            </span>
-            <em>${currentWorkspace?.id === workspace.id ? "Activo" : "Usar"}</em>
-        </button>
-    `).join("");
+    return workspaceList.map(workspace => {
+        const isActive = currentWorkspace?.id === workspace.id;
+
+        return `
+            <article class="firebase-workspace-item ${isActive ? "is-active" : ""}">
+                <div class="firebase-workspace-main">
+                    <span>
+                        <strong>${escapeHTML(workspace.name || workspace.id)}</strong>
+                        <small>${escapeHTML(workspace.role || "member")}</small>
+                    </span>
+                    ${isActive ? `
+                        <em>Activo</em>
+                    ` : `
+                        <button class="secondary-button firebase-workspace-use" type="button" data-workspace-select="${escapeHTML(workspace.id)}">
+                            Usar
+                        </button>
+                    `}
+                </div>
+
+                <label class="firebase-workspace-id">
+                    <span>ID del entorno</span>
+                    <input type="text" readonly value="${escapeHTML(workspace.id)}">
+                </label>
+
+                <div class="firebase-workspace-actions">
+                    <button class="secondary-button" type="button" data-action="copy-workspace-id" data-workspace-ref="${escapeHTML(workspace.id)}">
+                        Copiar ID
+                    </button>
+                    <button class="secondary-button" type="button" data-action="copy-workspace-invite" data-workspace-ref="${escapeHTML(workspace.id)}">
+                        Copiar invitacion
+                    </button>
+                    <button class="primary-button" type="button" data-action="email-workspace-invite" data-workspace-ref="${escapeHTML(workspace.id)}">
+                        Enviar correo
+                    </button>
+                </div>
+            </article>
+        `;
+    }).join("");
 }
 
 function localSnapshotKeyCount() {
@@ -219,6 +339,8 @@ function migrationPanelHTML() {
 }
 
 function renderSignedInModal(backdrop) {
+    const pendingWorkspaceId = pendingJoinWorkspaceId();
+
     backdrop.innerHTML = `
         <section class="turn-change-dialog firebase-dialog">
             <strong>Cuenta y entornos</strong>
@@ -236,7 +358,7 @@ function renderSignedInModal(backdrop) {
 
                 <label class="firebase-field">
                     <span>Unirse a entorno existente</span>
-                    <input id="firebaseJoinWorkspaceId" type="text" placeholder="Pega el ID del entorno">
+                    <input id="firebaseJoinWorkspaceId" type="text" placeholder="Pega el ID del entorno" value="${escapeHTML(pendingWorkspaceId)}">
                     <button class="secondary-button" type="button" data-action="join-workspace">Unirme</button>
                 </label>
             </div>
@@ -288,7 +410,7 @@ async function refreshWorkspaces() {
     currentWorkspace = getActiveWorkspace();
 }
 
-async function handleAction(action, backdrop) {
+async function handleAction(action, backdrop, sourceButton = null) {
     try {
         if (action === "close") {
             closeModal(backdrop);
@@ -353,6 +475,59 @@ async function handleAction(action, backdrop) {
             return;
         }
 
+        if (action === "copy-workspace-id") {
+            const workspace = workspaceById(
+                sourceButton?.dataset.workspaceRef
+            );
+
+            if (!workspace) return;
+
+            await copyTextToClipboard(workspace.id);
+            migrationState = {
+                mode: "success",
+                message: "ID del entorno copiado al portapapeles."
+            };
+            renderSignedInModal(backdrop);
+            return;
+        }
+
+        if (action === "copy-workspace-invite") {
+            const workspace = workspaceById(
+                sourceButton?.dataset.workspaceRef
+            );
+
+            if (!workspace) return;
+
+            await copyTextToClipboard(
+                workspaceInvitationText(workspace)
+            );
+            migrationState = {
+                mode: "success",
+                message: "Invitacion copiada al portapapeles."
+            };
+            renderSignedInModal(backdrop);
+            return;
+        }
+
+        if (action === "email-workspace-invite") {
+            const workspace = workspaceById(
+                sourceButton?.dataset.workspaceRef
+            );
+
+            if (!workspace) return;
+
+            const subject = encodeURIComponent(
+                `Invitacion a ProTurnos - ${workspace.name || workspace.id}`
+            );
+            const body = encodeURIComponent(
+                workspaceInvitationText(workspace)
+            );
+
+            window.location.href =
+                `mailto:?subject=${subject}&body=${body}`;
+            return;
+        }
+
         if (action === "create-workspace") {
             const input = backdrop.querySelector(
                 "#firebaseCreateWorkspaceName"
@@ -375,6 +550,7 @@ async function handleAction(action, backdrop) {
 
             currentWorkspace =
                 await joinWorkspace(currentUser, input?.value);
+            clearPendingJoinWorkspaceId();
             await refreshWorkspaces();
             migrationState = { mode: "idle", message: "" };
             updateTopbar();
@@ -389,13 +565,13 @@ async function handleAction(action, backdrop) {
 function bindModalActions(backdrop) {
     backdrop.querySelectorAll("[data-action]").forEach(button => {
         button.onclick = () =>
-            handleAction(button.dataset.action, backdrop);
+            handleAction(button.dataset.action, backdrop, button);
     });
 
-    backdrop.querySelectorAll("[data-workspace-id]").forEach(button => {
+    backdrop.querySelectorAll("[data-workspace-select]").forEach(button => {
         button.onclick = () => {
             const workspace = workspaceList.find(item =>
-                item.id === button.dataset.workspaceId
+                item.id === button.dataset.workspaceSelect
             );
 
             if (!workspace) return;
