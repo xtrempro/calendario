@@ -303,8 +303,8 @@ Cuando se asigna reemplazo, se registra LOG en categoria `AUDIT_CATEGORY.OVERTIM
 Unidades enlazadas:
 
 - En `Cuenta y entornos`, un workspace puede solicitar enlace a otro por ID. El otro workspace debe aceptar la solicitud.
-- Aceptar no agrega el entorno ajeno al selector de trabajo ni permite navegar sus perfiles. Crea un permiso tecnico `workspaces/{workspaceId}/linkedOperators/{uid}` para que el solicitante pueda consultar/aplicar prestamos contra el snapshot vivo de esa unidad.
-- En el dialogo de reemplazo, `Buscar sugerencias en unidades enlazadas` carga solo enlaces aceptados solicitados desde el entorno activo.
+- Aceptar no agrega el entorno ajeno al selector de trabajo ni permite navegar sus perfiles. Crea permisos tecnicos `workspaces/{workspaceId}/linkedOperators/{uid}` para consultar/aplicar prestamos contra el snapshot vivo de la unidad enlazada.
+- En el dialogo de reemplazo, `Buscar sugerencias en unidades enlazadas` carga enlaces aceptados del entorno activo en ambos sentidos.
 - El sistema usa `js/firebaseWorkspaceState.js` para leer `workspaces/{workspaceId}/system/appState` y sus chunks sin reemplazar el estado local.
 - Solo lista candidatos activos compatibles por profesion/estamento, sin ausencias ese dia, con disponibilidad para cubrir el turno requerido y con regla de turno 24 permitida en ambas unidades cuando corresponda.
 - Las sugerencias muestran HHEE diurnas/nocturnas del mes calculadas desde la unidad origen del trabajador.

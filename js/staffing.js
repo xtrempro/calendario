@@ -28,6 +28,33 @@ const APPLICANTS_KEY = "staffing_applicants";
 
 let staffingViewBound = false;
 
+const STAFFING_DATE_REMINDERS = [
+    { month: 4, day: 12, label: "D\u00eda de la Enfermera(o)" },
+    { month: 4, day: 6, label: "D\u00eda del Nutricionista" },
+    { month: 4, day: 6, label: "D\u00eda del Kinesi\u00f3logo" },
+    { month: 11, day: 3, label: "D\u00eda del M\u00e9dico" },
+    { month: 11, day: 3, label: "D\u00eda de la Secretaria" },
+    { month: 2, day: 19, label: "D\u00eda del Auxiliar de Servicio" },
+    { month: 9, day: 2, label: "D\u00eda del Tecn\u00f3logo M\u00e9dico" },
+    { month: 8, day: 25, label: "D\u00eda del Qu\u00edmico Farmac\u00e9utico" },
+    { month: 3, day: 5, label: "D\u00eda del Terapeuta Ocupacional" },
+    { month: 11, day: 9, label: "D\u00eda del Psic\u00f3logo" },
+    { month: 10, day: 8, label: "D\u00eda del Radi\u00f3logo" },
+    { month: 2, day: 26, label: "D\u00eda del TENS" },
+    { month: 10, day: 25, label: "D\u00eda del Param\u00e9dico" },
+    { month: 8, day: 12, label: "D\u00eda del Contador" },
+    { month: 5, day: 21, label: "D\u00eda del Padre" },
+    { month: 4, day: 10, label: "D\u00eda de la Madre" },
+    { month: 2, day: 8, label: "D\u00eda de la Mujer" },
+    { month: 10, day: 19, label: "D\u00eda del Hombre" },
+    { month: 4, day: 14, label: "D\u00eda del Ingeniero" },
+    { month: 4, day: 21, label: "D\u00eda del Abogado" },
+    { month: 5, day: 11, label: "D\u00eda del Periodista" },
+    { month: 5, day: 30, label: "D\u00eda del Bombero" },
+    { month: 9, day: 16, label: "D\u00eda del Profesor" },
+    { month: 9, day: 27, label: "D\u00eda del Odont\u00f3logo" }
+];
+
 function defaultConfig() {
     return {};
 }
@@ -678,12 +705,25 @@ function birthdayDetailsForDay(month, day) {
         }));
 }
 
+function reminderDetailsForDay(month, day) {
+    return STAFFING_DATE_REMINDERS
+        .filter(reminder =>
+            reminder.month === month &&
+            reminder.day === day
+        )
+        .map(reminder => ({
+            tipo: "reminder",
+            label: reminder.label
+        }));
+}
+
 function withBirthdayDetails(data, month) {
     return data.map(item => ({
         ...item,
         detalle: [
             ...item.detalle,
-            ...birthdayDetailsForDay(month, item.dia)
+            ...birthdayDetailsForDay(month, item.dia),
+            ...reminderDetailsForDay(month, item.dia)
         ]
     }));
 }
@@ -1905,6 +1945,14 @@ function renderDetailBadge(detail){
         return `
             <span class="staffing-pill staffing-pill--birthday">
                 Cumplea&ntilde;os de ${escapeHTML(detail.name)}
+            </span>
+        `;
+    }
+
+    if (detail.tipo === "reminder") {
+        return `
+            <span class="staffing-pill staffing-pill--reminder">
+                Recordatorio: ${escapeHTML(detail.label)}
             </span>
         `;
     }

@@ -4424,6 +4424,11 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
     color: #1e3a8a;
 }
 
+.staffing-pill--reminder {
+    background: #e8fff7;
+    color: #0f766e;
+}
+
 .staffing-report-panel {
     min-height: 0;
 }

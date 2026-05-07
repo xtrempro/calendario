@@ -50,6 +50,51 @@ function uniqueLinks(snaps) {
     });
 }
 
+async function ensureCurrentUserLinkedOperator(
+    link,
+    workspace,
+    db,
+    firestoreModule
+) {
+    const user = getCurrentFirebaseUser();
+
+    if (!user || !workspace?.id || link.status !== "accepted") return;
+
+    const isSource = link.fromWorkspaceId === workspace.id;
+    if (isSource) return;
+
+    const linkedWorkspaceId = link.fromWorkspaceId;
+
+    if (!linkedWorkspaceId) return;
+
+    try {
+        await firestoreModule.setDoc(
+            firestoreModule.doc(
+                db,
+                "workspaces",
+                linkedWorkspaceId,
+                "linkedOperators",
+                user.uid
+            ),
+            {
+                uid: user.uid,
+                fromWorkspaceId: workspace.id,
+                fromWorkspaceName: workspaceName(workspace),
+                linkId: link.id,
+                role: "linked-operator",
+                updatedAt: firestoreModule.serverTimestamp()
+            },
+            { merge: true }
+        );
+    } catch (error) {
+        console.warn(
+            "No se pudo reparar permiso tecnico de unidad enlazada.",
+            linkedWorkspaceId,
+            error
+        );
+    }
+}
+
 export async function requestWorkspaceLink(targetWorkspaceId) {
     const targetId = cleanWorkspaceId(targetWorkspaceId);
     const activeWorkspace = getActiveWorkspace();
@@ -130,18 +175,48 @@ export async function listAcceptedLinkedWorkspaces(
     workspace = getActiveWorkspace()
 ) {
     const links = await listWorkspaceLinks(workspace);
-
-    return links
-        .filter(link =>
-            link.status === "accepted" &&
-            link.fromWorkspaceId === workspace?.id
+    const acceptedLinks = links.filter(link =>
+        link.status === "accepted" &&
+        (
+            link.fromWorkspaceId === workspace?.id ||
+            link.toWorkspaceId === workspace?.id
         )
-        .map(link => ({
-            id: link.toWorkspaceId,
-            name: link.toWorkspaceName || link.toWorkspaceId,
-            linkId: link.id,
-            requestedByUid: link.requestedByUid || ""
-        }))
+    );
+
+    if (acceptedLinks.length) {
+        const { db, firestoreModule } = await getFirebaseServices();
+
+        await Promise.all(
+            acceptedLinks.map(link =>
+                ensureCurrentUserLinkedOperator(
+                    link,
+                    workspace,
+                    db,
+                    firestoreModule
+                )
+            )
+        );
+    }
+
+    return acceptedLinks
+        .map(link => {
+            const isSource =
+                link.fromWorkspaceId === workspace?.id;
+            const linkedWorkspaceId = isSource
+                ? link.toWorkspaceId
+                : link.fromWorkspaceId;
+            const linkedWorkspaceName = isSource
+                ? link.toWorkspaceName
+                : link.fromWorkspaceName;
+
+            return {
+                id: linkedWorkspaceId,
+                name: linkedWorkspaceName || linkedWorkspaceId,
+                linkId: link.id,
+                requestedByUid: link.requestedByUid || "",
+                direction: isSource ? "outgoing" : "incoming"
+            };
+        })
         .filter(workspaceItem => workspaceItem.id);
 }
 
@@ -195,6 +270,28 @@ export async function acceptWorkspaceLink(linkId) {
             uid: link.requestedByUid,
             fromWorkspaceId: link.fromWorkspaceId,
             fromWorkspaceName: link.fromWorkspaceName || "",
+            linkId,
+            role: "linked-operator",
+            acceptedByUid: user.uid,
+            acceptedByName: userName(user),
+            createdAt: now,
+            updatedAt: now
+        },
+        { merge: true }
+    );
+
+    batch.set(
+        firestoreModule.doc(
+            db,
+            "workspaces",
+            link.fromWorkspaceId,
+            "linkedOperators",
+            user.uid
+        ),
+        {
+            uid: user.uid,
+            fromWorkspaceId: activeWorkspace.id,
+            fromWorkspaceName: workspaceName(activeWorkspace),
             linkId,
             role: "linked-operator",
             acceptedByUid: user.uid,

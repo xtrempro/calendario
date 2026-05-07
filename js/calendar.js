@@ -106,6 +106,7 @@ export let currentDate = new Date();
 const CALENDAR_AUDIT_DELAY_MS = 60000;
 const calendarAuditTimers = new Map();
 const calendarAuditDrafts = new Map();
+let linkedReplacementStatus = "";
 
 function key(y, m, d) {
     return `${y}-${m}-${d}`;
@@ -552,15 +553,26 @@ async function linkedWorkspaceCandidates(
     neededTurn,
     monthContext = {}
 ) {
+    linkedReplacementStatus = "";
+
     const activeWorkspace = getActiveWorkspace();
 
     if (!activeWorkspace?.id) {
+        linkedReplacementStatus =
+            "Selecciona un entorno Firebase activo para buscar en unidades enlazadas.";
         return [];
     }
 
     const baseProfile = getProfiles().find(profile =>
         profile.name === profileName
     );
+
+    if (!baseProfile) {
+        linkedReplacementStatus =
+            "No se encontro el perfil que requiere reemplazo.";
+        return [];
+    }
+
     const linkedWorkspaces =
         await listAcceptedLinkedWorkspaces(activeWorkspace);
     const candidates = [];
@@ -568,6 +580,19 @@ async function linkedWorkspaceCandidates(
     const m = monthContext.m;
     const days = monthContext.days;
     const holidays = monthContext.holidays || {};
+    const diagnostics = {
+        readErrors: [],
+        emptySnapshots: [],
+        totalProfiles: 0,
+        compatibleProfiles: 0,
+        availableProfiles: 0
+    };
+
+    if (!linkedWorkspaces.length) {
+        linkedReplacementStatus =
+            "No hay unidades enlazadas aceptadas para este entorno.";
+        return [];
+    }
 
     for (const workspace of linkedWorkspaces) {
         let snapshot = null;
@@ -580,17 +605,33 @@ async function linkedWorkspaceCandidates(
                 workspace.id,
                 error
             );
+            diagnostics.readErrors.push(
+                workspace.name || workspace.id
+            );
             continue;
         }
 
-        if (!snapshot) continue;
+        if (!snapshot) {
+            diagnostics.emptySnapshots.push(
+                workspace.name || workspace.id
+            );
+            continue;
+        }
 
-        const profiles = parseSnapshotJSON(snapshot, "profiles", [])
+        const allProfiles =
+            parseSnapshotJSON(snapshot, "profiles", []);
+        const profiles = allProfiles
             .filter(profile =>
                 profile &&
                 profile.active !== false &&
                 profileCanCoverProfile(profile, baseProfile)
             );
+
+        diagnostics.totalProfiles += allProfiles.filter(profile =>
+            profile && profile.active !== false
+        ).length;
+        diagnostics.compatibleProfiles += profiles.length;
+
         const remoteConfig = remoteTurnChangeConfig(snapshot);
         const coverConfig = combinedTurnChangeConfig(remoteConfig);
         const statsByProfile = remoteMonthlyStats(
@@ -628,6 +669,8 @@ async function linkedWorkspaceCandidates(
             const hheeDiurnas = Number(stats.hheeDiurnas) || 0;
             const hheeNocturnas = Number(stats.hheeNocturnas) || 0;
 
+            diagnostics.availableProfiles++;
+
             candidates.push({
                 profile,
                 currentState,
@@ -641,6 +684,25 @@ async function linkedWorkspaceCandidates(
                 hhee: hheeDiurnas + hheeNocturnas
             });
         });
+    }
+
+    if (!candidates.length) {
+        if (diagnostics.readErrors.length) {
+            linkedReplacementStatus =
+                `No se pudo leer la unidad enlazada ${diagnostics.readErrors.join(", ")}. Revisa que firebase.rules este publicado y que el enlace siga activo.`;
+        } else if (diagnostics.emptySnapshots.length) {
+            linkedReplacementStatus =
+                `La unidad enlazada ${diagnostics.emptySnapshots.join(", ")} aun no tiene datos vivos sincronizados. Abre esa unidad y espera que Firebase suba el estado.`;
+        } else if (!diagnostics.totalProfiles) {
+            linkedReplacementStatus =
+                "La unidad enlazada no tiene colaboradores activos sincronizados.";
+        } else if (!diagnostics.compatibleProfiles) {
+            linkedReplacementStatus =
+                "Hay unidades enlazadas, pero no se encontraron trabajadores activos con la misma profesion/estamento requerido.";
+        } else {
+            linkedReplacementStatus =
+                "Hay trabajadores compatibles en unidades enlazadas, pero todos tienen ausencia, permiso o turno incompatible ese dia.";
+        }
     }
 
     return candidates.sort((a, b) =>
@@ -872,7 +934,8 @@ function replacementDialogHTML({
     scope,
     requestMode,
     pendingRequests,
-    selectedRequestWorkers
+    selectedRequestWorkers,
+    linkedStatus = ""
 }) {
     const forceMode = scope === "all-local";
     const linkedMode = scope === "linked";
@@ -955,7 +1018,11 @@ function replacementDialogHTML({
         }).join("")
         : `
             <div class="empty-state empty-state--compact">
-                No hay trabajadores disponibles para este reemplazo.
+                ${escapeHTML(
+                    linkedMode && linkedStatus
+                        ? linkedStatus
+                        : "No hay trabajadores disponibles para este reemplazo."
+                )}
             </div>
         `;
     const pendingList = (pendingRequests || []).length
@@ -1447,7 +1514,10 @@ async function openReplacementDialog(profileName, keyDay) {
             scope,
             requestMode,
             pendingRequests,
-            selectedRequestWorkers
+            selectedRequestWorkers,
+            linkedStatus: scope === "linked"
+                ? linkedReplacementStatus
+                : ""
         });
 
         bindActions();

@@ -29,6 +29,21 @@ service cloud.firestore {
       return isMember(workspaceId) || isLinkedOperator(workspaceId);
     }
 
+    function linkAcceptedAfter(linkId) {
+      return existsAfter(/databases/$(database)/documents/workspaceLinks/$(linkId)) &&
+        getAfter(/databases/$(database)/documents/workspaceLinks/$(linkId)).data.status == "accepted";
+    }
+
+    function canCreateReciprocalLinkedOperator(workspaceId, userId) {
+      return signedIn() &&
+        userId == request.auth.uid &&
+        request.resource.data.uid == userId &&
+        request.resource.data.linkId is string &&
+        linkAcceptedAfter(request.resource.data.linkId) &&
+        getAfter(/databases/$(database)/documents/workspaceLinks/$(request.resource.data.linkId)).data.fromWorkspaceId == workspaceId &&
+        isMember(getAfter(/databases/$(database)/documents/workspaceLinks/$(request.resource.data.linkId)).data.toWorkspaceId);
+    }
+
     match /users/{userId} {
       allow read, write: if signedIn() && request.auth.uid == userId;
 
@@ -77,8 +92,10 @@ service cloud.firestore {
       match /linkedOperators/{userId} {
         allow read: if isMember(workspaceId) ||
           (signedIn() && request.auth.uid == userId);
-        allow create, update: if isMember(workspaceId) &&
-          request.resource.data.uid == userId;
+        allow create, update: if (
+          isMember(workspaceId) &&
+          request.resource.data.uid == userId
+        ) || canCreateReciprocalLinkedOperator(workspaceId, userId);
         allow delete: if isOwner(workspaceId);
       }
 
