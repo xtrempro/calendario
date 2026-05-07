@@ -3483,6 +3483,10 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
     font-weight: 800;
 }
 
+body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
+    font-weight: 500;
+}
+
 .legend-action:hover {
     background: var(--panel-hover);
     border-color: var(--border);
@@ -3999,7 +4003,7 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 0.78rem;
+    font-size: calc(0.78rem - 1px);
     font-weight: 800;
 }
 
@@ -4039,7 +4043,7 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
     padding: 7px 8px;
     border-radius: 10px;
     color: var(--text);
-    font-size: 0.8rem;
+    font-size: calc(0.8rem - 1px);
     font-weight: 700;
 }
 
@@ -4501,6 +4505,12 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
 .staffing-report-pills .staffing-pill {
     padding: 7px 10px;
     font-size: 0.84rem;
+}
+
+body[data-active-view="turnos"] .staffing-report-panel,
+body[data-active-view="turnos"] .staffing-report-day strong,
+body[data-active-view="turnos"] .staffing-report-pills .staffing-pill {
+    font-weight: 500;
 }
 
 .staffing-report-empty {

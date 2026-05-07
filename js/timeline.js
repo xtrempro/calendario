@@ -40,6 +40,7 @@ const timelineFilterState = {
     selectedKeys: new Set(),
     open: false
 };
+let timelineOutsideClickController = null;
 
 function getData(nombre){
     return getJSON("data_" + nombre, {});
@@ -88,6 +89,48 @@ function escapeHtml(value) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
+}
+
+function stopTimelineOutsideClickListener() {
+    if (!timelineOutsideClickController) return;
+
+    timelineOutsideClickController.abort();
+    timelineOutsideClickController = null;
+}
+
+function bindTimelineOutsideClickListener(container) {
+    stopTimelineOutsideClickListener();
+
+    if (!timelineFilterState.open) return;
+
+    timelineOutsideClickController = new AbortController();
+    const { signal } = timelineOutsideClickController;
+
+    document.addEventListener(
+        "click",
+        event => {
+            const filter = container.querySelector(".timeline-filter");
+
+            if (filter?.contains(event.target)) return;
+
+            timelineFilterState.open = false;
+            stopTimelineOutsideClickListener();
+            renderTimeline();
+        },
+        { signal }
+    );
+
+    document.addEventListener(
+        "keydown",
+        event => {
+            if (event.key !== "Escape") return;
+
+            timelineFilterState.open = false;
+            stopTimelineOutsideClickListener();
+            renderTimeline();
+        },
+        { signal }
+    );
 }
 
 function normalizeTextKey(value) {
@@ -479,6 +522,7 @@ export async function renderTimeline(){
         profiles.find(x => x.name === actual);
 
     if (!perfilActual) {
+        stopTimelineOutsideClickListener();
         div.innerHTML = `
             <div class="empty-state empty-state--compact">
                 Selecciona un colaborador para ver el reporte mensual.
@@ -497,6 +541,7 @@ export async function renderTimeline(){
         );
 
     if (!grupo.length) {
+        stopTimelineOutsideClickListener();
         div.innerHTML = `
             <div class="empty-state empty-state--compact">
                 No hay colaboradores compatibles para comparar este mes.
@@ -759,4 +804,5 @@ export async function renderTimeline(){
         });
     syncTimelineStickyOffsets(div);
     requestAnimationFrame(() => syncTimelineStickyOffsets(div));
+    bindTimelineOutsideClickListener(div);
 }

@@ -87,7 +87,11 @@ import {
 } from "./storage.js";
 import { cambioEstaAnulado } from "./swaps.js";
 import { renderReplacementLogHTML } from "./replacements.js";
-import { renderWorkerRequestsPanel } from "./workerRequests.js";
+import {
+    renderWorkerRequestsPanel,
+    startWorkerRequestsRealtimeSync,
+    stopWorkerRequestsRealtimeSync
+} from "./workerRequests.js";
 import {
     addReplacementContract,
     formatContractDate,
@@ -5654,6 +5658,7 @@ initFirebaseShell({
     },
     onWorkspaceChange: workspace => {
         if (workspace?.id) {
+            startWorkerRequestsRealtimeSync(workspace);
             startFirebaseAppStateSync(workspace, {
                 onChange: () => {
                     const profiles = getProfiles();
@@ -5682,6 +5687,7 @@ initFirebaseShell({
                 }
             });
         } else {
+            stopWorkerRequestsRealtimeSync();
             stopFirebaseAppStateSync();
         }
 

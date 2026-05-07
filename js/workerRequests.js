@@ -6,6 +6,7 @@ import {
 } from "./auditLog.js";
 import {
     getCurrentFirebaseUser,
+    getFirebaseServices,
     isFirebaseConfigured
 } from "./firebaseClient.js";
 import {
@@ -66,6 +67,9 @@ const STATUS_LABELS = {
 };
 
 let selectedStatus = "pending";
+let activeWorkspaceLinkWatchId = "";
+let unsubscribeWorkspaceLinks = null;
+let linkRenderTimer = null;
 
 function escapeHTML(value) {
     return String(value ?? "")
@@ -719,6 +723,75 @@ function updateRequestsNavBadge(count) {
 
     badge.textContent = count > 99 ? "99+" : String(count);
     tile.dataset.alertCount = String(count);
+}
+
+function scheduleWorkerRequestsRender() {
+    clearTimeout(linkRenderTimer);
+    linkRenderTimer = setTimeout(() => {
+        renderWorkerRequestsPanel();
+    }, 80);
+}
+
+export async function startWorkerRequestsRealtimeSync(
+    workspace = getActiveWorkspace()
+) {
+    const workspaceId = workspace?.id || "";
+
+    if (
+        activeWorkspaceLinkWatchId === workspaceId &&
+        unsubscribeWorkspaceLinks
+    ) {
+        return;
+    }
+
+    stopWorkerRequestsRealtimeSync();
+    activeWorkspaceLinkWatchId = workspaceId;
+
+    if (
+        !workspaceId ||
+        !isFirebaseConfigured() ||
+        !getCurrentFirebaseUser()
+    ) {
+        return;
+    }
+
+    try {
+        const { db, firestoreModule } = await getFirebaseServices();
+        const linksRef =
+            firestoreModule.collection(db, "workspaceLinks");
+        const incomingLinksQuery = firestoreModule.query(
+            linksRef,
+            firestoreModule.where("toWorkspaceId", "==", workspaceId)
+        );
+
+        unsubscribeWorkspaceLinks = firestoreModule.onSnapshot(
+            incomingLinksQuery,
+            () => scheduleWorkerRequestsRender(),
+            error => {
+                console.warn(
+                    "No se pudo escuchar solicitudes de enlace entre entornos.",
+                    error
+                );
+            }
+        );
+    } catch (error) {
+        console.warn(
+            "No se pudo iniciar escucha de solicitudes de enlace entre entornos.",
+            error
+        );
+    }
+}
+
+export function stopWorkerRequestsRealtimeSync() {
+    clearTimeout(linkRenderTimer);
+    linkRenderTimer = null;
+
+    if (unsubscribeWorkspaceLinks) {
+        unsubscribeWorkspaceLinks();
+        unsubscribeWorkspaceLinks = null;
+    }
+
+    activeWorkspaceLinkWatchId = "";
 }
 
 async function getWorkspaceLinkRequests() {

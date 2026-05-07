@@ -304,6 +304,7 @@ Unidades enlazadas:
 
 - En `Cuenta y entornos`, un workspace puede solicitar enlace a otro por ID. El otro workspace debe aceptar la solicitud.
 - Las solicitudes de enlace entrantes tambien aparecen en el menu `Solicitudes`, junto a las solicitudes de trabajadores, y suman al badge rojo del icono cuando estan pendientes.
+- `js/workerRequests.js` inicia una escucha Firestore en tiempo real sobre `workspaceLinks` entrantes del entorno activo para que el badge de `Solicitudes` se actualice sin tener que abrir el menu.
 - En `Cuenta y entornos`, los enlaces activos se pueden clickear para confirmar el desenlace. El `workspaceLink` queda con estado `unlinked` y deja de aparecer como activo.
 - Aceptar no agrega el entorno ajeno al selector de trabajo ni permite navegar sus perfiles. Crea permisos tecnicos `workspaces/{workspaceId}/linkedOperators/{uid}` para consultar/aplicar prestamos contra el snapshot vivo de la unidad enlazada.
 - En el dialogo de reemplazo, `Buscar sugerencias en unidades enlazadas` carga enlaces aceptados del entorno activo en ambos sentidos.
