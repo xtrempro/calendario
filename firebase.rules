@@ -11,6 +11,10 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid));
     }
 
+    function workspaceExists(workspaceId) {
+      return exists(/databases/$(database)/documents/workspaces/$(workspaceId));
+    }
+
     function isOwner(workspaceId) {
       return signedIn() &&
         get(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid)).data.role == "owner";
@@ -27,12 +31,16 @@ service cloud.firestore {
     match /workspaces/{workspaceId} {
       allow create: if signedIn() &&
         request.resource.data.ownerUid == request.auth.uid;
-      allow read, update: if isMember(workspaceId);
+      allow get: if isMember(workspaceId);
+      allow list: if false;
+      allow update: if isMember(workspaceId);
       allow delete: if isOwner(workspaceId);
 
       match /members/{userId} {
         allow read: if isMember(workspaceId);
-        allow create: if signedIn() && userId == request.auth.uid;
+        allow create: if signedIn() &&
+          userId == request.auth.uid &&
+          workspaceExists(workspaceId);
         allow update, delete: if isOwner(workspaceId);
       }
 
@@ -42,4 +50,3 @@ service cloud.firestore {
     }
   }
 }
-

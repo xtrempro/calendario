@@ -150,17 +150,6 @@ export async function joinWorkspace(user, workspaceId) {
     const { db, firestoreModule } = await getFirebaseServices();
     const workspaceRef =
         firestoreModule.doc(db, "workspaces", cleanId);
-    const workspaceSnap =
-        await firestoreModule.getDoc(workspaceRef);
-
-    if (!workspaceSnap.exists()) {
-        throw new Error("No existe un entorno con ese ID.");
-    }
-
-    const workspace = {
-        id: workspaceSnap.id,
-        ...workspaceSnap.data()
-    };
     const now = firestoreModule.serverTimestamp();
 
     await firestoreModule.setDoc(
@@ -179,6 +168,19 @@ export async function joinWorkspace(user, workspaceId) {
         },
         { merge: true }
     );
+
+    const workspaceSnap =
+        await firestoreModule.getDoc(workspaceRef);
+
+    if (!workspaceSnap.exists()) {
+        throw new Error("No existe un entorno con ese ID.");
+    }
+
+    const workspace = {
+        id: workspaceSnap.id,
+        ...workspaceSnap.data()
+    };
+
     await firestoreModule.setDoc(
         firestoreModule.doc(
             db,
@@ -204,4 +206,3 @@ export async function joinWorkspace(user, workspaceId) {
     setActiveWorkspace(active);
     return active;
 }
-

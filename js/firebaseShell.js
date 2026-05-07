@@ -287,6 +287,18 @@ function friendlyFirebaseError(error) {
         ].join(" ");
     }
 
+    if (
+        code === "permission-denied" ||
+        String(error?.message || "")
+            .toLowerCase()
+            .includes("insufficient permissions")
+    ) {
+        return [
+            "Firebase no permitio esta operacion.",
+            "Si intentabas unirte a un entorno, revisa que el ID sea correcto y que las reglas actualizadas de Firestore esten publicadas."
+        ].join(" ");
+    }
+
     return error?.message || "No se pudo completar la accion.";
 }
 
