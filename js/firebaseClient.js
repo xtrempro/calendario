@@ -5,6 +5,7 @@ import {
 } from "./firebaseConfig.js";
 
 let servicesPromise = null;
+let currentAuthUser = null;
 
 function hasConfigValue(value) {
     return Boolean(String(value || "").trim());
@@ -86,14 +87,21 @@ export async function signOutFirebase() {
     return authModule.signOut(auth);
 }
 
+export function getCurrentFirebaseUser() {
+    return currentAuthUser;
+}
+
 export async function onFirebaseAuthChanged(callback) {
     if (!isFirebaseConfigured()) {
+        currentAuthUser = null;
         callback(null);
         return () => {};
     }
 
     const { auth, authModule } = await getFirebaseServices();
 
-    return authModule.onAuthStateChanged(auth, callback);
+    return authModule.onAuthStateChanged(auth, user => {
+        currentAuthUser = user || null;
+        callback(user);
+    });
 }
-

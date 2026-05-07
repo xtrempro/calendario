@@ -115,6 +115,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/
 - `js/holidays.js`: feriados de Chile por API Nager.Date y feriados manuales.
 - `js/firebase*.js`, `js/workspaces.js`: autenticacion/shell Firebase, workspaces, copia manual de respaldo y sincronizacion del estado completo.
 - `js/firebaseAppState.js`: sincronizacion automatica por workspace del snapshot completo de `localStorage`, con manifiesto y chunks en Firestore.
+- `js/firebaseWorkspaceState.js`: lectura/escritura puntual del estado vivo de otros workspaces, usado para unidades enlazadas.
 - `firebase.rules` y `storage.rules`: reglas de Firestore y Storage para workspaces y miembros.
 
 ## Vistas Principales
@@ -298,6 +299,14 @@ Campos tipicos de un reemplazo:
 
 Cuando se asigna reemplazo, se registra LOG en categoria `AUDIT_CATEGORY.OVERTIME` con accion `Asigno reemplazo de turno` y `meta.replacementId`.
 
+Unidades enlazadas:
+
+- En el dialogo de reemplazo, `Cargar personal de unidades enlazadas` lee otros workspaces donde el usuario Firebase logueado tambien es miembro.
+- El sistema usa `js/firebaseWorkspaceState.js` para leer `workspaces/{workspaceId}/system/appState` y sus chunks sin reemplazar el estado local.
+- Solo lista candidatos activos de otras unidades que sean compatibles con la profesion/estamento del trabajador ausente, no tengan ausencia ese dia y puedan cubrir el turno requerido.
+- Al asignar un prestamo de unidad enlazada, primero escribe un reemplazo `linked_unit_loan` en el snapshot vivo de la unidad del trabajador, para bloquear su calendario, y luego registra el prestamo en la unidad actual con `isLoan`, `workerWorkspaceId`, `hostWorkspaceId` y `remoteReplacementId`.
+- Este flujo requiere que el usuario administrador sea miembro de ambos entornos y que las reglas Firestore publicadas permitan escribir en ambos workspaces.
+
 ## LOG / Anulaciones
 
 `js/auditLog.js` guarda hasta 1500 entradas en `auditLog`.
@@ -322,6 +331,9 @@ El LOG puede anular:
 
 Estado actual de comportamiento:
 
+- Los registros nuevos guardan `actor` / `actorName` con el usuario Firebase logueado (`displayName`, `email`, `uid`).
+- En el render del LOG no se muestra el label `Perfil: ...`; se muestra `Usuario: ...`.
+- Las fechas ISO dentro del detalle del registro se formatean visualmente como `DD-MM-AAAA`, aunque el dato original siga guardado como ISO.
 - Si se anula una ausencia o permiso desde LOG, `cancelReplacementsForAbsence()` marca los reemplazos asociados como `canceled`.
 - Tambien notifica al trabajador afectado.
 - El log original de ausencia queda marcado como anulado.
@@ -348,6 +360,7 @@ Arquitectura:
 - Cuando llega un estado remoto, `replaceLocalSnapshot()` reemplaza la cache local en silencio y `main.js` refresca perfiles, calendario, cambios de turno, solicitudes, RRHH y dashboard.
 - Los modulos granulares `firebaseProfiles.js`, `firebaseReplacementRequests.js` y `firebaseWorkerRequests.js` siguen en el repo, pero `main.js` ya no los inicia; la sincronizacion completa los reemplaza como camino principal.
 - `js/firebaseMigration.js` sigue disponible como copia manual de respaldo en `workspaces/{workspaceId}/system/localStorageSnapshot`; no es el flujo automatico principal.
+- `js/firebaseWorkspaceState.js` permite leer/escribir puntualmente el appState de workspaces enlazados, sin cambiar el workspace activo local.
 - `firebase.rules` exige usuario autenticado y miembro de workspace para leer/escribir.
 - `storage.rules` permite archivos bajo `workspaces/{workspaceId}/...` solo a miembros.
 - Si Google login devuelve `auth/unauthorized-domain`, agregar el hostname usado en navegador en Firebase Console > Authentication > Settings > Authorized domains. Para desarrollo local, autorizar `127.0.0.1` y `localhost` sin puerto.

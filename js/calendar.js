@@ -55,6 +55,7 @@ import {
     getCambioTurnoRecibido
 } from "./swaps.js";
 import {
+    codeToTurno,
     getAbsenceLabelForProfileDate,
     getBackedTurnForWorker,
     getClockExtraBackupForWorker,
@@ -68,6 +69,7 @@ import {
     getReplacementForWorkerShift,
     renderReplacementLogHTML,
     saveReplacement,
+    turnoToCode,
     turnoReplacementLabel,
     workerHasAbsence
 } from "./replacements.js";
@@ -87,6 +89,15 @@ import {
 } from "./clockMarks.js";
 import { TURNO } from "./constants.js";
 import { getJSON } from "./persistence.js";
+import { getCurrentFirebaseUser } from "./firebaseClient.js";
+import {
+    getActiveWorkspace,
+    listUserWorkspaces
+} from "./workspaces.js";
+import {
+    readFirebaseWorkspaceState,
+    writeFirebaseWorkspaceState
+} from "./firebaseWorkspaceState.js";
 
 export let currentDate = new Date();
 
@@ -315,6 +326,225 @@ function replacementScopeProfiles(profileName, scope = "compatible") {
     );
 }
 
+function parseSnapshotJSON(snapshot, keyName, fallback) {
+    try {
+        const raw = snapshot?.[keyName];
+
+        if (raw === undefined || raw === null) return fallback;
+
+        return JSON.parse(raw);
+    } catch {
+        return fallback;
+    }
+}
+
+function remoteProfileMap(snapshot, prefix, profileName) {
+    return parseSnapshotJSON(
+        snapshot,
+        `${prefix}_${profileName}`,
+        {}
+    );
+}
+
+function remoteProfileHasAbsence(snapshot, profileName, keyDay) {
+    return tieneAusencia(
+        keyDay,
+        remoteProfileMap(snapshot, "admin", profileName),
+        remoteProfileMap(snapshot, "legal", profileName),
+        remoteProfileMap(snapshot, "comp", profileName),
+        remoteProfileMap(snapshot, "absences", profileName)
+    );
+}
+
+function keyToISODate(keyDay) {
+    const parts = String(keyDay || "").split("-");
+
+    return `${parts[0]}-${String(Number(parts[1]) + 1).padStart(2, "0")}-${String(Number(parts[2])).padStart(2, "0")}`;
+}
+
+function remoteFusionReplacementTurn(snapshot, profileName, keyDay, state) {
+    const iso = keyToISODate(keyDay);
+    const replacements =
+        parseSnapshotJSON(snapshot, "replacements", []);
+
+    return replacements
+        .filter(replacement =>
+            replacement &&
+            !replacement.canceled &&
+            replacement.worker === profileName &&
+            replacement.date === iso &&
+            replacement.addsShift !== false
+        )
+        .reduce(
+            (turno, replacement) =>
+                fusionarTurnos(turno, codeToTurno(replacement.turno)),
+            Number(state) || TURNO.LIBRE
+        );
+}
+
+function remoteApplySwaps(snapshot, profileName, keyDay, state) {
+    const iso = keyToISODate(keyDay);
+    const swaps = parseSnapshotJSON(snapshot, "swaps", []);
+    let turno = Number(state) || TURNO.LIBRE;
+
+    swaps.forEach(swap => {
+        if (
+            !swap ||
+            swap.canceled ||
+            swap.anulado ||
+            swap.status === "canceled" ||
+            swap.status === "anulado"
+        ) {
+            return;
+        }
+
+        if (!swap.skipFecha && swap.fecha === iso) {
+            if (swap.from === profileName) {
+                turno = TURNO.LIBRE;
+            }
+
+            if (swap.to === profileName) {
+                turno = fusionarTurnos(
+                    turno,
+                    codeToTurno(swap.turno)
+                );
+            }
+        }
+
+        if (!swap.skipDevolucion && swap.devolucion === iso) {
+            if (swap.to === profileName) {
+                const devuelve = codeToTurno(swap.turnoDevuelto);
+
+                if (turno === devuelve) {
+                    turno = TURNO.LIBRE;
+                } else if (
+                    turno === TURNO.TURNO24 &&
+                    devuelve === TURNO.LARGA
+                ) {
+                    turno = TURNO.NOCHE;
+                } else if (
+                    turno === TURNO.TURNO24 &&
+                    devuelve === TURNO.NOCHE
+                ) {
+                    turno = TURNO.LARGA;
+                } else {
+                    turno = TURNO.LIBRE;
+                }
+            }
+
+            if (swap.from === profileName) {
+                turno = fusionarTurnos(
+                    turno,
+                    codeToTurno(swap.turnoDevuelto)
+                );
+            }
+        }
+    });
+
+    return turno;
+}
+
+function remoteActualState(snapshot, profileName, keyDay) {
+    const data = remoteProfileMap(snapshot, "data", profileName);
+    const baseState = Number(data[keyDay]) || TURNO.LIBRE;
+    const withSwaps = remoteApplySwaps(
+        snapshot,
+        profileName,
+        keyDay,
+        baseState
+    );
+
+    return remoteFusionReplacementTurn(
+        snapshot,
+        profileName,
+        keyDay,
+        withSwaps
+    );
+}
+
+async function linkedWorkspaceCandidates(
+    profileName,
+    keyDay,
+    neededTurn
+) {
+    const user = getCurrentFirebaseUser();
+    const activeWorkspace = getActiveWorkspace();
+
+    if (!user || !activeWorkspace?.id) {
+        return [];
+    }
+
+    const baseProfile = getProfiles().find(profile =>
+        profile.name === profileName
+    );
+    const workspaces = await listUserWorkspaces(user);
+    const linkedWorkspaces = workspaces.filter(workspace =>
+        workspace.id !== activeWorkspace.id
+    );
+    const candidates = [];
+
+    for (const workspace of linkedWorkspaces) {
+        let snapshot = null;
+
+        try {
+            snapshot = await readFirebaseWorkspaceState(workspace.id);
+        } catch (error) {
+            console.warn(
+                "No se pudo leer unidad enlazada.",
+                workspace.id,
+                error
+            );
+            continue;
+        }
+
+        if (!snapshot) continue;
+
+        const profiles = parseSnapshotJSON(snapshot, "profiles", [])
+            .filter(profile =>
+                profile &&
+                profile.active !== false &&
+                profileCanCoverProfile(profile, baseProfile)
+            );
+
+        profiles.forEach(profile => {
+            const currentState = remoteActualState(
+                snapshot,
+                profile.name,
+                keyDay
+            );
+
+            if (
+                remoteProfileHasAbsence(
+                    snapshot,
+                    profile.name,
+                    keyDay
+                ) ||
+                !canCoverShift(currentState, neededTurn)
+            ) {
+                return;
+            }
+
+            candidates.push({
+                profile,
+                currentState,
+                isFree: currentState === TURNO.LIBRE,
+                isForced: false,
+                isLinked: true,
+                workspaceId: workspace.id,
+                workspaceName: workspace.name || workspace.id,
+                hheeDiurnas: 0,
+                hheeNocturnas: 0,
+                hhee: 0
+            });
+        });
+    }
+
+    return candidates.sort((a, b) =>
+        a.workspaceName.localeCompare(b.workspaceName) ||
+        a.profile.name.localeCompare(b.profile.name)
+    );
+}
+
 function escapeHTML(value) {
     return String(value ?? "")
         .replace(/&/g, "&amp;")
@@ -455,6 +685,14 @@ async function getReplacementCandidates(
     );
     const scope = options.scope || "compatible";
 
+    if (scope === "linked") {
+        return linkedWorkspaceCandidates(
+            profileName,
+            keyDay,
+            neededTurn
+        );
+    }
+
     return replacementScopeProfiles(profileName, scope)
         .map(profile => {
             const currentState =
@@ -512,6 +750,7 @@ function replacementDialogHTML({
     selectedRequestWorkers
 }) {
     const forceMode = scope === "all-local";
+    const linkedMode = scope === "linked";
     const pendingByWorker = new Map(
         (pendingRequests || []).map(request => [request.worker, request])
     );
@@ -546,10 +785,12 @@ function replacementDialogHTML({
                     <span>
                         <strong>${escapeHTML(candidate.profile.name)}</strong>
                         <small>${escapeHTML(candidateMeta(candidate.profile))}</small>
+                        ${candidate.isLinked ? `<small>Unidad: ${escapeHTML(candidate.workspaceName)}</small>` : ""}
                         <small>${pendingRequest ? "Solicitud pendiente" : candidate.isFree ? "Libre ese dia" : `Turno actual: ${escapeHTML(turnoReplacementLabel(candidate.currentState))}`}</small>
                     </span>
                     <span>
                         ${pendingRequest ? "<em>Pendiente</em>" : ""}
+                        ${candidate.isLinked ? "<em>Unidad enlazada</em>" : ""}
                         ${candidate.isForced ? "<em>Forzado</em>" : ""}
                         <b>${formatCandidateHours(candidate.hhee)} HHEE</b>
                         <small class="replacement-candidate-hours">
@@ -561,14 +802,23 @@ function replacementDialogHTML({
             }
 
             return `
-            <button class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${pendingRequest ? "is-disabled" : ""}" type="button" data-worker="${escapeHTML(candidate.profile.name)}" ${pendingRequest ? "disabled" : ""}>
+            <button
+                class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.isLinked ? "replacement-candidate--linked" : ""} ${pendingRequest ? "is-disabled" : ""}"
+                type="button"
+                data-worker="${escapeHTML(candidate.profile.name)}"
+                data-worker-workspace-id="${escapeHTML(candidate.workspaceId || "")}"
+                data-worker-workspace-name="${escapeHTML(candidate.workspaceName || "")}"
+                ${pendingRequest ? "disabled" : ""}
+            >
                 <span>
                     <strong>${escapeHTML(candidate.profile.name)}</strong>
                     <small>${escapeHTML(candidateMeta(candidate.profile))}</small>
+                    ${candidate.isLinked ? `<small>Unidad: ${escapeHTML(candidate.workspaceName)}</small>` : ""}
                     <small>${pendingRequest ? "Solicitud pendiente" : candidate.isFree ? "Libre ese dia" : `Turno actual: ${escapeHTML(turnoReplacementLabel(candidate.currentState))}`}</small>
                 </span>
                 <span>
                     ${pendingRequest ? "<em>Pendiente</em>" : ""}
+                    ${candidate.isLinked ? "<em>Unidad enlazada</em>" : ""}
                     ${candidate.isForced ? "<em>Forzado</em>" : ""}
                     <b>${formatCandidateHours(candidate.hhee)} HHEE</b>
                     <small class="replacement-candidate-hours">
@@ -629,9 +879,17 @@ function replacementDialogHTML({
                     }
                 </button>
                 <button class="ghost-button" type="button" data-action="linked-units">
-                    Cargar personal de unidades enlazadas
+                    ${linkedMode
+                        ? "Volver a personal de esta unidad"
+                        : "Cargar personal de unidades enlazadas"
+                    }
                 </button>
             </div>
+            ${linkedMode ? `
+                <div class="replacement-dialog-note">
+                    Personal de unidades enlazadas activo: al asignar, se registrara un prestamo y se bloqueara el calendario del trabajador en su unidad.
+                </div>
+            ` : `
             <label class="replacement-request-toggle">
                 <input type="checkbox" data-action="request-mode" ${requestMode ? "checked" : ""}>
                 <span>
@@ -642,6 +900,7 @@ function replacementDialogHTML({
                     </small>
                 </span>
             </label>
+            `}
             ${bulkActions}
             ${pendingList}
             ${forceMode ? `
@@ -688,6 +947,84 @@ async function openReplacementDialog(profileName, keyDay) {
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
 
+    const saveLinkedUnitReplacement = async button => {
+        const workerWorkspaceId =
+            button.dataset.workerWorkspaceId || "";
+        const workerWorkspaceName =
+            button.dataset.workerWorkspaceName || "";
+        const worker = button.dataset.worker || "";
+        const activeWorkspace = getActiveWorkspace();
+
+        if (!workerWorkspaceId || !worker) {
+            throw new Error(
+                "No se pudo identificar la unidad enlazada del trabajador."
+            );
+        }
+
+        const remoteReplacementId =
+            `loan_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const remoteSnapshot =
+            await readFirebaseWorkspaceState(workerWorkspaceId);
+
+        if (!remoteSnapshot) {
+            throw new Error(
+                "La unidad enlazada aun no tiene datos vivos disponibles en Firebase."
+            );
+        }
+
+        const date = new Date(
+            Number(keyDay.split("-")[0]),
+            Number(keyDay.split("-")[1]),
+            Number(keyDay.split("-")[2])
+        );
+        const replacements =
+            parseSnapshotJSON(remoteSnapshot, "replacements", []);
+
+        replacements.push({
+            id: remoteReplacementId,
+            worker,
+            replaced: profileName,
+            reason: "",
+            source: "linked_unit_loan",
+            addsShift: true,
+            date: keyToISODate(keyDay),
+            turno: turnoToCode(neededTurn),
+            isLoan: true,
+            workerWorkspaceId,
+            workerWorkspaceName,
+            hostWorkspaceId: activeWorkspace?.id || "",
+            hostWorkspaceName: activeWorkspace?.name || "",
+            absenceType,
+            year: date.getFullYear(),
+            month: date.getMonth(),
+            createdAt: new Date().toISOString(),
+            canceled: false
+        });
+
+        remoteSnapshot.replacements =
+            JSON.stringify(replacements);
+
+        await writeFirebaseWorkspaceState(
+            workerWorkspaceId,
+            remoteSnapshot
+        );
+
+        saveReplacement({
+            worker,
+            replaced: profileName,
+            keyDay,
+            turno: neededTurn,
+            absenceType,
+            source: "linked_unit_loan",
+            isLoan: true,
+            workerWorkspaceId,
+            workerWorkspaceName,
+            hostWorkspaceId: activeWorkspace?.id || "",
+            hostWorkspaceName: activeWorkspace?.name || "",
+            remoteReplacementId
+        });
+    };
+
     const close = () => {
         document.removeEventListener("keydown", onKeydown);
         backdrop.remove();
@@ -721,10 +1058,13 @@ async function openReplacementDialog(profileName, keyDay) {
 
         backdrop
             .querySelector("[data-action='linked-units']")
-            .onclick = () => {
-                alert(
-                    "La carga de unidades enlazadas quedara activa cuando los entornos trabajen con datos vivos en Firebase. Por ahora este sistema solo tiene snapshot de respaldo, por lo que no es seguro bloquear calendarios de otra unidad desde aqui."
-                );
+            .onclick = async () => {
+                scope = scope === "linked"
+                    ? "compatible"
+                    : "linked";
+                requestMode = false;
+                selectedRequestWorkers = new Set();
+                await renderContent();
             };
 
         const requestToggle =
@@ -921,16 +1261,20 @@ async function openReplacementDialog(profileName, keyDay) {
                         return;
                     }
 
-                    saveReplacement({
-                        worker: button.dataset.worker,
-                        replaced: profileName,
-                        keyDay,
-                        turno: neededTurn,
-                        absenceType,
-                        source: scope === "all-local"
-                            ? "forced_replacement"
-                            : "replacement"
-                    });
+                    if (button.dataset.workerWorkspaceId) {
+                        await saveLinkedUnitReplacement(button);
+                    } else {
+                        saveReplacement({
+                            worker: button.dataset.worker,
+                            replaced: profileName,
+                            keyDay,
+                            turno: neededTurn,
+                            absenceType,
+                            source: scope === "all-local"
+                                ? "forced_replacement"
+                                : "replacement"
+                        });
+                    }
 
                     close();
                     await renderCalendar();

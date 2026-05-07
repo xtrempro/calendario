@@ -2428,6 +2428,13 @@ body[data-active-view="log"] .secondary-grid {
         var(--field);
 }
 
+.replacement-candidate--linked {
+    border-color: rgba(20, 184, 166, 0.48);
+    background:
+        linear-gradient(135deg, rgba(20, 184, 166, 0.12), transparent 58%),
+        var(--field);
+}
+
 .replacement-candidate--request {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;

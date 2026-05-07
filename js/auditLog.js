@@ -9,6 +9,7 @@ import {
 } from "./storage.js";
 import { fetchHolidays } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
+import { getCurrentFirebaseUser } from "./firebaseClient.js";
 
 const KEY = "auditLog";
 const MAX_LOGS = 1500;
@@ -107,10 +108,18 @@ function formatTimestamp(value) {
 
     if (Number.isNaN(date.getTime())) return "Sin fecha";
 
-    return date.toLocaleString("es-CL", {
-        dateStyle: "short",
-        timeStyle: "medium"
-    });
+    return [
+        [
+            String(date.getDate()).padStart(2, "0"),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            date.getFullYear()
+        ].join("-"),
+        [
+            String(date.getHours()).padStart(2, "0"),
+            String(date.getMinutes()).padStart(2, "0"),
+            String(date.getSeconds()).padStart(2, "0")
+        ].join(":")
+    ].join(" ");
 }
 
 function monthValue(date = new Date()) {
@@ -165,6 +174,27 @@ function keyToISO(keyDay) {
     ].join("-");
 }
 
+function formatISODate(value) {
+    const match = String(value || "")
+        .match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+
+    if (!match) return value || "";
+
+    return [
+        String(Number(match[3])).padStart(2, "0"),
+        String(Number(match[2])).padStart(2, "0"),
+        match[1]
+    ].join("-");
+}
+
+function formatDatesInText(value) {
+    return String(value || "").replace(
+        /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/g,
+        (_match, year, month, day) =>
+            `${String(Number(day)).padStart(2, "0")}-${String(Number(month)).padStart(2, "0")}-${year}`
+    );
+}
+
 function keyFromDate(date) {
     return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
@@ -191,9 +221,34 @@ function saveProfileMap(prefix, profile, map) {
 }
 
 function getCurrentActorLabel() {
-    return document.getElementById("authUserName")?.textContent?.trim() ||
+    const user = getCurrentFirebaseUser();
+
+    return user?.displayName ||
+        user?.email ||
+        document.getElementById("authUserName")?.textContent?.trim() ||
         getCurrentProfile() ||
         "Usuario";
+}
+
+function getCurrentActor() {
+    const user = getCurrentFirebaseUser();
+    const name = getCurrentActorLabel();
+
+    return {
+        name,
+        email: user?.email || "",
+        uid: user?.uid || ""
+    };
+}
+
+function logActorName(log) {
+    return String(
+        log?.actor?.name ||
+        log?.actorName ||
+        log?.createdBy ||
+        log?.meta?.actorName ||
+        ""
+    ).trim();
 }
 
 function getProfileByName(profileName) {
@@ -530,7 +585,7 @@ function cancelReplacementsForAbsence(profile, removedKeys, sourceLog) {
 
         queueWorkerNotification(
             replacement.worker,
-            `Se anularon las horas extras del ${date} (${turn}) porque se anulo el permiso/ausencia de ${profile}.`,
+            `Se anularon las horas extras del ${formatISODate(date)} (${turn}) porque se anulo el permiso/ausencia de ${profile}.`,
             {
                 source: "audit_undo",
                 logId: sourceLog.id,
@@ -589,7 +644,7 @@ function cancelReplacementFromLog(log) {
 
         queueWorkerNotification(
             replacement.worker,
-            `Se anularon tus horas extras del ${date} (${turn}). Revisa tu calendario actualizado.`,
+            `Se anularon tus horas extras del ${formatISODate(date)} (${turn}). Revisa tu calendario actualizado.`,
             {
                 source: "audit_undo",
                 logId: log.id,
@@ -601,7 +656,7 @@ function cancelReplacementFromLog(log) {
         if (replacement.replaced) {
             queueWorkerNotification(
                 replacement.replaced,
-                `Se anulo la cobertura de ${replacement.worker} para el ${date} (${turn}).`,
+                `Se anulo la cobertura de ${replacement.worker} para el ${formatISODate(date)} (${turn}).`,
                 {
                     source: "audit_undo",
                     logId: log.id,
@@ -737,6 +792,7 @@ function undoPanelHTML(log) {
 function entryHTML(log) {
     const def = categoryDef(log.category);
     const isExpanded = expandedLogId === log.id;
+    const actorName = logActorName(log);
 
     return `
         <article class="audit-entry ${log.canceledAt ? "is-canceled" : ""} ${isExpanded ? "is-expanded" : ""}" data-audit-entry-id="${escapeHTML(log.id)}">
@@ -747,8 +803,8 @@ function entryHTML(log) {
                 <time>${escapeHTML(formatTimestamp(log.createdAt))}</time>
             </div>
             <strong>${escapeHTML(log.action)}</strong>
-            ${log.details ? `<p>${escapeHTML(log.details)}</p>` : ""}
-            ${log.profile ? `<small>Perfil: ${escapeHTML(log.profile)}</small>` : ""}
+            ${log.details ? `<p>${escapeHTML(formatDatesInText(log.details))}</p>` : ""}
+            <small>Usuario: ${escapeHTML(actorName || "No registrado")}</small>
             ${canceledInfoHTML(log)}
             ${undoPanelHTML(log)}
         </article>
@@ -776,6 +832,7 @@ export function getAuditLogs() {
 export function addAuditLog(category, action, details = "", meta = {}) {
     const def = categoryDef(category);
     const logs = getAuditLogs();
+    const actor = getCurrentActor();
     const entry = {
         id: `${Date.now()}_${Math.random().toString(36).slice(2)}`,
         category: def.key,
@@ -786,8 +843,13 @@ export function addAuditLog(category, action, details = "", meta = {}) {
                 ? String(meta.profile || "")
                 : (getCurrentProfile() || ""),
         createdAt: new Date().toISOString(),
+        actor,
+        actorName: actor.name,
         meta: {
-            ...meta
+            ...meta,
+            actorName: meta.actorName || actor.name,
+            actorEmail: meta.actorEmail || actor.email,
+            actorUid: meta.actorUid || actor.uid
         }
     };
 

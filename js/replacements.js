@@ -223,7 +223,9 @@ export function saveReplacement(data) {
                 : ""
         );
 
-    const id = Date.now();
+    const id =
+        data.id ||
+        `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     const record = {
         id,
@@ -243,6 +245,7 @@ export function saveReplacement(data) {
         workerWorkspaceName: data.workerWorkspaceName || "",
         hostWorkspaceId: data.hostWorkspaceId || "",
         hostWorkspaceName: data.hostWorkspaceName || "",
+        remoteReplacementId: data.remoteReplacementId || "",
         absenceType,
         year: date.getFullYear(),
         month: date.getMonth(),
@@ -274,6 +277,7 @@ export function saveReplacement(data) {
             workerWorkspaceName: data.workerWorkspaceName || "",
             hostWorkspaceId: data.hostWorkspaceId || "",
             hostWorkspaceName: data.hostWorkspaceName || "",
+            remoteReplacementId: data.remoteReplacementId || "",
             source: data.source || "replacement"
         }
     );
