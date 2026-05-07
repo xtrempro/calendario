@@ -24,6 +24,7 @@ import {
     getCurrentProfile,
     getProfiles,
     getRotativa,
+    getTurnChangeConfig,
     isProfileActive,
     profileCanCoverProfile
 } from "./storage.js";
@@ -88,12 +89,13 @@ import {
     hasSimpleClockIncident
 } from "./clockMarks.js";
 import { TURNO } from "./constants.js";
-import { getJSON } from "./persistence.js";
-import { getCurrentFirebaseUser } from "./firebaseClient.js";
 import {
-    getActiveWorkspace,
-    listUserWorkspaces
-} from "./workspaces.js";
+    exportLocalSnapshot,
+    getJSON,
+    replaceLocalSnapshot
+} from "./persistence.js";
+import { getActiveWorkspace } from "./workspaces.js";
+import { listAcceptedLinkedWorkspaces } from "./firebaseLinkedUnits.js";
 import {
     readFirebaseWorkspaceState,
     writeFirebaseWorkspaceState
@@ -462,26 +464,110 @@ function remoteActualState(snapshot, profileName, keyDay) {
     );
 }
 
+function remoteTurnChangeConfig(snapshot) {
+    const config = parseSnapshotJSON(
+        snapshot,
+        "turnChangeConfig",
+        {}
+    );
+
+    return {
+        allowTwentyFourHourShifts:
+            config.allowTwentyFourHourShifts !== false
+    };
+}
+
+function combinedTurnChangeConfig(remoteConfig) {
+    const localConfig = getTurnChangeConfig();
+
+    return {
+        allowTwentyFourHourShifts:
+            localConfig.allowTwentyFourHourShifts !== false &&
+            remoteConfig.allowTwentyFourHourShifts !== false
+    };
+}
+
+function isLongNightCombination(currentState, neededTurn) {
+    return (
+        (
+            currentState === TURNO.LARGA &&
+            neededTurn === TURNO.NOCHE
+        ) ||
+        (
+            currentState === TURNO.NOCHE &&
+            neededTurn === TURNO.LARGA
+        )
+    );
+}
+
+function canCoverLinkedShift(currentState, neededTurn, config) {
+    if (!neededTurn) return false;
+
+    if (currentState === TURNO.LIBRE) return true;
+
+    return (
+        isLongNightCombination(currentState, neededTurn) &&
+        config.allowTwentyFourHourShifts !== false
+    );
+}
+
+function remoteMonthlyStats(
+    snapshot,
+    profiles,
+    y,
+    m,
+    days,
+    holidays
+) {
+    const localSnapshot = exportLocalSnapshot();
+    const statsByProfile = new Map();
+
+    replaceLocalSnapshot(snapshot, { silent: true });
+
+    try {
+        profiles.forEach(profile => {
+            const stats = calcularHorasMesPerfil(
+                profile.name,
+                y,
+                m,
+                days,
+                holidays,
+                getProfileData(profile.name),
+                {},
+                { d: 0, n: 0 }
+            );
+
+            statsByProfile.set(profile.name, stats);
+        });
+    } finally {
+        replaceLocalSnapshot(localSnapshot, { silent: true });
+    }
+
+    return statsByProfile;
+}
+
 async function linkedWorkspaceCandidates(
     profileName,
     keyDay,
-    neededTurn
+    neededTurn,
+    monthContext = {}
 ) {
-    const user = getCurrentFirebaseUser();
     const activeWorkspace = getActiveWorkspace();
 
-    if (!user || !activeWorkspace?.id) {
+    if (!activeWorkspace?.id) {
         return [];
     }
 
     const baseProfile = getProfiles().find(profile =>
         profile.name === profileName
     );
-    const workspaces = await listUserWorkspaces(user);
-    const linkedWorkspaces = workspaces.filter(workspace =>
-        workspace.id !== activeWorkspace.id
-    );
+    const linkedWorkspaces =
+        await listAcceptedLinkedWorkspaces(activeWorkspace);
     const candidates = [];
+    const y = monthContext.y;
+    const m = monthContext.m;
+    const days = monthContext.days;
+    const holidays = monthContext.holidays || {};
 
     for (const workspace of linkedWorkspaces) {
         let snapshot = null;
@@ -505,6 +591,16 @@ async function linkedWorkspaceCandidates(
                 profile.active !== false &&
                 profileCanCoverProfile(profile, baseProfile)
             );
+        const remoteConfig = remoteTurnChangeConfig(snapshot);
+        const coverConfig = combinedTurnChangeConfig(remoteConfig);
+        const statsByProfile = remoteMonthlyStats(
+            snapshot,
+            profiles,
+            y,
+            m,
+            days,
+            holidays
+        );
 
         profiles.forEach(profile => {
             const currentState = remoteActualState(
@@ -519,10 +615,18 @@ async function linkedWorkspaceCandidates(
                     profile.name,
                     keyDay
                 ) ||
-                !canCoverShift(currentState, neededTurn)
+                !canCoverLinkedShift(
+                    currentState,
+                    neededTurn,
+                    coverConfig
+                )
             ) {
                 return;
             }
+
+            const stats = statsByProfile.get(profile.name) || {};
+            const hheeDiurnas = Number(stats.hheeDiurnas) || 0;
+            const hheeNocturnas = Number(stats.hheeNocturnas) || 0;
 
             candidates.push({
                 profile,
@@ -532,9 +636,9 @@ async function linkedWorkspaceCandidates(
                 isLinked: true,
                 workspaceId: workspace.id,
                 workspaceName: workspace.name || workspace.id,
-                hheeDiurnas: 0,
-                hheeNocturnas: 0,
-                hhee: 0
+                hheeDiurnas,
+                hheeNocturnas,
+                hhee: hheeDiurnas + hheeNocturnas
             });
         });
     }
@@ -626,13 +730,28 @@ function getReplacementNeededTurn(profileName, keyDay) {
     return getTurnoBase(profileName, keyDay);
 }
 
-function canCoverShift(currentState, neededTurn) {
+function canCoverShift(
+    currentState,
+    neededTurn,
+    config = getTurnChangeConfig()
+) {
     if (!neededTurn) return false;
 
-    return fusionarTurnos(
+    const merged = fusionarTurnos(
         currentState,
         neededTurn
-    ) !== currentState;
+    );
+
+    if (merged === currentState) return false;
+
+    if (
+        merged === TURNO.TURNO24 &&
+        config.allowTwentyFourHourShifts === false
+    ) {
+        return false;
+    }
+
+    return true;
 }
 
 function getPendingManualExtraTurn(
@@ -689,7 +808,13 @@ async function getReplacementCandidates(
         return linkedWorkspaceCandidates(
             profileName,
             keyDay,
-            neededTurn
+            neededTurn,
+            {
+                y,
+                m,
+                days,
+                holidays
+            }
         );
     }
 
@@ -881,13 +1006,13 @@ function replacementDialogHTML({
                 <button class="ghost-button" type="button" data-action="linked-units">
                     ${linkedMode
                         ? "Volver a personal de esta unidad"
-                        : "Cargar personal de unidades enlazadas"
+                        : "Buscar sugerencias en unidades enlazadas"
                     }
                 </button>
             </div>
             ${linkedMode ? `
                 <div class="replacement-dialog-note">
-                    Personal de unidades enlazadas activo: al asignar, se registrara un prestamo y se bloqueara el calendario del trabajador en su unidad.
+                    Sugerencias de unidades enlazadas activas: se muestran trabajadores compatibles y disponibles segun su unidad. Al asignar, se registra como prestamo en ambos entornos.
                 </div>
             ` : `
             <label class="replacement-request-toggle">

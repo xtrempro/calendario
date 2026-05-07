@@ -16,6 +16,12 @@ import {
     buildLocalMigrationSnapshot,
     uploadLocalSnapshotToActiveWorkspace
 } from "./firebaseMigration.js";
+import {
+    acceptWorkspaceLink,
+    listWorkspaceLinks,
+    rejectWorkspaceLink,
+    requestWorkspaceLink
+} from "./firebaseLinkedUnits.js";
 
 let currentUser = null;
 let currentWorkspace = getActiveWorkspace();
@@ -24,6 +30,11 @@ let options = {};
 let migrationState = {
     mode: "idle",
     message: ""
+};
+let linkedUnitState = {
+    loading: false,
+    message: "",
+    links: []
 };
 
 function escapeHTML(value) {
@@ -295,7 +306,7 @@ function friendlyFirebaseError(error) {
     ) {
         return [
             "Firebase no permitio esta operacion.",
-            "Si intentabas unirte a un entorno, revisa que el ID sea correcto y que las reglas actualizadas de Firestore esten publicadas."
+            "Si intentabas unirte o enlazar un entorno, revisa que el ID sea correcto, que no exista una solicitud previa y que las reglas actualizadas de Firestore esten publicadas."
         ].join(" ");
     }
 
@@ -350,6 +361,112 @@ function migrationPanelHTML() {
     `;
 }
 
+function linkedUnitStatusLabel(status) {
+    if (status === "accepted") return "Activo";
+    if (status === "rejected") return "Rechazado";
+    return "Pendiente";
+}
+
+function linkedUnitsPanelHTML() {
+    if (!currentWorkspace) return "";
+
+    const incoming = linkedUnitState.links.filter(link =>
+        link.toWorkspaceId === currentWorkspace.id &&
+        link.status === "pending"
+    );
+    const outgoing = linkedUnitState.links.filter(link =>
+        link.fromWorkspaceId === currentWorkspace.id
+    );
+    const accepted = linkedUnitState.links.filter(link =>
+        link.status === "accepted" &&
+        (
+            link.fromWorkspaceId === currentWorkspace.id ||
+            link.toWorkspaceId === currentWorkspace.id
+        )
+    );
+    const message = linkedUnitState.message
+        ? `
+            <div class="firebase-migration-status firebase-migration-status--success">
+                ${escapeHTML(linkedUnitState.message)}
+            </div>
+        `
+        : "";
+
+    return `
+        <div class="firebase-linked-panel">
+            <strong>Unidades enlazadas</strong>
+            <p>
+                Solicita enlace a otra unidad para buscar personal compatible
+                como sugerencia de reemplazo. No se agrega el otro entorno al
+                selector de trabajo.
+            </p>
+            ${message}
+            <div class="firebase-linked-request">
+                <input id="firebaseLinkedWorkspaceId" type="text" placeholder="ID del entorno a enlazar">
+                <button class="secondary-button" type="button" data-action="request-workspace-link" ${linkedUnitState.loading ? "disabled" : ""}>
+                    Solicitar enlace
+                </button>
+            </div>
+            ${incoming.length ? `
+                <div class="firebase-linked-list">
+                    <span>Solicitudes recibidas</span>
+                    ${incoming.map(link => `
+                        <article class="firebase-linked-item">
+                            <div>
+                                <strong>${escapeHTML(link.fromWorkspaceName || link.fromWorkspaceId)}</strong>
+                                <small>Solicitado por ${escapeHTML(link.requestedByName || "Usuario")}</small>
+                            </div>
+                            <div class="firebase-linked-actions">
+                                <button class="primary-button" type="button" data-action="accept-workspace-link" data-link-ref="${escapeHTML(link.id)}">
+                                    Aceptar
+                                </button>
+                                <button class="secondary-button" type="button" data-action="reject-workspace-link" data-link-ref="${escapeHTML(link.id)}">
+                                    Rechazar
+                                </button>
+                            </div>
+                        </article>
+                    `).join("")}
+                </div>
+            ` : ""}
+            ${outgoing.length ? `
+                <div class="firebase-linked-list">
+                    <span>Solicitudes enviadas</span>
+                    ${outgoing.map(link => `
+                        <article class="firebase-linked-item">
+                            <div>
+                                <strong>${escapeHTML(link.toWorkspaceName || link.toWorkspaceId)}</strong>
+                                <small>${escapeHTML(linkedUnitStatusLabel(link.status))}</small>
+                            </div>
+                        </article>
+                    `).join("")}
+                </div>
+            ` : ""}
+            ${accepted.length ? `
+                <div class="firebase-linked-list">
+                    <span>Enlaces activos</span>
+                    ${accepted.map(link => {
+                        const isSource =
+                            link.fromWorkspaceId === currentWorkspace.id;
+                        const name = isSource
+                            ? link.toWorkspaceName || link.toWorkspaceId
+                            : link.fromWorkspaceName || link.fromWorkspaceId;
+
+                        return `
+                            <article class="firebase-linked-item">
+                                <div>
+                                    <strong>${escapeHTML(name)}</strong>
+                                    <small>${isSource ? "Disponible para buscar prestamos" : "Puede recibir solicitudes de prestamo"}</small>
+                                </div>
+                                <em>Activo</em>
+                            </article>
+                        `;
+                    }).join("")}
+                </div>
+            ` : ""}
+        </div>
+    `;
+}
+
 function renderSignedInModal(backdrop) {
     const pendingWorkspaceId = pendingJoinWorkspaceId();
 
@@ -380,6 +497,8 @@ function renderSignedInModal(backdrop) {
             </div>
 
             ${migrationPanelHTML()}
+
+            ${linkedUnitsPanelHTML()}
 
             <div class="turn-change-dialog__actions">
                 <button class="secondary-button" type="button" data-action="sign-out">Cerrar sesion</button>
@@ -420,6 +539,27 @@ async function refreshWorkspaces() {
 
     workspaceList = await listUserWorkspaces(currentUser);
     currentWorkspace = getActiveWorkspace();
+}
+
+async function refreshLinkedUnits() {
+    if (
+        !currentUser ||
+        !currentWorkspace?.id ||
+        !isFirebaseConfigured()
+    ) {
+        linkedUnitState.links = [];
+        return;
+    }
+
+    try {
+        linkedUnitState.links =
+            await listWorkspaceLinks(currentWorkspace);
+    } catch (error) {
+        linkedUnitState.links = [];
+        linkedUnitState.message =
+            "No se pudieron cargar unidades enlazadas. Revisa que las reglas de Firestore esten publicadas.";
+        console.warn("No se pudieron cargar unidades enlazadas.", error);
+    }
 }
 
 async function handleAction(action, backdrop, sourceButton = null) {
@@ -548,7 +688,9 @@ async function handleAction(action, backdrop, sourceButton = null) {
             currentWorkspace =
                 await createWorkspace(currentUser, input?.value);
             await refreshWorkspaces();
+            await refreshLinkedUnits();
             migrationState = { mode: "idle", message: "" };
+            linkedUnitState.message = "";
             updateTopbar();
             options.onWorkspaceChange?.(currentWorkspace);
             renderSignedInModal(backdrop);
@@ -564,12 +706,54 @@ async function handleAction(action, backdrop, sourceButton = null) {
                 await joinWorkspace(currentUser, input?.value);
             clearPendingJoinWorkspaceId();
             await refreshWorkspaces();
+            await refreshLinkedUnits();
             migrationState = { mode: "idle", message: "" };
+            linkedUnitState.message = "";
             updateTopbar();
             options.onWorkspaceChange?.(currentWorkspace);
             renderSignedInModal(backdrop);
+            return;
+        }
+
+        if (action === "request-workspace-link") {
+            const input = backdrop.querySelector(
+                "#firebaseLinkedWorkspaceId"
+            );
+
+            linkedUnitState.loading = true;
+            linkedUnitState.message = "Enviando solicitud de enlace...";
+            renderSignedInModal(backdrop);
+
+            await requestWorkspaceLink(input?.value);
+            linkedUnitState.loading = false;
+            linkedUnitState.message =
+                "Solicitud enviada. La otra unidad debe aceptarla para activar busqueda de prestamos.";
+            await refreshLinkedUnits();
+            renderSignedInModal(backdrop);
+            return;
+        }
+
+        if (action === "accept-workspace-link") {
+            await acceptWorkspaceLink(sourceButton?.dataset.linkRef);
+            linkedUnitState.message =
+                "Enlace aceptado. La unidad solicitante ya puede buscar sugerencias de prestamo.";
+            await refreshLinkedUnits();
+            renderSignedInModal(backdrop);
+            return;
+        }
+
+        if (action === "reject-workspace-link") {
+            await rejectWorkspaceLink(sourceButton?.dataset.linkRef);
+            linkedUnitState.message = "Solicitud de enlace rechazada.";
+            await refreshLinkedUnits();
+            renderSignedInModal(backdrop);
+            return;
         }
     } catch (error) {
+        linkedUnitState.loading = false;
+        if (backdrop?.isConnected && currentUser) {
+            renderSignedInModal(backdrop);
+        }
         alert(friendlyFirebaseError(error));
     }
 }
@@ -591,9 +775,17 @@ function bindModalActions(backdrop) {
             currentWorkspace = workspace;
             setActiveWorkspace(workspace);
             migrationState = { mode: "idle", message: "" };
+            linkedUnitState.message = "";
             updateTopbar();
             options.onWorkspaceChange?.(currentWorkspace);
-            renderSignedInModal(backdrop);
+            refreshLinkedUnits()
+                .catch(error => {
+                    console.warn(
+                        "No se pudieron cargar unidades enlazadas.",
+                        error
+                    );
+                })
+                .finally(() => renderSignedInModal(backdrop));
         };
     });
 }
@@ -612,6 +804,7 @@ async function openFirebaseModal() {
     }
 
     await refreshWorkspaces();
+    await refreshLinkedUnits();
     renderSignedInModal(backdrop);
 }
 
@@ -633,9 +826,11 @@ export async function initFirebaseShell(initOptions = {}) {
             if (user) {
                 await ensureFirebaseUser(user);
                 await refreshWorkspaces();
+                await refreshLinkedUnits();
             } else {
                 workspaceList = [];
                 currentWorkspace = null;
+                linkedUnitState.links = [];
             }
 
             updateTopbar();

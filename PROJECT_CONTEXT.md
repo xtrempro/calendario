@@ -115,7 +115,8 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8000/
 - `js/holidays.js`: feriados de Chile por API Nager.Date y feriados manuales.
 - `js/firebase*.js`, `js/workspaces.js`: autenticacion/shell Firebase, workspaces, copia manual de respaldo y sincronizacion del estado completo.
 - `js/firebaseAppState.js`: sincronizacion automatica por workspace del snapshot completo de `localStorage`, con manifiesto y chunks en Firestore.
-- `js/firebaseWorkspaceState.js`: lectura/escritura puntual del estado vivo de otros workspaces, usado para unidades enlazadas.
+- `js/firebaseWorkspaceState.js`: lectura/escritura puntual del estado vivo de workspaces enlazados para prestamos entre unidades.
+- `js/firebaseLinkedUnits.js`: solicitudes de enlace entre unidades, aceptacion/rechazo y permisos tecnicos `linkedOperators`.
 - `firebase.rules` y `storage.rules`: reglas de Firestore y Storage para workspaces y miembros.
 
 ## Vistas Principales
@@ -301,11 +302,14 @@ Cuando se asigna reemplazo, se registra LOG en categoria `AUDIT_CATEGORY.OVERTIM
 
 Unidades enlazadas:
 
-- En el dialogo de reemplazo, `Cargar personal de unidades enlazadas` lee otros workspaces donde el usuario Firebase logueado tambien es miembro.
+- En `Cuenta y entornos`, un workspace puede solicitar enlace a otro por ID. El otro workspace debe aceptar la solicitud.
+- Aceptar no agrega el entorno ajeno al selector de trabajo ni permite navegar sus perfiles. Crea un permiso tecnico `workspaces/{workspaceId}/linkedOperators/{uid}` para que el solicitante pueda consultar/aplicar prestamos contra el snapshot vivo de esa unidad.
+- En el dialogo de reemplazo, `Buscar sugerencias en unidades enlazadas` carga solo enlaces aceptados solicitados desde el entorno activo.
 - El sistema usa `js/firebaseWorkspaceState.js` para leer `workspaces/{workspaceId}/system/appState` y sus chunks sin reemplazar el estado local.
-- Solo lista candidatos activos de otras unidades que sean compatibles con la profesion/estamento del trabajador ausente, no tengan ausencia ese dia y puedan cubrir el turno requerido.
-- Al asignar un prestamo de unidad enlazada, primero escribe un reemplazo `linked_unit_loan` en el snapshot vivo de la unidad del trabajador, para bloquear su calendario, y luego registra el prestamo en la unidad actual con `isLoan`, `workerWorkspaceId`, `hostWorkspaceId` y `remoteReplacementId`.
-- Este flujo requiere que el usuario administrador sea miembro de ambos entornos y que las reglas Firestore publicadas permitan escribir en ambos workspaces.
+- Solo lista candidatos activos compatibles por profesion/estamento, sin ausencias ese dia, con disponibilidad para cubrir el turno requerido y con regla de turno 24 permitida en ambas unidades cuando corresponda.
+- Las sugerencias muestran HHEE diurnas/nocturnas del mes calculadas desde la unidad origen del trabajador.
+- Al asignar un prestamo, escribe un reemplazo `linked_unit_loan` en el snapshot vivo de la unidad origen del trabajador para marcar `Prestamo`, generar la `P` en timeline y sumar HHEE alla; luego registra el prestamo en la unidad actual con `isLoan`, `workerWorkspaceId`, `hostWorkspaceId` y `remoteReplacementId`.
+- Este flujo requiere publicar `firebase.rules`, porque usa `workspaceLinks` y `linkedOperators`.
 
 ## LOG / Anulaciones
 
@@ -360,8 +364,9 @@ Arquitectura:
 - Cuando llega un estado remoto, `replaceLocalSnapshot()` reemplaza la cache local en silencio y `main.js` refresca perfiles, calendario, cambios de turno, solicitudes, RRHH y dashboard.
 - Los modulos granulares `firebaseProfiles.js`, `firebaseReplacementRequests.js` y `firebaseWorkerRequests.js` siguen en el repo, pero `main.js` ya no los inicia; la sincronizacion completa los reemplaza como camino principal.
 - `js/firebaseMigration.js` sigue disponible como copia manual de respaldo en `workspaces/{workspaceId}/system/localStorageSnapshot`; no es el flujo automatico principal.
+- `js/firebaseLinkedUnits.js` maneja `workspaceLinks`: solicitudes pendientes, aceptadas y rechazadas. Al aceptar, la unidad destino otorga al solicitante un permiso tecnico `linkedOperators`.
 - `js/firebaseWorkspaceState.js` permite leer/escribir puntualmente el appState de workspaces enlazados, sin cambiar el workspace activo local.
-- `firebase.rules` exige usuario autenticado y miembro de workspace para leer/escribir.
+- `firebase.rules` exige usuario autenticado y miembro de workspace para leer/escribir. Para appState, tambien permite usuarios con `linkedOperators`, limitado al flujo tecnico de prestamos.
 - `storage.rules` permite archivos bajo `workspaces/{workspaceId}/...` solo a miembros.
 - Si Google login devuelve `auth/unauthorized-domain`, agregar el hostname usado en navegador en Firebase Console > Authentication > Settings > Authorized domains. Para desarrollo local, autorizar `127.0.0.1` y `localhost` sin puerto.
 - En el modal `Cuenta y entornos`, cada entorno muestra el ID en un input seleccionable y botones para `Copiar ID`, `Copiar invitacion` y `Enviar correo` con `mailto:` prellenado.

@@ -2350,6 +2350,94 @@ body[data-active-view="log"] .secondary-grid {
     grid-column: 1 / -1;
 }
 
+.firebase-linked-panel {
+    display: grid;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 14px;
+    border: 1px solid rgba(20, 184, 166, 0.22);
+    border-radius: 18px;
+    background:
+        linear-gradient(135deg, rgba(20, 184, 166, 0.09), rgba(29, 108, 255, 0.05)),
+        var(--panel-alt);
+}
+
+.firebase-linked-panel > strong {
+    color: var(--text-strong);
+}
+
+.firebase-linked-panel p {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.firebase-linked-request {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+}
+
+.firebase-linked-request input {
+    min-height: 42px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--text-strong);
+    font: inherit;
+}
+
+.firebase-linked-list {
+    display: grid;
+    gap: 8px;
+}
+
+.firebase-linked-list > span {
+    color: var(--text-soft);
+    font-size: 0.84rem;
+    font-weight: 850;
+}
+
+.firebase-linked-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: #fff;
+}
+
+.firebase-linked-item div:first-child {
+    display: grid;
+    gap: 3px;
+}
+
+.firebase-linked-item small {
+    color: var(--text-muted);
+}
+
+.firebase-linked-item em {
+    color: #0f766e;
+    font-style: normal;
+    font-weight: 900;
+}
+
+.firebase-linked-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.firebase-linked-actions button {
+    min-height: 34px;
+    padding-inline: 12px;
+    font-size: 0.82rem;
+}
+
 .replacement-dialog .turn-change-dialog__actions {
     grid-template-columns: 1fr;
     margin-top: 14px;
@@ -3188,6 +3276,7 @@ body.theme-dark .overtime-backup-subsection {
     .settings-holiday-form,
     .settings-staffing-row,
     .firebase-dialog-grid,
+    .firebase-linked-request,
     .firebase-workspace-actions,
     .settings-actions {
         grid-template-columns: 1fr;
