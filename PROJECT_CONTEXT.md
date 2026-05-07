@@ -303,13 +303,15 @@ Cuando se asigna reemplazo, se registra LOG en categoria `AUDIT_CATEGORY.OVERTIM
 Unidades enlazadas:
 
 - En `Cuenta y entornos`, un workspace puede solicitar enlace a otro por ID. El otro workspace debe aceptar la solicitud.
+- Las solicitudes de enlace entrantes tambien aparecen en el menu `Solicitudes`, junto a las solicitudes de trabajadores, y suman al badge rojo del icono cuando estan pendientes.
+- En `Cuenta y entornos`, los enlaces activos se pueden clickear para confirmar el desenlace. El `workspaceLink` queda con estado `unlinked` y deja de aparecer como activo.
 - Aceptar no agrega el entorno ajeno al selector de trabajo ni permite navegar sus perfiles. Crea permisos tecnicos `workspaces/{workspaceId}/linkedOperators/{uid}` para consultar/aplicar prestamos contra el snapshot vivo de la unidad enlazada.
 - En el dialogo de reemplazo, `Buscar sugerencias en unidades enlazadas` carga enlaces aceptados del entorno activo en ambos sentidos.
 - El sistema usa `js/firebaseWorkspaceState.js` para leer `workspaces/{workspaceId}/system/appState` y sus chunks sin reemplazar el estado local.
 - Solo lista candidatos activos compatibles por profesion/estamento, sin ausencias ese dia, con disponibilidad para cubrir el turno requerido y con regla de turno 24 permitida en ambas unidades cuando corresponda.
 - Las sugerencias muestran HHEE diurnas/nocturnas del mes calculadas desde la unidad origen del trabajador.
 - Al asignar un prestamo, escribe un reemplazo `linked_unit_loan` en el snapshot vivo de la unidad origen del trabajador para marcar `Prestamo`, generar la `P` en timeline y sumar HHEE alla; luego registra el prestamo en la unidad actual con `isLoan`, `workerWorkspaceId`, `hostWorkspaceId` y `remoteReplacementId`.
-- Este flujo requiere publicar `firebase.rules`, porque usa `workspaceLinks` y `linkedOperators`.
+- Este flujo requiere publicar `firebase.rules`, porque usa `workspaceLinks` y `linkedOperators`. Las reglas validan que el permiso tecnico solo sirve si el enlace asociado sigue en estado `accepted`.
 
 ## LOG / Anulaciones
 
@@ -364,7 +366,7 @@ Arquitectura:
 - Cuando llega un estado remoto, `replaceLocalSnapshot()` reemplaza la cache local en silencio y `main.js` refresca perfiles, calendario, cambios de turno, solicitudes, RRHH y dashboard.
 - Los modulos granulares `firebaseProfiles.js`, `firebaseReplacementRequests.js` y `firebaseWorkerRequests.js` siguen en el repo, pero `main.js` ya no los inicia; la sincronizacion completa los reemplaza como camino principal.
 - `js/firebaseMigration.js` sigue disponible como copia manual de respaldo en `workspaces/{workspaceId}/system/localStorageSnapshot`; no es el flujo automatico principal.
-- `js/firebaseLinkedUnits.js` maneja `workspaceLinks`: solicitudes pendientes, aceptadas y rechazadas. Al aceptar, la unidad destino otorga al solicitante un permiso tecnico `linkedOperators`.
+- `js/firebaseLinkedUnits.js` maneja `workspaceLinks`: solicitudes pendientes, aceptadas, rechazadas y desenlazadas. Al aceptar, la unidad destino otorga al solicitante un permiso tecnico `linkedOperators`.
 - `js/firebaseWorkspaceState.js` permite leer/escribir puntualmente el appState de workspaces enlazados, sin cambiar el workspace activo local.
 - `firebase.rules` exige usuario autenticado y miembro de workspace para leer/escribir. Para appState, tambien permite usuarios con `linkedOperators`, limitado al flujo tecnico de prestamos.
 - `storage.rules` permite archivos bajo `workspaces/{workspaceId}/...` solo a miembros.

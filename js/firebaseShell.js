@@ -20,7 +20,8 @@ import {
     acceptWorkspaceLink,
     listWorkspaceLinks,
     rejectWorkspaceLink,
-    requestWorkspaceLink
+    requestWorkspaceLink,
+    unlinkWorkspaceLink
 } from "./firebaseLinkedUnits.js";
 
 let currentUser = null;
@@ -364,6 +365,7 @@ function migrationPanelHTML() {
 function linkedUnitStatusLabel(status) {
     if (status === "accepted") return "Activo";
     if (status === "rejected") return "Rechazado";
+    if (status === "unlinked") return "Desenlazado";
     return "Pendiente";
 }
 
@@ -376,6 +378,9 @@ function linkedUnitsPanelHTML() {
     );
     const outgoing = linkedUnitState.links.filter(link =>
         link.fromWorkspaceId === currentWorkspace.id
+    );
+    const outgoingVisible = outgoing.filter(link =>
+        link.status !== "accepted"
     );
     const accepted = linkedUnitState.links.filter(link =>
         link.status === "accepted" &&
@@ -428,10 +433,10 @@ function linkedUnitsPanelHTML() {
                     `).join("")}
                 </div>
             ` : ""}
-            ${outgoing.length ? `
+            ${outgoingVisible.length ? `
                 <div class="firebase-linked-list">
                     <span>Solicitudes enviadas</span>
-                    ${outgoing.map(link => `
+                    ${outgoingVisible.map(link => `
                         <article class="firebase-linked-item">
                             <div>
                                 <strong>${escapeHTML(link.toWorkspaceName || link.toWorkspaceId)}</strong>
@@ -452,10 +457,17 @@ function linkedUnitsPanelHTML() {
                             : link.fromWorkspaceName || link.fromWorkspaceId;
 
                         return `
-                            <article class="firebase-linked-item">
+                            <article
+                                class="firebase-linked-item firebase-linked-item--action"
+                                role="button"
+                                tabindex="0"
+                                data-action="unlink-workspace-link"
+                                data-link-ref="${escapeHTML(link.id)}"
+                                data-link-name="${escapeHTML(name)}"
+                            >
                                 <div>
                                     <strong>${escapeHTML(name)}</strong>
-                                    <small>${isSource ? "Disponible para buscar prestamos" : "Puede recibir solicitudes de prestamo"}</small>
+                                    <small>${isSource ? "Disponible para buscar prestamos" : "Puede recibir solicitudes de prestamo"} | Clic para desenlazar</small>
                                 </div>
                                 <em>Activo</em>
                             </article>
@@ -729,6 +741,9 @@ async function handleAction(action, backdrop, sourceButton = null) {
             linkedUnitState.message =
                 "Solicitud enviada. La otra unidad debe aceptarla para activar busqueda de prestamos.";
             await refreshLinkedUnits();
+            window.dispatchEvent(
+                new CustomEvent("proturnos:workerRequestsChanged")
+            );
             renderSignedInModal(backdrop);
             return;
         }
@@ -738,6 +753,9 @@ async function handleAction(action, backdrop, sourceButton = null) {
             linkedUnitState.message =
                 "Enlace aceptado. La unidad solicitante ya puede buscar sugerencias de prestamo.";
             await refreshLinkedUnits();
+            window.dispatchEvent(
+                new CustomEvent("proturnos:workerRequestsChanged")
+            );
             renderSignedInModal(backdrop);
             return;
         }
@@ -746,6 +764,29 @@ async function handleAction(action, backdrop, sourceButton = null) {
             await rejectWorkspaceLink(sourceButton?.dataset.linkRef);
             linkedUnitState.message = "Solicitud de enlace rechazada.";
             await refreshLinkedUnits();
+            window.dispatchEvent(
+                new CustomEvent("proturnos:workerRequestsChanged")
+            );
+            renderSignedInModal(backdrop);
+            return;
+        }
+
+        if (action === "unlink-workspace-link") {
+            const linkName =
+                sourceButton?.dataset.linkName || "esta unidad";
+            const confirmed = window.confirm(
+                `Deseas desenlazarte de ${linkName}? Ya no se podra buscar personal de esa unidad para prestamos.`
+            );
+
+            if (!confirmed) return;
+
+            await unlinkWorkspaceLink(sourceButton?.dataset.linkRef);
+            linkedUnitState.message =
+                `Enlace con ${linkName} eliminado.`;
+            await refreshLinkedUnits();
+            window.dispatchEvent(
+                new CustomEvent("proturnos:workerRequestsChanged")
+            );
             renderSignedInModal(backdrop);
             return;
         }
@@ -762,6 +803,20 @@ function bindModalActions(backdrop) {
     backdrop.querySelectorAll("[data-action]").forEach(button => {
         button.onclick = () =>
             handleAction(button.dataset.action, backdrop, button);
+
+        if (button.tagName === "BUTTON") return;
+
+        button.onkeydown = event => {
+            if (
+                event.key !== "Enter" &&
+                event.key !== " "
+            ) {
+                return;
+            }
+
+            event.preventDefault();
+            handleAction(button.dataset.action, backdrop, button);
+        };
     });
 
     backdrop.querySelectorAll("[data-workspace-select]").forEach(button => {

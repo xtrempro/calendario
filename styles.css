@@ -1632,6 +1632,7 @@ body[data-active-view="log"] .secondary-grid {
 }
 
 .nav-tile {
+    position: relative;
     display: grid;
     place-items: center;
     gap: 6px;
@@ -1671,6 +1672,25 @@ body[data-active-view="log"] .secondary-grid {
     letter-spacing: 0;
     line-height: 1.08;
     text-align: center;
+}
+
+.nav-tile .nav-alert-badge {
+    position: absolute;
+    top: 5px;
+    right: 25%;
+    display: inline-grid;
+    place-items: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border: 2px solid #fff;
+    border-radius: 999px;
+    background: #e11d48;
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 900;
+    line-height: 1;
+    box-shadow: 0 8px 16px rgba(225, 29, 72, 0.28);
 }
 
 .nav-icon {
@@ -2408,6 +2428,19 @@ body[data-active-view="log"] .secondary-grid {
     border: 1px solid var(--border);
     border-radius: 14px;
     background: #fff;
+}
+
+.firebase-linked-item--action {
+    cursor: pointer;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.firebase-linked-item--action:hover,
+.firebase-linked-item--action:focus-visible {
+    border-color: rgba(37, 99, 235, 0.42);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    outline: none;
+    transform: translateY(-1px);
 }
 
 .firebase-linked-item div:first-child {

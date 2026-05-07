@@ -305,7 +305,7 @@ export async function acceptWorkspaceLink(linkId) {
     await batch.commit();
 }
 
-export async function rejectWorkspaceLink(linkId) {
+export async function rejectWorkspaceLink(linkId, reason = "") {
     const activeWorkspace = getActiveWorkspace();
     const user = getCurrentFirebaseUser();
 
@@ -332,6 +332,49 @@ export async function rejectWorkspaceLink(linkId) {
         rejectedAt: firestoreModule.serverTimestamp(),
         rejectedByUid: user?.uid || "",
         rejectedByName: userName(user),
+        rejectReason: cleanText(reason),
+        updatedAt: firestoreModule.serverTimestamp()
+    });
+}
+
+export async function unlinkWorkspaceLink(linkId) {
+    const activeWorkspace = getActiveWorkspace();
+    const user = getCurrentFirebaseUser();
+
+    if (!user) {
+        throw new Error("Debes iniciar sesion para desenlazar unidades.");
+    }
+
+    if (!activeWorkspace?.id) {
+        throw new Error("Selecciona un entorno antes de desenlazar unidades.");
+    }
+
+    const { db, firestoreModule } = await getFirebaseServices();
+    const linkRef = firestoreModule.doc(db, "workspaceLinks", linkId);
+    const linkSnap = await firestoreModule.getDoc(linkRef);
+
+    if (!linkSnap.exists()) {
+        throw new Error("El enlace ya no existe.");
+    }
+
+    const link = linkSnap.data() || {};
+    const belongsToActiveWorkspace =
+        link.fromWorkspaceId === activeWorkspace.id ||
+        link.toWorkspaceId === activeWorkspace.id;
+
+    if (!belongsToActiveWorkspace) {
+        throw new Error("Este enlace no pertenece al entorno activo.");
+    }
+
+    if (link.status !== "accepted") {
+        throw new Error("Solo se pueden desenlazar unidades con enlace activo.");
+    }
+
+    await firestoreModule.updateDoc(linkRef, {
+        status: "unlinked",
+        unlinkedAt: firestoreModule.serverTimestamp(),
+        unlinkedByUid: user.uid,
+        unlinkedByName: userName(user),
         updatedAt: firestoreModule.serverTimestamp()
     });
 }

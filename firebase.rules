@@ -22,7 +22,14 @@ service cloud.firestore {
 
     function isLinkedOperator(workspaceId) {
       return signedIn() &&
-        exists(/databases/$(database)/documents/workspaces/$(workspaceId)/linkedOperators/$(request.auth.uid));
+        exists(/databases/$(database)/documents/workspaces/$(workspaceId)/linkedOperators/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/workspaces/$(workspaceId)/linkedOperators/$(request.auth.uid)).data.linkId is string &&
+        exists(/databases/$(database)/documents/workspaceLinks/$(get(/databases/$(database)/documents/workspaces/$(workspaceId)/linkedOperators/$(request.auth.uid)).data.linkId)) &&
+        get(/databases/$(database)/documents/workspaceLinks/$(get(/databases/$(database)/documents/workspaces/$(workspaceId)/linkedOperators/$(request.auth.uid)).data.linkId)).data.status == "accepted" &&
+        (
+          get(/databases/$(database)/documents/workspaceLinks/$(get(/databases/$(database)/documents/workspaces/$(workspaceId)/linkedOperators/$(request.auth.uid)).data.linkId)).data.fromWorkspaceId == workspaceId ||
+          get(/databases/$(database)/documents/workspaceLinks/$(get(/databases/$(database)/documents/workspaces/$(workspaceId)/linkedOperators/$(request.auth.uid)).data.linkId)).data.toWorkspaceId == workspaceId
+        );
     }
 
     function canUseWorkspaceState(workspaceId) {
@@ -42,6 +49,27 @@ service cloud.firestore {
         linkAcceptedAfter(request.resource.data.linkId) &&
         getAfter(/databases/$(database)/documents/workspaceLinks/$(request.resource.data.linkId)).data.fromWorkspaceId == workspaceId &&
         isMember(getAfter(/databases/$(database)/documents/workspaceLinks/$(request.resource.data.linkId)).data.toWorkspaceId);
+    }
+
+    function linkIdentityUnchanged() {
+      return request.resource.data.fromWorkspaceId == resource.data.fromWorkspaceId &&
+        request.resource.data.toWorkspaceId == resource.data.toWorkspaceId &&
+        request.resource.data.requestedByUid == resource.data.requestedByUid;
+    }
+
+    function canResolveWorkspaceLink() {
+      return resource.data.status == "pending" &&
+        isMember(resource.data.toWorkspaceId) &&
+        request.resource.data.status in ["accepted", "rejected"];
+    }
+
+    function canUnlinkWorkspaceLink() {
+      return resource.data.status == "accepted" &&
+        request.resource.data.status == "unlinked" &&
+        (
+          isMember(resource.data.fromWorkspaceId) ||
+          isMember(resource.data.toWorkspaceId)
+        );
     }
 
     match /users/{userId} {
@@ -64,11 +92,11 @@ service cloud.firestore {
       allow read: if isMember(resource.data.fromWorkspaceId) ||
         isMember(resource.data.toWorkspaceId);
 
-      allow update: if isMember(resource.data.toWorkspaceId) &&
-        request.resource.data.fromWorkspaceId == resource.data.fromWorkspaceId &&
-        request.resource.data.toWorkspaceId == resource.data.toWorkspaceId &&
-        request.resource.data.requestedByUid == resource.data.requestedByUid &&
-        request.resource.data.status in ["accepted", "rejected"];
+      allow update: if linkIdentityUnchanged() &&
+        (
+          canResolveWorkspaceLink() ||
+          canUnlinkWorkspaceLink()
+        );
 
       allow delete: if false;
     }

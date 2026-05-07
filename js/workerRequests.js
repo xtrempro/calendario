@@ -4,6 +4,15 @@ import {
     AUDIT_CATEGORY,
     addAuditLog
 } from "./auditLog.js";
+import {
+    getCurrentFirebaseUser,
+    isFirebaseConfigured
+} from "./firebaseClient.js";
+import {
+    acceptWorkspaceLink,
+    listWorkspaceLinks,
+    rejectWorkspaceLink
+} from "./firebaseLinkedUnits.js";
 import { fetchHolidays } from "./holidays.js";
 import {
     getCurrentProfile,
@@ -33,6 +42,7 @@ import {
     getSwapTurnState,
     registrarCambio
 } from "./swaps.js";
+import { getActiveWorkspace } from "./workspaces.js";
 
 const REQUEST_TYPE_LABELS = {
     admin: "P. Administrativo",
@@ -44,6 +54,7 @@ const REQUEST_TYPE_LABELS = {
     missing_clock: "Olvido de Marcacion",
     clock_incident: "Incidencia en Marcacion",
     swap: "Cambio de Turno",
+    workspace_link: "Enlace de Unidad",
     unknown: "Solicitud"
 };
 
@@ -107,7 +118,8 @@ function formatDate(value) {
 }
 
 function formatTimestamp(value) {
-    const date = new Date(value);
+    const source = value?.toDate?.() || value;
+    const date = new Date(source);
 
     if (Number.isNaN(date.getTime())) return "Sin fecha";
 
@@ -123,6 +135,20 @@ function requestTypeLabel(type) {
 
 function statusLabel(status) {
     return STATUS_LABELS[status] || status || "Pendiente";
+}
+
+function timestampISO(value) {
+    const date = value?.toDate?.() || new Date(value);
+
+    if (!date || Number.isNaN(date.getTime())) {
+        return new Date().toISOString();
+    }
+
+    return date.toISOString();
+}
+
+function isWorkspaceLinkRequest(request = {}) {
+    return request.kind === "workspace_link";
 }
 
 function requestDays(request, fallback = 1) {
@@ -571,6 +597,16 @@ function saveUpdatedRequest(requestId, patch) {
 function requestDetailsHTML(request) {
     const pieces = [];
 
+    if (isWorkspaceLinkRequest(request)) {
+        pieces.push(`Unidad solicitante: ${request.fromWorkspaceName || "Sin nombre"}`);
+
+        if (request.fromWorkspaceId) {
+            pieces.push(`ID: ${request.fromWorkspaceId}`);
+        }
+
+        return pieces.join(" | ");
+    }
+
     if (request.date) {
         pieces.push(`Fecha: ${formatDate(request.date)}`);
     }
@@ -607,6 +643,9 @@ function requestDetailsHTML(request) {
 
 function requestCardHTML(request) {
     const pending = request.status === "pending";
+    const title = isWorkspaceLinkRequest(request)
+        ? request.fromWorkspaceName || "Unidad solicitante"
+        : request.profile || "Sin trabajador";
 
     return `
         <article class="worker-request-card worker-request-card--${escapeHTML(request.status)}">
@@ -615,7 +654,7 @@ function requestCardHTML(request) {
                     <span class="worker-request-type">
                         ${escapeHTML(requestTypeLabel(request.type))}
                     </span>
-                    <h4>${escapeHTML(request.profile || "Sin trabajador")}</h4>
+                    <h4>${escapeHTML(title)}</h4>
                     <p>${escapeHTML(requestDetailsHTML(request))}</p>
                     ${request.note
                         ? `<small>${escapeHTML(request.note)}</small>`
@@ -655,6 +694,84 @@ function statusButtonHTML(status, label, count) {
             ${label} <span>${count}</span>
         </button>
     `;
+}
+
+function updateRequestsNavBadge(count) {
+    const tile = document.querySelector(
+        ".nav-tile[data-target='workerRequestsPanel']"
+    );
+
+    if (!tile) return;
+
+    let badge = tile.querySelector(".nav-alert-badge");
+
+    if (!count) {
+        badge?.remove();
+        tile.removeAttribute("data-alert-count");
+        return;
+    }
+
+    if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "nav-alert-badge";
+        tile.appendChild(badge);
+    }
+
+    badge.textContent = count > 99 ? "99+" : String(count);
+    tile.dataset.alertCount = String(count);
+}
+
+async function getWorkspaceLinkRequests() {
+    if (
+        !isFirebaseConfigured() ||
+        !getCurrentFirebaseUser() ||
+        !getActiveWorkspace()?.id
+    ) {
+        return [];
+    }
+
+    const activeWorkspace = getActiveWorkspace();
+
+    try {
+        const links = await listWorkspaceLinks(activeWorkspace);
+
+        return links
+            .filter(link =>
+                link.toWorkspaceId === activeWorkspace.id &&
+                ["pending", "accepted", "rejected"].includes(
+                    link.status || "pending"
+                )
+            )
+            .map(link => ({
+                kind: "workspace_link",
+                id: `workspace_link:${link.id}`,
+                linkId: link.id,
+                type: "workspace_link",
+                status: link.status || "pending",
+                profile: link.fromWorkspaceName || link.fromWorkspaceId,
+                fromWorkspaceId: link.fromWorkspaceId || "",
+                fromWorkspaceName:
+                    link.fromWorkspaceName ||
+                    link.fromWorkspaceId ||
+                    "Unidad solicitante",
+                note:
+                    link.status === "pending"
+                        ? "Solicita enlazarse a este entorno para gestionar prestamos entre unidades."
+                        : "",
+                rejectReason: link.rejectReason || "",
+                createdAt: timestampISO(
+                    link.createdAt ||
+                    link.updatedAt ||
+                    new Date()
+                )
+            }));
+    } catch (error) {
+        console.warn(
+            "No se pudieron cargar solicitudes de enlace entre entornos.",
+            error
+        );
+        return [];
+    }
 }
 
 function showRejectDialog(request) {
@@ -759,12 +876,51 @@ async function rejectRequest(request) {
     );
 }
 
-export function renderWorkerRequestsPanel() {
+async function acceptWorkspaceLinkRequest(request) {
+    await acceptWorkspaceLink(request.linkId);
+
+    addAuditLog(
+        AUDIT_CATEGORY.WORKER_REQUESTS,
+        "Acepto enlace entre unidades",
+        `${request.fromWorkspaceName}: solicitud de enlace aceptada.`,
+        {
+            requestId: request.linkId,
+            requestType: "workspace_link",
+            workspaceId: request.fromWorkspaceId
+        }
+    );
+}
+
+async function rejectWorkspaceLinkRequest(request) {
+    const reason = await showRejectDialog(request);
+
+    if (!reason) return;
+
+    await rejectWorkspaceLink(request.linkId, reason);
+
+    addAuditLog(
+        AUDIT_CATEGORY.WORKER_REQUESTS,
+        "Rechazo enlace entre unidades",
+        `${request.fromWorkspaceName}: solicitud de enlace rechazada. Motivo: ${reason}.`,
+        {
+            requestId: request.linkId,
+            requestType: "workspace_link",
+            workspaceId: request.fromWorkspaceId
+        }
+    );
+}
+
+export async function renderWorkerRequestsPanel() {
     const panel = document.getElementById("workerRequestsPanel");
 
     if (!panel) return;
 
-    const requests = getWorkerRequests();
+    const workerRequests = getWorkerRequests();
+    const linkRequests = await getWorkspaceLinkRequests();
+    const requests = [
+        ...linkRequests,
+        ...workerRequests
+    ];
     const pending = requests.filter(request =>
         request.status === "pending"
     );
@@ -775,12 +931,14 @@ export function renderWorkerRequestsPanel() {
         ? requests
         : requests.filter(request => request.status === selectedStatus);
 
+    updateRequestsNavBadge(pending.length);
+
     panel.innerHTML = `
         <div class="section-head section-head--with-action">
             <span class="section-head__title">
                 <h3>Solicitudes</h3>
                 <small>
-                    Revisa y gestiona las solicitudes enviadas desde la app de trabajadores.
+                    Revisa y gestiona solicitudes de trabajadores y enlaces entre unidades.
                 </small>
             </span>
             <span class="worker-request-counter">
@@ -821,7 +979,10 @@ export function renderWorkerRequestsPanel() {
 
     panel.querySelectorAll("[data-worker-request-action]").forEach(button => {
         button.onclick = async () => {
-            const request = getWorkerRequests().find(item =>
+            const latestWorkerRequests = getWorkerRequests();
+            const request = requests.find(item =>
+                item.id === button.dataset.requestId
+            ) || latestWorkerRequests.find(item =>
                 item.id === button.dataset.requestId
             );
 
@@ -829,13 +990,22 @@ export function renderWorkerRequestsPanel() {
 
             button.disabled = true;
 
-            if (button.dataset.workerRequestAction === "accept") {
+            const accepting =
+                button.dataset.workerRequestAction === "accept";
+
+            if (isWorkspaceLinkRequest(request)) {
+                if (accepting) {
+                    await acceptWorkspaceLinkRequest(request);
+                } else {
+                    await rejectWorkspaceLinkRequest(request);
+                }
+            } else if (accepting) {
                 await acceptRequest(request);
             } else {
                 await rejectRequest(request);
             }
 
-            renderWorkerRequestsPanel();
+            await renderWorkerRequestsPanel();
             window.dispatchEvent(
                 new CustomEvent("proturnos:workerRequestsChanged")
             );
