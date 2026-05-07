@@ -82,7 +82,8 @@ import {
     estamentoAllowsCustomProfession,
     getProfessionOptionsForEstamento,
     normalizeProfession,
-    SIN_INFORMACION_PROFESSION
+    SIN_INFORMACION_PROFESSION,
+    getTurnChangeConfig
 } from "./storage.js";
 import { cambioEstaAnulado } from "./swaps.js";
 import { renderReplacementLogHTML } from "./replacements.js";
@@ -2810,7 +2811,9 @@ function updateTurnChangesNavState() {
     const rotativa = currentProfile
         ? getRotativa(currentProfile)
         : { type: "" };
+    const turnChangeConfig = getTurnChangeConfig();
     const disabled =
+        !turnChangeConfig.allowSwaps ||
         !currentProfile ||
         !isProfileActive(currentProfile) ||
         rotativa.type === "diurno";
@@ -2818,7 +2821,11 @@ function updateTurnChangesNavState() {
     button.disabled = disabled;
     button.classList.toggle("is-disabled", disabled);
     button.title = disabled
-        ? "Cambios de turno no disponible para perfiles desactivados o con rotativa Diurno."
+        ? (
+            !turnChangeConfig.allowSwaps
+                ? "Cambios de turno desactivados en Ajustes del sistema."
+                : "Cambios de turno no disponible para perfiles desactivados o con rotativa Diurno."
+        )
         : "";
 
     if (

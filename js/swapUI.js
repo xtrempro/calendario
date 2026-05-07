@@ -10,6 +10,7 @@ import {
 import {
     getCurrentProfile,
     getProfiles,
+    getTurnChangeConfig,
     isProfileActive,
     setCurrentProfile
 } from "./storage.js";
@@ -278,6 +279,18 @@ export function renderSwapPanel(){
         return;
     }
 
+    if (!getTurnChangeConfig().allowSwaps) {
+        box.innerHTML = `
+            <div class="section-head">
+                <h3>Cambios de Turno</h3>
+            </div>
+            <div class="empty-state">
+                Los cambios de turno estan desactivados en Ajustes del sistema.
+            </div>
+        `;
+        return;
+    }
+
     if (noPuedeIntercambiar(selectedFrom)) {
         box.innerHTML = `
             <div class="section-head">
@@ -390,15 +403,30 @@ function renderMiniCalendarios(){
 
     if (!from || !to) return;
 
+    let selectedCambioTurn = fechaCambioSeleccionada
+        ? getSwapTurnState(
+            from,
+            keyFromInputDate(fechaCambioSeleccionada)
+        )
+        : 0;
+    let selectedDevolucionTurn = fechaDevolucionSeleccionada
+        ? getSwapTurnState(
+            to,
+            keyFromInputDate(fechaDevolucionSeleccionada)
+        )
+        : 0;
+
     if (
         fechaCambioSeleccionada &&
         getSwapDateBlockReason({
             giver: from,
             receiver: to,
-            keyDay: keyFromInputDate(fechaCambioSeleccionada)
+            keyDay: keyFromInputDate(fechaCambioSeleccionada),
+            requiredTurn: selectedDevolucionTurn
         })
     ) {
         fechaCambioSeleccionada = "";
+        selectedCambioTurn = 0;
     }
 
     if (
@@ -406,10 +434,12 @@ function renderMiniCalendarios(){
         getSwapDateBlockReason({
             giver: to,
             receiver: from,
-            keyDay: keyFromInputDate(fechaDevolucionSeleccionada)
+            keyDay: keyFromInputDate(fechaDevolucionSeleccionada),
+            requiredTurn: selectedCambioTurn
         })
     ) {
         fechaDevolucionSeleccionada = "";
+        selectedDevolucionTurn = 0;
     }
 
     renderMiniCalendar(
@@ -417,7 +447,8 @@ function renderMiniCalendarios(){
         from,
         true,
         from,
-        to
+        to,
+        selectedDevolucionTurn
     );
 
     renderMiniCalendar(
@@ -425,11 +456,19 @@ function renderMiniCalendarios(){
         to,
         false,
         to,
-        from
+        from,
+        selectedCambioTurn
     );
 }
 
-function renderMiniCalendar(id, trabajador, esCambio, giver, receiver){
+function renderMiniCalendar(
+    id,
+    trabajador,
+    esCambio,
+    giver,
+    receiver,
+    requiredTurn = 0
+){
     const div = document.getElementById(id);
     if (!div) return;
 
@@ -459,7 +498,8 @@ function renderMiniCalendar(id, trabajador, esCambio, giver, receiver){
             getSwapDateBlockReason({
                 giver,
                 receiver,
-                keyDay: key
+                keyDay: key,
+                requiredTurn
             });
         const valido = !motivoBloqueo;
 
@@ -667,12 +707,14 @@ function guardarCambioTurno(){
     const motivoCambio = getSwapDateBlockReason({
         giver: from,
         receiver: to,
-        keyDay: keyCambio
+        keyDay: keyCambio,
+        requiredTurn: getSwapTurnState(to, keyDevolucion)
     });
     const motivoDevolucion = getSwapDateBlockReason({
         giver: to,
         receiver: from,
-        keyDay: keyDevolucion
+        keyDay: keyDevolucion,
+        requiredTurn: getSwapTurnState(from, keyCambio)
     });
 
     if (motivoCambio) {

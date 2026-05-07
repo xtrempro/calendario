@@ -2880,7 +2880,7 @@ body.theme-dark .overtime-backup-subsection {
 
 .settings-tabs {
     display: inline-grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 8px;
     padding: 6px;
     border-radius: 16px;
@@ -2911,11 +2911,13 @@ body.theme-dark .overtime-backup-subsection {
 .settings-grade-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
     gap: 14px;
 }
 
 .settings-card {
     display: grid;
+    align-content: start;
     gap: 14px;
     padding: 16px;
     border: 1px solid var(--border);
@@ -3023,6 +3025,53 @@ body.theme-dark .overtime-backup-subsection {
 .settings-request-field small {
     color: var(--text-muted);
     font-weight: 600;
+}
+
+.settings-switch-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.settings-switch {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--field);
+    cursor: pointer;
+}
+
+.settings-switch.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.66;
+}
+
+.settings-switch input {
+    width: 20px;
+    height: 20px;
+    margin: 2px 0 0;
+    accent-color: var(--blue);
+}
+
+.settings-switch span {
+    display: grid;
+    gap: 4px;
+}
+
+.settings-switch strong {
+    color: var(--text-strong);
+    font-size: 0.94rem;
+    line-height: 1.25;
+}
+
+.settings-switch small {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 650;
+    line-height: 1.35;
 }
 
 .settings-staffing-grid {

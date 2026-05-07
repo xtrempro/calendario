@@ -4,11 +4,13 @@ import {
     getProfileData,
     getProfiles,
     getRotativa,
+    getTurnChangeConfig,
     getSwaps,
     saveBlockedDays,
     saveProfileData,
     saveSwaps
 } from "./storage.js";
+import { TURNO } from "./constants.js";
 import { getJSON } from "./persistence.js";
 import { getAbsenceType } from "./rulesEngine.js";
 import {
@@ -141,6 +143,8 @@ function usesProfessionCompatibility(profile = {}) {
 }
 
 export function canSwapProfiles(fromName, toName) {
+    if (!getTurnChangeConfig().allowSwaps) return false;
+
     const from = getProfileByName(fromName);
     const to = getProfileByName(toName);
 
@@ -423,6 +427,81 @@ export function isComplementarySwapTurn(incomingTurn, existingTurn) {
     );
 }
 
+function offsetKey(key, offset) {
+    const date = parseKeyDate(key);
+
+    if (!date) return "";
+
+    date.setDate(date.getDate() + offset);
+
+    return keyFromDate(date);
+}
+
+function includesLarga(turno) {
+    const value = Number(turno) || TURNO.LIBRE;
+
+    return (
+        value === TURNO.LARGA ||
+        value === TURNO.TURNO24
+    );
+}
+
+function includesNoche(turno) {
+    const value = Number(turno) || TURNO.LIBRE;
+
+    return (
+        value === TURNO.NOCHE ||
+        value === TURNO.TURNO24 ||
+        value === TURNO.DIURNO_NOCHE ||
+        value === TURNO.TURNO18
+    );
+}
+
+function swapTurnLabel(turno) {
+    const value = Number(turno) || TURNO.LIBRE;
+
+    if (value === TURNO.LARGA) return "Larga";
+    if (value === TURNO.NOCHE) return "Noche";
+
+    return "Libre";
+}
+
+function projectedReceiverTurn(incomingTurn, receiverTurn) {
+    const incoming = Number(incomingTurn) || TURNO.LIBRE;
+    const current = Number(receiverTurn) || TURNO.LIBRE;
+
+    if (!current) return incoming;
+    if (isComplementarySwapTurn(incoming, current)) {
+        return TURNO.TURNO24;
+    }
+
+    return current;
+}
+
+function createsInvertedTwentyFourForReceiver({
+    receiver,
+    keyDay,
+    projectedTurn
+}) {
+    if (!receiver || !keyDay || !projectedTurn) return false;
+
+    const previousTurn =
+        getSwapTurnState(receiver, offsetKey(keyDay, -1));
+    const nextTurn =
+        getSwapTurnState(receiver, offsetKey(keyDay, 1));
+
+    return (
+        (
+            includesLarga(projectedTurn) &&
+            includesNoche(previousTurn)
+        ) ||
+        (
+            includesNoche(projectedTurn) &&
+            includesLarga(nextTurn)
+        )
+    );
+}
+
 export function isProfileClearForSwap(profile, keyDay) {
     return (
         !profileHasSwapAbsence(profile, keyDay) &&
@@ -442,8 +521,15 @@ export function canGiveSwapTurn(profile, keyDay) {
 export function getSwapDateBlockReason({
     giver,
     receiver,
-    keyDay
+    keyDay,
+    requiredTurn = 0
 }) {
+    const config = getTurnChangeConfig();
+
+    if (!config.allowSwaps) {
+        return "Los cambios de turno estan desactivados en Ajustes del sistema.";
+    }
+
     if (!giver || !receiver || !keyDay) {
         return "Seleccion incompleta.";
     }
@@ -472,10 +558,40 @@ export function getSwapDateBlockReason({
     }
 
     if (
+        !config.allowDifferentTurnTypes &&
+        isSwapExchangeableTurn(requiredTurn) &&
+        Number(giverTurn) !== Number(requiredTurn)
+    ) {
+        return `La configuracion solo permite devolver el mismo tipo de turno (${swapTurnLabel(requiredTurn)} por ${swapTurnLabel(requiredTurn)}).`;
+    }
+
+    if (
         receiverTurn !== 0 &&
         !isComplementarySwapTurn(giverTurn, receiverTurn)
     ) {
         return `${receiver} no tiene calendario libre ni turno complementario para recibir.`;
+    }
+
+    if (
+        receiverTurn !== 0 &&
+        isComplementarySwapTurn(giverTurn, receiverTurn) &&
+        !config.allowTwentyFourHourShifts
+    ) {
+        return `${receiver} quedaria con turno 24 y esa opcion esta desactivada.`;
+    }
+
+    if (
+        !config.allowInvertedTwentyFourHourShifts &&
+        createsInvertedTwentyFourForReceiver({
+            receiver,
+            keyDay,
+            projectedTurn: projectedReceiverTurn(
+                giverTurn,
+                receiverTurn
+            )
+        })
+    ) {
+        return `${receiver} quedaria con un turno 24 invertido y esa opcion esta desactivada.`;
     }
 
     return "";

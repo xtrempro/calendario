@@ -680,6 +680,13 @@ const DEFAULT_REPLACEMENT_REQUEST_CONFIG = {
     expiresMinutes: 60
 };
 
+export const DEFAULT_TURN_CHANGE_CONFIG = {
+    allowSwaps: true,
+    allowDifferentTurnTypes: true,
+    allowTwentyFourHourShifts: true,
+    allowInvertedTwentyFourHourShifts: true
+};
+
 function normalizeReplacementRequestConfig(config = {}) {
     const expiresMinutes = Number(config.expiresMinutes);
 
@@ -688,6 +695,19 @@ function normalizeReplacementRequestConfig(config = {}) {
             Number.isFinite(expiresMinutes) && expiresMinutes > 0
                 ? Math.round(expiresMinutes)
                 : DEFAULT_REPLACEMENT_REQUEST_CONFIG.expiresMinutes
+    };
+}
+
+function normalizeTurnChangeConfig(config = {}) {
+    return {
+        allowSwaps:
+            config.allowSwaps !== false,
+        allowDifferentTurnTypes:
+            config.allowDifferentTurnTypes !== false,
+        allowTwentyFourHourShifts:
+            config.allowTwentyFourHourShifts !== false,
+        allowInvertedTwentyFourHourShifts:
+            config.allowInvertedTwentyFourHourShifts !== false
     };
 }
 
@@ -738,6 +758,22 @@ export function saveReplacementRequestConfig(config) {
     setJSON(
         "replacementRequestConfig",
         normalizeReplacementRequestConfig(config)
+    );
+}
+
+export function getTurnChangeConfig() {
+    return normalizeTurnChangeConfig(
+        getJSON(
+            "turnChangeConfig",
+            DEFAULT_TURN_CHANGE_CONFIG
+        )
+    );
+}
+
+export function saveTurnChangeConfig(config) {
+    setJSON(
+        "turnChangeConfig",
+        normalizeTurnChangeConfig(config)
     );
 }
 

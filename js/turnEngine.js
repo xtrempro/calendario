@@ -5,7 +5,8 @@ import { TURNO } from "./constants.js";
 import {
     getSwaps,
     getProfileData,
-    getBaseProfileData
+    getBaseProfileData,
+    getTurnChangeConfig
 } from "./storage.js";
 import { getJSON } from "./persistence.js";
 import { cambioEstaAnulado } from "./swaps.js";
@@ -127,6 +128,26 @@ function turnoDesdeCodigoSwap(valor) {
     if (valor === "D") return TURNO.DIURNO;
 
     return TURNO.LARGA;
+}
+
+function includesLarga(turno) {
+    const value = Number(turno) || TURNO.LIBRE;
+
+    return (
+        value === TURNO.LARGA ||
+        value === TURNO.TURNO24
+    );
+}
+
+function includesNoche(turno) {
+    const value = Number(turno) || TURNO.LIBRE;
+
+    return (
+        value === TURNO.NOCHE ||
+        value === TURNO.TURNO24 ||
+        value === TURNO.DIURNO_NOCHE ||
+        value === TURNO.TURNO18
+    );
 }
 
 /* ======================================================
@@ -317,6 +338,15 @@ export function turnoBloqueadoPorTurno24(nombre, key, turno) {
 
     if (!nombre || !candidate) return false;
 
+    const config = getTurnChangeConfig();
+
+    if (
+        !config.allowTwentyFourHourShifts &&
+        candidate === TURNO.TURNO24
+    ) {
+        return true;
+    }
+
     const anterior = estadoTurno(nombre, offsetKey(key, -1));
     const siguiente = estadoTurno(nombre, offsetKey(key, 1));
 
@@ -367,6 +397,33 @@ export function turnoBloqueadoPorTurno24(nombre, key, turno) {
     }
 
     return false;
+}
+
+function turnoBloqueadoPorTurno24Invertido(nombre, key, turno) {
+    const candidate = Number(turno) || TURNO.LIBRE;
+    const config = getTurnChangeConfig();
+
+    if (
+        !nombre ||
+        !candidate ||
+        config.allowInvertedTwentyFourHourShifts
+    ) {
+        return false;
+    }
+
+    const anterior = estadoTurno(nombre, offsetKey(key, -1));
+    const siguiente = estadoTurno(nombre, offsetKey(key, 1));
+
+    return (
+        (
+            includesLarga(candidate) &&
+            includesNoche(anterior)
+        ) ||
+        (
+            includesNoche(candidate) &&
+            includesLarga(siguiente)
+        )
+    );
 }
 
 function allowedTurnsForBase(baseTurno, isHab) {
@@ -435,7 +492,8 @@ export function siguienteTurnoValido(
             disallowLibre &&
             Number(turno) === TURNO.LIBRE
         ) ||
-        turnoBloqueadoPorTurno24(nombre, key, turno);
+        turnoBloqueadoPorTurno24(nombre, key, turno) ||
+        turnoBloqueadoPorTurno24Invertido(nombre, key, turno);
 
     while (
         candidate !== inicial &&

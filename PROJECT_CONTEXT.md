@@ -152,6 +152,7 @@ Claves principales:
 - `replacements`: reemplazos, prestamos y respaldos de HHEE.
 - `replacementRequests`: solicitudes de reemplazo.
 - `replacementRequestConfig`: configuracion de solicitudes de reemplazo.
+- `turnChangeConfig`: reglas globales de cambios de turno y turnos 24.
 - `workerRequests`: solicitudes desde trabajadores.
 - `auditLog`: bitacora de modificaciones.
 - `gradeHistory_<perfil>`: historial de grado/estamento/contrato.
@@ -223,6 +224,13 @@ El turno real se calcula combinando base, cambios, reemplazos, ausencias y marca
 ## Cambios De Turno
 
 `turnChangesView` muestra el panel de cambios y un `Listado Colaboradores` lateral para cambiar de perfil activo dentro de ese menu.
+
+Configuracion en Ajustes del sistema > Cambio de Turno:
+
+- `Permitir cambios de turno`: si esta desactivado, el menu Cambios de Turno queda deshabilitado y no se listan colegas para intercambio.
+- `Permitir Cambios de Turno entre diferentes tipos de turno`: si esta desactivado, solo se permite Larga por Larga y Noche por Noche.
+- `Permitir turnos de 24 horas`: si esta desactivado, el calendario manual no genera turnos 24 y los minicalendarios de cambios bloquean fechas que dejarian a un trabajador con 24.
+- `Permitir turnos de 24 horas invertidos`: si esta desactivado, se bloquea Noche seguida de Larga al dia siguiente y Noche el dia anterior a una Larga, tambien en cambios de turno.
 
 Reglas actuales:
 

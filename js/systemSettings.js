@@ -3,7 +3,9 @@ import {
     getGradeHourConfig,
     saveGradeHourConfig,
     getReplacementRequestConfig,
-    saveReplacementRequestConfig
+    saveReplacementRequestConfig,
+    getTurnChangeConfig,
+    saveTurnChangeConfig
 } from "./storage.js";
 import {
     getManualHolidays,
@@ -39,6 +41,7 @@ let activeTab = "grades";
 let manualHolidayDraft = [];
 let gradeConfigDraft = null;
 let replacementRequestConfigDraft = null;
+let turnChangeConfigDraft = null;
 let staffingConfigDraft = null;
 let onSettingsSaved = null;
 
@@ -207,6 +210,77 @@ function renderRequestsPanel() {
     `;
 }
 
+function checkboxHTML({
+    id,
+    checked,
+    title,
+    description,
+    disabled = false
+}) {
+    return `
+        <label class="settings-switch ${disabled ? "is-disabled" : ""}">
+            <input
+                id="${id}"
+                type="checkbox"
+                ${checked ? "checked" : ""}
+                ${disabled ? "disabled" : ""}
+            >
+            <span>
+                <strong>${escapeHTML(title)}</strong>
+                <small>${escapeHTML(description)}</small>
+            </span>
+        </label>
+    `;
+}
+
+function renderTurnChangesPanel() {
+    const config =
+        turnChangeConfigDraft ||
+        getTurnChangeConfig();
+
+    return `
+        <section class="settings-card settings-card--wide">
+            <div class="settings-card__head">
+                <h4>Cambio de Turno</h4>
+                <span>
+                    Define las reglas generales para intercambios de turno
+                    y combinaciones de 24 horas.
+                </span>
+            </div>
+
+            <div class="settings-switch-grid">
+                ${checkboxHTML({
+                    id: "settingsAllowSwaps",
+                    checked: config.allowSwaps,
+                    title: "Permitir cambios de turno",
+                    description: "Si se desactiva, ningun trabajador podra registrar cambios y el menu quedara deshabilitado."
+                })}
+
+                ${config.allowSwaps ? checkboxHTML({
+                    id: "settingsAllowDifferentTurnTypes",
+                    checked: config.allowDifferentTurnTypes,
+                    title: "Permitir Cambios de Turno entre diferentes tipos de turno",
+                    description: "Permite cambiar Larga por Noche o Noche por Larga. Si se desactiva, solo se permite Larga por Larga y Noche por Noche."
+                }) : ""}
+
+                ${checkboxHTML({
+                    id: "settingsAllowTwentyFourHourShifts",
+                    checked: config.allowTwentyFourHourShifts,
+                    title: "Permitir turnos de 24 horas",
+                    description: "Si se desactiva, no se podran generar turnos 24 manuales ni cambios que dejen a un trabajador con turno 24."
+                })}
+
+                ${checkboxHTML({
+                    id: "settingsAllowInvertedTwentyFourHourShifts",
+                    checked: config.allowInvertedTwentyFourHourShifts,
+                    title: "Permitir turnos de 24 horas invertidos",
+                    description: "Si se desactiva, se bloquea Noche seguida de Larga al dia siguiente y Noche el dia anterior a una Larga."
+                })}
+            </div>
+        </section>
+    `;
+}
+
 function renderStaffingRows(config) {
     const rows = buildStaffingRequirementRows(config);
 
@@ -263,6 +337,7 @@ function renderStaffingPanel() {
 function renderActivePanel(config) {
     if (activeTab === "holidays") return renderHolidaysPanel();
     if (activeTab === "requests") return renderRequestsPanel();
+    if (activeTab === "turnChanges") return renderTurnChangesPanel();
     if (activeTab === "staffing") return renderStaffingPanel();
 
     return renderGradesPanel(config);
@@ -295,6 +370,9 @@ function modalHTML() {
                 </button>
                 <button class="${activeTab === "requests" ? "is-active" : ""}" type="button" data-settings-tab="requests">
                     Solicitudes
+                </button>
+                <button class="${activeTab === "turnChanges" ? "is-active" : ""}" type="button" data-settings-tab="turnChanges">
+                    Cambio de Turno
                 </button>
                 <button class="${activeTab === "staffing" ? "is-active" : ""}" type="button" data-settings-tab="staffing">
                     Dotacion RRHH
@@ -354,6 +432,35 @@ function readRequestConfig(backdrop) {
     };
 }
 
+function readTurnChangeConfig(backdrop) {
+    const fallback =
+        turnChangeConfigDraft ||
+        getTurnChangeConfig();
+    const hasInput = id =>
+        Boolean(backdrop.querySelector(`#${id}`));
+    const checked = id =>
+        Boolean(backdrop.querySelector(`#${id}`)?.checked);
+
+    return {
+        ...fallback,
+        allowSwaps: hasInput("settingsAllowSwaps")
+            ? checked("settingsAllowSwaps")
+            : fallback.allowSwaps,
+        allowDifferentTurnTypes:
+            hasInput("settingsAllowDifferentTurnTypes")
+                ? checked("settingsAllowDifferentTurnTypes")
+                : fallback.allowDifferentTurnTypes,
+        allowTwentyFourHourShifts:
+            hasInput("settingsAllowTwentyFourHourShifts")
+                ? checked("settingsAllowTwentyFourHourShifts")
+                : fallback.allowTwentyFourHourShifts,
+        allowInvertedTwentyFourHourShifts:
+            hasInput("settingsAllowInvertedTwentyFourHourShifts")
+                ? checked("settingsAllowInvertedTwentyFourHourShifts")
+                : fallback.allowInvertedTwentyFourHourShifts
+    };
+}
+
 function readStaffingConfig(backdrop) {
     const config = {};
 
@@ -389,6 +496,11 @@ function preserveActiveDraft(backdrop) {
             readRequestConfig(backdrop);
     }
 
+    if (activeTab === "turnChanges") {
+        turnChangeConfigDraft =
+            readTurnChangeConfig(backdrop);
+    }
+
     if (activeTab === "staffing") {
         staffingConfigDraft = readStaffingConfig(backdrop);
     }
@@ -402,6 +514,16 @@ function rerenderHolidayList(backdrop) {
 }
 
 function bindBackdrop(backdrop) {
+    backdrop.addEventListener("change", event => {
+        if (event.target?.id !== "settingsAllowSwaps") return;
+
+        preserveActiveDraft(backdrop);
+        backdrop.innerHTML = modalHTML();
+        backdrop
+            .querySelector("#settingsAllowSwaps")
+            ?.focus();
+    });
+
     backdrop.addEventListener("click", event => {
         if (
             event.target === backdrop ||
@@ -468,6 +590,10 @@ function bindBackdrop(backdrop) {
                 replacementRequestConfigDraft ||
                 getReplacementRequestConfig()
             );
+            saveTurnChangeConfig(
+                turnChangeConfigDraft ||
+                getTurnChangeConfig()
+            );
             saveStaffingConfig(nextStaffingConfig);
 
             if (
@@ -485,7 +611,7 @@ function bindBackdrop(backdrop) {
             addAuditLog(
                 AUDIT_CATEGORY.SYSTEM_SETTINGS,
                 "Modifico ajustes del sistema",
-                "Actualizo valores por grado, feriados manuales, caducidad de solicitudes y/o dotacion requerida.",
+                "Actualizo valores por grado, feriados manuales, caducidad de solicitudes, reglas de cambios de turno y/o dotacion requerida.",
                 { scope: "system_settings" }
             );
             backdrop.remove();
@@ -503,6 +629,7 @@ export function openSystemSettings() {
     gradeConfigDraft = getGradeHourConfig();
     replacementRequestConfigDraft =
         getReplacementRequestConfig();
+    turnChangeConfigDraft = getTurnChangeConfig();
     staffingConfigDraft = getStaffingConfig();
 
     const backdrop = document.createElement("div");
@@ -521,7 +648,9 @@ export function openSystemSettings() {
                     ? "#settingsHolidayDate"
                     : activeTab === "requests"
                         ? "#settingsReplacementRequestExpires"
-                        : "[data-staffing-modality]"
+                        : activeTab === "turnChanges"
+                            ? "#settingsAllowSwaps"
+                            : "[data-staffing-modality]"
         )
         ?.focus();
 }
