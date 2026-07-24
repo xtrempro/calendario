@@ -4,7 +4,9 @@ import { TURNO_LABEL } from "./constants.js";
 import { pushHistory } from "./history.js";
 import {
     AUDIT_CATEGORY,
-    addAuditLog
+    addAuditLog,
+    getAuditLogs,
+    undoAuditLogEntry
 } from "./auditLog.js";
 import {
     getCurrentFirebaseUser,
@@ -80,6 +82,7 @@ const REQUEST_TYPE_LABELS = {
     swap: "Cambio de Turno",
     replacement_request: "Turno Extra",
     hhee_return: "Devolución de Horas",
+    leave_cancel: "Anulación de permiso",
     report_request: "Informe mensual",
     workspace_link: "Enlace de Unidad",
     supervisor_invite: "Acceso Supervisor",
@@ -406,6 +409,84 @@ function invalidDateResult(request) {
     }
 
     return null;
+}
+
+const LEAVE_CANCEL_TYPES = new Set([
+    "admin",
+    "half_admin_morning",
+    "half_admin_afternoon",
+    "legal",
+    "comp",
+    "union_leave",
+    "unpaid_leave"
+]);
+
+// Ubica el registro del LOG del permiso aplicado (perfil + fecha de inicio +
+// tipo), para poder anularlo. Debe ser UNICO y no estar ya anulado; si hay 0 o
+// varios coincidentes, se prefiere que el supervisor lo anule a mano (no se
+// arriesga a revertir el permiso equivocado).
+function findLeaveApplicationLog(profile, startDate, leaveType) {
+    const target = String(profile || "").trim().toLowerCase();
+    const date = String(startDate || "");
+    const type = String(leaveType || "");
+
+    if (!target || !date || !type) return null;
+
+    const matches = getAuditLogs().filter(log =>
+        log.category === AUDIT_CATEGORY.LEAVE_ABSENCE &&
+        !log.canceledAt &&
+        String(log.profile || log.meta?.profile || "").trim().toLowerCase() === target &&
+        String(log.meta?.date || "") === date &&
+        String(log.meta?.type || "") === type
+    );
+
+    return matches.length === 1 ? matches[0] : null;
+}
+
+// Anula un permiso YA aceptado a pedido del trabajador. Reutiliza la anulacion
+// del LOG (undoAuditLogEntry): revierte el calendario del perfil correcto,
+// restaura el saldo, cancela los reemplazos asociados y notifica a los
+// afectados (via el listener proturnos:auditUndoApplied).
+async function applyLeaveCancellation(request) {
+    const profile = resolveProfileName(request);
+    const leaveType = String(request.leaveType || "");
+
+    if (!LEAVE_CANCEL_TYPES.has(leaveType)) {
+        return {
+            ok: false,
+            message: "Tipo de permiso no valido para anular."
+        };
+    }
+
+    const log = findLeaveApplicationLog(profile, request.date, leaveType);
+
+    if (!log) {
+        return {
+            ok: false,
+            message: "No se encontro el permiso aplicado para anularlo automaticamente (puede haberse anulado o modificado). Anulalo manualmente desde el LOG o el calendario."
+        };
+    }
+
+    const result = await undoAuditLogEntry(log.id, { source: "worker_cancel" });
+
+    if (!result?.ok) {
+        return {
+            ok: false,
+            message: "No se pudo anular el permiso. Es posible que ya haya cambiado."
+        };
+    }
+
+    // El permiso original queda "canceled" para que salga del listado de la PWA
+    // del trabajador (su calendario y saldos ya se revirtieron via el LOG).
+    if (request.originalRequestId) {
+        saveUpdatedRequest(request.originalRequestId, {
+            status: "canceled",
+            canceledAt: new Date().toISOString(),
+            canceledReason: "Anulado a pedido del trabajador"
+        });
+    }
+
+    return { ok: true };
 }
 
 async function applyLeaveRequest(request, profile, date) {
@@ -772,6 +853,10 @@ async function applyWorkerRequest(request) {
         return applyReportRequest(request, profile);
     }
 
+    if (request.type === "leave_cancel") {
+        return applyLeaveCancellation(request);
+    }
+
     const invalidDate = invalidDateResult(request);
 
     if (invalidDate) return invalidDate;
@@ -1092,6 +1177,15 @@ function requestDetailsHTML(request) {
         );
 
         pieces.push(`Informe de ${monthLabel || "mes solicitado"}`);
+
+        return pieces.join(" | ");
+    }
+
+    if (request.type === "leave_cancel") {
+        pieces.push(`Anular: ${requestTypeLabel(request.leaveType) || "permiso"}`);
+        if (request.date) pieces.push(`Desde: ${formatDate(request.date)}`);
+        if (request.endDate) pieces.push(`Hasta: ${formatDate(request.endDate)}`);
+        if (request.days) pieces.push(`${request.days} día(s)`);
 
         return pieces.join(" | ");
     }
@@ -1564,6 +1658,13 @@ async function acceptRequest(request) {
         appliedAt: new Date().toISOString()
     });
 
+    if (request.type === "leave_cancel" && request.profile) {
+        void notifyWorkerApp(
+            request.profile,
+            `Tu supervisor aprobó la anulación de tu ${requestTypeLabel(request.leaveType) || "permiso"}. Se restauraron tus saldos.`
+        );
+    }
+
     addAuditLog(
         AUDIT_CATEGORY.WORKER_REQUESTS,
         "Acepto solicitud de trabajador",
@@ -1598,6 +1699,13 @@ async function rejectRequest(request) {
         void notifyWorkerApp(
             request.profile,
             `Tu supervisor no aprobó tu solicitud de devolución de horas${monthLabel ? ` de ${monthLabel}` : ""}. Motivo: ${reason}.`
+        );
+    }
+
+    if (request.type === "leave_cancel" && request.profile) {
+        void notifyWorkerApp(
+            request.profile,
+            `Tu supervisor no aprobó la anulación de tu ${requestTypeLabel(request.leaveType) || "permiso"}. Motivo: ${reason}.`
         );
     }
 
