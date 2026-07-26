@@ -3348,6 +3348,7 @@ exports.sendReminderAlerts = onSchedule(
 
       const sent = (data.sent && typeof data.sent === "object") ? { ...data.sent } : {};
       const due = remindersDueNow(reminders, now, sent);
+      let dirty = false;
 
       try {
         for (const item of due) {
@@ -3368,14 +3369,20 @@ exports.sendReminderAlerts = onSchedule(
 
           if (result.sent > 0) {
             sent[item.key] = now.iso;
+            dirty = true;
             pushed += 1;
           }
         }
 
-        await docSnap.ref.set(
-          { sent: pruneReminderSent(sent, now.iso) },
-          { merge: true }
-        );
+        // Solo se escribe si cambio algo (se envio un push o se podo una marca
+        // vieja). Sin esto, cada corrida escribiria el doc de cada trabajador
+        // aunque no haya nada que hacer (96 escrituras/dia por trabajador).
+        const beforeCount = Object.keys(sent).length;
+        const nextSent = pruneReminderSent(sent, now.iso);
+
+        if (dirty || Object.keys(nextSent).length !== beforeCount) {
+          await docSnap.ref.set({ sent: nextSent }, { merge: true });
+        }
       } catch (error) {
         logger.error("reminder alerts: fallo por trabajador", {
           uid,

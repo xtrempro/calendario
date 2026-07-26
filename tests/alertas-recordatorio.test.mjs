@@ -117,3 +117,8 @@ test("la funcion programada existe con su schedule y region", () => {
   assert.match(src, /timeZone: "America\/Santiago"/);
   assert.match(src, /category: "reminders"/);
 });
+
+test("solo escribe cuando cambio algo (evita costos de escritura)", () => {
+  // La corrida sin envios ni poda no debe escribir el documento.
+  assert.match(src, /if \(dirty \|\| Object\.keys\(nextSent\)\.length !== beforeCount\) \{\s*\n\s*await docSnap\.ref\.set/);
+});
