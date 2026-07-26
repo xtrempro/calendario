@@ -145,7 +145,7 @@ function calendarMutationMessage(label, affectedDates = []) {
         return `${label} para el ${formatNotificationDate(affectedDates[0])}.`;
     }
 
-    return `${label} en ${affectedDates.length} dias de tu calendario.`;
+    return `${label} en ${affectedDates.length} días de tu calendario.`;
 }
 
 function metadataForProfileStorageKey(storageKey, change = {}) {
@@ -161,7 +161,7 @@ function metadataForProfileStorageKey(storageKey, change = {}) {
             changeType: "rotation_changed",
             source: "rotation_generator",
             title: "Tu rotativa fue actualizada",
-            message: "Se actualizo tu rotativa. Revisa tu calendario actualizado.",
+            message: "Se actualizó tu rotativa. Revisa tu calendario actualizado.",
             affectedDates: []
         };
     }
@@ -176,7 +176,7 @@ function metadataForProfileStorageKey(storageKey, change = {}) {
             message: calendarMutationMessage(
                 bulk
                     ? "Se actualizaron turnos base"
-                    : "Se modifico un turno base",
+                    : "Se modificó un turno base",
                 affectedDates
             ),
             affectedDates
@@ -199,14 +199,14 @@ function metadataForProfileStorageKey(storageKey, change = {}) {
                 changeType === "shift_added"
                     ? "Nuevo turno en tu calendario"
                     : changeType === "shift_deleted"
-                        ? "Se elimino un turno"
+                        ? "Se eliminó un turno"
                         : "Tu calendario fue modificado",
             message: calendarMutationMessage(
                 changeType === "shift_added"
-                    ? "Se agrego un turno"
+                    ? "Se agregó un turno"
                     : changeType === "shift_deleted"
-                        ? "Se elimino un turno"
-                        : "Se modifico tu calendario",
+                        ? "Se eliminó un turno"
+                        : "Se modificó tu calendario",
                 affectedDates
             ),
             affectedDates
@@ -258,7 +258,7 @@ function metadataForProfileStorageKey(storageKey, change = {}) {
             source: "medical_leave",
             title: "Ausencia o licencia actualizada",
             message: calendarMutationMessage(
-                "Se actualizo una ausencia o licencia en tu calendario",
+                "Se actualizó una ausencia o licencia en tu calendario",
                 affectedDates
             ),
             affectedDates
@@ -273,7 +273,7 @@ function metadataForProfileStorageKey(storageKey, change = {}) {
             changeType: "shift_assignment_changed",
             source: "supervisor_action",
             title: "Tu jornada fue actualizada",
-            message: "Se actualizo informacion de tu jornada. Revisa tu calendario.",
+            message: "Se actualizó información de tu jornada. Revisa tu calendario.",
             affectedDates
         };
     }
@@ -286,7 +286,7 @@ function metadataForProfileStorageKey(storageKey, change = {}) {
             changeType: "calendar_bulk_updated",
             source: "supervisor_action",
             title: "Tu calendario fue actualizado",
-            message: "Se actualizo informacion contractual que puede afectar tu calendario.",
+            message: "Se actualizó información contractual que puede afectar tu calendario.",
             affectedDates
         };
     }
@@ -384,7 +384,7 @@ function mergePendingEvent(previous, next) {
         merged.changeType = "calendar_bulk_updated";
         merged.title = "Tu calendario fue actualizado";
         merged.message =
-            `Se actualizaron ${affectedDates.length} dias de tu calendario.`;
+            `Se actualizaron ${affectedDates.length} días de tu calendario.`;
     }
 
     return merged;

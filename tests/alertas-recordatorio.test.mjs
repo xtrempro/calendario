@@ -32,10 +32,15 @@ const api = new Function(`
   return { addDaysIso, isReminderOccurrence, remindersDueNow, pruneReminderSent };
 `)();
 
-test("ocurrencia: una sola vez / semanal / mensual / anual", () => {
+test("ocurrencia: una sola vez / diaria / semanal / mensual / anual", () => {
   const { isReminderOccurrence } = api;
   assert.equal(isReminderOccurrence({ date: "2026-08-01", periodicity: "Una sola vez" }, "2026-08-01"), true);
   assert.equal(isReminderOccurrence({ date: "2026-08-01", periodicity: "Una sola vez" }, "2026-08-08"), false);
+
+  // Diaria: cualquier fecha desde el origen en adelante es ocurrencia.
+  assert.equal(isReminderOccurrence({ date: "2026-08-10", periodicity: "Diaria" }, "2026-08-10"), true);
+  assert.equal(isReminderOccurrence({ date: "2026-08-10", periodicity: "Diaria" }, "2026-08-25"), true);
+  assert.equal(isReminderOccurrence({ date: "2026-08-10", periodicity: "Diaria" }, "2026-08-09"), false); // antes del origen
 
   // 2026-07-08 es miercoles; semanal cae cada miercoles desde esa fecha.
   assert.equal(isReminderOccurrence({ date: "2026-07-08", periodicity: "Semanal" }, "2026-07-15"), true);

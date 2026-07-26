@@ -3278,6 +3278,9 @@ function isReminderOccurrence(reminder, isoDate) {
   const originDate = new Date(origin.year, origin.month, origin.day);
   const targetDate = new Date(target.year, target.month, target.day);
 
+  if (period === "diaria") {
+    return targetDate >= originDate;
+  }
   if (period === "semanal") {
     return targetDate >= originDate && targetDate.getDay() === originDate.getDay();
   }
