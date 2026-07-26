@@ -443,7 +443,7 @@ export function deshacerCambioTurno(swap) {
                         changeType: "shift_swap_canceled",
                         source: "shift_swap",
                         title: "Cambio de turno anulado",
-                        message: "Se anulo un cambio de turno en tu calendario.",
+                        message: "Se anuló un cambio de turno en tu calendario.",
                         affectedDates: [swap.fecha, swap.devolucion],
                         entityId: String(swap.id || "")
                     }

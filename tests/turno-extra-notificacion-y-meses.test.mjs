@@ -30,7 +30,7 @@ test("la notificacion arma el detalle del reemplazo o el motivo", () => {
 test("el detalle se adjunta al mensaje del turno extra", () => {
     assert.match(
         replacements,
-        /Se agrego un turno extra para el \$\{formatNotificationDate\(record\.date\)\}\.`,\s*\n\s*extraShiftDetail\s*\n\s*\]\.filter\(Boolean\)\.join\(" "\)/
+        /Se agregó un turno extra para el \$\{formatNotificationDate\(record\.date\)\}\.`,\s*\n\s*extraShiftDetail\s*\n\s*\]\.filter\(Boolean\)\.join\(" "\)/
     );
 });
 

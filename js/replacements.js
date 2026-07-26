@@ -471,8 +471,8 @@ export function cancelReplacementById(
                             ? "Reemplazo anulado"
                             : "Turno extra anulado",
                         message: canceled.replaced
-                            ? `Se anulo el reemplazo del ${formatNotificationDate(canceled.date)}.`
-                            : `Se anulo un turno extra para el ${formatNotificationDate(canceled.date)}.`,
+                            ? `Se anuló el reemplazo del ${formatNotificationDate(canceled.date)}.`
+                            : `Se anuló un turno extra para el ${formatNotificationDate(canceled.date)}.`,
                         affectedDates: [canceled.date].filter(Boolean),
                         entityId: canceled.id,
                         notifyProfiles: [canceled.worker].filter(Boolean)
@@ -684,8 +684,8 @@ export function saveReplacement(data) {
                             : "Nuevo turno extra",
                         message: [
                             data.addsShift === false
-                                ? "Se actualizo informacion de reemplazo en tu calendario."
-                                : `Se agrego un turno extra para el ${formatNotificationDate(record.date)}.`,
+                                ? "Se actualizó información de reemplazo en tu calendario."
+                                : `Se agregó un turno extra para el ${formatNotificationDate(record.date)}.`,
                             extraShiftDetail
                         ].filter(Boolean).join(" "),
                         affectedDates: [record.date],

@@ -10796,7 +10796,7 @@ window.addEventListener(
 
             void notifyWorkerApp(
                 replacement.worker,
-                `Se anulo tu turno extra del ${date} (${turn}) porque se aplico ${label}.`
+                `Se anuló tu turno extra del ${date} (${turn}) porque se aplicó ${label}.`
             );
 
             if (
@@ -10805,7 +10805,7 @@ window.addEventListener(
             ) {
                 void notifyWorkerApp(
                     replacement.replaced,
-                    `Se anulo la cobertura de ${replacement.worker} para el ${date} (${turn}) porque se aplico ${label}.`
+                    `Se anuló la cobertura de ${replacement.worker} para el ${date} (${turn}) porque se aplicó ${label}.`
                 );
             }
         });
@@ -10842,7 +10842,7 @@ function notifyWorkersOfAuditUndo(detail) {
     if (isLeave && profile) {
         void notifyWorkerApp(
             profile,
-            `Tu supervisor anulo ${leaveLabel}. Revisa tu calendario actualizado en la app.`
+            `Tu supervisor anuló ${leaveLabel}. Revisa tu calendario actualizado en la app.`
         );
     }
 
@@ -10852,12 +10852,12 @@ function notifyWorkersOfAuditUndo(detail) {
         const date = replacement.date || "la fecha asignada";
         const turn = replacement.turno || "turno";
         const reason = isLeave && profile
-            ? ` porque se anulo ${leaveLabel} de ${profile}`
+            ? ` porque se anuló ${leaveLabel} de ${profile}`
             : "";
 
         void notifyWorkerApp(
             replacement.worker,
-            `Se anulo tu turno extra del ${date} (${turn})${reason}.`
+            `Se anuló tu turno extra del ${date} (${turn})${reason}.`
         );
     });
 }

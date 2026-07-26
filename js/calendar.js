@@ -1643,7 +1643,7 @@ function calendarDirectEditMessage(label, affectedDates = []) {
         return `${label} para el ${displayDate}.`;
     }
 
-    return `${label} en ${affectedDates.length} dias de tu calendario.`;
+    return `${label} en ${affectedDates.length} días de tu calendario.`;
 }
 
 function consumeCalendarDirectEditPendingChanges() {
@@ -1671,7 +1671,7 @@ function consumeCalendarDirectEditPendingChanges() {
                     message: calendarDirectEditMessage(
                         bulk
                             ? "Se actualizaron turnos manuales"
-                            : "Se modifico un turno",
+                            : "Se modificó un turno",
                         affectedDates
                     ),
                     affectedDates,

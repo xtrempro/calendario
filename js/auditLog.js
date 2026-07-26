@@ -711,7 +711,7 @@ async function undoLeaveAbsenceLog(log) {
 
     queueWorkerNotification(
         profile,
-        `Se anulo ${log.action || "una ausencia/permiso"} desde el sistema. Revisa tu calendario actualizado.`,
+        `Se anuló ${log.action || "una ausencia/permiso"} desde el sistema. Revisa tu calendario actualizado.`,
         {
             source: "audit_undo",
             logId: log.id,
@@ -883,7 +883,7 @@ function cancelReplacementFromLog(log) {
         if (replacement.replaced) {
             queueWorkerNotification(
                 replacement.replaced,
-                `Se anulo la cobertura de ${replacement.worker} para el ${formatISODate(date)} (${turn}).`,
+                `Se anuló la cobertura de ${replacement.worker} para el ${formatISODate(date)} (${turn}).`,
                 {
                     source: "audit_undo",
                     logId: log.id,
