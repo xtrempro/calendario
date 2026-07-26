@@ -121,15 +121,28 @@ function attachmentMetadata(
 }
 
 test("reglas modulares de Firestore y Storage", async t => {
-    const env = await initializeTestEnvironment({
-        projectId: PROJECT_ID,
-        firestore: {
-            rules: fs.readFileSync(FIRESTORE_RULES_PATH, "utf8")
-        },
-        storage: {
-            rules: fs.readFileSync(STORAGE_RULES_PATH, "utf8")
-        }
-    });
+    // Estas pruebas necesitan el emulador de Firestore/Storage. Cuando no esta
+    // corriendo (p.ej. al ejecutar `node --test tests/*.test.mjs` suelto) se
+    // SALTAN en vez de fallar. Para correrlas completas: `npm run test:rules`
+    // (envuelve el runner con `firebase emulators:exec`).
+    let env;
+    try {
+        env = await initializeTestEnvironment({
+            projectId: PROJECT_ID,
+            firestore: {
+                rules: fs.readFileSync(FIRESTORE_RULES_PATH, "utf8")
+            },
+            storage: {
+                rules: fs.readFileSync(STORAGE_RULES_PATH, "utf8")
+            }
+        });
+    } catch (error) {
+        t.skip(
+            "Requiere el emulador de Firestore (usa: npm run test:rules). " +
+            (error?.message || error)
+        );
+        return;
+    }
 
     const owner = env.authenticatedContext("owner", {
         email: "owner@example.com",
