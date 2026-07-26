@@ -469,6 +469,13 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Alertas de recordatorio del trabajador (para el push programado). El
+    // trabajador escribe sus recordatorios con alerta; el campo "sent" (control
+    // de envios) lo escribe la Cloud Function con Admin SDK.
+    match /reminderAlerts/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
+    }
+
     // Registro de administradores globales. Los clientes no pueden leerlo ni
     // modificarlos; solo las Cloud Functions con Admin SDK lo consultan.
     match /adminUsers/{adminUid} {

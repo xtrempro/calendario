@@ -3228,6 +3228,166 @@ async function getWorkerTokens(workspaceId, uid, category) {
     .filter((item) => item.token && tokenAllows(item, category));
 }
 
+// ─────────── Alertas de recordatorio (push programado) ───────────
+// Los recordatorios con alerta viven en reminderAlerts/{uid} (los escribe la
+// PWA). Esta funcion, cada 15 min, revisa cuales tocan AHORA (hora de Chile) y
+// envia el push, evitando reenviar con el mapa "sent".
+
+function reminderTz(date = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Santiago",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false
+    }).formatToParts(date).map(part => [part.type, part.value])
+  );
+  const iso = `${parts.year}-${parts.month}-${parts.day}`;
+
+  return { iso, hhmm: `${parts.hour}:${parts.minute}`, tomorrowIso: addDaysIso(iso, 1) };
+}
+
+function addDaysIso(iso, amount) {
+  const [y, m, d] = String(iso).split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function parseReminderIso(iso) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+  if (!match) return null;
+  return { year: Number(match[1]), month: Number(match[2]) - 1, day: Number(match[3]) };
+}
+
+function reminderDaysInMonth(year, month) {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function normalizeReminderPeriodicity(value) {
+  return String(value || "una sola vez")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+}
+
+// ¿La fecha isoDate es una ocurrencia del recordatorio? (misma logica que la PWA)
+function isReminderOccurrence(reminder, isoDate) {
+  const origin = parseReminderIso(reminder?.date);
+  const target = parseReminderIso(isoDate);
+  if (!origin || !target) return false;
+
+  const period = normalizeReminderPeriodicity(reminder?.periodicity);
+  const originDate = new Date(origin.year, origin.month, origin.day);
+  const targetDate = new Date(target.year, target.month, target.day);
+
+  if (period === "semanal") {
+    return targetDate >= originDate && targetDate.getDay() === originDate.getDay();
+  }
+  if (period === "mensual") {
+    if (target.year < origin.year ||
+      (target.year === origin.year && target.month < origin.month)) return false;
+    return target.day === Math.min(origin.day, reminderDaysInMonth(target.year, target.month));
+  }
+  if (period === "anual") {
+    if (target.year < origin.year || target.month !== origin.month) return false;
+    return target.day === Math.min(origin.day, reminderDaysInMonth(target.year, target.month));
+  }
+  return isoDate === reminder?.date;
+}
+
+// Recordatorios que deben avisar AHORA (aun no enviados). Puro, para testear.
+function remindersDueNow(reminders, now, sent = {}) {
+  const due = [];
+
+  for (const reminder of (Array.isArray(reminders) ? reminders : [])) {
+    const alertTime = /^\d{2}:\d{2}$/.test(reminder?.alertTime) ? reminder.alertTime : "09:00";
+    if (now.hhmm < alertTime) continue; // aun no llega la hora hoy
+
+    if (isReminderOccurrence(reminder, now.iso)) {
+      const key = `${reminder.id}:${now.iso}:day_of`;
+      if (!sent[key]) due.push({ key, title: "Recordatorio", body: String(reminder.title || "Recordatorio") });
+    }
+
+    if (reminder?.alertDayBefore && isReminderOccurrence(reminder, now.tomorrowIso)) {
+      const key = `${reminder.id}:${now.tomorrowIso}:day_before`;
+      if (!sent[key]) due.push({ key, title: "Recordatorio (mañana)", body: `Mañana: ${String(reminder.title || "Recordatorio")}` });
+    }
+  }
+
+  return due;
+}
+
+// Descarta marcas de envio de ocurrencias viejas (> 2 dias) para no crecer.
+function pruneReminderSent(sent, todayIso) {
+  const cutoff = addDaysIso(todayIso, -2);
+  const out = {};
+  for (const [key, value] of Object.entries(sent || {})) {
+    const occ = String(key).split(":")[1] || "";
+    if (occ >= cutoff) out[key] = value;
+  }
+  return out;
+}
+
+exports.sendReminderAlerts = onSchedule(
+  {
+    schedule: "every 15 minutes",
+    region: "us-central1",
+    timeZone: "America/Santiago",
+    timeoutSeconds: 300
+  },
+  async () => {
+    const now = reminderTz();
+    const snap = await db.collection("reminderAlerts").get();
+    let pushed = 0;
+
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data() || {};
+      const uid = String(data.uid || docSnap.id || "").trim();
+      const workspaceId = String(data.workspaceId || "").trim();
+      const reminders = Array.isArray(data.reminders) ? data.reminders : [];
+
+      if (!uid || !workspaceId || !reminders.length) continue;
+
+      const sent = (data.sent && typeof data.sent === "object") ? { ...data.sent } : {};
+      const due = remindersDueNow(reminders, now, sent);
+
+      try {
+        for (const item of due) {
+          const result = await sendWorkerPush({
+            workspaceId,
+            uid,
+            category: "reminders",
+            title: item.title,
+            body: item.body,
+            data: {
+              category: "reminders",
+              screen: "turnos",
+              tag: item.key,
+              requireInteraction: "true",
+              vibrate: "true"
+            }
+          });
+
+          if (result.sent > 0) {
+            sent[item.key] = now.iso;
+            pushed += 1;
+          }
+        }
+
+        await docSnap.ref.set(
+          { sent: pruneReminderSent(sent, now.iso) },
+          { merge: true }
+        );
+      } catch (error) {
+        logger.error("reminder alerts: fallo por trabajador", {
+          uid,
+          error: error?.message || String(error)
+        });
+      }
+    }
+
+    logger.info("reminder alerts procesados", { workers: snap.size, pushed });
+  }
+);
+
 function buildMessage(tokenInfo, payload) {
   const settings = tokenInfo.settings || {};
   const alertMode = settings.alertMode === "vibration" ? "vibration" : "sound";
