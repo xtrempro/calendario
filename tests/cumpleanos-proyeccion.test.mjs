@@ -62,6 +62,15 @@ test("usa el año de referencia fijo (no expone la edad) y el primer nombre", ()
   assert.equal(out.every((b) => b.date.startsWith("2000-")), true);
 });
 
+test("publica ademas el nombre completo (para la descripcion en la PWA)", () => {
+  const out = runBuilder(profiles, "Yo Mismo");
+  const joaco = out.find((b) => b.name === "Joaquin");
+  // El titulo usa el primer nombre; la descripcion, el nombre completo.
+  assert.equal(joaco.fullName, "Joaquin Sepulveda Torres");
+  assert.equal(out.every((b) => typeof b.fullName === "string" && b.fullName.length), true);
+  if (engine) assert.match(engine, /fullName: String\(profile\.name/);
+});
+
 test("el payload del engine publica birthdays y el bundle desplegado lo lleva", () => {
   assert.match(src, /birthdays: buildBirthdayReminders\(profile\.name\)/);
   if (engine) assert.match(engine, /birthdays:/);

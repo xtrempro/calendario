@@ -515,7 +515,10 @@ function buildBirthdayReminders(currentProfileName = "") {
             return {
                 id: `bday_${normalizeText(profile.name)}_${parts.month}_${parts.day}`,
                 date,
-                name: birthdayFirstName(profile.name)
+                // Primer nombre para el titulo/calendario; nombre completo para la
+                // descripcion ("Cumpleaños de ...") en la PWA.
+                name: birthdayFirstName(profile.name),
+                fullName: String(profile.name || "").trim()
             };
         })
         .filter(Boolean);
