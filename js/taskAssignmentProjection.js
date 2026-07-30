@@ -1,6 +1,6 @@
 import { keyFromDate, keyToDate as parseKey } from "./dateUtils.js";
 import { getJSON } from "./persistence.js";
-import { getTurnoReal } from "./turnEngine.js";
+import { getTurnoBase, getTurnoReal } from "./turnEngine.js";
 import { getCachedHolidays } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
 import { TURNO } from "./constants.js";
@@ -212,6 +212,10 @@ function isScheduledForShift(profileName, keyDay, shift) {
     return turnScheduledForShift(getTurnoReal(profileName, keyDay), shift);
 }
 
+function isBaseScheduledForShift(profileName, keyDay, shift) {
+    return turnScheduledForShift(getTurnoBase(profileName, keyDay), shift);
+}
+
 function hasBlockingAbsence(profileName, keyDay) {
     const admin = getJSON(`admin_${profileName}`, {});
     const legal = getJSON(`legal_${profileName}`, {});
@@ -241,7 +245,7 @@ function isBusinessKeyDay(keyDay) {
     return isBusinessDay(date, getCachedHolidays(date.getFullYear()));
 }
 
-function countScheduledTurns(
+function countBaseScheduledTurns(
     profileName,
     targetShift,
     startDate,
@@ -272,7 +276,7 @@ function countScheduledTurns(
 
         for (const shift of shifts) {
             if (
-                isScheduledForShift(profileName, keyDay, shift) &&
+                isBaseScheduledForShift(profileName, keyDay, shift) &&
                 (
                     !habilOnly ||
                     isBusinessDay(
@@ -296,7 +300,8 @@ function countScheduledTurns(
 }
 
 function shouldApplyDefaultRule(rule, profileName, keyDay, shift) {
-    if (!isAvailableForShift(profileName, keyDay, shift)) return false;
+    if (!isBaseScheduledForShift(profileName, keyDay, shift)) return false;
+    if (hasBlockingAbsence(profileName, keyDay)) return false;
 
     const habilOnly = rule?.habilOnly === true;
 
@@ -314,7 +319,7 @@ function shouldApplyDefaultRule(rule, profileName, keyDay, shift) {
 
     if (!isValidDate(anchor) || !isValidDate(target)) return false;
 
-    const scheduledCount = countScheduledTurns(
+    const scheduledCount = countBaseScheduledTurns(
         profileName,
         shift,
         anchor,

@@ -6,7 +6,7 @@ import {
     getProfiles,
     isProfileActive
 } from "./storage.js";
-import { getTurnoReal } from "./turnEngine.js";
+import { getTurnoBase, getTurnoReal } from "./turnEngine.js";
 import { getAbsenceType } from "./rulesEngine.js";
 import { getHourReturn } from "./hourReturns.js";
 import { TURNO, TURNO_LABEL } from "./constants.js";
@@ -561,10 +561,8 @@ function hasBlockingAbsence(profileName, keyDay) {
     return Boolean(absenceDetail(profileName, keyDay));
 }
 
-function isScheduledForShift(profile, keyDay, shift) {
-    if (!profile || !isProfileActive(profile)) return false;
-
-    const state = getProfileShift(profile, keyDay);
+function turnScheduledForShift(turn, shift) {
+    const state = Number(turn) || TURNO.LIBRE;
 
     if (shift === "day") {
         return [
@@ -581,6 +579,18 @@ function isScheduledForShift(profile, keyDay, shift) {
         TURNO.DIURNO_NOCHE,
         TURNO.TURNO18
     ].includes(state);
+}
+
+function isScheduledForShift(profile, keyDay, shift) {
+    if (!profile || !isProfileActive(profile)) return false;
+
+    return turnScheduledForShift(getProfileShift(profile, keyDay), shift);
+}
+
+function isBaseScheduledForShift(profile, keyDay, shift) {
+    if (!profile || !isProfileActive(profile)) return false;
+
+    return turnScheduledForShift(getTurnoBase(profile.name, keyDay), shift);
 }
 
 function isAvailableForShift(profile, keyDay, shift) {
@@ -622,7 +632,7 @@ function shiftOrderForRule(habilOnly) {
     return habilOnly ? ["day"] : SHIFT_TYPES;
 }
 
-function countScheduledTurns(
+function countBaseScheduledTurns(
     profile,
     targetShift,
     startDate,
@@ -653,7 +663,7 @@ function countScheduledTurns(
 
         for (const shift of shifts) {
             if (
-                isScheduledForShift(profile, keyDay, shift) &&
+                isBaseScheduledForShift(profile, keyDay, shift) &&
                 (
                     !habilOnly ||
                     isBusinessDay(
@@ -677,7 +687,8 @@ function countScheduledTurns(
 }
 
 function shouldApplyDefaultRule(rule, profile, keyDay, shift) {
-    if (!isScheduledForShift(profile, keyDay, shift)) return false;
+    if (!isBaseScheduledForShift(profile, keyDay, shift)) return false;
+    if (hasBlockingAbsence(profile.name, keyDay)) return false;
 
     const habilOnly = rule?.habilOnly === true;
 
@@ -697,7 +708,7 @@ function shouldApplyDefaultRule(rule, profile, keyDay, shift) {
 
     if (!isValidDate(anchor) || !isValidDate(target)) return false;
 
-    const scheduledCount = countScheduledTurns(
+    const scheduledCount = countBaseScheduledTurns(
         profile,
         shift,
         anchor,

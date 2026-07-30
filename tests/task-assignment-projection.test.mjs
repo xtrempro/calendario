@@ -46,6 +46,10 @@ function scheduleForWeek() {
     };
 }
 
+function taskTitles(projected, iso) {
+    return projected.days[iso].taskAssignments?.map(item => item.title) || [];
+}
+
 test("proyecta tareas predefinidas para cada turno y solo diurnos habiles", async () => {
     globalThis.localStorage = createMemoryStorage();
 
@@ -55,7 +59,7 @@ test("proyecta tareas predefinidas para cada turno y solo diurnos habiles", asyn
         TASK_ASSIGNMENT_TASKS_KEY
     } = await import("../js/taskAssignmentProjection.js");
 
-    setJSON("data_Ana", {
+    setJSON("baseData_Ana", {
         "2026-6-20": TURNO.LARGA,
         "2026-6-21": TURNO.NOCHE,
         "2026-6-22": TURNO.LARGA,
@@ -96,23 +100,23 @@ test("proyecta tareas predefinidas para cada turno y solo diurnos habiles", asyn
     );
 
     assert.deepEqual(
-        projected.days["2026-07-20"].taskAssignments.map(item => item.title),
+        taskTitles(projected, "2026-07-20"),
         ["Control de stock", "Revision diurna habil"]
     );
     assert.deepEqual(
-        projected.days["2026-07-21"].taskAssignments.map(item => item.title),
+        taskTitles(projected, "2026-07-21"),
         ["Control de stock"]
     );
     assert.deepEqual(
-        projected.days["2026-07-22"].taskAssignments.map(item => item.title),
+        taskTitles(projected, "2026-07-22"),
         ["Control de stock"]
     );
     assert.deepEqual(
-        projected.days["2026-07-23"].taskAssignments.map(item => item.title),
+        taskTitles(projected, "2026-07-23"),
         ["Control de stock"]
     );
     assert.deepEqual(
-        projected.days["2026-07-24"].taskAssignments.map(item => item.title),
+        taskTitles(projected, "2026-07-24"),
         ["Control de stock", "Revision diurna habil"]
     );
     assert.equal(
@@ -122,5 +126,75 @@ test("proyecta tareas predefinidas para cada turno y solo diurnos habiles", asyn
     assert.equal(
         projected.days["2026-07-24"].taskAssignments[1].shiftLabel,
         "Diurno"
+    );
+});
+
+test("ignora turnos extra al crear predefinidos y al contar frecuencia", async () => {
+    globalThis.localStorage = createMemoryStorage();
+
+    const {
+        addTaskAssignmentsToSchedule,
+        TASK_ASSIGNMENT_ENTRIES_KEY,
+        TASK_ASSIGNMENT_TASKS_KEY
+    } = await import("../js/taskAssignmentProjection.js");
+
+    setJSON("baseData_Ana", {
+        "2026-6-20": TURNO.LARGA,
+        "2026-6-22": TURNO.LARGA,
+        "2026-6-24": TURNO.LARGA
+    });
+    setJSON("replacements", [{
+        id: "extra_ana_2026_07_21",
+        worker: "Ana",
+        replaced: "Bea",
+        date: "2026-07-21",
+        turno: "L",
+        canceled: false
+    }]);
+    setJSON(TASK_ASSIGNMENT_ENTRIES_KEY, {});
+    setJSON(TASK_ASSIGNMENT_TASKS_KEY, [
+        {
+            id: "task_every_base_turn",
+            shift: "both",
+            title: "Control de stock",
+            order: 1,
+            defaultWorkerRules: [{
+                workerName: "Ana",
+                interval: 1,
+                anchorKeyDay: "2026-6-20",
+                habilOnly: false
+            }]
+        },
+        {
+            id: "task_every_two_business_days",
+            shift: "both",
+            title: "Revision diurna habil",
+            order: 2,
+            defaultWorkerRules: [{
+                workerName: "Ana",
+                interval: 2,
+                anchorKeyDay: "2026-6-20",
+                habilOnly: true
+            }]
+        }
+    ]);
+
+    const projected = addTaskAssignmentsToSchedule(
+        { name: "Ana" },
+        scheduleForWeek()
+    );
+
+    assert.deepEqual(
+        taskTitles(projected, "2026-07-20"),
+        ["Control de stock", "Revision diurna habil"]
+    );
+    assert.deepEqual(taskTitles(projected, "2026-07-21"), []);
+    assert.deepEqual(
+        taskTitles(projected, "2026-07-22"),
+        ["Control de stock"]
+    );
+    assert.deepEqual(
+        taskTitles(projected, "2026-07-24"),
+        ["Control de stock", "Revision diurna habil"]
     );
 });
