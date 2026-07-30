@@ -20,7 +20,10 @@ import { IS_TEST_ENVIRONMENT } from "./firebaseConfig.js";
 const WORKER_APP_URL = IS_TEST_ENVIRONMENT
     ? "https://turnoplusfunc-test.web.app/"
     : "https://turnoplusfuncionarios.web.app/";
-const INVITE_DURATION_DAYS = 14;
+// TEMPORAL: expiracion de la invitacion de trabajador deshabilitada (ver el
+// payload en createWorkerAppInvite). Este era el limite anterior; se conserva
+// como referencia para reponerlo cuando se resuelva el error de reenvio.
+// const INVITE_DURATION_DAYS = 14;
 
 function normalizeEmail(value) {
     return String(value || "").trim().toLowerCase();
@@ -515,9 +518,6 @@ async function createWorkerAppInvite(
     const token = createInviteToken();
     const inviteUrl = getWorkerAppInviteUrl(workspace.id, token, email);
     const now = firestoreModule.serverTimestamp();
-    const expiresAt = new Date(
-        Date.now() + INVITE_DURATION_DAYS * 24 * 60 * 60 * 1000
-    );
     const canonicalRef = firestoreModule.doc(
         db,
         "workspaces",
@@ -542,8 +542,12 @@ async function createWorkerAppInvite(
         createdByEmail: user.email || "",
         createdByName: user.displayName || "",
         createdAt: now,
-        updatedAt: now,
-        expiresAt
+        updatedAt: now
+        // TEMPORAL: la invitacion de trabajador NO expira por ahora. Se quito el
+        // limite (antes expiresAt = now + INVITE_DURATION_DAYS dias) mientras se
+        // investiga el error de "sesion bloqueada" al reenviar una invitacion. La
+        // regla workerInviteNotExpired() trata la ausencia de expiresAt como "sin
+        // expiracion". Para reponer el limite: volver a agregar el campo expiresAt.
     };
     const batch = firestoreModule.writeBatch(db);
     let previousEmailInviteCleanup = null;
