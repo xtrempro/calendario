@@ -897,6 +897,90 @@ const TESTS = [
         }
     },
     {
+        name: "Edicion directa: un diurno puede pasar su turno a Larga",
+        run() {
+            // Precondiciones limpias: sin restricciones de 24/24-invertido ni
+            // cambios/reemplazos residuales de otras pruebas que bloqueen Larga.
+            saveTurnChangeConfig({
+                allowSwaps: true,
+                allowDifferentTurnTypes: true,
+                allowTwentyFourHourShifts: true,
+                allowInvertedTwentyFourHourShifts: true,
+                limitMonthlySwaps: false
+            });
+            saveSwaps([]);
+            setJSON("replacements", []);
+            saveProfiles([selfTestProfile(FAKE_PROFILE)]);
+            saveRotativa(
+                { type: "diurno", start: "2026-07-01", firstTurn: "larga" },
+                FAKE_PROFILE
+            );
+            const lunes = key(2026, 6, 6);
+
+            assertEqual(
+                getTurnoBase(FAKE_PROFILE, lunes),
+                TURNO.DIURNO,
+                "un dia habil de un diurno deberia tener turno base diurno"
+            );
+
+            const firstClick = getProtectedDirectEditTurn(
+                FAKE_PROFILE,
+                lunes,
+                TURNO.DIURNO,
+                true,
+                { effectiveBaseTurn: TURNO.DIURNO }
+            );
+
+            assertEqual(
+                firstClick.nextVisibleTurn,
+                TURNO.LARGA,
+                "el primer click en un diurno deberia ofrecer Larga (no solo D+N)"
+            );
+        }
+    },
+    {
+        name: "Reemplazo hereda el turno base efectivo (baseData) del reemplazado",
+        run() {
+            const titular = FAKE_PROFILE;
+            const reemplazo = FAKE_SWAP_RECEIVER;
+            const lunes = key(2026, 6, 6);
+
+            saveProfiles([
+                selfTestProfile(titular),
+                { ...selfTestProfile(reemplazo), contractType: "Reemplazo" }
+            ]);
+            saveRotativa(
+                { type: "4turno", start: "2026-07-01", firstTurn: "larga" },
+                titular
+            );
+            // Turno base ASIGNADO que sobrescribe la rotativa del titular: antes
+            // el reemplazo heredaba la rotativa calculada (o libre) y perdia este
+            // turno.
+            saveBaseProfileData({ [lunes]: TURNO.NOCHE }, titular);
+
+            assertEqual(
+                getTurnoBase(titular, lunes),
+                TURNO.NOCHE,
+                "el titular deberia mostrar su turno base asignado"
+            );
+
+            addReplacementContract(reemplazo, {
+                start: "2026-07-01",
+                end: "2026-07-31",
+                replaces: titular,
+                reason: "Licencia",
+                leaveRef: "lm-selftest",
+                rotationMode: "inherit"
+            });
+
+            assertEqual(
+                getTurnoBase(reemplazo, lunes),
+                TURNO.NOCHE,
+                "el reemplazo deberia heredar el turno base efectivo del titular"
+            );
+        }
+    },
+    {
         name: "Cambio de turno: exige trabajadores compatibles",
         run() {
             setupSwapSelfTest();

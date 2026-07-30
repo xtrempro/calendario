@@ -706,8 +706,12 @@ function allowedTurnsForBase(baseTurno, isHab) {
     }
 
     if (base === TURNO.DIURNO) {
+        // El diurno puede extender su jornada a Larga (hasta las 20:00): la
+        // edicion directa cicla Diurno -> Larga -> D+N. Larga suma las horas
+        // diurnas extra sobre el diurno (3 de lunes a jueves, 4 los viernes).
         return [
             TURNO.DIURNO,
+            TURNO.LARGA,
             ...(isHab ? [TURNO.DIURNO_NOCHE] : [])
         ];
     }
