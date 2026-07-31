@@ -141,6 +141,7 @@ import {
     getRaw,
     listKeys,
     removeKey,
+    setJSON,
     setRaw
 } from "./persistence.js";
 import {
@@ -197,6 +198,14 @@ const CALENDAR_LARGE_PARTIAL_RATIO = 0.7;
 const CALENDAR_LARGE_PARTIAL_MIN_DAYS = 21;
 const CALENDAR_SUMMARY_USER_QUIET_MS = 15000;
 const CALENDAR_SUMMARY_VISIBLE_RETRY_MS = 120000;
+const MANUAL_EXTRA_REASON_PRESETS_KEY = "manualExtraReasonPresets";
+const DEFAULT_MANUAL_EXTRA_REASON_PRESETS = [
+    "Campa\u00f1a de Invierno",
+    "Estaci\u00f3n de Trabajo",
+    "Apoyo Oncol\u00f3gico",
+    "Apoyo Pabell\u00f3n",
+    "Operativo displasia de cadera"
+];
 const calendarAuditTimers = new Map();
 const calendarAuditDrafts = new Map();
 let linkedReplacementStatus = "";
@@ -5223,6 +5232,171 @@ function formatClockHoursForDialog(hours) {
     return parts.length ? parts.join(" / ") : "0h";
 }
 
+function splitManualExtraReasonPresetText(value) {
+    return String(value || "")
+        .split(/\r?\n|;/)
+        .map(item => item.trim())
+        .filter(Boolean);
+}
+
+function normalizeManualExtraReasonPresets(values) {
+    const seen = new Set();
+    const source = Array.isArray(values)
+        ? values
+        : splitManualExtraReasonPresetText(values);
+
+    return source
+        .map(item => String(item || "").trim())
+        .filter(Boolean)
+        .filter(item => {
+            const key = item.toLocaleLowerCase("es");
+
+            if (seen.has(key)) return false;
+
+            seen.add(key);
+            return true;
+        })
+        .slice(0, 40);
+}
+
+function getManualExtraReasonPresets() {
+    return normalizeManualExtraReasonPresets(
+        getJSON(
+            MANUAL_EXTRA_REASON_PRESETS_KEY,
+            DEFAULT_MANUAL_EXTRA_REASON_PRESETS
+        )
+    );
+}
+
+function saveManualExtraReasonPresets(values) {
+    setJSON(
+        MANUAL_EXTRA_REASON_PRESETS_KEY,
+        normalizeManualExtraReasonPresets(values)
+    );
+}
+
+function manualExtraReasonPresetButtonsHTML(sectionId) {
+    const presets = getManualExtraReasonPresets();
+
+    if (!presets.length) {
+        return `
+            <small data-manual-reason-presets-empty>
+                Sin motivos predefinidos.
+            </small>
+        `;
+    }
+
+    return presets.map(preset => `
+        <button
+            class="ghost-button"
+            type="button"
+            data-manual-reason-preset="${escapeHTML(preset)}"
+            data-section-id="${escapeHTML(sectionId)}"
+        >
+            ${escapeHTML(preset)}
+        </button>
+    `).join("");
+}
+
+function appendManualExtraReasonPreset(textarea, preset) {
+    if (!textarea) return;
+
+    const cleanPreset = String(preset || "").trim();
+
+    if (!cleanPreset) return;
+
+    const current = textarea.value.trim();
+    const separator = current
+        ? (/[,\n;]\s*$/.test(textarea.value) ? " " : ", ")
+        : "";
+
+    textarea.value = `${current}${separator}${cleanPreset}`;
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    textarea.focus();
+
+    if (typeof textarea.setSelectionRange === "function") {
+        const end = textarea.value.length;
+
+        textarea.setSelectionRange(end, end);
+    }
+}
+
+function openManualExtraReasonPresetsDialog() {
+    return new Promise(resolve => {
+        const backdrop = document.createElement("div");
+        const previousFocus =
+            document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null;
+        let settled = false;
+
+        backdrop.className = "turn-change-dialog-backdrop";
+        backdrop.dataset.manualExtraReasonPresetsDialog = "true";
+        backdrop.innerHTML = `
+            <section class="turn-change-dialog replacement-dialog" role="dialog" aria-modal="true" aria-labelledby="manualExtraReasonPresetsTitle">
+                <strong id="manualExtraReasonPresetsTitle">Motivos predefinidos</strong>
+                <p>
+                    Escribe un motivo por linea. Quedaran disponibles para todos
+                    los administradores de este entorno.
+                </p>
+                <textarea rows="8" data-manual-reason-preset-list placeholder="Estacion de Trabajo&#10;Apoyo Oncologico">${escapeHTML(getManualExtraReasonPresets().join("\n"))}</textarea>
+                <div class="turn-change-dialog__actions">
+                    <button class="secondary-button" type="button" data-action="cancel-presets">
+                        Cancelar
+                    </button>
+                    <button class="primary-button" type="button" data-action="save-presets">
+                        Guardar motivos
+                    </button>
+                </div>
+            </section>
+        `;
+
+        const finish = result => {
+            if (settled) return;
+
+            settled = true;
+            document.removeEventListener("keydown", onKeydown, true);
+            backdrop.remove();
+
+            if (previousFocus?.isConnected) {
+                previousFocus.focus();
+            }
+
+            resolve(result);
+        };
+
+        function onKeydown(event) {
+            if (event.key !== "Escape") return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            finish(false);
+        }
+
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) {
+                finish(false);
+            }
+        });
+        backdrop
+            .querySelector("[data-action='cancel-presets']")
+            .addEventListener("click", () => finish(false));
+        backdrop
+            .querySelector("[data-action='save-presets']")
+            .addEventListener("click", () => {
+                saveManualExtraReasonPresets(
+                    backdrop.querySelector("[data-manual-reason-preset-list]")
+                        ?.value || ""
+                );
+                finish(true);
+            });
+
+        document.addEventListener("keydown", onKeydown, true);
+        document.body.appendChild(backdrop);
+        backdrop.querySelector("[data-manual-reason-preset-list]")?.focus();
+    });
+}
+
 function extraReasonDialogHTML({
     profileName,
     pendingTurn,
@@ -5267,10 +5441,27 @@ function extraReasonDialogHTML({
                     <div class="replacement-candidate-list">
                         ${items}
                     </div>
-                    <label class="extra-reason-field">
-                        <span>Motivo manual para ${escapeHTML(section.label)}</span>
+                    <div class="extra-reason-field">
+                        <div class="overtime-backup-subsection__head">
+                            <span>Motivo manual para ${escapeHTML(section.label)}</span>
+                            <button
+                                class="icon-button icon-button--small"
+                                type="button"
+                                data-manual-reason-presets-edit
+                                title="Editar motivos predefinidos"
+                                aria-label="Editar motivos predefinidos"
+                            >
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path d="M12 20h9"></path>
+                                    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                                </svg>
+                            </button>
+                        </div>
                         <textarea rows="3" data-manual-reason="${escapeHTML(section.id)}" placeholder="Ej: Campana de Invierno, Estacion de Trabajo"></textarea>
-                    </label>
+                        <div class="replacement-dialog-toolbar" data-manual-reason-presets="${escapeHTML(section.id)}">
+                            ${manualExtraReasonPresetButtonsHTML(section.id)}
+                        </div>
+                    </div>
                 </div>
             `;
         })
@@ -5498,6 +5689,36 @@ async function openExtraReasonDialog(
         updateTimelineCells(profileName, [keyDay]);
     };
 
+    const bindManualReasonPresetButtons = () => {
+        backdrop
+            .querySelectorAll("[data-manual-reason-preset]")
+            .forEach(button => {
+                button.onclick = () => {
+                    const sectionId = button.dataset.sectionId;
+                    const textarea = backdrop
+                        .querySelector(`[data-manual-reason="${sectionId}"]`);
+
+                    appendManualExtraReasonPreset(
+                        textarea,
+                        button.dataset.manualReasonPreset
+                    );
+                };
+            });
+    };
+
+    const refreshManualReasonPresetButtons = () => {
+        backdrop
+            .querySelectorAll("[data-manual-reason-presets]")
+            .forEach(container => {
+                const sectionId = container.dataset.manualReasonPresets;
+
+                container.innerHTML =
+                    manualExtraReasonPresetButtonsHTML(sectionId);
+            });
+
+        bindManualReasonPresetButtons();
+    };
+
     backdrop.addEventListener("click", event => {
         if (event.target === backdrop) {
             close();
@@ -5567,6 +5788,21 @@ async function openExtraReasonDialog(
     backdrop
         .querySelector("[data-action='save-reason']")
         .onclick = saveBackups;
+
+    backdrop
+        .querySelectorAll("[data-manual-reason-presets-edit]")
+        .forEach(button => {
+            button.onclick = async event => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                if (await openManualExtraReasonPresetsDialog()) {
+                    refreshManualReasonPresetButtons();
+                }
+            };
+        });
+
+    bindManualReasonPresetButtons();
 
     document.addEventListener("keydown", onKeydown);
     document.body.appendChild(backdrop);
