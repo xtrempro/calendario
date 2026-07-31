@@ -58,6 +58,23 @@ test("la sincronizacion cliente no contiene una ruta de publicacion fria global"
     assert.match(source, /writeWorkerAppMonths/);
 });
 
+test("los documentos mensuales se reemplazan completos para borrar tareas obsoletas", async () => {
+    const source = await readFile(
+        new URL("../js/workerAppDataSync.js", import.meta.url),
+        "utf8"
+    );
+    const writeMonths = source.match(
+        /async function writeWorkerAppMonths[\s\S]*?async function writeWorkerAppProjection/
+    )?.[0] || "";
+    const writeProjection = source.match(
+        /async function writeWorkerAppProjection[\s\S]*?async function writeWorkerSwapCandidate/
+    )?.[0] || "";
+
+    assert.match(source, /WORKER_APP_MONTH_REPLACE_VERSION/);
+    assert.match(writeProjection, /canTrustPreviousMonthHashes/);
+    assert.doesNotMatch(writeMonths, /\{\s*merge:\s*true\s*\}/);
+});
+
 test("la PWA reutiliza resumenes HH.EE y los refresca en segundo plano", async () => {
     const source = await readFile(
         new URL("../js/workerAppDataSync.js", import.meta.url),

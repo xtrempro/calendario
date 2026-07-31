@@ -8,6 +8,8 @@
 
 const { FieldValue } = require("firebase-admin/firestore");
 
+const WORKER_APP_MONTH_REPLACE_VERSION = 2;
+
 function splitDaysByMonth(days = {}) {
     const months = {};
 
@@ -85,7 +87,7 @@ async function writeProjection(db, workspaceId, uid, payload) {
             days,
             updatedAtISO: payload.updatedAtISO || "",
             updatedAt: FieldValue.serverTimestamp()
-        }, { merge: true });
+        });
     }
 
     // Doc raíz: todo el payload MENOS `days` (que se borra), más el índice de
@@ -96,6 +98,7 @@ async function writeProjection(db, workspaceId, uid, payload) {
         ...rootBase,
         days: FieldValue.delete(),
         calendarStorageVersion: 3,
+        monthReplaceVersion: WORKER_APP_MONTH_REPLACE_VERSION,
         calendarStorageMode: "monthly",
         hasMonthlyCalendar: true,
         availableMonths,

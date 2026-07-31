@@ -401,16 +401,28 @@ function dayTaskAssignments(profileName, keyDay, tasks, allEntries) {
     return [...byTitle.values()].map(({ order: _order, ...item }) => item);
 }
 
+function clearTaskAssignmentsFromSchedule(schedule) {
+    Object.values(schedule?.days || {}).forEach(day => {
+        if (day && typeof day === "object" && day.taskAssignments) {
+            delete day.taskAssignments;
+        }
+    });
+
+    return schedule;
+}
+
 export function addTaskAssignmentsToSchedule(profile, schedule) {
     const profileName = String(profile?.name || "").trim();
 
-    if (!profileName || !schedule?.days || typeof schedule.days !== "object") {
+    if (!schedule?.days || typeof schedule.days !== "object") {
         return schedule;
     }
 
+    if (!profileName) return clearTaskAssignmentsFromSchedule(schedule);
+
     const tasks = getTaskCatalog();
 
-    if (!tasks.length) return schedule;
+    if (!tasks.length) return clearTaskAssignmentsFromSchedule(schedule);
 
     const allEntries = getAllTaskAssignmentEntries();
 

@@ -198,3 +198,36 @@ test("ignora turnos extra al crear predefinidos y al contar frecuencia", async (
         ["Control de stock", "Revision diurna habil"]
     );
 });
+
+test("limpia tareas antiguas cuando se elimina el catalogo de predefinidos", async () => {
+    globalThis.localStorage = createMemoryStorage();
+
+    const {
+        addTaskAssignmentsToSchedule,
+        TASK_ASSIGNMENT_ENTRIES_KEY,
+        TASK_ASSIGNMENT_TASKS_KEY
+    } = await import("../js/taskAssignmentProjection.js");
+
+    setJSON(TASK_ASSIGNMENT_ENTRIES_KEY, {});
+    setJSON(TASK_ASSIGNMENT_TASKS_KEY, []);
+
+    const projected = addTaskAssignmentsToSchedule(
+        { name: "Ana" },
+        {
+            days: {
+                "2026-07-20": {
+                    iso: "2026-07-20",
+                    taskAssignments: [{
+                        id: "old_task",
+                        title: "Tarea anterior"
+                    }]
+                }
+            }
+        }
+    );
+
+    assert.equal(
+        Object.hasOwn(projected.days["2026-07-20"], "taskAssignments"),
+        false
+    );
+});

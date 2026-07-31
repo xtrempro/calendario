@@ -76,6 +76,10 @@ test("writeProjection escribe un doc por mes y el doc raíz sin days", async () 
         monthWrites.every(w => w.data.days && typeof w.data.days === "object"),
         "cada mes lleva sus días"
     );
+    assert.ok(
+        monthWrites.every(w => !w.opts),
+        "cada mes se reemplaza completo para limpiar campos obsoletos"
+    );
 
     const rootWrite = db.writes.find(w =>
         w.path === "workspaces/w1/workerAppData/u1"
@@ -84,6 +88,7 @@ test("writeProjection escribe un doc por mes y el doc raíz sin days", async () 
     assert.equal(rootWrite.data.days, FieldValue.delete(), "el raíz borra days");
     assert.equal(rootWrite.data.profileName, "Ana");
     assert.equal(rootWrite.data.hasMonthlyCalendar, true);
+    assert.equal(rootWrite.data.monthReplaceVersion, 2);
     assert.deepEqual(rootWrite.data.availableMonths, ["2026-01", "2026-02"]);
     assert.ok(rootWrite.data.reportsByMonth, "el raíz conserva reportsByMonth");
     assert.ok(Array.isArray(rootWrite.data.overtimeSummaries));

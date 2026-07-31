@@ -710,6 +710,7 @@ function buildOvertimeSummarySignature(profile, schedule) {
 const EXCEPTIONS_MONTHS_BACK = 2;
 const EXCEPTIONS_MONTHS_FORWARD = 12;
 const WORKER_APP_BASE_VERSION = 1;
+const WORKER_APP_MONTH_REPLACE_VERSION = 2;
 
 function exceptionsScanRange(today = new Date()) {
     return {
@@ -1301,6 +1302,7 @@ function buildWorkerAppRootProjection(payload, availableMonths, monthHashes) {
     return {
         ...rootPayload,
         calendarStorageVersion: 3,
+        monthReplaceVersion: WORKER_APP_MONTH_REPLACE_VERSION,
         calendarStorageMode: "monthly",
         hasMonthlyCalendar: true,
         availableMonths,
@@ -1809,8 +1811,7 @@ async function writeWorkerAppMonths(
                     days,
                     updatedAtISO: payload.updatedAtISO,
                     updatedAt: firestoreModule.serverTimestamp()
-                },
-                { merge: true }
+                }
             ),
             {
                 uid,
@@ -1844,7 +1845,11 @@ async function writeWorkerAppProjection(
 ) {
     const splitMonths = splitDaysByMonth(payload.days);
     const availableMonths = Object.keys(splitMonths).sort();
+    const canTrustPreviousMonthHashes =
+        Number(previousPayload?.monthReplaceVersion) ===
+        WORKER_APP_MONTH_REPLACE_VERSION;
     const previousMonthHashes =
+        canTrustPreviousMonthHashes &&
         previousPayload?.monthHashes &&
         typeof previousPayload.monthHashes === "object"
             ? previousPayload.monthHashes
