@@ -1216,6 +1216,9 @@ async function buildWorkerAppPayload(
                     rut: profile.rut || "",
                     role: profile.estamento || "",
                     profession: profile.profession || "",
+                    // Se publica para que la PWA sepa el tipo de contrato (p.ej.
+                    // Honorarios no puede solicitar permisos ni tiene vacaciones).
+                    contractType: profile.contractType || "",
                     unit: workspace.name || link.workspaceName || "",
                     unitEntryDate: "",
                     active: isProfileActive(profile)

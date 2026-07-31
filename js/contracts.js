@@ -276,6 +276,39 @@ export function addHonorariaContract(profileName, contract) {
     return nextContract;
 }
 
+// Actualiza un contrato existente (por id) aplicando un parche. Conserva el resto
+// de sus campos —tarifa y tope incluidos— salvo lo que traiga el parche, y
+// materializa el contrato legado si fuera el afectado. Devuelve el contrato
+// actualizado, o null si no existe. Se usa al "extender" un contrato desde el
+// calendario: solo cambian sus fechas, manteniendo su valor hora y tope.
+export function updateHonorariaContract(profileName, contractId, patch = {}) {
+    let updated = null;
+    const next = getHonorariaContractsForProfile(profileName).map(existing => {
+        const isTarget = existing.id === contractId;
+        const base = existing.id === "legacy"
+            ? { ...existing, id: `${Date.now()}_leg` }
+            : existing;
+
+        if (isTarget) {
+            updated = normalizeHonorariaContract({
+                ...base,
+                ...patch,
+                id: base.id
+            });
+
+            return updated;
+        }
+
+        return base;
+    });
+
+    if (!updated) return null;
+
+    saveHonorariaContractsForProfile(profileName, next);
+
+    return updated;
+}
+
 // Elimina un contrato del arreglo. Como puede haber un contrato legado (solo en
 // los campos del perfil), primero se materializa la lista actual y luego se filtra.
 export function removeHonorariaContract(profileName, contractId) {

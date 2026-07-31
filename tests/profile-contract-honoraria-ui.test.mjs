@@ -5,15 +5,21 @@ import { readFile } from "node:fs/promises";
 const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
 const main = await readFile(new URL("../js/main.js", import.meta.url), "utf8");
 
-test("honorarios muestra rotativa despues del valor hora y usa tope semanal", () => {
-    const hourlyRateIndex = html.indexOf("honorariaHourlyRateField");
-    const rotationSlotIndex = html.indexOf("honorariaRotationSlot");
-    const maxHoursIndex = html.indexOf("honorariaMaxMonthlyHoursField");
+test("honorarios lista contratos y agrega via modal (sin campos inline)", () => {
+    const listIndex = html.indexOf("honorariaContractList");
+    const addBtnIndex = html.indexOf("honorariaAddContractBtn");
 
-    assert.ok(hourlyRateIndex > -1);
-    assert.ok(rotationSlotIndex > hourlyRateIndex);
-    assert.ok(maxHoursIndex > rotationSlotIndex);
-    assert.match(html, /M&aacute;ximo de horas semanales:/);
+    assert.ok(listIndex > -1);
+    assert.ok(addBtnIndex > listIndex);
+    // El formulario ya no tiene campos inline: el contrato se crea con el modal.
+    assert.ok(!html.includes("honorariaHourlyRateField"));
+    assert.ok(!html.includes("honorariaMaxMonthlyHoursField"));
+    assert.ok(!html.includes("honorariaStartField"));
+    // El boton abre el mismo modal interactivo del calendario.
+    assert.match(
+        main,
+        /honorariaAddContractBtn\.onclick[\s\S]{0,500}openHonorariaContractModal/
+    );
 });
 
 test("honorarios oculta grado, permiso gremial y asignacion de turno", () => {
@@ -23,6 +29,25 @@ test("honorarios oculta grado, permiso gremial y asignacion de turno", () => {
     assert.match(main, /function contractBlocksShiftAssignment\(data = profileDraft\)[\s\S]*isHonorariaDraft\(data\)/);
     assert.match(main, /grade: gradeBlocked \? "" : profileDraft\.grade/);
     assert.match(main, /const nextShiftAssigned =\s*!shiftAssignmentBlocked/);
+});
+
+test("honorarios oculta vacaciones y bloquea permisos admin/legal/sin goce", () => {
+    assert.match(html, /id="profileAvailabilityCard"/);
+    assert.match(
+        main,
+        /function contractBlocksLeaveBenefits\(data = profileDraft\)[\s\S]{0,160}isHonorariaDraft\(data\)/
+    );
+    // El recuadro de vacaciones se oculta para honorarios.
+    assert.match(
+        main,
+        /profileAvailabilityCard[\s\S]{0,160}blocksLeaveBenefits/
+    );
+    // Los botones de permiso quedan deshabilitados.
+    assert.match(main, /adminBtn\.disabled = blocksLeaveBenefits/);
+    assert.match(main, /halfAdminMorningBtn\.disabled = blocksLeaveBenefits/);
+    assert.match(main, /halfAdminAfternoonBtn\.disabled = blocksLeaveBenefits/);
+    assert.match(main, /legalBtn\.disabled = blocksLeaveBenefits/);
+    assert.match(main, /unpaidLeaveBtn\.disabled = blocksLeaveBenefits/);
 });
 
 test("otros es tipo de contrato y no usa grado, permiso gremial ni asignacion", () => {

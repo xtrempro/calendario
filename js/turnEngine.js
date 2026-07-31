@@ -24,7 +24,6 @@ import {
     getReplacedProfileForDate,
     hasContractForDate,
     hasHonorariaContractForDate,
-    earliestHonorariaContractStart,
     isHonorariaProfile,
     isReplacementProfile
 } from "./contracts.js";
@@ -322,21 +321,19 @@ function rotativaTurnoBase(nombre, key, visited = new Set()) {
         return TURNO.LIBRE;
     }
 
-    const isHonoraria = isHonorariaProfile(nombre);
-
-    if (isHonoraria && !hasHonorariaContractForDate(nombre, key)) {
+    // Honorarios: los turnos se guardan EXPLICITAMENTE (baseData_) al aplicar la
+    // rotativa desde la fecha elegida hasta el fin del contrato. El motor NO computa
+    // una secuencia para honorarios: hacerlo con un ancla global mezclaria la
+    // rotativa nueva con la anterior en los dias que quedan sin turno guardado. Un
+    // dia del contrato sin turno guardado queda libre; fuera del contrato tambien
+    // (lo enmascaran resolveTurnoBase/getTurnoProgramado).
+    if (isHonorariaProfile(nombre)) {
         return TURNO.LIBRE;
     }
 
     const rotativa = getRotativa(nombre);
     const date = parseKeyDate(key);
-    // Honorarios: la rotativa se ancla al inicio del PRIMER contrato vigente (no a
-    // rotativa.start), para cubrir siempre los contratos aunque se elimine uno o
-    // el start quede desalineado. El resto de contratos usa rotativa.start.
-    const anchorISO = isHonoraria
-        ? (earliestHonorariaContractStart(nombre) || rotativa.start)
-        : rotativa.start;
-    const start = parseISODate(anchorISO);
+    const start = parseISODate(rotativa.start);
 
     if (!date || !start || date < start) return TURNO.LIBRE;
 

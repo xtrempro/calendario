@@ -389,11 +389,13 @@ import {
     addReplacementContract,
     addHonorariaContract,
     removeHonorariaContract,
+    updateHonorariaContract,
     getHonorariaContractsForProfile,
     clampContractRange,
     formatContractDate,
     getContractsForProfile,
     isHonorariaContractType,
+    isHonorariaProfile,
     isOtherContractType,
     isReplacementContractType
 } from "./contracts.js";
@@ -1155,6 +1157,13 @@ function contractBlocksShiftAssignment(data = profileDraft) {
     );
 }
 
+// Honorarios no tiene vacaciones ni permisos administrativos/legales/sin goce: se
+// oculta el recuadro de "Vacaciones Disponibles" y se deshabilitan esos permisos
+// tanto en el calendario del supervisor como en la PWA del trabajador.
+function contractBlocksLeaveBenefits(data = profileDraft) {
+    return isHonorariaDraft(data);
+}
+
 // Nombre bajo el que se guardan/leen los contratos de Honorarios: al crear es el
 // nombre tipeado; al editar, el perfil actual guardado.
 function honorariaContractProfileName() {
@@ -1178,6 +1187,13 @@ function honorariaContractCoversISO(iso) {
         );
 }
 
+const HONORARIA_EDIT_ICON = `
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 20h9"/>
+        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+    </svg>
+`;
+
 function renderHonorariaContractList(profileName) {
     if (!DOM.honorariaContractList) return;
 
@@ -1200,64 +1216,14 @@ function renderHonorariaContractList(profileName) {
                     <small>Valor hora $${escapeHTML(String(contract.hourlyRate))} · Tope ${escapeHTML(String(contract.maxHours))} ${contract.limitPeriod === "monthly" ? "h/mes" : "h/sem"}</small>
                 </div>
                 ${editing
-                    ? `<button type="button" class="honoraria-contract-remove" data-honoraria-remove="${escapeHTML(contract.id)}" title="Eliminar contrato" aria-label="Eliminar contrato">&times;</button>`
+                    ? `<div class="honoraria-contract-actions">
+                        <button type="button" class="honoraria-contract-edit" data-honoraria-edit="${escapeHTML(contract.id)}" title="Editar contrato" aria-label="Editar contrato">${HONORARIA_EDIT_ICON}</button>
+                        <button type="button" class="honoraria-contract-remove" data-honoraria-remove="${escapeHTML(contract.id)}" title="Eliminar contrato" aria-label="Eliminar contrato">&times;</button>
+                    </div>`
                     : ""}
             </div>
         `)
         .join("");
-}
-
-async function addHonorariaContractFromForm() {
-    if (!isProfileEditing()) return;
-
-    const profileName = honorariaContractProfileName();
-
-    if (!profileName) {
-        alert("Primero escribe el nombre del trabajador.");
-        return;
-    }
-
-    const start = normalizeStoredStart(profileDraft.honorariaStart || "");
-    const end = normalizeStoredStart(profileDraft.honorariaEnd || "");
-    const hourlyRate = Number(profileDraft.honorariaHourlyRate) || 0;
-    const maxHours = Number(profileDraft.honorariaMaxMonthlyHours) || 0;
-    const limitPeriod =
-        profileDraft.honorariaLimitPeriod === "monthly"
-            ? "monthly"
-            : "weekly";
-
-    if (!start || !end) {
-        alert("Indica el inicio y el termino del contrato.");
-        return;
-    }
-
-    if (start > end) {
-        alert("El inicio del contrato no puede ser posterior al termino.");
-        return;
-    }
-
-    if (!(hourlyRate > 0)) {
-        alert("Indica el valor de la hora del contrato.");
-        return;
-    }
-
-    addHonorariaContract(profileName, {
-        start,
-        end,
-        hourlyRate,
-        maxHours,
-        limitPeriod
-    });
-
-    // Limpia el formulario para el siguiente contrato.
-    profileDraft.honorariaStart = "";
-    profileDraft.honorariaEnd = "";
-    profileDraft.honorariaHourlyRate = "";
-    profileDraft.honorariaMaxMonthlyHours = "";
-    profileDraft.honorariaLimitPeriod = "weekly";
-
-    renderDashboardState();
-    refreshAll();
 }
 
 function placeProfileRotationRow(isHonorariaContract) {
@@ -3028,23 +2994,20 @@ async function applyCalendarRotationChange(fecha) {
             contract.end >= startISO
         )
     ) {
-        // Sin contrato vigente esa fecha: se ofrece crear uno y abrir el
-        // formulario (con la fecha clickeada prellenada como inicio).
-        const addContract = await showConfirm(
-            `${profile.name} no tiene un contrato de Honorarios vigente el ${formatDisplayDate(startISO)}.\n\n¿Agregar un nuevo contrato para aplicar la rotativa en esa fecha?`,
-            {
-                title: "Sin contrato vigente",
-                tone: "warning",
-                confirmText: "Agregar contrato",
-                cancelText: "Cancelar"
-            }
-        );
+        // Sin contrato vigente esa fecha: modal interactivo para crear (o extender)
+        // un contrato de Honorarios sobre el calendario. Al guardarlo se reaplica la
+        // rotativa desde el inicio del contrato; si se cancela, se conserva el modo
+        // de seleccion para elegir otra fecha.
+        const savedContract = await openHonorariaContractModal({
+            profileName: profile.name,
+            startISO
+        });
 
-        if (addContract) {
-            pendingRotationChange = null;
-            clearSelectionMode(false);
-            startHonorariaContractEditFromCalendar(profile.name, startISO);
-        }
+        if (!savedContract) return;
+
+        await applyCalendarRotationChange(
+            parseInputDate(savedContract.start)
+        );
 
         return;
     }
@@ -3075,7 +3038,12 @@ async function applyCalendarRotationChange(fecha) {
         } else {
             // Preserva el horario anterior a la fecha elegida antes de reubicar el
             // inicio de la rotativa (evita que se borren los turnos "hacia atras").
-            freezePriorRotationSchedule(startISO);
+            // En Honorarios NO se congela: el motor base computa todo anclado al
+            // primer contrato, y congelar dejaria turnos explicitos que se mezclarian
+            // con la rotativa nueva.
+            if (!isHonorariaContractType(profile.contractType)) {
+                freezePriorRotationSchedule(startISO);
+            }
 
             if (type === "libre") {
                 saveRotativa({
@@ -3911,6 +3879,22 @@ function renderDisponibilidadVacaciones() {
     const profile = getPerfilActual();
     const creating =
         profileDraft.mode === PROFILE_MODE.CREATE;
+    // Honorarios no tiene vacaciones ni permisos: se oculta todo el recuadro.
+    const blocksLeaveBenefits = creating
+        ? contractBlocksLeaveBenefits(profileDraft)
+        : contractBlocksLeaveBenefits(profile || {});
+
+    if (DOM.profileAvailabilityCard) {
+        DOM.profileAvailabilityCard.classList.toggle(
+            "hidden",
+            blocksLeaveBenefits
+        );
+    }
+
+    if (blocksLeaveBenefits) {
+        availabilityEditMode = false;
+        return;
+    }
 
     if (!profile && !creating) {
         availabilityEditMode = false;
@@ -4122,6 +4106,10 @@ function renderLeaveActionLabels() {
         !isReplacementContractType(profile.contractType) &&
         !isHonorariaContractType(profile.contractType) &&
         !isOtherContractType(profile.contractType);
+    // Honorarios no puede tomar P. Administrativo, 1/2 ADM, F. Legal ni permiso sin
+    // goce: esos botones quedan deshabilitados.
+    const blocksLeaveBenefits =
+        contractBlocksLeaveBenefits(profile || {});
 
     DOM.adminBtnLabel.textContent =
         `${adminBase} (${formatSaldo(saldos.admin)})`;
@@ -4132,11 +4120,11 @@ function renderLeaveActionLabels() {
     DOM.hoursReturnBtnLabel.textContent =
         `${hoursReturnBase} (${formatSaldo(saldos.hoursReturn)})`;
 
-    DOM.adminBtn.disabled = saldos.admin <= 0;
-    DOM.halfAdminMorningBtn.disabled = saldos.admin <= 0;
-    DOM.halfAdminAfternoonBtn.disabled = saldos.admin <= 0;
+    DOM.adminBtn.disabled = blocksLeaveBenefits || saldos.admin <= 0;
+    DOM.halfAdminMorningBtn.disabled = blocksLeaveBenefits || saldos.admin <= 0;
+    DOM.halfAdminAfternoonBtn.disabled = blocksLeaveBenefits || saldos.admin <= 0;
     DOM.compBtn.disabled = saldos.comp <= 0;
-    DOM.legalBtn.disabled = saldos.legal <= 0;
+    DOM.legalBtn.disabled = blocksLeaveBenefits || saldos.legal <= 0;
     DOM.licenseBtn.disabled = false;
     DOM.professionalLicenseBtn.disabled = false;
     if (DOM.unionLeaveBtn) {
@@ -4146,7 +4134,7 @@ function renderLeaveActionLabels() {
         );
         DOM.unionLeaveBtn.disabled = !canUseUnionLeave;
     }
-    DOM.unpaidLeaveBtn.disabled = false;
+    DOM.unpaidLeaveBtn.disabled = blocksLeaveBenefits;
     DOM.hoursReturnBtn.disabled = saldos.hoursReturn <= 0;
     DOM.unjustifiedAbsenceBtn.disabled = false;
     DOM.clockMarkBtn.disabled = false;
@@ -4466,52 +4454,9 @@ function renderDashboardState() {
         );
     }
 
-    if (DOM.honorariaStartInput) {
-        DOM.honorariaStartInput.value =
-            data.honorariaStart || "";
-        DOM.honorariaStartInput.disabled =
+    if (DOM.honorariaAddContractBtn) {
+        DOM.honorariaAddContractBtn.disabled =
             !editing || !isHonorariaContract;
-    }
-
-    if (DOM.honorariaEndInput) {
-        DOM.honorariaEndInput.value =
-            data.honorariaEnd || "";
-        DOM.honorariaEndInput.disabled =
-            !editing || !isHonorariaContract;
-    }
-
-    if (DOM.honorariaHourlyRateInput) {
-        DOM.honorariaHourlyRateInput.value =
-            data.honorariaHourlyRate || "";
-        DOM.honorariaHourlyRateInput.disabled =
-            !editing || !isHonorariaContract;
-    }
-
-    if (DOM.honorariaMaxMonthlyHoursInput) {
-        DOM.honorariaMaxMonthlyHoursInput.value =
-            data.honorariaMaxMonthlyHours || "";
-        DOM.honorariaMaxMonthlyHoursInput.disabled =
-            !editing || !isHonorariaContract;
-    }
-
-    if (DOM.honorariaLimitPeriodToggle) {
-        const period =
-            data.honorariaLimitPeriod === "monthly" ? "monthly" : "weekly";
-        const disabled = !editing || !isHonorariaContract;
-
-        DOM.honorariaLimitPeriodToggle.classList.toggle(
-            "is-disabled",
-            disabled
-        );
-        DOM.honorariaLimitPeriodToggle
-            .querySelectorAll(".period-toggle-option")
-            .forEach(button => {
-                const active = button.dataset.period === period;
-
-                button.classList.toggle("is-active", active);
-                button.setAttribute("aria-pressed", active ? "true" : "false");
-                button.disabled = disabled;
-            });
     }
 
     if (isHonorariaContract) {
@@ -7177,28 +7122,426 @@ function startEditMode() {
 // Abre la ficha de un trabajador de Honorarios en modo edicion con el formulario
 // de nuevo contrato prellenado con la fecha clickeada como inicio (flujo desde el
 // calendario cuando se aplica una rotativa fuera de todo contrato vigente).
-function startHonorariaContractEditFromCalendar(profileName, startISO) {
-    if (!canEditCurrentProfileMenu()) return;
+// El rango [start, end] se cruza con contratos existentes: se pregunta si extender
+// el que ya existe (conservando su valor hora y tope) o crear uno distinto (que se
+// recorta para no solaparse). Devuelve "extend" | "create" | "cancel".
+function requestHonorariaOverlapDecision(overlapping) {
+    return new Promise(resolve => {
+        const backdrop = document.createElement("div");
 
-    const profile = getProfiles().find(item => item.name === profileName);
+        backdrop.className = "turn-change-dialog-backdrop";
+        document.body.appendChild(backdrop);
 
-    if (!profile) return;
+        const close = value => {
+            backdrop.remove();
+            resolve(value);
+        };
+        const items = overlapping
+            .map(contract => `
+                <li>
+                    ${escapeHTML(formatContractDate(contract.start))} al ${escapeHTML(formatContractDate(contract.end))}
+                    <span class="honoraria-overlap-meta">
+                        $${Number(contract.hourlyRate || 0).toLocaleString("es-CL")}/h ·
+                        tope ${Number(contract.maxHours || 0)} ${contract.limitPeriod === "monthly" ? "h/mes" : "h/sem"}
+                    </span>
+                </li>
+            `)
+            .join("");
 
-    setCurrentProfile(profileName);
-    clearSelectionMode(false);
-    createAvailabilityBalances = null;
-    profileAvailabilityDraftTouched = false;
-    availabilityEditMode = true;
-    loadDraftFromProfile(profile);
-    profileDraft.mode = PROFILE_MODE.EDIT;
-    // Prellena el inicio del nuevo contrato con la fecha elegida en el calendario.
-    profileDraft.honorariaStart = startISO;
+        backdrop.innerHTML = `
+            <div class="turn-change-dialog honoraria-overlap-dialog" role="dialog" aria-modal="true">
+                <strong>El rango se cruza con otro contrato</strong>
+                <p>
+                    El per&iacute;odo elegido se superpone con
+                    ${overlapping.length === 1 ? "un contrato ya existente" : "contratos ya existentes"}:
+                </p>
+                <ul class="honoraria-overlap-list">${items}</ul>
+                <p>&iquest;Qu&eacute; deseas hacer?</p>
+                <div class="turn-change-dialog__actions honoraria-overlap-actions">
+                    <button class="primary-button" type="button" data-action="extend">
+                        Extender ese contrato
+                    </button>
+                    <button class="secondary-button" type="button" data-action="create">
+                        Crear un contrato distinto
+                    </button>
+                    <button class="ghost-button" type="button" data-action="cancel">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        `;
 
-    renderDashboardState();
-    renderBotones();
-    refreshAll();
-    void setActiveShortcut("profileSection", {
-        skipProfileDraftGuard: true
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) {
+                close("cancel");
+                return;
+            }
+
+            const action = event.target
+                .closest("[data-action]")
+                ?.dataset.action;
+
+            if (action) {
+                close(action);
+            }
+        });
+    });
+}
+
+// Modal interactivo para crear (o extender) un contrato de Honorarios desde el
+// calendario principal. El inicio arranca en el dia clickeado (flecha verde ->);
+// al hacer click en un dia posterior se fija el termino (flecha azul <-) y en uno
+// anterior se mueve el inicio. Permite valor hora, tope y su periodo (semanal o
+// mensual). Los contratos NUNCA se solapan: si el rango toca otro, se pregunta si
+// extenderlo o crear uno recortado. Devuelve el contrato guardado, o null.
+function openHonorariaContractModal({ profileName, startISO = "", contractId = "" }) {
+    return new Promise(resolve => {
+        const existingContracts =
+            getHonorariaContractsForProfile(profileName);
+        // En modo edicion se precargan los datos del contrato; el guardado ACTUALIZA
+        // ese contrato (no crea uno nuevo) y valida que no se cruce con otros.
+        const editingContract = contractId
+            ? existingContracts.find(item => item.id === contractId) || null
+            : null;
+        const editing = Boolean(editingContract);
+        // startISO puede venir vacio (desde el perfil): el supervisor elige el
+        // inicio en el calendario y el modal abre en el mes actual. Desde el
+        // calendario de turnos llega prellenado. parseInputDate("") devuelve una
+        // fecha invalida (no null), asi que hay que validarla explicitamente.
+        const parsedStart = parseInputDate(editingContract?.start || startISO);
+        const state = {
+            monthDate:
+                parsedStart && !Number.isNaN(parsedStart.getTime())
+                    ? parsedStart
+                    : new Date(),
+            start: editingContract?.start || startISO || "",
+            end: editingContract?.end || "",
+            hourlyRate: editingContract ? String(editingContract.hourlyRate || "") : "",
+            maxHours: editingContract ? String(editingContract.maxHours || "") : "",
+            limitPeriod: editingContract?.limitPeriod === "monthly" ? "monthly" : "weekly"
+        };
+        const backdrop = document.createElement("div");
+
+        backdrop.className = "turn-change-dialog-backdrop";
+        document.body.appendChild(backdrop);
+
+        let settled = false;
+        const close = value => {
+            if (settled) return;
+            settled = true;
+            backdrop.remove();
+            resolve(value);
+        };
+
+        const renderCalendar = () => {
+            const y = state.monthDate.getFullYear();
+            const m = state.monthDate.getMonth();
+            const first = (new Date(y, m, 1).getDay() + 6) % 7;
+            const days = new Date(y, m + 1, 0).getDate();
+            let html = `
+                <div class="profile-mini-weekdays">
+                    <span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span>
+                </div>
+                <div class="profile-mini-grid rotation-modal-grid">
+            `;
+
+            for (let i = 0; i < first; i++) {
+                html += `<span class="profile-mini-spacer"></span>`;
+            }
+
+            for (let d = 1; d <= days; d++) {
+                const key = `${y}-${m}-${d}`;
+                const iso = calendarKeyToInputDate(key);
+                const existing = existingContracts.find(contract =>
+                    contract.start <= iso && contract.end >= iso
+                );
+                const isStart = iso === state.start;
+                const isEnd = Boolean(state.end) && iso === state.end;
+                const inRange =
+                    Boolean(state.end) &&
+                    iso > state.start &&
+                    iso < state.end;
+                const classes = ["profile-mini-day", "is-pickable"];
+
+                if (existing) classes.push("has-existing-contract");
+                if (inRange) classes.push("is-contract-range");
+                if (isStart) classes.push("is-contract-start");
+                if (isEnd) classes.push("is-contract-end");
+
+                const marker = isStart
+                    ? '<span class="contract-arrow contract-arrow--start">&rarr;</span>'
+                    : isEnd
+                        ? '<span class="contract-arrow contract-arrow--end">&larr;</span>'
+                        : existing
+                            ? '<span class="contract-day-label contract-day-label--current">Contrato</span>'
+                            : "";
+                const title = existing
+                    ? `Contrato existente: ${formatContractDate(existing.start)} al ${formatContractDate(existing.end)}`
+                    : "";
+
+                html += `
+                    <button type="button" class="${classes.join(" ")}" data-key="${key}" title="${escapeHTML(title)}">
+                        <span>${d}</span>
+                        <small>${marker}</small>
+                    </button>
+                `;
+            }
+
+            return `${html}</div>`;
+        };
+        const render = () => {
+            const heading = state.monthDate.toLocaleString("es-CL", {
+                month: "long",
+                year: "numeric"
+            });
+            const rangeText = !state.start
+                ? "Selecciona el inicio del contrato en el calendario."
+                : state.end
+                    ? `Contrato: ${formatDisplayDate(state.start)} al ${formatDisplayDate(state.end)}.`
+                    : `Inicio: ${formatDisplayDate(state.start)}. Selecciona la fecha de t&eacute;rmino en el calendario.`;
+
+            backdrop.innerHTML = `
+                <div class="turn-change-dialog rotation-config-dialog honoraria-contract-dialog" role="dialog" aria-modal="true">
+                    <strong>${editing ? "Editar contrato de Honorarios" : "Nuevo contrato de Honorarios"}</strong>
+                    <p>${escapeHTML(profileName)}: elige el inicio (<span class="contract-arrow contract-arrow--start">&rarr;</span>) y el t&eacute;rmino (<span class="contract-arrow contract-arrow--end">&larr;</span>) del contrato en el calendario. Haz click en un d&iacute;a posterior para fijar el t&eacute;rmino, o en uno anterior para mover el inicio.</p>
+
+                    <div class="profile-mini-head rotation-modal-head">
+                        <button type="button" data-action="prev" aria-label="Mes anterior">&lt;</button>
+                        <span class="honoraria-contract-month">${escapeHTML(heading)}</span>
+                        <button type="button" data-action="next" aria-label="Mes siguiente">&gt;</button>
+                    </div>
+
+                    <div class="rotation-modal-calendar">
+                        ${renderCalendar()}
+                    </div>
+
+                    <div class="profile-mini-help">${rangeText}</div>
+
+                    <div class="honoraria-contract-fields">
+                        <label class="rotation-contract-field">
+                            <span>Valor hora</span>
+                            <input type="number" min="0" step="1" inputmode="numeric" data-honoraria-rate value="${escapeHTML(state.hourlyRate)}" placeholder="0">
+                        </label>
+
+                        <label class="rotation-contract-field">
+                            <span>M&aacute;ximo de horas</span>
+                            <div class="honoraria-max-hours-cell">
+                                <input type="number" min="0" step="1" inputmode="numeric" data-honoraria-max value="${escapeHTML(state.maxHours)}" placeholder="0">
+                                <div class="period-toggle period-toggle--honoraria-modal" role="group" aria-label="Periodo del tope de horas" data-period-toggle>
+                                    <button type="button" class="period-toggle-option ${state.limitPeriod === "weekly" ? "is-active" : ""}" data-period="weekly" aria-pressed="${state.limitPeriod === "weekly"}">Semanal</button>
+                                    <button type="button" class="period-toggle-option ${state.limitPeriod === "monthly" ? "is-active" : ""}" data-period="monthly" aria-pressed="${state.limitPeriod === "monthly"}">Mensual</button>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="turn-change-dialog__actions">
+                        <button class="primary-button" type="button" data-action="save">${editing ? "Guardar cambios" : "Guardar contrato"}</button>
+                        <button class="secondary-button" type="button" data-action="cancel">Cancelar</button>
+                    </div>
+                </div>
+            `;
+        };
+        const pickDate = key => {
+            const iso = calendarKeyToInputDate(key);
+
+            if (!iso) return;
+
+            if (!state.start) {
+                // Sin inicio aun (no venia prellenado): el primer click lo fija.
+                state.start = iso;
+            } else if (compareISODate(iso, state.start) < 0) {
+                state.start = iso;
+
+                if (state.end && compareISODate(state.end, state.start) <= 0) {
+                    state.end = "";
+                }
+            } else if (compareISODate(iso, state.start) > 0) {
+                state.end = iso;
+            } else {
+                // Click sobre el inicio: reinicia el termino.
+                state.end = "";
+            }
+
+            render();
+        };
+        const save = async () => {
+            const hourlyRate = Number(state.hourlyRate) || 0;
+            const maxHours = Number(state.maxHours) || 0;
+
+            if (!state.start) {
+                alert("Selecciona la fecha de inicio del contrato en el calendario.");
+                return;
+            }
+
+            if (!state.end) {
+                alert("Selecciona la fecha de término del contrato en el calendario.");
+                return;
+            }
+
+            if (!(hourlyRate > 0)) {
+                alert("Ingresa el valor hora del contrato.");
+                return;
+            }
+
+            if (!(maxHours > 0)) {
+                alert("Ingresa el máximo de horas del contrato.");
+                return;
+            }
+
+            // Edicion: se actualiza el contrato existente. No debe cruzarse con los
+            // demas (se excluye a si mismo de la comprobacion).
+            if (editing) {
+                const crosses = existingContracts.some(contract =>
+                    contract.id !== contractId &&
+                    contract.start <= state.end &&
+                    contract.end >= state.start
+                );
+
+                if (crosses) {
+                    alert("El nuevo rango se cruza con otro contrato. Ajusta las fechas para que no se solapen.");
+                    return;
+                }
+
+                close(updateHonorariaContract(profileName, contractId, {
+                    start: state.start,
+                    end: state.end,
+                    hourlyRate,
+                    maxHours,
+                    limitPeriod: state.limitPeriod
+                }));
+                return;
+            }
+
+            const overlapping = existingContracts.filter(contract =>
+                contract.start <= state.end && contract.end >= state.start
+            );
+            let saved = null;
+
+            if (overlapping.length) {
+                const decision =
+                    await requestHonorariaOverlapDecision(overlapping);
+
+                if (decision === "cancel" || !decision) return;
+
+                if (decision === "extend") {
+                    const target = overlapping[0];
+                    const others = existingContracts.filter(contract =>
+                        contract.id !== target.id
+                    );
+                    const unionStart =
+                        target.start < state.start ? target.start : state.start;
+                    const unionEnd =
+                        target.end > state.end ? target.end : state.end;
+                    const clamped =
+                        clampContractRange(unionStart, unionEnd, others) ||
+                        { start: unionStart, end: unionEnd };
+
+                    saved = updateHonorariaContract(profileName, target.id, {
+                        start: clamped.start,
+                        end: clamped.end
+                    });
+                } else {
+                    const clamped = clampContractRange(
+                        state.start,
+                        state.end,
+                        existingContracts
+                    );
+
+                    if (!clamped) {
+                        alert("No queda ningún día libre para el nuevo contrato sin solaparse con los existentes.");
+                        return;
+                    }
+
+                    saved = addHonorariaContract(profileName, {
+                        start: clamped.start,
+                        end: clamped.end,
+                        hourlyRate,
+                        maxHours,
+                        limitPeriod: state.limitPeriod
+                    });
+                }
+            } else {
+                saved = addHonorariaContract(profileName, {
+                    start: state.start,
+                    end: state.end,
+                    hourlyRate,
+                    maxHours,
+                    limitPeriod: state.limitPeriod
+                });
+            }
+
+            close(saved);
+        };
+
+        backdrop.addEventListener("input", event => {
+            const target =
+                event.target instanceof Element ? event.target : null;
+
+            if (!target) return;
+
+            if (target.matches("[data-honoraria-rate]")) {
+                state.hourlyRate = target.value;
+            } else if (target.matches("[data-honoraria-max]")) {
+                state.maxHours = target.value;
+            }
+        });
+
+        backdrop.addEventListener("click", async event => {
+            if (event.target === backdrop) {
+                close(null);
+                return;
+            }
+
+            const targetElement =
+                event.target instanceof Element
+                    ? event.target
+                    : event.target.parentElement;
+
+            const periodButton =
+                targetElement?.closest("[data-period]");
+
+            if (periodButton) {
+                state.limitPeriod =
+                    periodButton.dataset.period === "monthly"
+                        ? "monthly"
+                        : "weekly";
+                render();
+                return;
+            }
+
+            const dayButton =
+                targetElement?.closest(".profile-mini-day");
+
+            if (dayButton?.dataset.key && !dayButton.disabled) {
+                pickDate(dayButton.dataset.key);
+                return;
+            }
+
+            const action =
+                targetElement?.closest("[data-action]")?.dataset.action;
+
+            if (action === "prev" || action === "next") {
+                state.monthDate = new Date(
+                    state.monthDate.getFullYear(),
+                    state.monthDate.getMonth() + (action === "next" ? 1 : -1),
+                    1
+                );
+                render();
+                return;
+            }
+
+            if (action === "save") {
+                await save();
+                return;
+            }
+
+            if (action === "cancel") {
+                close(null);
+            }
+        });
+
+        render();
     });
 }
 
@@ -8085,11 +8428,36 @@ async function applyDraftRotation(
     firstTurn = "larga",
     options = {}
 ) {
+    // Honorarios: la rotativa se escribe como turnos EXPLICITOS desde la fecha
+    // elegida hasta el fin del contrato que la contiene (el motor base no computa
+    // honorarios, para no mezclar anclas). Se acota el rango al contrato para no
+    // pintar dias fuera de el y para preservar los dias anteriores del contrato.
+    const rotationProfileName = getCurrentProfile();
+    const isHonoraria =
+        Boolean(rotationProfileName) &&
+        isHonorariaProfile(rotationProfileName);
+    let endISO = options.endISO || "";
+
+    if (isHonoraria && rotationStart) {
+        const contract = getHonorariaContractsForProfile(rotationProfileName)
+            .find(item =>
+                item.start <= rotationStart && item.end >= rotationStart
+            );
+
+        if (contract?.end) {
+            endISO = endISO
+                ? (compareISODate(endISO, contract.end) <= 0
+                    ? endISO
+                    : contract.end)
+                : contract.end;
+        }
+    }
+
     if (rotationType === "libre") {
         if (options.cleanupStart) {
             await cleanupFutureSchedule(
                 parseInputDate(options.cleanupStart),
-                { endISO: options.endISO }
+                { endISO }
             );
         }
 
@@ -8099,9 +8467,7 @@ async function applyDraftRotation(
 
     const startDate = parseInputDate(rotationStart);
 
-    await cleanupFutureSchedule(startDate, {
-        endISO: options.endISO
-    });
+    await cleanupFutureSchedule(startDate, { endISO });
 
     if (rotationType === "reemplazo") {
         refreshAll();
@@ -8109,22 +8475,16 @@ async function applyDraftRotation(
     }
 
     if (rotationType === "diurno") {
-        await aplicarDiurnoDesde(startDate, {
-            endISO: options.endISO
-        });
+        await aplicarDiurnoDesde(startDate, { endISO });
         return;
     }
 
     if (rotationType === "3turno") {
-        await aplicarTercerTurnoDesde(startDate, firstTurn, {
-            endISO: options.endISO
-        });
+        await aplicarTercerTurnoDesde(startDate, firstTurn, { endISO });
         return;
     }
 
-    await aplicarCuartoTurnoDesde(startDate, firstTurn, {
-        endISO: options.endISO
-    });
+    await aplicarCuartoTurnoDesde(startDate, firstTurn, { endISO });
 }
 
 async function requestShiftAssignmentEffectiveMonth(assigned) {
@@ -9907,71 +10267,56 @@ function bindProfileForm() {
         };
     }
 
-    if (DOM.honorariaStartInput) {
-        DOM.honorariaStartInput.onchange = () => {
-            if (!isProfileEditing()) return;
-
-            profileDraft.honorariaStart =
-                DOM.honorariaStartInput.value;
-            renderDashboardState();
-        };
-    }
-
-    if (DOM.honorariaEndInput) {
-        DOM.honorariaEndInput.onchange = () => {
-            if (!isProfileEditing()) return;
-
-            profileDraft.honorariaEnd =
-                DOM.honorariaEndInput.value;
-            renderDashboardState();
-        };
-    }
-
-    if (DOM.honorariaHourlyRateInput) {
-        DOM.honorariaHourlyRateInput.oninput = () => {
-            if (!isProfileEditing()) return;
-
-            profileDraft.honorariaHourlyRate =
-                DOM.honorariaHourlyRateInput.value;
-        };
-    }
-
-    if (DOM.honorariaMaxMonthlyHoursInput) {
-        DOM.honorariaMaxMonthlyHoursInput.oninput = () => {
-            if (!isProfileEditing()) return;
-
-            profileDraft.honorariaMaxMonthlyHours =
-                DOM.honorariaMaxMonthlyHoursInput.value;
-        };
-    }
-
-    if (DOM.honorariaLimitPeriodToggle) {
-        DOM.honorariaLimitPeriodToggle.onclick = event => {
-            const button = event.target.closest(".period-toggle-option");
-
-            if (!button || !isProfileEditing()) return;
-
-            profileDraft.honorariaLimitPeriod =
-                button.dataset.period === "monthly" ? "monthly" : "weekly";
-            renderDashboardState();
-        };
-    }
-
     if (DOM.honorariaAddContractBtn) {
-        DOM.honorariaAddContractBtn.onclick = () => {
-            void addHonorariaContractFromForm();
+        DOM.honorariaAddContractBtn.onclick = async () => {
+            if (!isProfileEditing()) return;
+
+            const profileName = honorariaContractProfileName();
+
+            if (!profileName) {
+                alert("Indica primero el nombre del trabajador.");
+                return;
+            }
+
+            // Mismo modal que en el calendario, sin fecha prellenada: el supervisor
+            // elige inicio y termino sobre el calendario.
+            const saved = await openHonorariaContractModal({ profileName });
+
+            if (saved) {
+                renderDashboardState();
+                refreshAll();
+            }
         };
     }
 
     if (DOM.honorariaContractList) {
         DOM.honorariaContractList.onclick = async event => {
-            const button = event.target.closest("[data-honoraria-remove]");
-
-            if (!button || !isProfileEditing()) return;
+            if (!isProfileEditing()) return;
 
             const profileName = honorariaContractProfileName();
 
             if (!profileName) return;
+
+            const editButton =
+                event.target.closest("[data-honoraria-edit]");
+
+            if (editButton) {
+                const saved = await openHonorariaContractModal({
+                    profileName,
+                    contractId: editButton.dataset.honorariaEdit
+                });
+
+                if (saved) {
+                    renderDashboardState();
+                    refreshAll();
+                }
+
+                return;
+            }
+
+            const button = event.target.closest("[data-honoraria-remove]");
+
+            if (!button) return;
 
             if (!await showConfirm(
                 "¿Eliminar este contrato de honorarios?",

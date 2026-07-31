@@ -104,8 +104,10 @@ import {
     workerHasAbsence
 } from "./replacements.js";
 import {
+    getHonorariaContractsForProfile,
     getInheritedReplacementContractForCoveredShift,
     hasContractForDate,
+    isHonorariaProfile,
     isReplacementProfile
 } from "./contracts.js";
 import {
@@ -2568,6 +2570,16 @@ function scheduleCalendarAuditLog({
     );
 }
 
+// Logo documento+lapiz para marcar, en el calendario principal, los dias con un
+// contrato de Honorarios vigente (indica que ese dia admite turnos).
+const HONORARIA_CONTRACT_ICON = `
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5"/>
+        <path d="M14 2v4a2 2 0 0 0 2 2h4"/>
+        <path d="M10.42 12.61a2.1 2.1 0 1 1 2.97 2.97L7.95 21 4 22l.99-3.95 5.43-5.44Z"/>
+    </svg>
+`;
+
 function buildDayCell({
     day,
     month,
@@ -2580,7 +2592,8 @@ function buildDayCell({
     title,
     isWeekendDay,
     isHoliday,
-    isDraftSelected
+    isDraftSelected,
+    hasHonorariaContract
 }) {
     const div = document.createElement("div");
 
@@ -2610,6 +2623,14 @@ function buildDayCell({
         div.classList.add("draft-selected");
     }
 
+    if (hasHonorariaContract) {
+        div.classList.add("honoraria-contract-day");
+    }
+
+    const contractMarkHTML = hasHonorariaContract
+        ? `<span class="day-contract-mark" title="Contrato de honorarios vigente">${HONORARIA_CONTRACT_ICON}</span>`
+        : "";
+
     const visibleBadges = Array.isArray(badges)
         ? badges.filter(Boolean)
         : (badge ? [badge] : []);
@@ -2636,6 +2657,7 @@ function buildDayCell({
 
     div.innerHTML = `
         <span class="day-number">${day}</span>
+        ${contractMarkHTML}
         <span class="day-label-stack">
             ${labelHTML}
             ${badgeHTML}
@@ -6323,6 +6345,10 @@ async function renderCalendarImpl(options = {}) {
         m,
         holidays
     );
+    const isHonorariaActive = isHonorariaProfile(activeProfile);
+    const honorariaContracts = isHonorariaActive
+        ? getHonorariaContractsForProfile(activeProfile)
+        : [];
     finishWorkerContext({
         days,
         workerId: activeWorkerId
@@ -6371,6 +6397,11 @@ async function renderCalendarImpl(options = {}) {
         const isHoliday = holidays[keyDay];
         const isHab = isBusinessDay(date, holidays);
         const isoDay = isoFromKeyDay(keyDay);
+        const honorariaContractDay =
+            isHonorariaActive &&
+            honorariaContracts.some(contract =>
+                contract.start <= isoDay && contract.end >= isoDay
+            );
         const shiftAssigned = shiftAssignedForDate(date);
 
         const turnChangeMarkers =
@@ -6602,7 +6633,8 @@ async function renderCalendarImpl(options = {}) {
                 (
                     window.selectionMode === "moveshifttarget" &&
                     window.pendingShiftMoveSourceKey === keyDay
-                )
+                ),
+            hasHonorariaContract: honorariaContractDay
         });
 
         div.dataset.keyDay = keyDay;

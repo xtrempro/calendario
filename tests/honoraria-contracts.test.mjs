@@ -55,12 +55,18 @@ test("resuelve el contrato y el valor hora por fecha", () => {
     assert.equal(getValorHora(N, new Date(2026, 7, 10)), 8000);
 });
 
-test("la rotativa solo aplica dentro de un contrato vigente", () => {
+test("los turnos de honorarios solo se ven dentro de un contrato vigente", () => {
     seedTwoContracts();
+    // En honorarios los turnos van EXPLICITOS (no se computan): se guarda uno
+    // dentro del contrato de julio y otro en septiembre (sin contrato).
+    setJSON("baseData_" + N, {
+        "2026-6-6": TURNO.DIURNO,   // 6 de julio, dentro del contrato
+        "2026-8-7": TURNO.DIURNO    // 7 de septiembre, sin contrato
+    });
 
-    // Lunes 6 de julio (con contrato) -> diurno
+    // Dentro del contrato se ve el turno guardado.
     assert.equal(getTurnoBase(N, "2026-6-6"), TURNO.DIURNO);
-    // Septiembre (mes 8), sin contrato -> libre
+    // Fuera de todo contrato queda libre aunque haya turno guardado (enmascarado).
     assert.equal(getTurnoBase(N, "2026-8-7"), TURNO.LIBRE);
 });
 
@@ -136,24 +142,27 @@ test("el tope puede ser semanal o mensual por contrato", () => {
     assert.ok(overtime("monthly") > 0);
 });
 
-test("la rotativa se ancla al contrato aunque su start quede desalineado", () => {
+test("los turnos guardados se ven aunque la rotativa quede desalineada", () => {
     localStorage.clear();
     setJSON("profiles", [
         { name: N, contractType: "Honorarios", estamento: "Profesional" }
     ]);
-    // Contrato 01-17/07 pero la rotativa quedo desde 30/07 (p.ej. de un contrato
-    // que se elimino): antes el calendario quedaba en blanco.
+    // Contrato 01-17/07 con turnos guardados, y una rotativa con start desalineado
+    // (30/07, p.ej. de un contrato eliminado): los turnos guardados igual se ven
+    // porque no dependen del ancla de la rotativa.
     setJSON("honorariaContracts_" + N, [
         { id: "c1", start: "2026-07-01", end: "2026-07-17", hourlyRate: 3000, maxWeeklyHours: 44 }
     ]);
     setJSON("rotativa_" + N, {
         type: "4turno", start: "2026-07-30", firstTurn: "larga"
     });
+    setJSON("baseData_" + N, {
+        "2026-6-5": TURNO.LARGA,
+        "2026-6-6": TURNO.NOCHE
+    });
 
-    const turns = [];
-    for (let d = 1; d <= 17; d++) turns.push(getTurnoBase(N, `2026-6-${d}`));
-
-    assert.ok(turns.some(t => t !== TURNO.LIBRE), "debe pintar turnos en el contrato");
+    assert.equal(getTurnoBase(N, "2026-6-5"), TURNO.LARGA);
+    assert.equal(getTurnoBase(N, "2026-6-6"), TURNO.NOCHE);
     // Fuera del contrato sigue libre.
     assert.equal(getTurnoBase(N, "2026-6-18"), TURNO.LIBRE);
 });
@@ -203,4 +212,96 @@ test("borrar todos los contratos no re-migra el legado", () => {
 
     assert.equal(contracts.getHonorariaContractsForProfile(N).length, 0);
     assert.equal(legacy.hourlyRate, 6000);
+});
+
+test("extender un contrato conserva su tarifa y tope, solo cambia fechas", () => {
+    localStorage.clear();
+    setJSON("profiles", [
+        { name: N, contractType: "Honorarios", estamento: "Profesional" }
+    ]);
+    setJSON("honorariaContracts_" + N, [
+        { id: "c1", start: "2026-07-01", end: "2026-07-15", hourlyRate: 5000, maxHours: 20, limitPeriod: "monthly" }
+    ]);
+
+    const updated = contracts.updateHonorariaContract(N, "c1", {
+        start: "2026-07-01",
+        end: "2026-07-31"
+    });
+
+    assert.equal(updated.end, "2026-07-31");
+    assert.equal(updated.hourlyRate, 5000);
+    assert.equal(updated.maxHours, 20);
+    assert.equal(updated.limitPeriod, "monthly");
+
+    const [stored] = contracts.getHonorariaContractsForProfile(N);
+    assert.equal(stored.end, "2026-07-31");
+    assert.equal(stored.hourlyRate, 5000);
+    assert.equal(stored.maxHours, 20);
+});
+
+test("editar un contrato actualiza fechas, tarifa, tope y periodo", () => {
+    localStorage.clear();
+    setJSON("profiles", [
+        { name: N, contractType: "Honorarios", estamento: "Profesional" }
+    ]);
+    setJSON("honorariaContracts_" + N, [
+        { id: "c1", start: "2026-07-01", end: "2026-07-15", hourlyRate: 5000, maxHours: 20, limitPeriod: "weekly" }
+    ]);
+
+    const updated = contracts.updateHonorariaContract(N, "c1", {
+        start: "2026-07-05",
+        end: "2026-07-20",
+        hourlyRate: 7000,
+        maxHours: 44,
+        limitPeriod: "monthly"
+    });
+
+    assert.equal(updated.start, "2026-07-05");
+    assert.equal(updated.end, "2026-07-20");
+    assert.equal(updated.hourlyRate, 7000);
+    assert.equal(updated.maxHours, 44);
+    assert.equal(updated.limitPeriod, "monthly");
+
+    const [stored] = contracts.getHonorariaContractsForProfile(N);
+    assert.equal(stored.hourlyRate, 7000);
+    assert.equal(stored.limitPeriod, "monthly");
+});
+
+test("extender el contrato legado lo materializa con un id real", () => {
+    localStorage.clear();
+    setJSON("profiles", [{
+        name: N, contractType: "Honorarios", estamento: "Profesional",
+        honorariaStart: "2026-07-01", honorariaEnd: "2026-07-15",
+        honorariaHourlyRate: 6000, honorariaMaxMonthlyHours: 30
+    }]);
+
+    const updated = contracts.updateHonorariaContract(N, "legacy", {
+        end: "2026-07-31"
+    });
+
+    assert.ok(updated);
+    assert.notEqual(updated.id, "legacy");
+    assert.equal(updated.hourlyRate, 6000);
+    assert.equal(updated.end, "2026-07-31");
+
+    const list = contracts.getHonorariaContractsForProfile(N);
+    assert.equal(list.length, 1);
+    assert.notEqual(list[0].id, "legacy");
+    assert.equal(list[0].end, "2026-07-31");
+});
+
+test("crear un contrato distinto se recorta para no solaparse", () => {
+    const existing = [{ start: "2026-07-10", end: "2026-07-20" }];
+
+    // Solapa por el final -> termina el dia antes del contrato existente.
+    assert.deepEqual(
+        contracts.clampContractRange("2026-07-01", "2026-07-15", existing),
+        { start: "2026-07-01", end: "2026-07-09" }
+    );
+
+    // Solapa por el inicio -> empieza el dia despues del contrato existente.
+    assert.deepEqual(
+        contracts.clampContractRange("2026-07-15", "2026-07-31", existing),
+        { start: "2026-07-21", end: "2026-07-31" }
+    );
 });
