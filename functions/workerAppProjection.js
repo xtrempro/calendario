@@ -173,13 +173,14 @@ function missingProjectionProfiles(linkDocs, projectedUids) {
     return [...missing];
 }
 
-// uid con proyeccion real: su workerAppData tiene un status (la proyeccion lo
-// escribe). Un doc sin status es parcial y no cuenta como proyectado.
+// uid con proyeccion real: su workerAppData tiene un status final (active o
+// inactive). Un doc sin status es parcial y profile_not_found se reintenta:
+// puede ser un enlace con nombre desactualizado que ahora calza por RUT.
 function projectedUidsFromDocs(dataDocs) {
     return dataDocs
         .filter(doc => {
-            const status = doc?.status;
-            return typeof status === "string" && status.trim() !== "";
+            const status = String(doc?.status || "").trim();
+            return status && status !== "profile_not_found";
         })
         .map(doc => doc.id);
 }

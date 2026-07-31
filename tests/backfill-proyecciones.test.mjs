@@ -29,11 +29,11 @@ const projectedUidsFromDocs = new Function(
 test("solo cuentan como proyectados los workerAppData con status", () => {
   const docs = [
     { id: "u1", status: "active" },        // proyectado
-    { id: "u2", status: "profile_not_found" }, // proyectado (aunque no calce)
+    { id: "u2", status: "profile_not_found" }, // se reintenta: pudo fallar por nombre viejo
     { id: "u3" },                          // parcial (sin status) -> NO
     { id: "u4", status: "  " }             // status vacio -> NO
   ];
-  assert.deepEqual(projectedUidsFromDocs(docs).sort(), ["u1", "u2"]);
+  assert.deepEqual(projectedUidsFromDocs(docs).sort(), ["u1"]);
 });
 
 test("faltan los enlazados sin proyeccion real (incluye docs parciales)", () => {
