@@ -8,6 +8,7 @@ import {
 } from "./storage.js";
 import {
     getContractsForProfile,
+    getHonorariaContractsForProfile,
     isHonorariaContractType,
     isReplacementContractType,
     isReplacementProfile
@@ -275,6 +276,19 @@ function profileOverlapsStaffingYear(profile, year, type) {
     }
 
     if (type === "honorarios") {
+        const contracts = getHonorariaContractsForProfile(profile);
+
+        if (contracts.length) {
+            return contracts.some(contract =>
+                dateRangeOverlapsYear(
+                    contract.start,
+                    contract.end,
+                    year,
+                    { includeUndated }
+                )
+            );
+        }
+
         return dateRangeOverlapsYear(
             profile.honorariaStart ||
                 profile.contractStart,

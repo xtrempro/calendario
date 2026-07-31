@@ -57,6 +57,7 @@ export function getDisplayedProfileData(){
             honorariaEnd: profileDraft.honorariaEnd,
             honorariaHourlyRate: profileDraft.honorariaHourlyRate,
             honorariaMaxMonthlyHours: profileDraft.honorariaMaxMonthlyHours,
+            honorariaLimitPeriod: profileDraft.honorariaLimitPeriod,
             unionLeaveEnabled: profileDraft.unionLeaveEnabled,
             shiftAssigned: profileDraft.shiftAssigned
         };
@@ -89,6 +90,7 @@ export function getDisplayedProfileData(){
             honorariaEnd: profileDraft.honorariaEnd,
             honorariaHourlyRate: profileDraft.honorariaHourlyRate,
             honorariaMaxMonthlyHours: profileDraft.honorariaMaxMonthlyHours,
+            honorariaLimitPeriod: profileDraft.honorariaLimitPeriod,
             unionLeaveEnabled: profileDraft.unionLeaveEnabled,
             shiftAssigned: profileDraft.shiftAssigned
         };
@@ -121,6 +123,7 @@ export function getDisplayedProfileData(){
             honorariaEnd: "",
             honorariaHourlyRate: "",
             honorariaMaxMonthlyHours: "",
+            honorariaLimitPeriod: "weekly",
             unionLeaveEnabled: false,
             shiftAssigned: false
         };
@@ -162,6 +165,7 @@ export function getDisplayedProfileData(){
         honorariaEnd: profile.honorariaEnd || "",
         honorariaHourlyRate: String(profile.honorariaHourlyRate || ""),
         honorariaMaxMonthlyHours: String(profile.honorariaMaxMonthlyHours || ""),
+        honorariaLimitPeriod: "weekly",
         unionLeaveEnabled: Boolean(profile.unionLeaveEnabled),
         shiftAssigned: getShiftAssignmentConfiguredState(profile.name)
     };

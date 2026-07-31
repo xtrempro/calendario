@@ -24,6 +24,7 @@ import {
     getReplacedProfileForDate,
     hasContractForDate,
     hasHonorariaContractForDate,
+    earliestHonorariaContractStart,
     isHonorariaProfile,
     isReplacementProfile
 } from "./contracts.js";
@@ -321,16 +322,21 @@ function rotativaTurnoBase(nombre, key, visited = new Set()) {
         return TURNO.LIBRE;
     }
 
-    if (
-        isHonorariaProfile(nombre) &&
-        !hasHonorariaContractForDate(nombre, key)
-    ) {
+    const isHonoraria = isHonorariaProfile(nombre);
+
+    if (isHonoraria && !hasHonorariaContractForDate(nombre, key)) {
         return TURNO.LIBRE;
     }
 
     const rotativa = getRotativa(nombre);
     const date = parseKeyDate(key);
-    const start = parseISODate(rotativa.start);
+    // Honorarios: la rotativa se ancla al inicio del PRIMER contrato vigente (no a
+    // rotativa.start), para cubrir siempre los contratos aunque se elimine uno o
+    // el start quede desalineado. El resto de contratos usa rotativa.start.
+    const anchorISO = isHonoraria
+        ? (earliestHonorariaContractStart(nombre) || rotativa.start)
+        : rotativa.start;
+    const start = parseISODate(anchorISO);
 
     if (!date || !start || date < start) return TURNO.LIBRE;
 

@@ -47,6 +47,7 @@ const PREFIX_KEY_MODULES = [
     ["gradeHistory_", "profile"],
     ["contractHistory_", "profile"],
     ["replacementContracts_", "profile"],
+    ["honorariaContracts_", "profile"],
     ["hrLogs_", "profile"],
     ["data_", "turnos"],
     ["admin_", "turnos"],

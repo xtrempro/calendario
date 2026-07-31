@@ -387,6 +387,9 @@ import {
 } from "./memos.js";
 import {
     addReplacementContract,
+    addHonorariaContract,
+    removeHonorariaContract,
+    getHonorariaContractsForProfile,
     clampContractRange,
     formatContractDate,
     getContractsForProfile,
@@ -1150,6 +1153,111 @@ function contractBlocksShiftAssignment(data = profileDraft) {
         isHonorariaDraft(data) ||
         isOtherContractType(data.contractType)
     );
+}
+
+// Nombre bajo el que se guardan/leen los contratos de Honorarios: al crear es el
+// nombre tipeado; al editar, el perfil actual guardado.
+function honorariaContractProfileName() {
+    if (profileDraft.mode === PROFILE_MODE.CREATE) {
+        return String(profileDraft.name || "").trim();
+    }
+
+    return getCurrentProfile() ||
+        profileDraft.originalName ||
+        String(profileDraft.name || "").trim();
+}
+
+// Verdadero si algun contrato de Honorarios del trabajador cubre esa fecha ISO.
+function honorariaContractCoversISO(iso) {
+    if (!iso) return false;
+
+    return getHonorariaContractsForProfile(honorariaContractProfileName())
+        .some(contract =>
+            contract.start <= iso &&
+            contract.end >= iso
+        );
+}
+
+function renderHonorariaContractList(profileName) {
+    if (!DOM.honorariaContractList) return;
+
+    const contracts = profileName
+        ? getHonorariaContractsForProfile(profileName)
+        : [];
+    const editing = isProfileEditing();
+
+    if (!contracts.length) {
+        DOM.honorariaContractList.innerHTML =
+            `<div class="honoraria-contract-empty">Sin contratos de honorarios. Agrega el primero abajo.</div>`;
+        return;
+    }
+
+    DOM.honorariaContractList.innerHTML = contracts
+        .map(contract => `
+            <div class="honoraria-contract-item">
+                <div class="honoraria-contract-item-info">
+                    <strong>${escapeHTML(formatDisplayDate(contract.start))} al ${escapeHTML(formatDisplayDate(contract.end))}</strong>
+                    <small>Valor hora $${escapeHTML(String(contract.hourlyRate))} · Tope ${escapeHTML(String(contract.maxHours))} ${contract.limitPeriod === "monthly" ? "h/mes" : "h/sem"}</small>
+                </div>
+                ${editing
+                    ? `<button type="button" class="honoraria-contract-remove" data-honoraria-remove="${escapeHTML(contract.id)}" title="Eliminar contrato" aria-label="Eliminar contrato">&times;</button>`
+                    : ""}
+            </div>
+        `)
+        .join("");
+}
+
+async function addHonorariaContractFromForm() {
+    if (!isProfileEditing()) return;
+
+    const profileName = honorariaContractProfileName();
+
+    if (!profileName) {
+        alert("Primero escribe el nombre del trabajador.");
+        return;
+    }
+
+    const start = normalizeStoredStart(profileDraft.honorariaStart || "");
+    const end = normalizeStoredStart(profileDraft.honorariaEnd || "");
+    const hourlyRate = Number(profileDraft.honorariaHourlyRate) || 0;
+    const maxHours = Number(profileDraft.honorariaMaxMonthlyHours) || 0;
+    const limitPeriod =
+        profileDraft.honorariaLimitPeriod === "monthly"
+            ? "monthly"
+            : "weekly";
+
+    if (!start || !end) {
+        alert("Indica el inicio y el termino del contrato.");
+        return;
+    }
+
+    if (start > end) {
+        alert("El inicio del contrato no puede ser posterior al termino.");
+        return;
+    }
+
+    if (!(hourlyRate > 0)) {
+        alert("Indica el valor de la hora del contrato.");
+        return;
+    }
+
+    addHonorariaContract(profileName, {
+        start,
+        end,
+        hourlyRate,
+        maxHours,
+        limitPeriod
+    });
+
+    // Limpia el formulario para el siguiente contrato.
+    profileDraft.honorariaStart = "";
+    profileDraft.honorariaEnd = "";
+    profileDraft.honorariaHourlyRate = "";
+    profileDraft.honorariaMaxMonthlyHours = "";
+    profileDraft.honorariaLimitPeriod = "weekly";
+
+    renderDashboardState();
+    refreshAll();
 }
 
 function placeProfileRotationRow(isHonorariaContract) {
@@ -2061,14 +2169,9 @@ function openRotationConfigModal(
 
             if (
                 isHonoraria &&
-                (
-                    !profileDraft.honorariaStart ||
-                    !profileDraft.honorariaEnd ||
-                    compareISODate(selected, profileDraft.honorariaStart) < 0 ||
-                    compareISODate(selected, profileDraft.honorariaEnd) > 0
-                )
+                !honorariaContractCoversISO(selected)
             ) {
-                alert("Selecciona una fecha de inicio dentro de la vigencia del contrato de Honorarios.");
+                alert("Selecciona una fecha de inicio dentro de la vigencia de un contrato de Honorarios.");
                 return;
             }
 
@@ -2313,12 +2416,7 @@ function openRotationConfigModal(
             const cell = document.createElement("button");
             const outsideHonorariaContract =
                 isHonoraria &&
-                (
-                    !profileDraft.honorariaStart ||
-                    !profileDraft.honorariaEnd ||
-                    compareISODate(iso, profileDraft.honorariaStart) < 0 ||
-                    compareISODate(iso, profileDraft.honorariaEnd) > 0
-                );
+                !honorariaContractCoversISO(iso);
             const beforeUnitEntry =
                 !isReplacement &&
                 isBeforeDraftUnitEntryDate(iso);
@@ -2483,7 +2581,7 @@ function openRotationConfigModal(
         const instructions = isReplacement
             ? "Selecciona a quien reemplaza y luego el permiso/ausencia que origina el reemplazo. El contrato tomara exactamente las mismas fechas."
             : isHonoraria
-                ? `Selecciona el inicio de la rotativa dentro de la vigencia del contrato de Honorarios: ${formatDisplayDate(profileDraft.honorariaStart)} al ${formatDisplayDate(profileDraft.honorariaEnd)}.`
+                ? "Selecciona el inicio de la rotativa dentro de la vigencia de un contrato de Honorarios."
             : requiresRotationFirstTurn(type)
                 ? "Selecciona desde que fecha se aplicara la rotativa y desde que punto de la secuencia comenzara."
                 : "Selecciona desde que fecha se aplicara la rotativa escogida.";
@@ -2925,14 +3023,29 @@ async function applyCalendarRotationChange(fecha) {
 
     if (
         isHonorariaContractType(profile.contractType) &&
-        (
-            !profile.honorariaStart ||
-            !profile.honorariaEnd ||
-            compareISODate(startISO, profile.honorariaStart) < 0 ||
-            compareISODate(startISO, profile.honorariaEnd) > 0
+        !getHonorariaContractsForProfile(profile.name).some(contract =>
+            contract.start <= startISO &&
+            contract.end >= startISO
         )
     ) {
-        alert("Selecciona una fecha dentro de la vigencia del contrato de Honorarios.");
+        // Sin contrato vigente esa fecha: se ofrece crear uno y abrir el
+        // formulario (con la fecha clickeada prellenada como inicio).
+        const addContract = await showConfirm(
+            `${profile.name} no tiene un contrato de Honorarios vigente el ${formatDisplayDate(startISO)}.\n\n¿Agregar un nuevo contrato para aplicar la rotativa en esa fecha?`,
+            {
+                title: "Sin contrato vigente",
+                tone: "warning",
+                confirmText: "Agregar contrato",
+                cancelText: "Cancelar"
+            }
+        );
+
+        if (addContract) {
+            pendingRotationChange = null;
+            clearSelectionMode(false);
+            startHonorariaContractEditFromCalendar(profile.name, startISO);
+        }
+
         return;
     }
 
@@ -4381,12 +4494,34 @@ function renderDashboardState() {
             !editing || !isHonorariaContract;
     }
 
+    if (DOM.honorariaLimitPeriodToggle) {
+        const period =
+            data.honorariaLimitPeriod === "monthly" ? "monthly" : "weekly";
+        const disabled = !editing || !isHonorariaContract;
+
+        DOM.honorariaLimitPeriodToggle.classList.toggle(
+            "is-disabled",
+            disabled
+        );
+        DOM.honorariaLimitPeriodToggle
+            .querySelectorAll(".period-toggle-option")
+            .forEach(button => {
+                const active = button.dataset.period === period;
+
+                button.classList.toggle("is-active", active);
+                button.setAttribute("aria-pressed", active ? "true" : "false");
+                button.disabled = disabled;
+            });
+    }
+
+    if (isHonorariaContract) {
+        renderHonorariaContractList(honorariaContractProfileName());
+    }
+
     if (DOM.honorariaContractStatus) {
         DOM.honorariaContractStatus.textContent =
             isHonorariaContract
-                ? data.honorariaStart && data.honorariaEnd
-                    ? `La rotativa se mostrara solamente entre ${formatDisplayDate(data.honorariaStart)} y ${formatDisplayDate(data.honorariaEnd)}.`
-                    : "Completa la vigencia para limitar la aplicacion de la rotativa."
+                ? "La rotativa se aplica solo dentro de la vigencia de un contrato. Los turnos fuera de todo contrato quedan libres."
                 : "";
     }
 
@@ -7039,6 +7174,34 @@ function startEditMode() {
     // automatico. En cambio, crear un perfil nuevo si enfoca el nombre.
 }
 
+// Abre la ficha de un trabajador de Honorarios en modo edicion con el formulario
+// de nuevo contrato prellenado con la fecha clickeada como inicio (flujo desde el
+// calendario cuando se aplica una rotativa fuera de todo contrato vigente).
+function startHonorariaContractEditFromCalendar(profileName, startISO) {
+    if (!canEditCurrentProfileMenu()) return;
+
+    const profile = getProfiles().find(item => item.name === profileName);
+
+    if (!profile) return;
+
+    setCurrentProfile(profileName);
+    clearSelectionMode(false);
+    createAvailabilityBalances = null;
+    profileAvailabilityDraftTouched = false;
+    availabilityEditMode = true;
+    loadDraftFromProfile(profile);
+    profileDraft.mode = PROFILE_MODE.EDIT;
+    // Prellena el inicio del nuevo contrato con la fecha elegida en el calendario.
+    profileDraft.honorariaStart = startISO;
+
+    renderDashboardState();
+    renderBotones();
+    refreshAll();
+    void setActiveShortcut("profileSection", {
+        skipProfileDraftGuard: true
+    });
+}
+
 // `prefill.replaced` (opcional): al llegar desde las sugerencias de reemplazo se
 // preselecciona a quien reemplaza y su permiso que cubre `keyDay`, para usarlo
 // como respaldo del contrato del reemplazante.
@@ -7370,12 +7533,10 @@ function handleRotationSelectionChange() {
     // (getRotationConfigDefaultStart); si no, se abre en el mes actual.
     if (
         isHonorariaDraft() &&
-        (
-            !profileDraft.honorariaStart ||
-            !profileDraft.honorariaEnd
-        )
+        getHonorariaContractsForProfile(honorariaContractProfileName())
+            .length === 0
     ) {
-        alert("Completa primero las fechas del contrato de Honorarios para configurar la rotativa.");
+        alert("Agrega primero un contrato de Honorarios para configurar la rotativa.");
         return;
     }
 
@@ -8168,18 +8329,10 @@ async function guardarPerfil() {
         active: profileDraft.active !== false,
         unitEntryDate: nextUnitEntryDate,
         contractType: profileDraft.contractType,
-        honorariaStart: honorariaContract
-            ? profileDraft.honorariaStart
-            : "",
-        honorariaEnd: honorariaContract
-            ? profileDraft.honorariaEnd
-            : "",
-        honorariaHourlyRate: honorariaContract
-            ? Number(profileDraft.honorariaHourlyRate) || 0
-            : 0,
-        honorariaMaxMonthlyHours: honorariaContract
-            ? Number(profileDraft.honorariaMaxMonthlyHours) || 0
-            : 0,
+        // Los contratos de Honorarios viven en honorariaContracts_{nombre} (lista),
+        // no en el perfil. No se escriben aqui para no pisar los campos legados de
+        // perfiles existentes (se preservan por el spread de updateProfile hasta
+        // que se migran al agregar el primer contrato en la lista).
         unionLeaveEnabled:
             !contractBlocksUnionLeave() &&
             Boolean(profileDraft.unionLeaveEnabled),
@@ -8223,7 +8376,9 @@ async function guardarPerfil() {
     const rotationCleanupStart =
         nextRotationType === "libre" &&
         isHonorariaDraft()
-            ? profileDraft.honorariaStart
+            ? (getHonorariaContractsForProfile(
+                honorariaContractProfileName()
+            )[0]?.start || "")
             : "";
     const shouldSaveReplacementContract =
         replacementContract &&
@@ -9787,6 +9942,55 @@ function bindProfileForm() {
 
             profileDraft.honorariaMaxMonthlyHours =
                 DOM.honorariaMaxMonthlyHoursInput.value;
+        };
+    }
+
+    if (DOM.honorariaLimitPeriodToggle) {
+        DOM.honorariaLimitPeriodToggle.onclick = event => {
+            const button = event.target.closest(".period-toggle-option");
+
+            if (!button || !isProfileEditing()) return;
+
+            profileDraft.honorariaLimitPeriod =
+                button.dataset.period === "monthly" ? "monthly" : "weekly";
+            renderDashboardState();
+        };
+    }
+
+    if (DOM.honorariaAddContractBtn) {
+        DOM.honorariaAddContractBtn.onclick = () => {
+            void addHonorariaContractFromForm();
+        };
+    }
+
+    if (DOM.honorariaContractList) {
+        DOM.honorariaContractList.onclick = async event => {
+            const button = event.target.closest("[data-honoraria-remove]");
+
+            if (!button || !isProfileEditing()) return;
+
+            const profileName = honorariaContractProfileName();
+
+            if (!profileName) return;
+
+            if (!await showConfirm(
+                "¿Eliminar este contrato de honorarios?",
+                {
+                    title: "Eliminar contrato",
+                    tone: "warning",
+                    confirmText: "Eliminar",
+                    cancelText: "Cancelar"
+                }
+            )) {
+                return;
+            }
+
+            removeHonorariaContract(
+                profileName,
+                button.dataset.honorariaRemove
+            );
+            renderDashboardState();
+            refreshAll();
         };
     }
 

@@ -1,5 +1,6 @@
 import {
     getHonorariaContract,
+    getHonorariaContractForDate,
     hasHonorariaContractForDate
 } from "./contracts.js";
 import { calcHours } from "./calculations.js";
@@ -9,13 +10,19 @@ function roundHours(value) {
     return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-function allowedWeeklyHours(contract) {
+// Tope de horas del contrato (generico: semanal o mensual segun limitPeriod).
+function contractHours(contract) {
     return Math.max(
         0,
-        Number(contract?.maxWeeklyHours) ||
+        Number(contract?.maxHours) ||
+            Number(contract?.maxWeeklyHours) ||
             Number(contract?.maxMonthlyHours) ||
             0
     );
+}
+
+function allowedWeeklyHours(contract) {
+    return contractHours(contract);
 }
 
 function keyFromDate(date) {
@@ -97,6 +104,9 @@ export function getHonorariaMonthlySummary(
     let periodAssignedHours = 0;
     let overtimeDay = 0;
     let overtimeNight = 0;
+    // Acumulado por "bucket" del tope: por SEMANA (contratos semanales) o por MES
+    // calendario (contratos mensuales). Cada contrato define su periodo.
+    const bucketAssigned = {};
 
     while (cursor <= lastWeekStart) {
         const weekStart = new Date(cursor);
@@ -122,9 +132,22 @@ export function getHonorariaMonthlySummary(
                 date.getFullYear() === year &&
                 date.getMonth() === month;
 
-            if (!hasHonorariaContractForDate(profileName, keyDay)) {
+            const dayContract =
+                getHonorariaContractForDate(profileName, keyDay);
+
+            if (!dayContract) {
                 continue;
             }
+
+            // Tope y periodo del contrato vigente ESE dia. El bucket del tope es
+            // la SEMANA (semanal) o el MES calendario (mensual).
+            const cap = contractHours(dayContract);
+            const isMonthly = dayContract.limitPeriod === "monthly";
+            const bucketKey = isMonthly
+                ? `m-${date.getFullYear()}-${date.getMonth()}`
+                : weekKey;
+
+            week.allowedHours = cap;
 
             const state = getTurnoReal(profileName, keyDay);
             const hours = calcHours(date, state, holidays);
@@ -134,11 +157,8 @@ export function getHonorariaMonthlySummary(
 
             if (!turnHours) continue;
 
-            const assignedBefore = week.assignedHours;
-            let regularRemaining = Math.max(
-                0,
-                week.allowedHours - assignedBefore
-            );
+            const assignedBefore = bucketAssigned[bucketKey] || 0;
+            let regularRemaining = Math.max(0, cap - assignedBefore);
             const regularDay = Math.min(dayHours, regularRemaining);
 
             regularRemaining -= regularDay;
@@ -148,6 +168,7 @@ export function getHonorariaMonthlySummary(
             const excessNight = roundHours(nightHours - regularNight);
             const excessHours = roundHours(excessDay + excessNight);
 
+            bucketAssigned[bucketKey] = roundHours(assignedBefore + turnHours);
             week.assignedHours = roundHours(
                 week.assignedHours + turnHours
             );
@@ -180,9 +201,10 @@ export function getHonorariaMonthlySummary(
                         excessHours,
                         excessDay,
                         excessNight,
-                        assignedHours: week.assignedHours,
-                        weekAssignedHours: week.assignedHours,
-                        allowedHours: week.allowedHours,
+                        assignedHours: bucketAssigned[bucketKey],
+                        weekAssignedHours: bucketAssigned[bucketKey],
+                        allowedHours: cap,
+                        limitPeriod: isMonthly ? "monthly" : "weekly",
                         weekKey,
                         weekStart: week.start,
                         weekEnd: week.end

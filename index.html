@@ -339,30 +339,44 @@
                         </div>
 
                         <div id="honorariaContractEditor" class="honoraria-contract-editor hidden">
-                            <label class="metric-row metric-row--field">
-                                <span class="metric-label">Inicio del contrato:</span>
-                                <input id="honorariaStartField" type="date">
-                            </label>
+                            <div id="honorariaContractList" class="honoraria-contract-list"></div>
 
-                            <label class="metric-row metric-row--field">
-                                <span class="metric-label">T&eacute;rmino del contrato:</span>
-                                <input id="honorariaEndField" type="date">
-                            </label>
+                            <div class="honoraria-new-contract">
+                                <div class="honoraria-new-contract-title">Nuevo contrato de Honorarios</div>
 
-                            <label class="metric-row metric-row--field">
-                                <span class="metric-label">Valor de la hora:</span>
-                                <input id="honorariaHourlyRateField" type="number" min="0" step="1" inputmode="decimal" placeholder="0">
-                            </label>
+                                <label class="metric-row metric-row--field">
+                                    <span class="metric-label">Inicio del contrato:</span>
+                                    <input id="honorariaStartField" type="date">
+                                </label>
+
+                                <label class="metric-row metric-row--field">
+                                    <span class="metric-label">T&eacute;rmino del contrato:</span>
+                                    <input id="honorariaEndField" type="date">
+                                </label>
+
+                                <label class="metric-row metric-row--field">
+                                    <span class="metric-label">Valor de la hora:</span>
+                                    <input id="honorariaHourlyRateField" type="number" min="0" step="1" inputmode="decimal" placeholder="0">
+                                </label>
+
+                                <div class="metric-row metric-row--field">
+                                    <span class="metric-label">M&aacute;ximo de horas:</span>
+                                    <div class="honoraria-max-hours-cell">
+                                        <input id="honorariaMaxMonthlyHoursField" type="number" min="0" step="0.5" inputmode="decimal" placeholder="0">
+                                        <div id="honorariaLimitPeriodToggle" class="period-toggle" role="group" aria-label="Periodo del tope de horas">
+                                            <button type="button" class="period-toggle-option" data-period="weekly" aria-pressed="true">Semanal</button>
+                                            <button type="button" class="period-toggle-option" data-period="monthly" aria-pressed="false">Mensual</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button id="honorariaAddContractBtn" type="button" class="ghost-button honoraria-add-contract">Agregar contrato</button>
+                            </div>
 
                             <span id="honorariaRotationSlot" hidden></span>
 
-                            <label class="metric-row metric-row--field">
-                                <span class="metric-label">M&aacute;ximo de horas semanales:</span>
-                                <input id="honorariaMaxMonthlyHoursField" type="number" min="0" step="0.5" inputmode="decimal" placeholder="0">
-                            </label>
-
                             <div id="honorariaContractStatus" class="profile-status-note profile-status-note--soft">
-                                La rotativa se aplicar&aacute; &uacute;nicamente dentro de la vigencia del contrato.
+                                La rotativa se aplicar&aacute; &uacute;nicamente dentro de la vigencia de un contrato.
                             </div>
                         </div>
 

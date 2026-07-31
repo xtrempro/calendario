@@ -79,6 +79,7 @@ function clearedDraftValues() {
         honorariaEnd: "",
         honorariaHourlyRate: "",
         honorariaMaxMonthlyHours: "",
+        honorariaLimitPeriod: "weekly",
         unionLeaveEnabled: false,
         shiftAssigned: false
     };
@@ -310,12 +311,13 @@ export function loadDraftFromProfile(profile){
     profileDraft.contractReason = "";
     profileDraft.contractLeaveRef = "";
     profileDraft.contractRotationMode = "inherit";
-    profileDraft.honorariaStart = profile.honorariaStart || "";
-    profileDraft.honorariaEnd = profile.honorariaEnd || "";
-    profileDraft.honorariaHourlyRate =
-        String(profile.honorariaHourlyRate || "");
-    profileDraft.honorariaMaxMonthlyHours =
-        String(profile.honorariaMaxMonthlyHours || "");
+    // Los campos de Honorarios son el formulario de un contrato NUEVO (los
+    // existentes se muestran en la lista de contratos), asi que se cargan vacios.
+    profileDraft.honorariaStart = "";
+    profileDraft.honorariaEnd = "";
+    profileDraft.honorariaHourlyRate = "";
+    profileDraft.honorariaMaxMonthlyHours = "";
+    profileDraft.honorariaLimitPeriod = "weekly";
     profileDraft.shiftAssigned =
         getShiftAssignmentConfiguredState(profile.name);
 }

@@ -16,8 +16,27 @@ import {
     getRotationFirstTurnLabel
 } from "./rotationUtils.js";
 import { formatDisplayDate } from "./dateUtils.js";
-import { getContractsForProfile } from "./contracts.js";
+import {
+    getContractsForProfile,
+    getHonorariaContractsForProfile
+} from "./contracts.js";
 import { getPerfilActual } from "./profileQueries.js";
+
+function honorariaProfileNameForStatus(data) {
+    if (profileDraft.mode === PROFILE_MODE.CREATE) {
+        return String(profileDraft.name || "").trim();
+    }
+
+    return getPerfilActual()?.name ||
+        profileDraft.originalName ||
+        String(data?.name || "").trim();
+}
+
+function hasHonorariaContractForStatus(data) {
+    return getHonorariaContractsForProfile(
+        honorariaProfileNameForStatus(data)
+    ).length > 0;
+}
 import { DOM } from "./dom.js";
 import { escapeHTML } from "./htmlUtils.js";
 
@@ -41,7 +60,7 @@ export function renderProfileRotationStatus(data, editing, onConfigure) {
                 Boolean(data.rotationType) &&
                 (
                     !isHonorariaDraft(data) ||
-                    Boolean(data.honorariaStart && data.honorariaEnd)
+                    hasHonorariaContractForStatus(data)
                 )
             )
         );
@@ -123,12 +142,16 @@ export function buildRotationStatus(data){
     }
 
     if (isHonorariaDraft(data)) {
-        if (!data.honorariaStart || !data.honorariaEnd) {
-            return "Completa la vigencia del contrato de Honorarios antes de aplicar la rotativa.";
+        const honorariaContracts = getHonorariaContractsForProfile(
+            honorariaProfileNameForStatus(data)
+        );
+
+        if (!honorariaContracts.length) {
+            return "Agrega al menos un contrato de Honorarios antes de aplicar la rotativa.";
         }
 
         const contractSummary =
-            `Contrato Honorarios: ${formatDisplayDate(data.honorariaStart)} al ${formatDisplayDate(data.honorariaEnd)} | Tope semanal: ${data.honorariaMaxMonthlyHours || 0} hrs.`;
+            `Contratos de Honorarios: ${honorariaContracts.length}. La rotativa se aplica dentro de su vigencia.`;
 
         if (!data.rotationType) {
             return `${contractSummary} Selecciona una rotativa.`;

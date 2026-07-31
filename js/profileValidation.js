@@ -22,6 +22,7 @@ import {
 } from "./emailUtils.js";
 import { compareISODate } from "./dateUtils.js";
 import { getProfiles } from "./storage.js";
+import { getHonorariaContractsForProfile } from "./contracts.js";
 
 /**
  * Valida el borrador actual. No muestra nada; devuelve el resultado.
@@ -87,20 +88,22 @@ export function validateProfileDraft() {
     }
 
     if (isHonorariaDraft()) {
-        if (!profileDraft.honorariaStart) {
-            missing.push("inicio del contrato de Honorarios");
-        }
+        // Los contratos viven en la lista (honorariaContracts_{nombre}); se exige
+        // al menos uno. El formulario de "nuevo contrato" puede quedar vacio.
+        const honorariaName =
+            profileDraft.mode === PROFILE_MODE.EDIT
+                ? (profileDraft.originalName || profileDraft.name)
+                : profileDraft.name;
+        const hasContract =
+            getHonorariaContractsForProfile(String(honorariaName || "").trim())
+                .length > 0;
 
-        if (!profileDraft.honorariaEnd) {
-            missing.push("termino del contrato de Honorarios");
-        }
-
-        if (!(Number(profileDraft.honorariaHourlyRate) > 0)) {
-            missing.push("valor de la hora");
-        }
-
-        if (!(Number(profileDraft.honorariaMaxMonthlyHours) > 0)) {
-            missing.push("maximo de horas semanales");
+        if (!hasContract) {
+            return {
+                ok: false,
+                message:
+                    "Agrega al menos un contrato de Honorarios (fechas y valor hora) con el boton \"Agregar contrato\"."
+            };
         }
     }
 

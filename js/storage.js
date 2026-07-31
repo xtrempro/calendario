@@ -1124,6 +1124,61 @@ export function saveReplacementContracts(
     );
 }
 
+// Contratos de Honorarios: varios por trabajador, cada uno con su vigencia, valor
+// hora y tope semanal (antes era un unico contrato en campos del perfil).
+export function getHonorariaContracts(profile = currentProfile){
+    if (!profile) return [];
+
+    return getJSON("honorariaContracts_" + profile, []);
+}
+
+// Verdadero si el arreglo de contratos ya fue escrito alguna vez (aunque quede
+// vacio tras borrar todos). Sirve para NO re-migrar el contrato legado del perfil
+// una vez que el trabajador ya paso al modelo de lista.
+export function hasHonorariaContractsStored(profile = currentProfile){
+    if (!profile) return false;
+
+    return getRaw("honorariaContracts_" + profile, null) !== null;
+}
+
+export function saveHonorariaContracts(
+    contracts,
+    profile = currentProfile
+){
+    if (!profile) return;
+
+    setJSON(
+        "honorariaContracts_" + profile,
+        Array.isArray(contracts) ? contracts : []
+    );
+}
+
+// Valor hora del contrato de Honorarios vigente en `date` (o el mas reciente si
+// no hay fecha o ninguno la cubre); cae al campo legado del perfil si todavia no
+// hay contratos en el arreglo.
+function honorariaHourlyRateForDate(profile, profileData, date){
+    const contracts = getHonorariaContracts(profile)
+        .filter(contract => contract && contract.start && contract.end);
+
+    if (contracts.length) {
+        const iso = normalizeHistoryDate(date);
+        const active = iso
+            ? contracts.find(contract =>
+                String(contract.start) <= iso &&
+                String(contract.end) >= iso
+            )
+            : null;
+        const chosen = active || contracts
+            .slice()
+            .sort((a, b) => String(b.start).localeCompare(String(a.start)))[0];
+        const rate = Math.max(0, Number(chosen?.hourlyRate) || 0);
+
+        if (rate > 0) return rate;
+    }
+
+    return Math.max(0, Number(profileData?.honorariaHourlyRate) || 0);
+}
+
 export function saveProfiles(profiles, options = {}){
     const normalized = (profiles || []).map(profile => {
         const { unit, ...profileWithoutUnit } = profile || {};
@@ -1365,11 +1420,14 @@ export function recordShiftAssignmentChange(
 export function getValorHora(profile = currentProfile, date = null){
     const profileData = getCompensationProfileAt(profile, date);
     const isHonoraria = normalizeText(profileData?.contractType) === "honorarios";
-    const honorariaHourlyRate =
-        Math.max(0, Number(profileData?.honorariaHourlyRate) || 0);
 
-    if (isHonoraria && honorariaHourlyRate > 0) {
-        return honorariaHourlyRate;
+    if (isHonoraria) {
+        const honorariaHourlyRate =
+            honorariaHourlyRateForDate(profile, profileData, date);
+
+        if (honorariaHourlyRate > 0) {
+            return honorariaHourlyRate;
+        }
     }
 
     const configuredValue = profileData
@@ -1621,6 +1679,7 @@ export function updateProfile(oldName, nextProfile){
         "hourReturns_",
         "hheeReturnTransfers_",
         "replacementContracts_",
+        "honorariaContracts_",
         "clockMarks_",
         "hrLogs_",
         "gradeHistory_",

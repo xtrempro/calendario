@@ -5,6 +5,9 @@ import {
     getProfileData,
     getReplacementContracts,
     saveReplacementContracts,
+    getHonorariaContracts,
+    saveHonorariaContracts,
+    hasHonorariaContractsStored,
     getRotativa
 } from "./storage.js";
 import { TURNO } from "./constants.js";
@@ -155,50 +158,191 @@ export function isOtherContractType(value) {
     return normalizeText(value) === "otros";
 }
 
-export function getHonorariaContract(profileOrName) {
-    const profile = typeof profileOrName === "string"
-        ? getProfiles().find(item => item.name === profileOrName)
-        : profileOrName;
-
-    if (!isHonorariaContractType(profile?.contractType)) {
-        return null;
-    }
-
-    const maxWeeklyHours = Math.max(
+export function normalizeHonorariaContract(contract = {}) {
+    // El tope de horas puede ser semanal o mensual segun el contrato. maxHours es
+    // el valor generico; limitPeriod indica el periodo del tope.
+    const limitPeriod =
+        String(contract.limitPeriod || "").trim().toLowerCase() === "monthly"
+            ? "monthly"
+            : "weekly";
+    const maxHours = Math.max(
         0,
-        Number(profile.honorariaMaxWeeklyHours) ||
-            Number(profile.honorariaMaxMonthlyHours) ||
+        Number(contract.maxHours) ||
+            Number(contract.maxWeeklyHours) ||
+            Number(contract.maxMonthlyHours) ||
             0
     );
 
     return {
-        start: String(profile.honorariaStart || ""),
-        end: String(profile.honorariaEnd || ""),
-        hourlyRate: Math.max(
-            0,
-            Number(profile.honorariaHourlyRate) || 0
-        ),
-        maxWeeklyHours,
-        maxMonthlyHours: maxWeeklyHours
+        id: String(contract.id || Date.now()),
+        start: String(contract.start || "").trim(),
+        end: String(contract.end || "").trim(),
+        hourlyRate: Math.max(0, Number(contract.hourlyRate) || 0),
+        maxHours,
+        limitPeriod,
+        // Alias de compatibilidad: reflejan el tope segun su periodo. El consumidor
+        // nuevo usa maxHours + limitPeriod.
+        maxWeeklyHours: limitPeriod === "weekly" ? maxHours : 0,
+        maxMonthlyHours: limitPeriod === "monthly" ? maxHours : 0,
+        createdAt: contract.createdAt || new Date().toISOString()
     };
 }
 
+function resolveHonorariaProfile(profileOrName) {
+    return typeof profileOrName === "string"
+        ? getProfiles().find(item => item.name === profileOrName)
+        : profileOrName;
+}
+
+// Contrato "legado": mientras un trabajador de Honorarios no tenga contratos en
+// el arreglo, se sintetiza uno con los campos antiguos del perfil (migracion de
+// solo lectura, para no romper datos existentes).
+function legacyHonorariaContract(profile) {
+    if (!profile?.honorariaStart || !profile?.honorariaEnd) return null;
+
+    return normalizeHonorariaContract({
+        id: "legacy",
+        start: profile.honorariaStart,
+        end: profile.honorariaEnd,
+        hourlyRate: profile.honorariaHourlyRate,
+        maxWeeklyHours:
+            profile.honorariaMaxWeeklyHours ||
+            profile.honorariaMaxMonthlyHours
+    });
+}
+
+export function getHonorariaContractsForProfile(profileOrName) {
+    const profile = resolveHonorariaProfile(profileOrName);
+    // El nombre puede venir directo (perfil aun no guardado, p.ej. al crear): los
+    // contratos se guardan por nombre en honorariaContracts_{nombre}, asi que se
+    // leen aunque el perfil todavia no exista en getProfiles().
+    const name = typeof profileOrName === "string"
+        ? profileOrName
+        : (profile?.name || "");
+
+    if (!name) return [];
+
+    const stored = getHonorariaContracts(name)
+        .map(normalizeHonorariaContract)
+        .filter(contract => contract.start && contract.end);
+
+    if (stored.length) {
+        return stored.sort((a, b) =>
+            a.start.localeCompare(b.start) ||
+            a.end.localeCompare(b.end)
+        );
+    }
+
+    // Una vez que el trabajador paso a la lista, no se re-migra el contrato
+    // legado (aunque haya borrado todos sus contratos).
+    if (hasHonorariaContractsStored(name)) return [];
+
+    // La migracion del contrato legado (campos antiguos del perfil) si requiere un
+    // perfil guardado de tipo Honorarios.
+    if (!isHonorariaContractType(profile?.contractType)) return [];
+
+    const legacy = legacyHonorariaContract(profile);
+
+    return legacy ? [legacy] : [];
+}
+
+export function saveHonorariaContractsForProfile(profileName, contracts) {
+    saveHonorariaContracts(
+        (contracts || []).map(normalizeHonorariaContract),
+        profileName
+    );
+}
+
+export function addHonorariaContract(profileName, contract) {
+    const nextContract = normalizeHonorariaContract({
+        ...contract,
+        id:
+            contract.id ||
+            `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    });
+    // Materializa el contrato legado (campos antiguos del perfil) al arreglo con
+    // un id real, para no perderlo al pasar del campo unico a la lista.
+    const contracts = getHonorariaContractsForProfile(profileName)
+        .map(existing => existing.id === "legacy"
+            ? { ...existing, id: `${Date.now()}_leg` }
+            : existing
+        );
+
+    saveHonorariaContractsForProfile(
+        profileName,
+        [...contracts, nextContract]
+    );
+
+    return nextContract;
+}
+
+// Elimina un contrato del arreglo. Como puede haber un contrato legado (solo en
+// los campos del perfil), primero se materializa la lista actual y luego se filtra.
+export function removeHonorariaContract(profileName, contractId) {
+    const contracts = getHonorariaContractsForProfile(profileName)
+        .map(existing => existing.id === "legacy"
+            ? { ...existing, id: `${Date.now()}_leg` }
+            : existing
+        )
+        .filter(existing => existing.id !== contractId);
+
+    saveHonorariaContractsForProfile(profileName, contracts);
+}
+
+// Inicio (ISO) del primer contrato de Honorarios del trabajador, o "" si no hay.
+// La rotativa de honorarios se ancla aqui para cubrir los contratos aunque se
+// elimine uno o el start quede desalineado.
+export function earliestHonorariaContractStart(profileName) {
+    const contracts = getHonorariaContractsForProfile(profileName);
+
+    return contracts.length ? contracts[0].start : "";
+}
+
+export function getHonorariaContractForDate(profileName, keyDay) {
+    const iso = keyToISO(keyDay);
+
+    if (!iso) return null;
+
+    return getHonorariaContractsForProfile(profileName)
+        .find(contract =>
+            contract.start <= iso &&
+            contract.end >= iso
+        ) || null;
+}
+
+// Contrato "vigente" de referencia (para consumidores sin fecha): el activo hoy,
+// o el mas reciente. Mantiene la firma anterior.
+export function getHonorariaContract(profileOrName) {
+    const profile = resolveHonorariaProfile(profileOrName);
+
+    if (!isHonorariaContractType(profile?.contractType)) return null;
+
+    const contracts = getHonorariaContractsForProfile(profile);
+
+    if (!contracts.length) return null;
+
+    const todayISO = keyToISO(
+        `${new Date().getFullYear()}-${new Date().getMonth()}-${new Date().getDate()}`
+    );
+    const active = todayISO
+        ? contracts.find(contract =>
+            contract.start <= todayISO && contract.end >= todayISO
+        )
+        : null;
+
+    return active || contracts[contracts.length - 1];
+}
+
+// Es de Honorarios por su TIPO de contrato (aunque aun no tenga contratos
+// cargados): sus dias sin contrato vigente quedan libres hasta agregar uno.
 export function isHonorariaProfile(profileName) {
-    return Boolean(getHonorariaContract(profileName));
+    const profile = resolveHonorariaProfile(profileName);
+
+    return isHonorariaContractType(profile?.contractType);
 }
 
 export function hasHonorariaContractForDate(profileName, keyDay) {
-    const contract = getHonorariaContract(profileName);
-    const iso = keyToISO(keyDay);
-
-    return Boolean(
-        contract &&
-        iso &&
-        contract.start &&
-        contract.end &&
-        contract.start <= iso &&
-        contract.end >= iso
-    );
+    return Boolean(getHonorariaContractForDate(profileName, keyDay));
 }
 
 export function isReplacementProfile(profileName) {
