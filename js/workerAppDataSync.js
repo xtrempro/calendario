@@ -2346,6 +2346,50 @@ async function publishHotNow() {
             error
         );
     }
+
+    // Los candidatos de cambio de turno (workerSwapCandidates) se publican aparte
+    // de la proyeccion. Se habian dejado de publicar al retirar el pipeline hot
+    // legacy: sin ellos, compatibleWorkerUids queda vacio y el trabajador nunca ve
+    // colegas para cambiar turno. Son livianos y solo para los enlazados (pocos).
+    void publishSwapCandidatesNow();
+}
+
+// Publica el doc workerSwapCandidates de cada trabajador ENLAZADO: compatibilidad
+// (compatibleWorkerUids), su calendario (days) y la config de la unidad (24). Es
+// lo que la PWA lee para el cambio de turno directo. Ver buildSwapCandidatePayload.
+async function publishSwapCandidatesNow() {
+    const workspace = currentWorkspace();
+
+    if (!workspace?.id || !workerLinks.length) return;
+
+    const profiles = getProfiles();
+    const linkedProfiles = workerLinks
+        .map(link => ({ link, profile: findProfileForLink(link, profiles) }))
+        .filter(item => item.profile && item.link?.uid);
+
+    if (!linkedProfiles.length) return;
+
+    for (const item of linkedProfiles) {
+        try {
+            await writeWorkerSwapCandidate(
+                buildSwapCandidatePayload(
+                    item.link,
+                    item.profile,
+                    workspace,
+                    linkedProfiles
+                ),
+                workspace.id
+            );
+        } catch (error) {
+            console.warn(
+                "No se pudo publicar el candidato de cambio de turno.",
+                error
+            );
+        }
+
+        // No bloquear el hilo principal si hay varios enlazados.
+        await waitWorkerAppIdle(300);
+    }
 }
 
 // API publica: siempre exige perfiles concretos.
@@ -2513,9 +2557,14 @@ export async function startWorkerAppDataSync(workspace) {
                     );
                 }
 
-                // El primer snapshot es solo lectura: abrir un entorno no debe
-                // regenerar los datos PWA de todos sus trabajadores.
-                if (initial) return;
+                // El primer snapshot NO regenera la proyeccion (pesada, server),
+                // pero SI refresca los candidatos de cambio de turno: son livianos
+                // y su publicacion se habia perdido, dejando compatibleWorkerUids
+                // vacio (el trabajador no veia colegas para cambiar turno).
+                if (initial) {
+                    void publishSwapCandidatesNow();
+                    return;
+                }
 
                 changedUids.forEach(uid => dirtyWorkerUids.add(uid));
 
