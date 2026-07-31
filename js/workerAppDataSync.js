@@ -2347,17 +2347,20 @@ async function publishHotNow() {
         );
     }
 
-    // Los candidatos de cambio de turno (workerSwapCandidates) se publican aparte
-    // de la proyeccion. Se habian dejado de publicar al retirar el pipeline hot
-    // legacy: sin ellos, compatibleWorkerUids queda vacio y el trabajador nunca ve
-    // colegas para cambiar turno. Son livianos y solo para los enlazados (pocos).
-    void publishSwapCandidatesNow();
+    // El directorio de mensajes y los candidatos de cambio de turno se publican
+    // aparte de la proyeccion. Se habian dejado de publicar al retirar el pipeline
+    // hot legacy: sin ellos, el trabajador no aparece en Mensajes y
+    // compatibleWorkerUids queda vacio. Livianos y solo para los enlazados (pocos).
+    void publishLinkedWorkerDocs();
 }
 
-// Publica el doc workerSwapCandidates de cada trabajador ENLAZADO: compatibilidad
-// (compatibleWorkerUids), su calendario (days) y la config de la unidad (24). Es
-// lo que la PWA lee para el cambio de turno directo. Ver buildSwapCandidatePayload.
-async function publishSwapCandidatesNow() {
+// Publica, por cada trabajador ENLAZADO, los dos docs livianos que el navegador
+// del supervisor debe mantener y que se habian dejado de publicar al retirar el
+// pipeline hot legacy:
+//  - workerMessageDirectory: para que aparezca en el listado de Mensajes de la PWA.
+//  - workerSwapCandidates: compatibilidad (compatibleWorkerUids), su calendario
+//    (days) y la config del 24, para el cambio de turno directo.
+async function publishLinkedWorkerDocs() {
     const workspace = currentWorkspace();
 
     if (!workspace?.id || !workerLinks.length) return;
@@ -2370,6 +2373,22 @@ async function publishSwapCandidatesNow() {
     if (!linkedProfiles.length) return;
 
     for (const item of linkedProfiles) {
+        try {
+            await writeWorkerMessageDirectoryEntry(
+                buildWorkerMessageDirectoryPayload(
+                    item.link,
+                    item.profile,
+                    workspace
+                ),
+                workspace.id
+            );
+        } catch (error) {
+            console.warn(
+                "No se pudo publicar el directorio de mensajes.",
+                error
+            );
+        }
+
         try {
             await writeWorkerSwapCandidate(
                 buildSwapCandidatePayload(
@@ -2558,11 +2577,12 @@ export async function startWorkerAppDataSync(workspace) {
                 }
 
                 // El primer snapshot NO regenera la proyeccion (pesada, server),
-                // pero SI refresca los candidatos de cambio de turno: son livianos
-                // y su publicacion se habia perdido, dejando compatibleWorkerUids
-                // vacio (el trabajador no veia colegas para cambiar turno).
+                // pero SI refresca los docs livianos (directorio de mensajes y
+                // candidatos de cambio de turno): su publicacion se habia perdido,
+                // por eso trabajadores nuevos no salian en Mensajes y no habia
+                // compatibles para cambiar turno.
                 if (initial) {
-                    void publishSwapCandidatesNow();
+                    void publishLinkedWorkerDocs();
                     return;
                 }
 

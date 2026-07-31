@@ -1,6 +1,8 @@
-// Regresion: la publicacion de workerSwapCandidates se habia perdido al retirar
-// el pipeline hot legacy, dejando compatibleWorkerUids vacio (el trabajador no veia
-// colegas para cambiar turno). Se restauro en el sync (bootstrap + cambios).
+// Regresion: al retirar el pipeline hot legacy se perdio la publicacion de dos
+// docs livianos por trabajador enlazado — workerMessageDirectory (listado de
+// Mensajes) y workerSwapCandidates (compatibilidad de cambio de turno). Sin ellos,
+// el trabajador no aparecia en Mensajes y compatibleWorkerUids quedaba vacio. Se
+// restauro en publishLinkedWorkerDocs (bootstrap + cada publicacion).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -21,20 +23,19 @@ function grab(name) {
   throw new Error(`sin cierre: ${name}`);
 }
 
-test("publishSwapCandidatesNow publica el doc de cada trabajador enlazado", () => {
-  const fn = grab("publishSwapCandidatesNow");
+test("publishLinkedWorkerDocs publica directorio de mensajes Y candidato por enlazado", () => {
+  const fn = grab("publishLinkedWorkerDocs");
   assert.match(fn, /workerLinks\s*\n?\s*\.map\(link => \(\{ link, profile: findProfileForLink\(link, profiles\) \}\)\)/);
+  // Directorio de mensajes.
+  assert.match(fn, /writeWorkerMessageDirectoryEntry\(\s*\n\s*buildWorkerMessageDirectoryPayload\(/);
+  // Candidato de cambio de turno.
   assert.match(fn, /writeWorkerSwapCandidate\(\s*\n\s*buildSwapCandidatePayload\(/);
-  // Pasa todos los enlazados como universo de compatibilidad.
   assert.match(fn, /linkedProfiles\s*\n\s*\),/);
 });
 
 test("se dispara en el arranque (primer snapshot) y en cada publicacion", () => {
-  // Bootstrap: primer snapshot de enlaces refresca candidatos (aunque no
-  // regenere la proyeccion pesada).
-  assert.match(src, /if \(initial\) \{\s*\n\s*void publishSwapCandidatesNow\(\);\s*\n\s*return;\s*\n\s*\}/);
-  // Y al publicar (cambios de datos).
-  assert.match(grab("publishHotNow"), /void publishSwapCandidatesNow\(\);/);
+  assert.match(src, /if \(initial\) \{\s*\n\s*void publishLinkedWorkerDocs\(\);\s*\n\s*return;\s*\n\s*\}/);
+  assert.match(grab("publishHotNow"), /void publishLinkedWorkerDocs\(\);/);
 });
 
 test("buildSwapCandidatePayload sigue publicando compatibilidad y la config del 24", () => {
@@ -42,4 +43,10 @@ test("buildSwapCandidatePayload sigue publicando compatibilidad y la config del 
   assert.match(fn, /compatibleWorkerUids/);
   assert.match(fn, /canSwapProfiles\(profile\.name, item\.profile\.name\)/);
   assert.match(fn, /allowTwentyFourHourShifts:\s*\n\s*getTurnChangeConfig\(\)\.allowTwentyFourHourShifts !== false/);
+});
+
+test("buildWorkerMessageDirectoryPayload arma el doc del directorio", () => {
+  const fn = grab("buildWorkerMessageDirectoryPayload");
+  assert.match(fn, /uid/);
+  assert.match(fn, /profileName/);
 });
