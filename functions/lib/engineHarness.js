@@ -8,7 +8,12 @@
 
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { readModuleBase, applyEntry } = require("./stateReader");
+const {
+    readModuleBase,
+    applyEntry,
+    storageValue
+} = require("./stateReader");
+const { normalizeText } = require("./text");
 
 const ENGINE_PATH = path.join(__dirname, "..", "engine", "engine.mjs");
 
@@ -154,6 +159,55 @@ function relevantHolidayYears(today = new Date()) {
 // filtrar módulos en el registro ESM). El aislamiento entre invocaciones se
 // logra reseteando la única cache mutable del motor: los feriados. ─────────
 
+function normalizeProjectionRut(value) {
+    return String(value || "").replace(/[^0-9kK]/g, "").toUpperCase();
+}
+
+function profilesFromState(state) {
+    const profiles = storageValue(state, "profiles", []);
+
+    return Array.isArray(profiles) ? profiles : [];
+}
+
+function findProfileForProjectionName(profileName, profiles = []) {
+    const normalizedName = normalizeText(profileName);
+
+    if (!normalizedName) return null;
+
+    return profiles.find(profile =>
+        normalizeText(profile.name) === normalizedName
+    ) || null;
+}
+
+function findWorkerLinkForProfile(profileName, profiles = [], links = []) {
+    const profile = findProfileForProjectionName(profileName, profiles);
+    const profileRut = normalizeProjectionRut(profile?.rut);
+
+    if (profileRut) {
+        const rutMatch = links.find(link =>
+            normalizeProjectionRut(link.profileRut) === profileRut
+        );
+
+        if (rutMatch) return rutMatch;
+    }
+
+    const normalizedProfileName = normalizeText(profile?.name);
+
+    if (normalizedProfileName) {
+        const profileNameMatch = links.find(link =>
+            normalizeText(link.profileName) === normalizedProfileName
+        );
+
+        if (profileNameMatch) return profileNameMatch;
+    }
+
+    const requestedName = normalizeText(profileName);
+
+    return requestedName
+        ? links.find(link => normalizeText(link.profileName) === requestedName) || null
+        : null;
+}
+
 let enginePromise = null;
 
 function loadEngine() {
@@ -172,6 +226,7 @@ async function computeProjectionsForProfiles(db, {
     workspace,
     profileNames = [],
     linksByProfile = new Map(),
+    links = [],
     today = new Date()
 }) {
     ensureEngineGlobals();
@@ -190,9 +245,15 @@ async function computeProjectionsForProfiles(db, {
     }
 
     const results = [];
+    const profiles = profilesFromState(state);
 
     for (const profileName of profileNames) {
-        const link = linksByProfile.get(profileName) || {};
+        const link = linksByProfile.get(profileName) ||
+            findWorkerLinkForProfile(profileName, profiles, links) ||
+            {};
+
+        if (!link.uid) continue;
+
         const payload = await engine.buildFullProjection(
             profileName,
             { link, workspace },
@@ -207,9 +268,12 @@ async function computeProjectionsForProfiles(db, {
 
 module.exports = {
     computeProjectionsForProfiles,
+    findWorkerLinkForProfile,
     loadWorkspaceState,
     makeMemoryStorage,
     ensureEngineGlobals,
+    normalizeProjectionRut,
+    profilesFromState,
     seedHolidays,
     relevantHolidayYears,
     loadEngine

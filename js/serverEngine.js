@@ -568,12 +568,49 @@ function buildMissingProfilePayload(link = {}, workspace = {}, profileName = "")
 // Computa la proyección COMPLETA de un trabajador (inline, sin diferido).
 // Devuelve el mismo shape que el cliente producía (buildWorkerAppPayload),
 // pero con overtime/reports/exceptions ya calculados (status "fresh").
+function normalizeProjectionRut(value) {
+    return String(value || "").replace(/[^0-9kK]/g, "").toUpperCase();
+}
+
+function resolveProjectionProfile(profileName, link = {}) {
+    const profiles = getProfiles();
+    const linkRut = normalizeProjectionRut(link.profileRut);
+
+    if (linkRut) {
+        const rutMatch = profiles.find(profile =>
+            normalizeProjectionRut(profile.rut) === linkRut
+        );
+
+        if (rutMatch) return rutMatch;
+    }
+
+    const normalizedName = normalizeText(profileName);
+
+    if (normalizedName) {
+        const nameMatch = profiles.find(profile =>
+            normalizeText(profile.name) === normalizedName
+        );
+
+        if (nameMatch) return nameMatch;
+    }
+
+    const linkName = normalizeText(link.profileName);
+
+    if (linkName && linkName !== normalizedName) {
+        return profiles.find(profile =>
+            normalizeText(profile.name) === linkName
+        ) || null;
+    }
+
+    return null;
+}
+
 export async function buildFullProjection(
     profileName,
     { link = {}, workspace = {} } = {},
     today = new Date()
 ) {
-    const profile = getProfiles().find(item => item.name === profileName);
+    const profile = resolveProjectionProfile(profileName, link);
 
     if (!profile) {
         return buildMissingProfilePayload(link, workspace, profileName);

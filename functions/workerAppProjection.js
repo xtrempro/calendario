@@ -8,12 +8,14 @@
 // Reemplaza el pipeline que antes corría en el hilo principal del navegador.
 
 const admin = require("firebase-admin");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const {
+    onDocumentCreated,
+    onDocumentWritten
+} = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
 const { computeProjectionsForProfiles } = require("./lib/engineHarness");
 const { writeProjection } = require("./lib/projectionWriter");
-const { normalizeText } = require("./lib/text");
 
 function normalizeProfileTargets(value) {
     const values = Array.isArray(value) ? value : [value];
@@ -47,19 +49,74 @@ async function loadWorkerLinks(db, workspaceId) {
         .filter(Boolean);
 }
 
-// Al crear el enlace (el trabajador acepta la invitacion) se encola de una vez
-// su proyeccion, sin depender de que el navegador del supervisor este abierto.
-// Antes, si el trabajador se enlazaba con el supervisor desconectado, se
-// quedaba sin turnos hasta la proxima edicion de su calendario.
-exports.requestProjectionOnWorkerLink = onDocumentCreated(
+const WORKER_LINK_PROJECTION_FIELDS = [
+    "profileName",
+    "profileRut",
+    "profileId",
+    "inviteId",
+    "uid",
+    "workerEmail",
+    "status"
+];
+
+function snapshotExists(snapshot) {
+    if (!snapshot) return false;
+    if (typeof snapshot.exists === "function") return snapshot.exists();
+    return snapshot.exists === true;
+}
+
+function snapshotData(snapshot) {
+    return snapshotExists(snapshot) && typeof snapshot.data === "function"
+        ? snapshot.data() || {}
+        : null;
+}
+
+function workerLinkProjectionPlan(before, after) {
+    if (!after) return { shouldEnqueue: false, reason: "deleted" };
+
+    const profileName = String(after.profileName || "").trim();
+
+    if (!profileName) {
+        return { shouldEnqueue: false, reason: "missing_profile" };
+    }
+
+    if (!before) {
+        return {
+            shouldEnqueue: true,
+            profileName,
+            source: "worker_link_created"
+        };
+    }
+
+    const relevantChanged = WORKER_LINK_PROJECTION_FIELDS.some(field =>
+        String(before[field] || "").trim() !==
+            String(after[field] || "").trim()
+    );
+
+    return relevantChanged
+        ? {
+            shouldEnqueue: true,
+            profileName,
+            source: "worker_link_updated"
+        }
+        : { shouldEnqueue: false, reason: "unchanged" };
+}
+
+// Al crear o actualizar el enlace (el trabajador acepta/reacepta la invitacion)
+// se encola de una vez su proyeccion, sin depender de que el navegador del
+// supervisor este abierto. Si el doc ya existia y solo se actualizaba por un
+// segundo enlace, onCreate no corria y la PWA quedaba vinculada pero sin turnos.
+exports.requestProjectionOnWorkerLink = onDocumentWritten(
     {
         document: "workspaces/{workspaceId}/workerLinks/{workerUid}"
     },
     async (event) => {
-        const link = event.data?.data() || {};
-        const profileName = String(link.profileName || "").trim();
+        const before = snapshotData(event.data?.before);
+        const after = snapshotData(event.data?.after);
+        const plan = workerLinkProjectionPlan(before, after);
 
-        if (!profileName) {
+        if (!plan.shouldEnqueue) {
+            if (plan.reason !== "missing_profile") return;
             logger.warn("worker link sin profileName; no se encola proyeccion", {
                 workspaceId: event.params.workspaceId,
                 workerUid: event.params.workerUid
@@ -75,14 +132,15 @@ exports.requestProjectionOnWorkerLink = onDocumentCreated(
                 .collection("workspaces").doc(workspaceId)
                 .collection("projectionRequests")
                 .add({
-                    profiles: [profileName],
+                    profiles: [plan.profileName],
                     requestedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    source: "worker_link_created"
+                    source: plan.source
                 });
 
             logger.info("proyeccion encolada al enlazar trabajador", {
                 workspaceId,
-                profile: profileName
+                profile: plan.profileName,
+                source: plan.source
             });
         } catch (error) {
             logger.error("no se pudo encolar la proyeccion al enlazar", {
@@ -223,29 +281,11 @@ exports.buildWorkerAppProjection = onDocumentCreated(
                 loadWorkerLinks(db, workspaceId)
             ]);
 
-            // Solo se proyecta a trabajadores enlazados a la PWA. Se mapea por
-            // nombre de perfil normalizado (el link guarda profileName).
-            const linkByName = new Map();
-            links.forEach(link => {
-                const name = link.profileName || "";
-                if (name) linkByName.set(normalizeText(name), link);
-            });
-
-            const linksByProfile = new Map();
-            const targetProfiles = [];
-            profileNames.forEach(name => {
-                const link = linkByName.get(normalizeText(name));
-                if (link) {
-                    linksByProfile.set(name, link);
-                    targetProfiles.push(name);
-                }
-            });
-
-            if (targetProfiles.length) {
+            if (profileNames.length) {
                 const results = await computeProjectionsForProfiles(db, {
                     workspace,
-                    profileNames: targetProfiles,
-                    linksByProfile
+                    profileNames,
+                    links
                 });
 
                 for (const { link, payload } of results) {
@@ -257,7 +297,7 @@ exports.buildWorkerAppProjection = onDocumentCreated(
                 logger.info("worker-app projection built", {
                     workspaceId,
                     requested: profileNames.length,
-                    projected: targetProfiles.length
+                    projected: results.length
                 });
             }
         } catch (error) {
