@@ -132,6 +132,7 @@ import {
 import { initTheme } from "./theme.js";
 import { initPwaInstall } from "./pwaInstall.js";
 import { registerSupervisorServiceWorker } from "./serviceWorkerRegistration.js";
+import { isMoveShiftAvailable } from "./supervisorActionAvailability.js";
 import { initSelfTestButton } from "./selfTest.js";
 import { getPerfilActual, getDisplayedProfileData } from "./profileQueries.js";
 import { validateProfileDraft } from "./profileValidation.js";
@@ -6509,45 +6510,6 @@ function activarModo(modo, texto) {
         .onclick = () => clearSelectionMode();
 
     scheduleModeCalendarRefresh();
-}
-
-function isStandaloneApp() {
-    const standaloneMode = [
-        "(display-mode: standalone)",
-        "(display-mode: fullscreen)",
-        "(display-mode: minimal-ui)"
-    ].some(query => window.matchMedia?.(query).matches);
-
-    return standaloneMode || window.navigator.standalone === true;
-}
-
-const MOVE_SHIFT_WEB_HOSTS = new Set([
-    "calendarioturnos-7c4d9.web.app",
-    "calendarioturnos-7c4d9.firebaseapp.com",
-    "turnoplus-test-7c4d9.web.app",
-    "turnoplus-test-7c4d9.firebaseapp.com"
-]);
-
-function isMoveShiftAvailable() {
-    const hostname =
-        String(window.location.hostname || "").toLowerCase();
-    const isLocalDevelopment =
-        !hostname ||
-        hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "::1";
-    const isTurnoPlusWebsite =
-        hostname === "turnoplus.cl" ||
-        hostname.endsWith(".turnoplus.cl");
-
-    return (
-        !isStandaloneApp() &&
-        (
-            isTurnoPlusWebsite ||
-            MOVE_SHIFT_WEB_HOSTS.has(hostname) ||
-            isLocalDevelopment
-        )
-    );
 }
 
 function syncMoveShiftAvailability() {

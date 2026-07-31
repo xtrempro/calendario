@@ -11662,8 +11662,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
 }
 
 @media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
-    .pwa-install-button,
-    [data-web-only] {
+    .pwa-install-button {
         display: none !important;
     }
 }
