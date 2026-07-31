@@ -2,7 +2,8 @@
 // instantaneas y un offline basico. NO intercepta peticiones cross-origin
 // (Firebase, Firestore, CDN del SDK, fuentes) para no interferir con la nube.
 
-const CACHE = "proturnos-shell-v3";
+const BUILD_ID = "__TURNOPLUS_BUILD_ID__";
+const CACHE = `proturnos-shell-${BUILD_ID}`;
 const OFFLINE_URL = "/index.html";
 const APP_SHELL = [
     OFFLINE_URL,
@@ -30,6 +31,12 @@ self.addEventListener("activate", event => {
         );
         await self.clients.claim();
     })());
+});
+
+self.addEventListener("message", event => {
+    if (event.data?.type === "TURNOPLUS_SKIP_WAITING") {
+        self.skipWaiting();
+    }
 });
 
 self.addEventListener("fetch", event => {

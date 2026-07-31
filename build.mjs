@@ -74,10 +74,17 @@ writeFileSync(
     path.join(DIST, "styles.css"),
     readFileSync("styles.css")
 );
-writeFileSync(
-    path.join(DIST, "sw.js"),
-    readFileSync("sw.js")
+const buildId = path.basename(jsOutput, ".js").replace(/^app-/, "");
+let serviceWorkerSource = readFileSync("sw.js", "utf8");
+if (!serviceWorkerSource.includes("__TURNOPLUS_BUILD_ID__")) {
+    console.error("No se encontro el marcador de version en sw.js.");
+    process.exit(1);
+}
+serviceWorkerSource = serviceWorkerSource.replaceAll(
+    "__TURNOPLUS_BUILD_ID__",
+    buildId
 );
+writeFileSync(path.join(DIST, "sw.js"), serviceWorkerSource, "utf8");
 writeFileSync(
     path.join(DIST, "manifest.webmanifest"),
     readFileSync("manifest.webmanifest")

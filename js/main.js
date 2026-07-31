@@ -131,6 +131,7 @@ import {
 } from "./navigation.js";
 import { initTheme } from "./theme.js";
 import { initPwaInstall } from "./pwaInstall.js";
+import { registerSupervisorServiceWorker } from "./serviceWorkerRegistration.js";
 import { initSelfTestButton } from "./selfTest.js";
 import { getPerfilActual, getDisplayedProfileData } from "./profileQueries.js";
 import { validateProfileDraft } from "./profileValidation.js";
@@ -11620,12 +11621,7 @@ initPwaInstall({
 // Boton flotante de auto-pruebas (solo aparece en el entorno de pruebas).
 initSelfTestButton();
 
-// Service Worker: cachea el shell para reaperturas instantaneas y offline basico.
-if ("serviceWorker" in navigator) {
-    window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js").catch(() => {});
-    });
-}
+registerSupervisorServiceWorker();
 
 initTurnosSidePanelSync();
 initSystemSettings({
