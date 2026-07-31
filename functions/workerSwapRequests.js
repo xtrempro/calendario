@@ -121,6 +121,35 @@ function isFreeTurnDay(day) {
   return label === "libre" || className === "libre";
 }
 
+// Codigo de turno intercambiable: 1 = Larga, 2 = Noche (0 = ninguno).
+function swapTurnCodeFromDay(day) {
+  if (!day || day.hasLeave === true) return 0;
+
+  const label = normalizeTextKey(shiftLabel(day));
+  const className = shiftClass(day);
+
+  if (label === "larga" || label === "l" || className === "larga") return 1;
+  if (label === "noche" || label === "n" || className === "noche") return 2;
+  return 0;
+}
+
+// Larga + Noche el mismo dia = turno 24.
+function isComplementary24(a, b) {
+  return (a === 1 && b === 2) || (a === 2 && b === 1);
+}
+
+// El receptor cubre el turno del dia si esta LIBRE, o si tiene el turno
+// complementario (queda con turno 24) y la unidad permite el 24. El 24 invertido
+// y la materializacion los valida el motor del supervisor al aprobar el cambio.
+function receiverCanCoverDay(receiverDay, giverTurn, allowTwentyFour) {
+  if (isFreeTurnDay(receiverDay)) return true;
+
+  return Boolean(
+    allowTwentyFour &&
+    isComplementary24(Number(giverTurn) || 0, swapTurnCodeFromDay(receiverDay))
+  );
+}
+
 function isBlocked(candidate, iso) {
   const blocked = Array.isArray(candidate?.blockedDayDates)
     ? candidate.blockedDayDates.map(normalizeISODate)
@@ -275,14 +304,19 @@ function assertOwnSwapDate(candidate, iso, HttpsError, nowDate) {
   return day;
 }
 
-function assertReceiverCanCoverDate(candidate, iso, HttpsError) {
+function assertReceiverCanCoverDate(
+  candidate,
+  iso,
+  HttpsError,
+  { giverTurn = 0, allowTwentyFour = false } = {}
+) {
   const day = dayFor(candidate, iso);
 
-  if (!isFreeTurnDay(day)) {
+  if (!receiverCanCoverDay(day, giverTurn, allowTwentyFour)) {
     callableError(
       HttpsError,
       "failed-precondition",
-      "El trabajador seleccionado ya no esta libre para recibir ese turno."
+      "El trabajador seleccionado no esta libre ni tiene un turno complementario (para 24) para recibir ese turno."
     );
   }
 
@@ -295,6 +329,13 @@ function assertReceiverCanCoverDate(candidate, iso, HttpsError) {
   }
 
   return day;
+}
+
+// La unidad permite dejar al receptor con turno 24 (default true). El campo lo
+// publica el supervisor en el doc del candidato; si aun no llego, se asume false
+// para no ofrecer el 24 hasta que la config este disponible.
+function allowsTwentyFour(candidate) {
+  return candidate?.allowTwentyFourHourShifts === true;
 }
 
 function assertReturnSwapDate(candidate, iso, HttpsError, nowDate) {
@@ -476,7 +517,13 @@ async function createWorkerSwapRequestHandler(request, dependencies) {
     HttpsError,
     nowDate
   );
-  assertReceiverCanCoverDate(targetCandidate, ownDate, HttpsError);
+  // El receptor puede estar libre O tener el turno complementario (queda con 24)
+  // si la unidad lo permite. El motor del supervisor valida el 24/invertido al
+  // aprobar; aqui solo se habilita que la solicitud se pueda crear.
+  assertReceiverCanCoverDate(targetCandidate, ownDate, HttpsError, {
+    giverTurn: swapTurnCodeFromDay(ownDay),
+    allowTwentyFour: allowsTwentyFour(targetCandidate)
+  });
   const returnDay = assertReturnSwapDate(
     targetCandidate,
     returnDate,
@@ -797,7 +844,14 @@ async function respondWorkerSwapRequestHandler(request, dependencies) {
       assertReceiverCanCoverDate(
         acceptedCandidate,
         changeDate,
-        HttpsError
+        HttpsError,
+        {
+          giverTurn: swapTurnCodeFromDay({
+            label: swap.ownTurnLabel,
+            className: swap.ownTurnClassName
+          }),
+          allowTwentyFour: allowsTwentyFour(acceptedCandidate)
+        }
       );
 
       assertSwapLimitAvailable(
