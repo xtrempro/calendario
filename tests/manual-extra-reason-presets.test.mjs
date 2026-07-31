@@ -25,3 +25,19 @@ test("los motivos predefinidos de HHEE se editan y sincronizan por entorno", asy
         /\["manualExtraReasonPresets", "turnos"\]/
     );
 });
+
+test("el detalle de un turno extra manual prioriza el motivo escrito", async () => {
+    const calendarSource = await readFile(
+        new URL("../js/calendar.js", import.meta.url),
+        "utf8"
+    );
+
+    assert.match(
+        calendarSource,
+        /function replacementDetailReasonLabel\(replacement = \{\}\) \{[\s\S]*?return replacement\.replaced[\s\S]*?absenceType \|\| reason \|\| "Sin detalle"[\s\S]*?reason \|\| absenceType \|\| "Sin detalle"/
+    );
+    assert.match(
+        calendarSource,
+        /\[\s*replacement\.replaced \? "Ausencia" : "Motivo",\s*replacementDetailReasonLabel\(replacement\)\s*\]/
+    );
+});

@@ -2812,6 +2812,15 @@ function replacementDetailTurnLabel(replacement = {}) {
         "Sin turno";
 }
 
+function replacementDetailReasonLabel(replacement = {}) {
+    const reason = String(replacement.reason || "").trim();
+    const absenceType = String(replacement.absenceType || "").trim();
+
+    return replacement.replaced
+        ? (absenceType || reason || "Sin detalle")
+        : (reason || absenceType || "Sin detalle");
+}
+
 function getReplacementDetailRecord(
     profileName,
     keyDay,
@@ -2862,9 +2871,7 @@ async function openReplacementDetailDialog(
         ["Turno", replacementDetailTurnLabel(replacement)],
         [
             replacement.replaced ? "Ausencia" : "Motivo",
-            replacement.absenceType ||
-                replacement.reason ||
-                "Sin detalle"
+            replacementDetailReasonLabel(replacement)
         ],
         ["Origen", replacementDetailSourceLabel(replacement)],
         replacement.workerWorkspaceName
