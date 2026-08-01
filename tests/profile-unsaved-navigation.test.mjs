@@ -45,6 +45,9 @@ test("el cambio de trabajador pasa por el mismo guard de perfil", () => {
         selectProfileByName,
         /if \(!await confirmProfileDraftBeforeLeaving\(\)\) \{[\s\S]*return false;/
     );
+    assert.match(selectProfileByName, /const profileInactive = !isProfileActive\(profile\)/);
+    assert.match(selectProfileByName, /const openProfile = options\.openProfile \|\| profileInactive/);
+    assert.match(selectProfileByName, /const openTurns = options\.openTurns && !profileInactive/);
     assert.match(selectProfileByName, /return true;/);
 });
 

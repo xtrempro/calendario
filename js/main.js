@@ -6344,6 +6344,7 @@ async function selectProfileByName(profileName, options = {}) {
     const sameStoredProfile =
         profile.name === getCurrentProfile() &&
         profileDraft.mode !== PROFILE_MODE.CREATE;
+    const profileInactive = !isProfileActive(profile);
 
     if (
         options.skipProfileDraftGuard !== true &&
@@ -6366,6 +6367,7 @@ async function selectProfileByName(profileName, options = {}) {
 
     if (
         sameStoredProfile &&
+        !profileInactive &&
         !options.openProfile &&
         !options.openTurns &&
         !hasUnsavedProfileDraftChanges()
@@ -6386,13 +6388,16 @@ async function selectProfileByName(profileName, options = {}) {
     renderProfiles({ dashboard: false });
     renderBotones();
 
-    if (options.openProfile) {
+    const openProfile = options.openProfile || profileInactive;
+    const openTurns = options.openTurns && !profileInactive;
+
+    if (openProfile) {
         if (!await setActiveShortcut("profileSection")) {
             return false;
         }
     }
 
-    if (options.openTurns) {
+    if (openTurns) {
         if (!await setActiveShortcut("calendarPanel")) {
             return false;
         }
