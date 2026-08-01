@@ -343,6 +343,24 @@ function snapshot(){
     };
 }
 
+// Compara dos snapshots de perfil (valores raw). Si son iguales, reescribir el
+// perfil no cambia nada pero SÍ dispara el detector de cambios del worker-app, que
+// le notifica al trabajador un "cambio" inexistente en su calendario.
+const PROFILE_SNAPSHOT_KEYS = [
+    "data", "baseData", "admin", "legal", "comp", "leaveBalances",
+    "hourReturns", "hheeReturnTransfers", "abs", "blocked", "shift",
+    "shiftAssignmentHistory", "clockMarks", "replacementContracts",
+    "gradeHistory", "contractHistory"
+];
+
+function profileSnapshotEquals(a, b){
+    if (!a || !b) return false;
+
+    return PROFILE_SNAPSHOT_KEYS.every(
+        k => (a[k] ?? null) === (b[k] ?? null)
+    );
+}
+
 function restore(state){
 
     const p = getCurrentProfile();
@@ -351,7 +369,12 @@ function restore(state){
     if (state.profiles) {
         Object.entries(state.profiles).forEach(
             ([profile, profileState]) => {
-                restoreProfile(profile, profileState);
+                // Solo se reescribe el perfil si su estado realmente cambio.
+                // Deshacer un cambio de 1 o 2 perfiles no debe reescribir (ni
+                // notificar) a todos los demas trabajadores enlazados.
+                if (!profileSnapshotEquals(snapshotProfile(profile), profileState)) {
+                    restoreProfile(profile, profileState);
+                }
             }
         );
     } else {
