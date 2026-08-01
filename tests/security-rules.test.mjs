@@ -1111,8 +1111,10 @@ test("reglas modulares de Firestore y Storage", async t => {
     );
 
     await t.test(
-        "la invitacion de trabajador puede reabrirse por el mismo uid en marcha blanca",
+        "la invitacion de trabajador aceptada puede reabrirse en marcha blanca",
         async () => {
+            const workerReopened = env.authenticatedContext("worker-reopened");
+
             await env.withSecurityRulesDisabled(async context => {
                 const db = context.firestore();
 
@@ -1132,36 +1134,15 @@ test("reglas modulares de Firestore y Storage", async t => {
                         profileRut: "11111111-1",
                         email: "worker-a@example.com",
                         status: "accepted",
-                        workerUid: "worker-a",
+                        workerUid: "previous-anonymous-worker",
                         workerEmail: "worker-a@example.com",
                         workerDisplayName: "Trabajador A"
-                    }
-                );
-                await setDoc(
-                    doc(
-                        db,
-                        "workspaces",
-                        WORKSPACE_ID,
-                        "workerAppInvites",
-                        "worker-reuse-other"
-                    ),
-                    {
-                        token: "worker-reuse-other",
-                        workspaceId: WORKSPACE_ID,
-                        workspaceName: "Pruebas",
-                        profileName: "Trabajador B",
-                        profileRut: "22222222-2",
-                        email: "worker-b@example.com",
-                        status: "accepted",
-                        workerUid: "worker-b",
-                        workerEmail: "worker-b@example.com",
-                        workerDisplayName: "Trabajador B"
                     }
                 );
             });
 
             const ownAcceptedInvite = doc(
-                workerA.firestore(),
+                workerReopened.firestore(),
                 "workspaces",
                 WORKSPACE_ID,
                 "workerAppInvites",
@@ -1172,7 +1153,7 @@ test("reglas modulares de Firestore y Storage", async t => {
             await assertSucceeds(
                 updateDoc(ownAcceptedInvite, {
                     status: "accepted",
-                    workerUid: "worker-a",
+                    workerUid: "worker-reopened",
                     workerEmail: "worker-a@example.com",
                     workerDisplayName: "Trabajador A",
                     acceptedAt: new Date(),
@@ -1182,14 +1163,14 @@ test("reglas modulares de Firestore y Storage", async t => {
             await assertSucceeds(
                 setDoc(
                     doc(
-                        workerA.firestore(),
+                        workerReopened.firestore(),
                         "workspaces",
                         WORKSPACE_ID,
                         "workerLinks",
-                        "worker-a"
+                        "worker-reopened"
                     ),
                     {
-                        uid: "worker-a",
+                        uid: "worker-reopened",
                         workspaceId: WORKSPACE_ID,
                         inviteId: "worker-reuse-accepted",
                         profileName: "Trabajador A",
@@ -1199,7 +1180,7 @@ test("reglas modulares de Firestore y Storage", async t => {
                     }
                 )
             );
-            await assertFails(
+            await assertSucceeds(
                 getDoc(
                     doc(
                         workerB.firestore(),
@@ -1207,17 +1188,6 @@ test("reglas modulares de Firestore y Storage", async t => {
                         WORKSPACE_ID,
                         "workerAppInvites",
                         "worker-reuse-accepted"
-                    )
-                )
-            );
-            await assertFails(
-                getDoc(
-                    doc(
-                        outsider.firestore(),
-                        "workspaces",
-                        WORKSPACE_ID,
-                        "workerAppInvites",
-                        "worker-reuse-other"
                     )
                 )
             );

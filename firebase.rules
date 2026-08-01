@@ -304,8 +304,8 @@ service cloud.firestore {
     }
 
     function workerInviteSingleUseDisabledForPilot() {
-      // TEMPORAL marcha blanca: permite reabrir una invitacion ya aceptada solo
-      // desde el mismo uid que la acepto. Volver a false al cerrar esta fase.
+      // TEMPORAL marcha blanca: permite reabrir una invitacion ya aceptada con
+      // su enlace directo. Volver a false al cerrar esta fase.
       return true;
     }
 
@@ -313,8 +313,7 @@ service cloud.firestore {
       return resource.data.status == "pending" ||
         (
           workerInviteSingleUseDisabledForPilot() &&
-          resource.data.status == "accepted" &&
-          resource.data.workerUid == request.auth.uid
+          resource.data.status == "accepted"
         );
     }
 
