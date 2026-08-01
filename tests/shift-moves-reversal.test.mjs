@@ -99,6 +99,35 @@ test("un cambio de horario que vuelve al horario original no conserva TTMM", () 
     assert.deepEqual(getShiftMoveMarkers(PROFILE, SOURCE), []);
 });
 
+test("compacta pares inversos que ya estaban guardados", () => {
+    globalThis.localStorage.setItem(
+        "shiftMoves",
+        JSON.stringify([
+            {
+                profile: PROFILE,
+                sourceKey: SOURCE,
+                targetKey: TARGET,
+                sourceTurn: TURNO.LARGA,
+                destinationTurn: TURNO.NOCHE
+            },
+            {
+                profile: PROFILE,
+                sourceKey: TARGET,
+                targetKey: SOURCE,
+                sourceTurn: TURNO.NOCHE,
+                destinationTurn: TURNO.LARGA
+            }
+        ])
+    );
+    globalThis.localStorage.setItem("shiftMovesAuditMigrationV1", "1");
+
+    assert.deepEqual(getShiftMoves(), []);
+    assert.equal(
+        globalThis.localStorage.getItem("shiftMoves"),
+        "[]"
+    );
+});
+
 test("no compacta movimientos inversos si el primero formo un 24", () => {
     registerShiftMove({
         profile: PROFILE,

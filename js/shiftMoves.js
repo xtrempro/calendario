@@ -91,13 +91,38 @@ function reverseShiftMoveIndex(moves, normalized) {
     return -1;
 }
 
+function compactReverseShiftMoves(moves = []) {
+    const compacted = [];
+    let changed = false;
+
+    moves.forEach(move => {
+        const reverseIndex = reverseShiftMoveIndex(compacted, move);
+
+        if (reverseIndex >= 0) {
+            compacted.splice(reverseIndex, 1);
+            changed = true;
+            return;
+        }
+
+        compacted.push(move);
+    });
+
+    return { moves: compacted, changed };
+}
+
 export function getShiftMoves() {
     const stored = getJSON(STORAGE_KEY, [])
         .map(normalizeShiftMove)
         .filter(Boolean);
 
     if (getRaw(MIGRATION_KEY, "") === "1") {
-        return stored;
+        const compacted = compactReverseShiftMoves(stored);
+
+        if (compacted.changed) {
+            saveShiftMoves(compacted.moves);
+        }
+
+        return compacted.moves;
     }
 
     const existingIds = new Set(
@@ -124,14 +149,15 @@ export function getShiftMoves() {
         ...stored,
         ...migrated
     ];
+    const compacted = compactReverseShiftMoves(result);
 
-    if (migrated.length) {
-        setJSON(STORAGE_KEY, result);
+    if (migrated.length || compacted.changed) {
+        saveShiftMoves(compacted.moves);
     }
 
     setRaw(MIGRATION_KEY, "1");
 
-    return result;
+    return compacted.moves;
 }
 
 export function saveShiftMoves(moves = []) {
