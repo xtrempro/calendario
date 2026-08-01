@@ -598,8 +598,70 @@ function normalizeClockSegment(segment = {}) {
     if (segment.missingExit) normalized.missingExit = true;
     if (segment.entryTime) normalized.entryTime = String(segment.entryTime);
     if (segment.exitTime) normalized.exitTime = String(segment.exitTime);
+    if (Array.isArray(segment.documents)) {
+        const documents = normalizeClockRequestDocuments({
+            documents: segment.documents
+        });
+
+        if (documents.length) normalized.documents = documents;
+    }
 
     return normalized;
+}
+
+function normalizeClockRequestDocuments(request = {}) {
+    const source = Array.isArray(request.documents)
+        ? request.documents
+        : Array.isArray(request.attachments)
+            ? request.attachments
+            : [];
+
+    return source
+        .filter(doc => doc && typeof doc === "object")
+        .slice(0, 10)
+        .map((doc, index) => {
+            const normalized = {
+                id: String(doc.id || `worker_request_doc_${index + 1}`),
+                name: String(doc.name || doc.fileName || `Adjunto ${index + 1}`)
+            };
+            const type = String(doc.type || doc.contentType || "");
+            const addedAt = String(
+                doc.addedAt ||
+                doc.createdAt ||
+                request.createdAt ||
+                new Date().toISOString()
+            );
+            const uploadedByUid = String(
+                doc.uploadedByUid ||
+                request.createdByUid ||
+                ""
+            );
+            const size = Number(doc.size);
+
+            if (type) normalized.type = type;
+            if (Number.isFinite(size) && size >= 0) normalized.size = size;
+            if (addedAt) normalized.addedAt = addedAt;
+            if (uploadedByUid) normalized.uploadedByUid = uploadedByUid;
+            if (doc.storagePath) normalized.storagePath = String(doc.storagePath);
+            if (doc.dataUrl) normalized.dataUrl = String(doc.dataUrl);
+
+            return normalized;
+        })
+        .filter(doc => doc.name && (doc.storagePath || doc.dataUrl));
+}
+
+function attachRequestDocumentsToClockMark(mark, request) {
+    const documents = normalizeClockRequestDocuments(request);
+    const segmentId = Object.keys(mark.segments)[0];
+
+    if (!documents.length || !segmentId) return;
+
+    const segment = mark.segments[segmentId];
+    const currentDocuments = Array.isArray(segment.documents)
+        ? segment.documents
+        : [];
+
+    segment.documents = [...currentDocuments, ...documents];
 }
 
 function clockSegmentLabel(segments, segmentId) {
@@ -690,6 +752,8 @@ async function applyClockRequest(request, profile, date) {
             message: "La solicitud de marcaje no trae datos suficientes para aplicarla."
         };
     }
+
+    attachRequestDocumentsToClockMark(mark, request);
 
     marks[keyDay] = mark;
     saveClockMarks(profile, marks);
@@ -1200,6 +1264,17 @@ function requestDetailsHTML(request) {
 
     if (request.days) {
         pieces.push(`${request.days} d\u00eda(s)`);
+    }
+
+    if (
+        request.type === "missing_clock" ||
+        request.type === "clock_incident"
+    ) {
+        const documentCount = normalizeClockRequestDocuments(request).length;
+
+        if (documentCount) {
+            pieces.push(`${documentCount} adjunto(s)`);
+        }
     }
 
     if (request.type === "swap") {

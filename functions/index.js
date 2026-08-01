@@ -20,6 +20,9 @@ const {
   respondWorkerSwapRequestHandler
 } = require("./workerSwapRequests");
 const {
+  createWorkerClockIncidentRequestHandler
+} = require("./workerClockIncidents");
+const {
   findCompatibleReplacementCandidates
 } = require("./linkedReplacementSearch");
 const {
@@ -2285,6 +2288,19 @@ exports.createWorkerSwapOpenRequest = onCall(
     db,
     HttpsError,
     serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp()
+  })
+);
+
+exports.createWorkerClockIncidentRequest = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 60
+  },
+  (request) => createWorkerClockIncidentRequestHandler(request, {
+    db,
+    HttpsError,
+    serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+    storageBucket: () => admin.storage().bucket()
   })
 );
 
