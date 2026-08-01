@@ -61,6 +61,36 @@ function normalizeShiftMove(move = {}) {
     };
 }
 
+function isSimpleReverseShiftMove(previous, next) {
+    if (!previous || !next) return false;
+    if (previous.profile !== next.profile) return false;
+    if (previous.combinedInto24 || next.combinedInto24) return false;
+
+    const sameDayReverse =
+        previous.sourceKey === previous.targetKey &&
+        next.sourceKey === next.targetKey &&
+        previous.sourceKey === next.sourceKey;
+    const locationReverse =
+        previous.sourceKey === next.targetKey &&
+        previous.targetKey === next.sourceKey;
+
+    return (
+        (sameDayReverse || locationReverse) &&
+        Number(previous.sourceTurn) === Number(next.destinationTurn) &&
+        Number(previous.destinationTurn) === Number(next.sourceTurn)
+    );
+}
+
+function reverseShiftMoveIndex(moves, normalized) {
+    for (let index = moves.length - 1; index >= 0; index--) {
+        if (isSimpleReverseShiftMove(moves[index], normalized)) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
 export function getShiftMoves() {
     const stored = getJSON(STORAGE_KEY, [])
         .map(normalizeShiftMove)
@@ -118,10 +148,18 @@ export function registerShiftMove(move = {}) {
 
     if (!normalized) return null;
 
-    saveShiftMoves([
-        ...getShiftMoves(),
-        normalized
-    ]);
+    const moves = getShiftMoves();
+    const reverseIndex = reverseShiftMoveIndex(moves, normalized);
+
+    if (reverseIndex >= 0) {
+        saveShiftMoves(
+            moves.filter((_, index) => index !== reverseIndex)
+        );
+
+        return null;
+    }
+
+    saveShiftMoves([...moves, normalized]);
 
     return normalized;
 }
