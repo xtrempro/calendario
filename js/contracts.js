@@ -8,7 +8,8 @@ import {
     getHonorariaContracts,
     saveHonorariaContracts,
     hasHonorariaContractsStored,
-    getRotativa
+    getRotativa,
+    getContractTypeAt
 } from "./storage.js";
 import { TURNO } from "./constants.js";
 import {
@@ -77,6 +78,18 @@ export function keyToISO(keyDay) {
         String(month + 1).padStart(2, "0"),
         String(day).padStart(2, "0")
     ].join("-");
+}
+
+function contractDateToISO(value) {
+    const source = String(value || "").trim();
+
+    if (!source) return "";
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(source)) {
+        return source.slice(0, 10);
+    }
+
+    return keyToISO(source);
 }
 
 export function formatContractDate(value) {
@@ -332,15 +345,33 @@ export function earliestHonorariaContractStart(profileName) {
 }
 
 export function getHonorariaContractForDate(profileName, keyDay) {
-    const iso = keyToISO(keyDay);
+    const iso = contractDateToISO(keyDay);
 
     if (!iso) return null;
+    if (
+        !isHonorariaContractType(
+            getContractTypeAt(profileName, iso)
+        )
+    ) {
+        return null;
+    }
 
-    return getHonorariaContractsForProfile(profileName)
+    const contract = getHonorariaContractsForProfile(profileName)
         .find(contract =>
             contract.start <= iso &&
             contract.end >= iso
-        ) || null;
+        );
+
+    if (contract) return contract;
+
+    const profile = resolveHonorariaProfile(profileName);
+    const legacy = legacyHonorariaContract(profile);
+
+    return legacy &&
+        legacy.start <= iso &&
+        legacy.end >= iso
+        ? legacy
+        : null;
 }
 
 // Contrato "vigente" de referencia (para consumidores sin fecha): el activo hoy,
@@ -348,7 +379,17 @@ export function getHonorariaContractForDate(profileName, keyDay) {
 export function getHonorariaContract(profileOrName) {
     const profile = resolveHonorariaProfile(profileOrName);
 
-    if (!isHonorariaContractType(profile?.contractType)) return null;
+    const name = typeof profileOrName === "string"
+        ? profileOrName
+        : profile?.name;
+
+    if (
+        !isHonorariaContractType(
+            getContractTypeAt(name, new Date())
+        )
+    ) {
+        return null;
+    }
 
     const contracts = getHonorariaContractsForProfile(profile);
 
@@ -368,29 +409,44 @@ export function getHonorariaContract(profileOrName) {
 
 // Es de Honorarios por su TIPO de contrato (aunque aun no tenga contratos
 // cargados): sus dias sin contrato vigente quedan libres hasta agregar uno.
-export function isHonorariaProfile(profileName) {
+export function isHonorariaProfile(profileName, keyDay = "") {
     const profile = resolveHonorariaProfile(profileName);
+    const iso = keyDay ? contractDateToISO(keyDay) : "";
 
-    return isHonorariaContractType(profile?.contractType);
+    return isHonorariaContractType(
+        iso
+            ? getContractTypeAt(profileName, iso)
+            : getContractTypeAt(
+                typeof profileName === "string"
+                    ? profileName
+                    : profile?.name,
+                new Date()
+            ) || profile?.contractType
+    );
 }
 
 export function hasHonorariaContractForDate(profileName, keyDay) {
     return Boolean(getHonorariaContractForDate(profileName, keyDay));
 }
 
-export function isReplacementProfile(profileName) {
+export function isReplacementProfile(profileName, keyDay = "") {
     const profile = getProfiles().find(item =>
         item.name === profileName
     );
+    const iso = keyDay ? contractDateToISO(keyDay) : "";
+    const contractType = iso
+        ? getContractTypeAt(profileName, iso)
+        : getContractTypeAt(profileName, new Date()) ||
+            profile?.contractType;
 
-    return (
-        isReplacementContractType(profile?.contractType) ||
-        getRotativa(profileName).type === "reemplazo"
-    );
+    if (isReplacementContractType(contractType)) return true;
+    if (String(contractType || "").trim()) return false;
+
+    return getRotativa(profileName).type === "reemplazo";
 }
 
 export function getContractForDate(profileName, keyDay) {
-    if (!isReplacementProfile(profileName)) return null;
+    if (!isReplacementProfile(profileName, keyDay)) return null;
 
     const iso = keyToISO(keyDay);
 

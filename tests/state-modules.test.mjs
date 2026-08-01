@@ -77,6 +77,8 @@ test("marca cambios de calendario PWA como sincronizacion urgente", () => {
         "rotativa_Ana",
         "shift_Ana",
         "shiftAssignmentHistory_Ana",
+        "gradeHistory_Ana",
+        "contractHistory_Ana",
         "replacements",
         "swaps",
         "manualHolidays",

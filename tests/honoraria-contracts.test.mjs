@@ -70,6 +70,67 @@ test("los turnos de honorarios solo se ven dentro de un contrato vigente", () =>
     assert.equal(getTurnoBase(N, "2026-8-7"), TURNO.LIBRE);
 });
 
+test("un cambio futuro de Honorarios a Contrata respeta la fecha efectiva", () => {
+    localStorage.clear();
+    setJSON("profiles", [
+        {
+            name: N,
+            contractType: "Contrata",
+            estamento: "Profesional",
+            grade: "12"
+        }
+    ]);
+    setJSON("gradeHistory_" + N, [
+        {
+            start: "1900-01-01",
+            contractType: "Honorarios",
+            estamento: "Profesional",
+            grade: ""
+        },
+        {
+            start: "2026-08-01",
+            contractType: "Contrata",
+            estamento: "Profesional",
+            grade: "12"
+        }
+    ]);
+    setJSON("contractHistory_" + N, [
+        {
+            id: "contract-change",
+            createdAt: "2026-07-20T12:00:00.000Z",
+            effectiveDate: "2026-08-01",
+            summary: "Cambio de datos contractuales",
+            changes: [
+                {
+                    field: "contractType",
+                    label: "Tipo de contrato",
+                    from: "Honorarios",
+                    to: "Contrata",
+                    effectiveDate: "2026-08-01"
+                }
+            ]
+        }
+    ]);
+    setJSON("rotativa_" + N, {
+        type: "diurno", start: "2026-08-01", firstTurn: "larga"
+    });
+    setJSON("honorariaContracts_" + N, [
+        { id: "c1", start: "2026-07-01", end: "2026-07-31", hourlyRate: 5000, maxWeeklyHours: 20 }
+    ]);
+    setJSON("baseData_" + N, {
+        "2026-6-6": TURNO.DIURNO
+    });
+
+    assert.equal(contracts.isHonorariaProfile(N, "2026-6-10"), true);
+    assert.equal(contracts.isHonorariaProfile(N, "2026-7-3"), false);
+    assert.equal(getTurnoBase(N, "2026-6-6"), TURNO.DIURNO);
+    assert.equal(getTurnoBase(N, "2026-7-3"), TURNO.DIURNO);
+    assert.equal(getValorHora(N, new Date(2026, 6, 10)), 5000);
+    assert.notEqual(getValorHora(N, new Date(2026, 7, 3)), 5000);
+    assert.ok(getHonorariaMonthlySummary(N, 2026, 6, {}));
+    assert.equal(getHonorariaMonthlySummary(N, 2026, 7, {}), null);
+});
+
 test("el tope semanal del resumen sale del contrato del dia", () => {
     seedTwoContracts();
 

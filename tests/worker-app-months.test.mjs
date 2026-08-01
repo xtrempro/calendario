@@ -90,6 +90,26 @@ test("la PWA reutiliza resumenes HH.EE y los refresca en segundo plano", async (
     assert.match(source, /overtimeSummariesStatus: "fresh"/);
 });
 
+test("la publicacion PWA incluye vigencia contractual por fecha", async () => {
+    const source = await readFile(
+        new URL("../js/workerAppDataSync.js", import.meta.url),
+        "utf8"
+    );
+    const serverSource = await readFile(
+        new URL("../js/serverEngine.js", import.meta.url),
+        "utf8"
+    );
+
+    assert.match(source, /function buildContractTimeline\(profile = \{\}\)/);
+    assert.match(source, /contractTimeline/);
+    assert.match(source, /getCompensationProfileAt\(profile\.name, new Date\(\)\)/);
+    assert.match(source, /"gradeHistory_"/);
+    assert.match(source, /"contractHistory_"/);
+    assert.match(serverSource, /function buildContractTimeline\(profile = \{\}\)/);
+    assert.match(serverSource, /contractTimeline/);
+    assert.match(serverSource, /getCompensationProfileAt\(profile\.name, today\)/);
+});
+
 test("Perfil pagina la lista y Timeline renderiza la profesion completa", async () => {
     const [mainSource, timelineSource] = await Promise.all([
         readFile(new URL("../js/main.js", import.meta.url), "utf8"),

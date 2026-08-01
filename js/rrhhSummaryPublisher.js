@@ -26,7 +26,7 @@
 import { getFirebaseServices } from "./firebaseClient.js";
 import { getActiveWorkspace } from "./workspaces.js";
 import {
-    getProfiles, getProfileData, getReplacements, isProfileActive, getGradeHourValue, getValorHora
+    getProfiles, getProfileData, getReplacements, isProfileActive, getGradeHourValue, getValorHora, getContractTypeAt
 } from "./storage.js";
 import { calcularHorasMesPerfil } from "./hoursEngine.js";
 import { analizarMes } from "./staffing.js";
@@ -180,10 +180,15 @@ async function computeRrhhSummary(year, month0, activeId) {
         hheeGastoClp += cost;
         const label = roleLabel(profile.estamento);
         if (label) gastoPorEstamento[label] += cost;
-        if (isHonorariaContractType(profile.contractType)) {
+        const monthReferenceDate = new Date(year, month0, 15);
+        if (
+            isHonorariaContractType(
+                getContractTypeAt(profile.name, monthReferenceDate)
+            )
+        ) {
             // Tarifa del contrato de honorarios vigente en el mes (getValorHora ya
             // resuelve el contrato por fecha; cae al campo legado si no hay).
-            const rate = getValorHora(profile.name, new Date(year, month0, 15));
+            const rate = getValorHora(profile.name, monthReferenceDate);
             honorariosClp += workedHours(stats) * (Number(rate) || 0);
         }
         if (++i % 8 === 0) await idleYield();

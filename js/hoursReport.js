@@ -8,7 +8,8 @@ import {
     getRotativa,
     getReportSignatureConfig,
     getShiftAssigned,
-    getValorHora
+    getValorHora,
+    getCompensationProfileAt
 } from "./storage.js";
 import { fetchHolidays } from "./holidays.js";
 import {
@@ -48,6 +49,8 @@ import { getShiftMoveMarkers } from "./shiftMoves.js";
 import {
     formatContractDate,
     getContractsForProfile,
+    isHonorariaContractType,
+    isReplacementContractType,
     isReplacementProfile
 } from "./contracts.js";
 import { REPLACEMENT_ROTATION_MODE } from "./replacementRotation.js";
@@ -152,6 +155,14 @@ function reportKind(profileName, monthDate = new Date()) {
     }
 
     return "shift-base";
+}
+
+function contractKindForType(contractType) {
+    if (isHonorariaContractType(contractType)) return "honorario";
+    if (isReplacementContractType(contractType)) return "reemplazo";
+    if (contractType) return "planta_contrata";
+
+    return "";
 }
 
 function isNoAssignmentShiftProfile(
@@ -2357,6 +2368,14 @@ export async function buildWorkerHheeMonthSummary(
         {},
         { d: 0, n: 0 }
     );
+    const monthReferenceDate = new Date(year, month + 1, 0);
+    const effectiveProfile =
+        getCompensationProfileAt(profile.name, monthReferenceDate) ||
+        profile;
+    const effectiveContractType =
+        effectiveProfile.contractType ||
+        profile.contractType ||
+        "";
 
     let model;
 
@@ -2422,6 +2441,9 @@ export async function buildWorkerHheeMonthSummary(
     return {
         year,
         month,
+        contractType: effectiveContractType,
+        effectiveContractType,
+        contractKind: contractKindForType(effectiveContractType),
         extraShifts,
         // Que representa extraShifts, para que la PWA titule la seccion sin
         // tener que reconstruir esta regla: "all" = todos los turnos del mes.

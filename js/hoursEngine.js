@@ -599,7 +599,7 @@ function baseStateForExtraComparison(nombre, keyDay) {
         { includeReplacements: false }
     );
 
-    if (isReplacementProfile(nombre)) {
+    if (isReplacementProfile(nombre, keyDay)) {
         return baseState;
     }
 
@@ -814,7 +814,7 @@ function diurnoHasMissingBaseShift(nombre, y, m, days) {
 }
 
 function getCalculationMode(nombre, y, m, days, data) {
-    if (isReplacementProfile(nombre)) {
+    if (isReplacementProfile(nombre, key(y, m, 1))) {
         return "aggregate";
     }
 
@@ -856,7 +856,7 @@ function calculateAdjustedBusinessHours(
         }
 
         total += HORA_BASE_DIARIA;
-        const coverage = isReplacementProfile(nombre)
+        const coverage = isReplacementProfile(nombre, keyDay)
             ? getReplacementBusinessCoverage(keyDay, maps)
             : getApprovedCoverage(keyDay, maps);
 

@@ -104,10 +104,9 @@ import {
     workerHasAbsence
 } from "./replacements.js";
 import {
-    getHonorariaContractsForProfile,
+    getHonorariaContractForDate,
     getInheritedReplacementContractForCoveredShift,
     hasContractForDate,
-    isHonorariaProfile,
     isReplacementProfile
 } from "./contracts.js";
 import {
@@ -6345,10 +6344,6 @@ async function renderCalendarImpl(options = {}) {
         m,
         holidays
     );
-    const isHonorariaActive = isHonorariaProfile(activeProfile);
-    const honorariaContracts = isHonorariaActive
-        ? getHonorariaContractsForProfile(activeProfile)
-        : [];
     finishWorkerContext({
         days,
         workerId: activeWorkerId
@@ -6398,10 +6393,7 @@ async function renderCalendarImpl(options = {}) {
         const isHab = isBusinessDay(date, holidays);
         const isoDay = isoFromKeyDay(keyDay);
         const honorariaContractDay =
-            isHonorariaActive &&
-            honorariaContracts.some(contract =>
-                contract.start <= isoDay && contract.end >= isoDay
-            );
+            Boolean(getHonorariaContractForDate(activeProfile, isoDay));
         const shiftAssigned = shiftAssignedForDate(date);
 
         const turnChangeMarkers =

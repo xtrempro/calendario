@@ -267,15 +267,21 @@ function contractHistoryKey(profile = currentProfile) {
 function normalizeGradeHistoryEntry(entry = {}) {
     const start = normalizeHistoryDate(entry.start);
     const grade = String(entry.grade || "").trim();
+    const contractType = String(entry.contractType || "").trim();
+    const rawEstamento = String(entry.estamento || "").trim();
+    const estamento = normalizeEstamento(rawEstamento);
 
-    if (!start || !grade) return null;
+    if (!start || (!grade && !contractType && !rawEstamento)) return null;
 
     return {
-        id: String(entry.id || `${start}_${grade}`),
+        id: String(
+            entry.id ||
+            `${start}_${contractType || "contrato"}_${grade || "sin-grado"}`
+        ),
         start,
         grade,
-        estamento: normalizeEstamento(entry.estamento),
-        contractType: String(entry.contractType || "").trim(),
+        estamento,
+        contractType,
         createdAt: String(entry.createdAt || new Date().toISOString())
     };
 }
@@ -374,6 +380,13 @@ export function recordGradeHistoryChange(
         : previousEntry
             ? [previousEntry]
             : [];
+    const hasPreviousBeforeStart = nextHistory.some(entry =>
+        entry.start < startDate
+    );
+
+    if (previousEntry && !hasPreviousBeforeStart) {
+        nextHistory.push(previousEntry);
+    }
 
     saveGradeHistory(
         profile,
@@ -397,9 +410,15 @@ export function getCompensationProfileAt(
     if (!profileData) return null;
 
     const dateKey = normalizeHistoryDate(date);
+    const contractTypeAtDate = dateKey
+        ? getContractTypeAt(profile, dateKey)
+        : String(profileData.contractType || "").trim();
 
     if (!dateKey) {
-        return profileData;
+        return {
+            ...profileData,
+            contractType: contractTypeAtDate || profileData.contractType
+        };
     }
 
     const history = getGradeHistory(profile);
@@ -409,7 +428,10 @@ export function getCompensationProfileAt(
     const entry = matches[matches.length - 1];
 
     if (!entry) {
-        return profileData;
+        return {
+            ...profileData,
+            contractType: contractTypeAtDate || profileData.contractType
+        };
     }
 
     return {
@@ -417,7 +439,9 @@ export function getCompensationProfileAt(
         grade: entry.grade,
         estamento: entry.estamento || profileData.estamento,
         contractType:
-            entry.contractType || profileData.contractType
+            contractTypeAtDate ||
+            entry.contractType ||
+            profileData.contractType
     };
 }
 
@@ -512,6 +536,74 @@ export function addContractHistoryEntry(profile, entry = {}) {
     );
 
     return normalized;
+}
+
+function normalizeContractHistoryValue(value) {
+    const text = String(value || "").trim();
+
+    return text === "Sin contrato" ? "" : text;
+}
+
+function contractTypeHistoryEvents(profile = currentProfile) {
+    return getContractHistory(profile)
+        .flatMap(entry =>
+            entry.changes
+                .filter(change => change.field === "contractType")
+                .map(change => ({
+                    createdAt: entry.createdAt,
+                    effectiveDate:
+                        normalizeHistoryDate(change.effectiveDate) ||
+                        normalizeHistoryDate(entry.effectiveDate) ||
+                        "",
+                    from: normalizeContractHistoryValue(change.from),
+                    to: normalizeContractHistoryValue(change.to)
+                }))
+        )
+        .filter(event => event.effectiveDate)
+        .sort((a, b) =>
+            a.effectiveDate.localeCompare(b.effectiveDate) ||
+            a.createdAt.localeCompare(b.createdAt)
+        );
+}
+
+export function getContractTypeAt(profile = currentProfile, date = null) {
+    if (!profile) return "";
+
+    const profileData = getProfiles().find(item =>
+        item.name === profile
+    );
+
+    if (!profileData) return "";
+
+    const dateKey = normalizeHistoryDate(date);
+
+    if (!dateKey) {
+        return String(profileData.contractType || "").trim();
+    }
+
+    const events = contractTypeHistoryEvents(profile);
+
+    if (!events.length) {
+        const historyType = getGradeHistory(profile)
+            .filter(entry =>
+                entry.start <= dateKey &&
+                entry.contractType
+            )
+            .at(-1)?.contractType;
+
+        return historyType ||
+            String(profileData.contractType || "").trim();
+    }
+
+    let effectiveType =
+        events[0].from || String(profileData.contractType || "").trim();
+
+    for (const event of events) {
+        if (event.effectiveDate > dateKey) break;
+        effectiveType = event.to;
+    }
+
+    return effectiveType || String(profileData.contractType || "").trim();
 }
 
 function normalizeEstamento(value){

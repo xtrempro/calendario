@@ -16,7 +16,9 @@ import {
     getShiftAssigned,
     getManualLeaveBalances,
     isProfileActive,
-    getTurnChangeConfig
+    getTurnChangeConfig,
+    getCompensationProfileAt,
+    getGradeHistory
 } from "./storage.js";
 import {
     aplicarCambiosTurno,
@@ -95,6 +97,8 @@ const WORKER_APP_PROJECTION_PROFILE_STATE_PREFIXES = [
     "rotativa_",
     "shift_",
     "shiftAssignmentHistory_",
+    "gradeHistory_",
+    "contractHistory_",
     "leaveBalances_",
     "hourReturns_",
     "clockMarks_"
@@ -1126,6 +1130,37 @@ function buildSwapLimit(profileName) {
     };
 }
 
+function buildContractTimeline(profile = {}) {
+    const profileName = profile?.name || "";
+    const baseline = {
+        start: "1900-01-01",
+        contractType: profile.contractType || "",
+        estamento: profile.estamento || "",
+        grade: profile.grade || ""
+    };
+    const byStart = new Map([[baseline.start, baseline]]);
+
+    getGradeHistory(profileName).forEach(entry => {
+        byStart.set(entry.start, {
+            start: entry.start,
+            contractType: entry.contractType || "",
+            estamento: entry.estamento || "",
+            grade: entry.grade || ""
+        });
+    });
+
+    return [...byStart.values()]
+        .filter(entry =>
+            entry.start &&
+            (
+                entry.contractType ||
+                entry.estamento ||
+                entry.grade
+            )
+        )
+        .sort((a, b) => a.start.localeCompare(b.start));
+}
+
 async function buildWorkerAppPayload(
     link,
     profile,
@@ -1169,6 +1204,15 @@ async function buildWorkerAppPayload(
                 typeof previousPayload.reportsByMonth === "object"
                     ? previousPayload.reportsByMonth
                     : {};
+            const effectiveProfile =
+                getCompensationProfileAt(profile.name, new Date()) ||
+                profile;
+            const effectiveContractType =
+                effectiveProfile.contractType ||
+                profile.contractType ||
+                "";
+            const contractTimeline =
+                buildContractTimeline(profile);
             const previousExceptionsRange = exceptionsScanRange();
             const exceptionsJson = typeof previousPayload?.exceptionsJson === "string"
                 ? previousPayload.exceptionsJson
@@ -1209,16 +1253,24 @@ async function buildWorkerAppPayload(
                 profileName: profile.name || link.profileName || "",
                 profileRut: profile.rut || link.profileRut || "",
                 status: isProfileActive(profile) ? "active" : "inactive",
+                contractType: effectiveContractType,
+                effectiveContractType,
+                scheduledContractType: profile.contractType || "",
+                contractTimeline,
                 worker: {
                     name: profile.name || link.profileName || "",
                     email: profile.email || link.workerEmail || "",
                     phone: profile.phone || "",
                     rut: profile.rut || "",
-                    role: profile.estamento || "",
+                    role: effectiveProfile.estamento || profile.estamento || "",
                     profession: profile.profession || "",
+                    grade: effectiveProfile.grade || profile.grade || "",
                     // Se publica para que la PWA sepa el tipo de contrato (p.ej.
                     // Honorarios no puede solicitar permisos ni tiene vacaciones).
-                    contractType: profile.contractType || "",
+                    contractType: effectiveContractType,
+                    effectiveContractType,
+                    scheduledContractType: profile.contractType || "",
+                    contractTimeline,
                     unit: workspace.name || link.workspaceName || "",
                     unitEntryDate: "",
                     active: isProfileActive(profile)

@@ -166,6 +166,7 @@ import {
     isFirstProfileRotationConfig,
     getRotationConfigDefaultStart,
     hasGradeValueChanged,
+    hasContractTypeValueChanged,
     loadDraftFromProfile,
     supportsLibreRotation,
     requiresReplacementContract
@@ -350,6 +351,7 @@ import {
     recordGradeHistoryChange,
     getGradeHistory,
     getContractHistory,
+    getContractTypeAt,
     addContractHistoryEntry,
     estamentoAllowsCustomProfession,
     getProfessionOptionsForEstamento,
@@ -2959,6 +2961,9 @@ async function applyCalendarRotationChange(fecha) {
 
     const startISO = toInputDate(fecha);
     const type = pending.type;
+    const effectiveContractType =
+        getContractTypeAt(profile.name, startISO) ||
+        profile.contractType;
     const unitEntryDate = isUnitEntryDateEnabled()
         ? normalizeStoredStart(profile.unitEntryDate || "")
         : "";
@@ -2990,7 +2995,7 @@ async function applyCalendarRotationChange(fecha) {
     }
 
     if (
-        isHonorariaContractType(profile.contractType) &&
+        isHonorariaContractType(effectiveContractType) &&
         !getHonorariaContractsForProfile(profile.name).some(contract =>
             contract.start <= startISO &&
             contract.end >= startISO
@@ -3043,7 +3048,7 @@ async function applyCalendarRotationChange(fecha) {
             // En Honorarios NO se congela: el motor base computa todo anclado al
             // primer contrato, y congelar dejaria turnos explicitos que se mezclarian
             // con la rotativa nueva.
-            if (!isHonorariaContractType(profile.contractType)) {
+            if (!isHonorariaContractType(effectiveContractType)) {
                 freezePriorRotationSchedule(startISO);
             }
 
@@ -3105,11 +3110,36 @@ function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
     return new Promise(resolve => {
         const backdrop = document.createElement("div");
         const defaultDate = toInputDate(new Date());
+        const previousContract =
+            previousSnapshot?.contractType || "sin contrato";
+        const nextContract =
+            nextProfile?.contractType || "sin contrato";
         const previousGrade = previousSnapshot?.grade || "sin grado";
         const nextGrade = nextProfile?.grade || "sin grado";
         const previousRole =
             previousSnapshot?.estamento || "sin estamento";
         const nextRole = nextProfile?.estamento || "sin estamento";
+        const contractChanged =
+            String(previousContract) !== String(nextContract);
+        const gradeChanged =
+            String(previousGrade) !== String(nextGrade) ||
+            String(previousRole) !== String(nextRole);
+        const title = contractChanged
+            ? "Vigencia del nuevo contrato"
+            : "Vigencia del nuevo grado";
+        const previousLabel = [
+            previousContract,
+            previousRole,
+            `grado ${previousGrade}`
+        ].filter(Boolean).join(" | ");
+        const nextLabel = [
+            nextContract,
+            nextRole,
+            `grado ${nextGrade}`
+        ].filter(Boolean).join(" | ");
+        const note = contractChanged
+            ? "Los calculos y beneficios anteriores a esta fecha mantendran el tipo de contrato previo."
+            : "Las horas extras anteriores a esta fecha mantendran el valor del grado anterior.";
 
         backdrop.className = "turn-change-dialog-backdrop";
         document.body.appendChild(backdrop);
@@ -3121,13 +3151,18 @@ function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
 
         backdrop.innerHTML = `
             <div class="turn-change-dialog grade-effective-dialog" role="dialog" aria-modal="true">
-                <strong>Vigencia del nuevo grado</strong>
+                <strong>${escapeHTML(title)}</strong>
                 <p>
-                    El grado/estamento cambiara de
-                    <b>${escapeHTML(previousRole)} grado ${escapeHTML(previousGrade)}</b>
+                    ${contractChanged && gradeChanged
+                        ? "El contrato y la base de calculo cambiaran"
+                        : contractChanged
+                            ? "El tipo de contrato cambiara"
+                            : "El grado/estamento cambiara"}
+                    de
+                    <b>${escapeHTML(previousLabel)}</b>
                     a
-                    <b>${escapeHTML(nextRole)} grado ${escapeHTML(nextGrade)}</b>.
-                    Indica desde que fecha se debe usar el nuevo valor hora para calcular HHEE.
+                    <b>${escapeHTML(nextLabel)}</b>.
+                    Indica desde que fecha se debe usar la nueva condicion para calcular horas y beneficios.
                 </p>
 
                 <label class="rotation-contract-field">
@@ -3136,7 +3171,7 @@ function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
                 </label>
 
                 <div class="firebase-dialog-note">
-                    Las horas extras anteriores a esta fecha mantendran el valor del grado anterior.
+                    ${escapeHTML(note)}
                 </div>
 
                 <div class="turn-change-dialog__actions">
@@ -3172,7 +3207,7 @@ function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
             const value = dateInput?.value || "";
 
             if (!value) {
-                alert("Debes indicar la fecha de inicio del nuevo grado.");
+                alert("Debes indicar la fecha de inicio de la nueva condicion contractual.");
                 dateInput?.focus();
                 return;
             }
@@ -4103,15 +4138,21 @@ function renderLeaveActionLabels() {
             profileName: profile.name
         }
     );
+    const effectiveProfile = {
+        ...profile,
+        contractType:
+            getContractTypeAt(profile.name, currentDate) ||
+            profile.contractType
+    };
     const canUseUnionLeave =
         Boolean(profile.unionLeaveEnabled) &&
-        !isReplacementContractType(profile.contractType) &&
-        !isHonorariaContractType(profile.contractType) &&
-        !isOtherContractType(profile.contractType);
+        !isReplacementContractType(effectiveProfile.contractType) &&
+        !isHonorariaContractType(effectiveProfile.contractType) &&
+        !isOtherContractType(effectiveProfile.contractType);
     // Honorarios no puede tomar P. Administrativo, 1/2 ADM, F. Legal ni permiso sin
     // goce: esos botones quedan deshabilitados.
     const blocksLeaveBenefits =
-        contractBlocksLeaveBenefits(profile || {});
+        contractBlocksLeaveBenefits(effectiveProfile);
 
     DOM.adminBtnLabel.textContent =
         `${adminBase} (${formatSaldo(saldos.admin)})`;
@@ -8614,6 +8655,14 @@ async function guardarPerfil() {
             profileDraft.originalName
         )
         : false;
+    const contractTypeChanged =
+        isEditing && hasContractTypeValueChanged();
+    const compensationValuesChanged =
+        isEditing &&
+        (
+            hasGradeValueChanged() ||
+            contractTypeChanged
+        );
     const shiftAssignmentChanged =
         previousShiftAssigned !== nextShiftAssigned;
     const nextRotationStart =
@@ -8723,7 +8772,7 @@ async function guardarPerfil() {
             firstTurn: nextRotationFirstTurn
         }
     };
-    let gradeEffectiveDate = "";
+    let compensationEffectiveDate = "";
     let shiftAssignmentEffectiveMonth = "";
 
     if (
@@ -8748,14 +8797,14 @@ async function guardarPerfil() {
         }
     }
 
-    if (isEditing && hasGradeValueChanged()) {
-        gradeEffectiveDate =
+    if (compensationValuesChanged) {
+        compensationEffectiveDate =
             await requestGradeEffectiveDate(
                 previousSnapshot,
                 nextProfilePayload
             );
 
-        if (!gradeEffectiveDate) {
+        if (!compensationEffectiveDate) {
             return false;
         }
     }
@@ -8876,12 +8925,12 @@ async function guardarPerfil() {
 
             setCurrentProfile(nextName);
 
-            if (gradeEffectiveDate) {
+            if (compensationEffectiveDate) {
                 recordGradeHistoryChange(
                     nextName,
                     previousSnapshot,
                     nextProfilePayload,
-                    gradeEffectiveDate
+                    compensationEffectiveDate
                 );
             }
 
@@ -8889,7 +8938,7 @@ async function guardarPerfil() {
                 nextName,
                 previousSnapshot,
                 nextSnapshot,
-                gradeEffectiveDate
+                compensationEffectiveDate
             );
         }
 

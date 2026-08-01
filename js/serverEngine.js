@@ -18,7 +18,9 @@ import {
     getManualLeaveBalances,
     getTurnChangeConfig,
     getProfiles,
-    isProfileActive
+    isProfileActive,
+    getCompensationProfileAt,
+    getGradeHistory
 } from "./storage.js";
 import { getTurnoExtraAgregado, obtenerLabelDia } from "./rulesEngine.js";
 import { turnoLabel } from "./uiEngine.js";
@@ -540,6 +542,37 @@ function buildSwapLimit(profileName, today = new Date()) {
 
 // ───────── Ensamblado del payload completo ─────────
 
+function buildContractTimeline(profile = {}) {
+    const profileName = profile?.name || "";
+    const baseline = {
+        start: "1900-01-01",
+        contractType: profile.contractType || "",
+        estamento: profile.estamento || "",
+        grade: profile.grade || ""
+    };
+    const byStart = new Map([[baseline.start, baseline]]);
+
+    getGradeHistory(profileName).forEach(entry => {
+        byStart.set(entry.start, {
+            start: entry.start,
+            contractType: entry.contractType || "",
+            estamento: entry.estamento || "",
+            grade: entry.grade || ""
+        });
+    });
+
+    return [...byStart.values()]
+        .filter(entry =>
+            entry.start &&
+            (
+                entry.contractType ||
+                entry.estamento ||
+                entry.grade
+            )
+        )
+        .sort((a, b) => a.start.localeCompare(b.start));
+}
+
 function buildMissingProfilePayload(link = {}, workspace = {}, profileName = "") {
     return {
         uid: link.uid || "",
@@ -631,6 +664,15 @@ export async function buildFullProjection(
     const reportsByMonth = await buildWorkerReports(profile, today);
     const { exceptions, exceptionsStart, exceptionsEnd } =
         computeProfileExceptions(profile, today);
+    const effectiveProfile =
+        getCompensationProfileAt(profile.name, today) ||
+        profile;
+    const effectiveContractType =
+        effectiveProfile.contractType ||
+        profile.contractType ||
+        "";
+    const contractTimeline =
+        buildContractTimeline(profile);
 
     return {
         uid: link.uid || "",
@@ -639,13 +681,22 @@ export async function buildFullProjection(
         profileName: profile.name || link.profileName || "",
         profileRut: profile.rut || link.profileRut || "",
         status: isProfileActive(profile) ? "active" : "inactive",
+        contractType: effectiveContractType,
+        effectiveContractType,
+        scheduledContractType: profile.contractType || "",
+        contractTimeline,
         worker: {
             name: profile.name || link.profileName || "",
             email: profile.email || link.workerEmail || "",
             phone: profile.phone || "",
             rut: profile.rut || "",
-            role: profile.estamento || "",
+            role: effectiveProfile.estamento || profile.estamento || "",
             profession: profile.profession || "",
+            grade: effectiveProfile.grade || profile.grade || "",
+            contractType: effectiveContractType,
+            effectiveContractType,
+            scheduledContractType: profile.contractType || "",
+            contractTimeline,
             unit: workspace.name || link.workspaceName || "",
             unitEntryDate: "",
             active: isProfileActive(profile)

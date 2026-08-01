@@ -297,7 +297,7 @@ function rotativaTurnoBase(nombre, key, visited = new Set()) {
 
     visited.add(nombre);
 
-    if (isReplacementProfile(nombre)) {
+    if (isReplacementProfile(nombre, key)) {
         if (
             getReplacementRotationModeForDate(nombre, key) ===
             REPLACEMENT_ROTATION_MODE.FREE
@@ -327,7 +327,7 @@ function rotativaTurnoBase(nombre, key, visited = new Set()) {
     // rotativa nueva con la anterior en los dias que quedan sin turno guardado. Un
     // dia del contrato sin turno guardado queda libre; fuera del contrato tambien
     // (lo enmascaran resolveTurnoBase/getTurnoProgramado).
-    if (isHonorariaProfile(nombre)) {
+    if (isHonorariaProfile(nombre, key)) {
         return TURNO.LIBRE;
     }
 
@@ -844,12 +844,12 @@ export function getProtectedDirectEditTurn(
 // el guard de ciclos para poder resolver cadenas de reemplazo sin recursion
 // infinita (un reemplazo hereda de su reemplazado, que puede ser otro reemplazo).
 function resolveTurnoBase(nombre, key, visited) {
-    if (isReplacementProfile(nombre)) {
+    if (isReplacementProfile(nombre, key)) {
         return rotativaTurnoBase(nombre, key, visited);
     }
 
     if (
-        isHonorariaProfile(nombre) &&
+        isHonorariaProfile(nombre, key) &&
         !hasHonorariaContractForDate(nombre, key)
     ) {
         return TURNO.LIBRE;
@@ -892,7 +892,7 @@ export function getTurnoBase(nombre, key) {
 
 export function getTurnoProgramado(nombre, key) {
     if (
-        isHonorariaProfile(nombre) &&
+        isHonorariaProfile(nombre, key) &&
         !hasHonorariaContractForDate(nombre, key)
     ) {
         return TURNO.LIBRE;
@@ -915,7 +915,7 @@ export function getTurnoProgramado(nombre, key) {
 // asignacion explicita del supervisor. Compartido por hoursEngine (base habil +
 // horas trabajadas) y hoursReport para no duplicar el criterio.
 export function includesWorkDay(nombre, key) {
-    if (!isReplacementProfile(nombre)) return true;
+    if (!isReplacementProfile(nombre, key)) return true;
     if (hasContractForDate(nombre, key)) return true;
 
     return getTurnoProgramado(nombre, key) !== TURNO.LIBRE;

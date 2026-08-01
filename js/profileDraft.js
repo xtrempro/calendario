@@ -252,6 +252,15 @@ export function hasGradeValueChanged() {
     );
 }
 
+export function hasContractTypeValueChanged() {
+    if (profileDraft.mode !== PROFILE_MODE.EDIT) {
+        return false;
+    }
+
+    return String(profileDraft.contractType || "") !==
+        String(profileDraft.originalContractType || "");
+}
+
 /**
  * Carga un perfil guardado en el borrador (incluye originales para diff).
  * @param {Object} profile

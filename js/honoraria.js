@@ -1,7 +1,5 @@
 import {
-    getHonorariaContract,
-    getHonorariaContractForDate,
-    hasHonorariaContractForDate
+    getHonorariaContractForDate
 } from "./contracts.js";
 import { calcHours } from "./calculations.js";
 import { getTurnoReal } from "./turnEngine.js";
@@ -31,6 +29,21 @@ function keyFromDate(date) {
 
 function isoFromDate(date) {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function firstHonorariaContractInMonth(profileName, year, month) {
+    const days = new Date(year, month + 1, 0).getDate();
+
+    for (let day = 1; day <= days; day++) {
+        const contract = getHonorariaContractForDate(
+            profileName,
+            `${year}-${month}-${day}`
+        );
+
+        if (contract) return contract;
+    }
+
+    return null;
 }
 
 function weekStartForDate(date) {
@@ -92,7 +105,11 @@ export function getHonorariaMonthlySummary(
     month,
     holidays = {}
 ) {
-    const contract = getHonorariaContract(profileName);
+    const contract = firstHonorariaContractInMonth(
+        profileName,
+        year,
+        month
+    );
 
     if (!contract) return null;
 

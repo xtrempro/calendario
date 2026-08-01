@@ -50,7 +50,9 @@ const WORKER_CALENDAR_URGENT_STATE_PREFIXES = [
     "absences_",
     "rotativa_",
     "shift_",
-    "shiftAssignmentHistory_"
+    "shiftAssignmentHistory_",
+    "gradeHistory_",
+    "contractHistory_"
 ];
 const WORKER_CALENDAR_URGENT_STATE_KEYS = new Set([
     "replacements",
