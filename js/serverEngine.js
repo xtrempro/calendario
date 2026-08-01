@@ -49,6 +49,7 @@ const OVERTIME_SUMMARY_MONTHS_FORWARD = 3;
 const OVERTIME_SUMMARY_CACHE_VERSION = 2;
 const LEGAL_CONTINUOUS_BLOCK_DAYS = 10;
 const WORKER_APP_BASE_VERSION = 1;
+const WORKER_APP_CONTRACT_PROFILE_VERSION = 2;
 const EXCEPTIONS_MONTHS_BACK = 2;
 const EXCEPTIONS_MONTHS_FORWARD = 12;
 const HOT_CALENDAR_FUTURE_MONTH_COUNT = 6;
@@ -542,23 +543,83 @@ function buildSwapLimit(profileName, today = new Date()) {
 
 // ───────── Ensamblado del payload completo ─────────
 
+function profileText(...values) {
+    for (const value of values) {
+        const text = String(value ?? "").trim();
+        if (text) return text;
+    }
+
+    return "";
+}
+
+function profileContractTypeValue(profile = {}) {
+    return profileText(
+        profile.effectiveContractType,
+        profile.contractType,
+        profile.scheduledContractType,
+        profile.tipoContrato,
+        profile.contract,
+        profile.contrato,
+        profile.calidad,
+        profile.calidadJuridica,
+        profile.legalQuality,
+        profile.employmentType
+    );
+}
+
+function profileGradeValue(profile = {}) {
+    return profileText(
+        profile.effectiveGrade,
+        profile.grade,
+        profile.grado,
+        profile.contractGrade,
+        profile.workerGrade
+    );
+}
+
+function profileEstamentoValue(profile = {}) {
+    return profileText(
+        profile.estamento,
+        profile.role,
+        profile.staffGroup,
+        profile.staffType,
+        profile.category,
+        profile.categoria
+    );
+}
+
+function contractTimelinePayload({ start, contractType, estamento, grade }) {
+    return {
+        start,
+        contractType,
+        effectiveContractType: contractType,
+        tipoContrato: contractType,
+        estamento,
+        role: estamento,
+        grade,
+        grado: grade,
+        contractGrade: grade,
+        effectiveGrade: grade
+    };
+}
+
 function buildContractTimeline(profile = {}) {
     const profileName = profile?.name || "";
-    const baseline = {
+    const baseline = contractTimelinePayload({
         start: "1900-01-01",
-        contractType: profile.contractType || "",
-        estamento: profile.estamento || "",
-        grade: profile.grade || ""
-    };
+        contractType: profileContractTypeValue(profile),
+        estamento: profileEstamentoValue(profile),
+        grade: profileGradeValue(profile)
+    });
     const byStart = new Map([[baseline.start, baseline]]);
 
     getGradeHistory(profileName).forEach(entry => {
-        byStart.set(entry.start, {
+        byStart.set(entry.start, contractTimelinePayload({
             start: entry.start,
-            contractType: entry.contractType || "",
-            estamento: entry.estamento || "",
-            grade: entry.grade || ""
-        });
+            contractType: profileContractTypeValue(entry),
+            estamento: profileEstamentoValue(entry),
+            grade: profileGradeValue(entry)
+        }));
     });
 
     return [...byStart.values()]
@@ -668,9 +729,21 @@ export async function buildFullProjection(
         getCompensationProfileAt(profile.name, today) ||
         profile;
     const effectiveContractType =
-        effectiveProfile.contractType ||
-        profile.contractType ||
-        "";
+        profileContractTypeValue(effectiveProfile) ||
+        profileContractTypeValue(profile);
+    const scheduledContractType = profileContractTypeValue(profile);
+    const effectiveGrade =
+        profileGradeValue(effectiveProfile) ||
+        profileGradeValue(profile);
+    const effectiveEstamento =
+        profileEstamentoValue(effectiveProfile) ||
+        profileEstamentoValue(profile);
+    const profession = profileText(
+        profile.profession,
+        profile.profesion,
+        profile.jobTitle,
+        profile.cargo
+    );
     const contractTimeline =
         buildContractTimeline(profile);
 
@@ -683,19 +756,35 @@ export async function buildFullProjection(
         status: isProfileActive(profile) ? "active" : "inactive",
         contractType: effectiveContractType,
         effectiveContractType,
-        scheduledContractType: profile.contractType || "",
+        scheduledContractType,
+        tipoContrato: effectiveContractType,
+        contrato: effectiveContractType,
+        currentContractType: effectiveContractType,
+        grade: effectiveGrade,
+        grado: effectiveGrade,
+        contractGrade: effectiveGrade,
+        effectiveGrade,
+        estamento: effectiveEstamento,
+        profession,
         contractTimeline,
         worker: {
             name: profile.name || link.profileName || "",
             email: profile.email || link.workerEmail || "",
             phone: profile.phone || "",
             rut: profile.rut || "",
-            role: effectiveProfile.estamento || profile.estamento || "",
-            profession: profile.profession || "",
-            grade: effectiveProfile.grade || profile.grade || "",
+            role: effectiveEstamento,
+            estamento: effectiveEstamento,
+            profession,
+            grade: effectiveGrade,
+            grado: effectiveGrade,
+            contractGrade: effectiveGrade,
+            effectiveGrade,
             contractType: effectiveContractType,
             effectiveContractType,
-            scheduledContractType: profile.contractType || "",
+            scheduledContractType,
+            tipoContrato: effectiveContractType,
+            contrato: effectiveContractType,
+            currentContractType: effectiveContractType,
             contractTimeline,
             unit: workspace.name || link.workspaceName || "",
             unitEntryDate: "",
@@ -707,6 +796,7 @@ export async function buildFullProjection(
             baseYear - 1, baseYear, baseYear + 1, baseYear + 2
         ]),
         baseVersion: WORKER_APP_BASE_VERSION,
+        contractProfileVersion: WORKER_APP_CONTRACT_PROFILE_VERSION,
         exceptionsJson: JSON.stringify(exceptions),
         exceptionsCount: Object.keys(exceptions).length,
         exceptionsStart,

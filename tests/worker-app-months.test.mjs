@@ -120,9 +120,21 @@ test("la publicacion PWA incluye vigencia contractual por fecha", async () => {
     assert.match(source, /getCompensationProfileAt\(profile\.name, new Date\(\)\)/);
     assert.match(source, /"gradeHistory_"/);
     assert.match(source, /"contractHistory_"/);
+    assert.match(source, /function profileContractTypeValue\(profile = \{\}\)/);
+    assert.match(source, /tipoContrato: effectiveContractType/);
+    assert.match(source, /currentContractType: effectiveContractType/);
+    assert.match(source, /effectiveGrade/);
+    assert.match(source, /grado: effectiveGrade/);
+    assert.match(source, /contractProfileVersion: WORKER_APP_CONTRACT_PROFILE_VERSION/);
     assert.match(serverSource, /function buildContractTimeline\(profile = \{\}\)/);
     assert.match(serverSource, /contractTimeline/);
     assert.match(serverSource, /getCompensationProfileAt\(profile\.name, today\)/);
+    assert.match(serverSource, /function profileContractTypeValue\(profile = \{\}\)/);
+    assert.match(serverSource, /tipoContrato: effectiveContractType/);
+    assert.match(serverSource, /currentContractType: effectiveContractType/);
+    assert.match(serverSource, /effectiveGrade/);
+    assert.match(serverSource, /grado: effectiveGrade/);
+    assert.match(serverSource, /contractProfileVersion: WORKER_APP_CONTRACT_PROFILE_VERSION/);
 });
 
 test("Perfil pagina la lista y Timeline renderiza la profesion completa", async () => {

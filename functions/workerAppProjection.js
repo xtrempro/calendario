@@ -17,6 +17,8 @@ const logger = require("firebase-functions/logger");
 const { computeProjectionsForProfiles } = require("./lib/engineHarness");
 const { writeProjection } = require("./lib/projectionWriter");
 
+const REQUIRED_CONTRACT_PROFILE_VERSION = 2;
+
 function normalizeProfileTargets(value) {
     const values = Array.isArray(value) ? value : [value];
 
@@ -180,7 +182,13 @@ function projectedUidsFromDocs(dataDocs) {
     return dataDocs
         .filter(doc => {
             const status = String(doc?.status || "").trim();
-            return status && status !== "profile_not_found";
+            const contractProfileVersion =
+                Number(doc?.contractProfileVersion) || 0;
+            return (
+                status &&
+                status !== "profile_not_found" &&
+                contractProfileVersion >= REQUIRED_CONTRACT_PROFILE_VERSION
+            );
         })
         .map(doc => doc.id);
 }
@@ -212,7 +220,9 @@ exports.backfillMissingWorkerProjections = onSchedule(
                 const wsRef = db.collection("workspaces").doc(workspaceId);
                 const [linksSnap, dataSnap] = await Promise.all([
                     wsRef.collection("workerLinks").select("uid", "profileName").get(),
-                    wsRef.collection("workerAppData").select("status").get()
+                    wsRef.collection("workerAppData")
+                        .select("status", "contractProfileVersion")
+                        .get()
                 ]);
 
                 if (linksSnap.empty) continue;

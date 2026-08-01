@@ -23,15 +23,17 @@ const missingProjectionProfiles = new Function(
   `${grab("missingProjectionProfiles")}\nreturn missingProjectionProfiles;`
 )();
 const projectedUidsFromDocs = new Function(
-  `${grab("projectedUidsFromDocs")}\nreturn projectedUidsFromDocs;`
+  `const REQUIRED_CONTRACT_PROFILE_VERSION = 2;\n${grab("projectedUidsFromDocs")}\nreturn projectedUidsFromDocs;`
 )();
 
-test("solo cuentan como proyectados los workerAppData con status", () => {
+test("solo cuentan como proyectados los workerAppData con status y version contractual", () => {
   const docs = [
-    { id: "u1", status: "active" },        // proyectado
+    { id: "u1", status: "active", contractProfileVersion: 2 }, // proyectado
     { id: "u2", status: "profile_not_found" }, // se reintenta: pudo fallar por nombre viejo
     { id: "u3" },                          // parcial (sin status) -> NO
-    { id: "u4", status: "  " }             // status vacio -> NO
+    { id: "u4", status: "  " },            // status vacio -> NO
+    { id: "u5", status: "active" },        // version antigua -> NO
+    { id: "u6", status: "active", contractProfileVersion: 1 } // version antigua -> NO
   ];
   assert.deepEqual(projectedUidsFromDocs(docs).sort(), ["u1"]);
 });
@@ -73,9 +75,10 @@ test("no repite un mismo perfil", () => {
 });
 
 test("la funcion programada lee solo lo justo (select) y se auto-limita", () => {
-  // Lee solo el status de workerAppData (no descarga las proyecciones enteras).
-  assert.match(src, /\.collection\("workerAppData"\)\.select\("status"\)\.get\(\)/);
+  // Lee solo el status/version de workerAppData (no descarga las proyecciones enteras).
+  assert.match(src, /\.select\("status", "contractProfileVersion"\)/);
   assert.match(src, /\.collection\("workerLinks"\)\.select\("uid", "profileName"\)\.get\(\)/);
+  assert.match(src, /REQUIRED_CONTRACT_PROFILE_VERSION = 2/);
   // Encola un projectionRequest por workspace con los faltantes.
   assert.match(src, /source: "backfill_missing"/);
   assert.match(src, /exports\.backfillMissingWorkerProjections = onSchedule\(/);

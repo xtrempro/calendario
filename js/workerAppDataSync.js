@@ -714,6 +714,7 @@ function buildOvertimeSummarySignature(profile, schedule) {
 const EXCEPTIONS_MONTHS_BACK = 2;
 const EXCEPTIONS_MONTHS_FORWARD = 12;
 const WORKER_APP_BASE_VERSION = 1;
+const WORKER_APP_CONTRACT_PROFILE_VERSION = 2;
 const WORKER_APP_MONTH_REPLACE_VERSION = 2;
 
 function exceptionsScanRange(today = new Date()) {
@@ -1130,23 +1131,83 @@ function buildSwapLimit(profileName) {
     };
 }
 
+function profileText(...values) {
+    for (const value of values) {
+        const text = String(value ?? "").trim();
+        if (text) return text;
+    }
+
+    return "";
+}
+
+function profileContractTypeValue(profile = {}) {
+    return profileText(
+        profile.effectiveContractType,
+        profile.contractType,
+        profile.scheduledContractType,
+        profile.tipoContrato,
+        profile.contract,
+        profile.contrato,
+        profile.calidad,
+        profile.calidadJuridica,
+        profile.legalQuality,
+        profile.employmentType
+    );
+}
+
+function profileGradeValue(profile = {}) {
+    return profileText(
+        profile.effectiveGrade,
+        profile.grade,
+        profile.grado,
+        profile.contractGrade,
+        profile.workerGrade
+    );
+}
+
+function profileEstamentoValue(profile = {}) {
+    return profileText(
+        profile.estamento,
+        profile.role,
+        profile.staffGroup,
+        profile.staffType,
+        profile.category,
+        profile.categoria
+    );
+}
+
+function contractTimelinePayload({ start, contractType, estamento, grade }) {
+    return {
+        start,
+        contractType,
+        effectiveContractType: contractType,
+        tipoContrato: contractType,
+        estamento,
+        role: estamento,
+        grade,
+        grado: grade,
+        contractGrade: grade,
+        effectiveGrade: grade
+    };
+}
+
 function buildContractTimeline(profile = {}) {
     const profileName = profile?.name || "";
-    const baseline = {
+    const baseline = contractTimelinePayload({
         start: "1900-01-01",
-        contractType: profile.contractType || "",
-        estamento: profile.estamento || "",
-        grade: profile.grade || ""
-    };
+        contractType: profileContractTypeValue(profile),
+        estamento: profileEstamentoValue(profile),
+        grade: profileGradeValue(profile)
+    });
     const byStart = new Map([[baseline.start, baseline]]);
 
     getGradeHistory(profileName).forEach(entry => {
-        byStart.set(entry.start, {
+        byStart.set(entry.start, contractTimelinePayload({
             start: entry.start,
-            contractType: entry.contractType || "",
-            estamento: entry.estamento || "",
-            grade: entry.grade || ""
-        });
+            contractType: profileContractTypeValue(entry),
+            estamento: profileEstamentoValue(entry),
+            grade: profileGradeValue(entry)
+        }));
     });
 
     return [...byStart.values()]
@@ -1208,9 +1269,21 @@ async function buildWorkerAppPayload(
                 getCompensationProfileAt(profile.name, new Date()) ||
                 profile;
             const effectiveContractType =
-                effectiveProfile.contractType ||
-                profile.contractType ||
-                "";
+                profileContractTypeValue(effectiveProfile) ||
+                profileContractTypeValue(profile);
+            const scheduledContractType = profileContractTypeValue(profile);
+            const effectiveGrade =
+                profileGradeValue(effectiveProfile) ||
+                profileGradeValue(profile);
+            const effectiveEstamento =
+                profileEstamentoValue(effectiveProfile) ||
+                profileEstamentoValue(profile);
+            const profession = profileText(
+                profile.profession,
+                profile.profesion,
+                profile.jobTitle,
+                profile.cargo
+            );
             const contractTimeline =
                 buildContractTimeline(profile);
             const previousExceptionsRange = exceptionsScanRange();
@@ -1255,21 +1328,37 @@ async function buildWorkerAppPayload(
                 status: isProfileActive(profile) ? "active" : "inactive",
                 contractType: effectiveContractType,
                 effectiveContractType,
-                scheduledContractType: profile.contractType || "",
+                scheduledContractType,
+                tipoContrato: effectiveContractType,
+                contrato: effectiveContractType,
+                currentContractType: effectiveContractType,
+                grade: effectiveGrade,
+                grado: effectiveGrade,
+                contractGrade: effectiveGrade,
+                effectiveGrade,
+                estamento: effectiveEstamento,
+                profession,
                 contractTimeline,
                 worker: {
                     name: profile.name || link.profileName || "",
                     email: profile.email || link.workerEmail || "",
                     phone: profile.phone || "",
                     rut: profile.rut || "",
-                    role: effectiveProfile.estamento || profile.estamento || "",
-                    profession: profile.profession || "",
-                    grade: effectiveProfile.grade || profile.grade || "",
+                    role: effectiveEstamento,
+                    estamento: effectiveEstamento,
+                    profession,
+                    grade: effectiveGrade,
+                    grado: effectiveGrade,
+                    contractGrade: effectiveGrade,
+                    effectiveGrade,
                     // Se publica para que la PWA sepa el tipo de contrato (p.ej.
                     // Honorarios no puede solicitar permisos ni tiene vacaciones).
                     contractType: effectiveContractType,
                     effectiveContractType,
-                    scheduledContractType: profile.contractType || "",
+                    scheduledContractType,
+                    tipoContrato: effectiveContractType,
+                    contrato: effectiveContractType,
+                    currentContractType: effectiveContractType,
                     contractTimeline,
                     unit: workspace.name || link.workspaceName || "",
                     unitEntryDate: "",
@@ -1278,6 +1367,7 @@ async function buildWorkerAppPayload(
                 rotativa: getRotativa(profile.name),
                 shiftAssigned: Boolean(getShiftAssigned(profile.name)),
                 baseVersion: WORKER_APP_BASE_VERSION,
+                contractProfileVersion: WORKER_APP_CONTRACT_PROFILE_VERSION,
                 // Serializado a string: bajo setDoc({merge:true}) un string se reemplaza
                 // entero, mientras que un mapa haria deep-merge y dejaria pegadas claves
                 // de dias que ya dejaron de ser excepcion.
