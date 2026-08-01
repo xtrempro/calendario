@@ -25,3 +25,18 @@ test("el checkbox amplia candidatos sin incluir trabajadores con permisos", asyn
     assert.match(source, /if \(hasBlockingAbsence\(profile\.name, keyDay\)\) return false/);
     assert.match(source, /includeWorkersWithoutShift \|\|[\s\S]{0,90}turnScheduledForShift/);
 });
+
+test("los multiselect de asignacion incluyen seleccionar todo sin mezclarlo con opciones", async () => {
+    const source = await readFile(
+        new URL("../js/taskAssignments.js", import.meta.url),
+        "utf8"
+    );
+
+    assert.match(source, /data-multiselect-select-all/);
+    assert.match(source, /<span>Seleccionar todo<\/span>/);
+    assert.match(
+        source,
+        /input\[type='checkbox'\]:not\(\[data-multiselect-select-all\]\)/
+    );
+    assert.match(source, /input\.checked = nextChecked/);
+});

@@ -974,6 +974,10 @@ function renderMultiSelectFilter(
                 </svg>
             </summary>
             <div class="task-assignment-multiselect__menu">
+                <label class="task-assignment-multiselect__option task-assignment-multiselect__option--all">
+                    <input type="checkbox" data-multiselect-select-all data-multiselect-name="${escapeHTML(name)}" ${normalizedSelected.length === options.length ? "checked" : ""}>
+                    <span>Seleccionar todo</span>
+                </label>
                 ${options.map(option => `
                     <label class="task-assignment-multiselect__option">
                         <input type="checkbox" name="${escapeHTML(name)}" value="${escapeHTML(option)}" ${normalizedSelected.includes(option) ? "checked" : ""}>
@@ -991,6 +995,49 @@ function selectedValues(root, selector, options) {
         .map(input => input.value);
 
     return values.length === options.length ? null : values;
+}
+
+function syncMultiSelectSelectAll(control) {
+    const selectAll =
+        control?.querySelector("[data-multiselect-select-all]");
+    const options = [...(
+        control?.querySelectorAll(
+            "input[type='checkbox']:not([data-multiselect-select-all])"
+        ) || []
+    )];
+
+    if (!selectAll) return;
+
+    const checkedCount =
+        options.filter(input => input.checked).length;
+
+    selectAll.checked =
+        options.length > 0 && checkedCount === options.length;
+    selectAll.indeterminate =
+        checkedCount > 0 && checkedCount < options.length;
+}
+
+function handleMultiSelectSelectAllChange(event) {
+    const target = event?.target;
+    const control = target instanceof Element
+        ? target.closest(".task-assignment-multiselect")
+        : null;
+
+    if (!control) return;
+
+    if (target?.matches?.("[data-multiselect-select-all]")) {
+        const nextChecked = Boolean(target.checked);
+
+        control
+            .querySelectorAll(
+                "input[type='checkbox']:not([data-multiselect-select-all])"
+            )
+            .forEach(input => {
+                input.checked = nextChecked;
+            });
+    }
+
+    syncMultiSelectSelectAll(control);
 }
 
 function closeMultiSelectsOutside(root, event, clearOpenGroup) {
@@ -1778,6 +1825,7 @@ function bindShellEvents(root) {
     root
         .querySelectorAll(".task-assignment-multiselect[data-filter-group]")
         .forEach(control => {
+            syncMultiSelectSelectAll(control);
             control.addEventListener("toggle", () => {
                 if (control.open) {
                     openTaskFilterGroup = control.dataset.filterGroup;
@@ -1944,7 +1992,8 @@ function bindShellEvents(root) {
 
     root
         .querySelector("[data-filter-group='roles']")
-        ?.addEventListener("change", () => {
+        ?.addEventListener("change", event => {
+            handleMultiSelectSelectAllChange(event);
             openTaskFilterGroup = "roles";
             selectedRoles = selectedValues(
                 root,
@@ -1956,7 +2005,8 @@ function bindShellEvents(root) {
 
     root
         .querySelector("[data-filter-group='professions']")
-        ?.addEventListener("change", () => {
+        ?.addEventListener("change", event => {
+            handleMultiSelectSelectAllChange(event);
             openTaskFilterGroup = "professions";
             selectedProfessions = selectedValues(
                 root,
@@ -2169,6 +2219,7 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
         backdrop
             .querySelectorAll(".task-assignment-multiselect[data-filter-group]")
             .forEach(control => {
+                syncMultiSelectSelectAll(control);
                 control.addEventListener("toggle", () => {
                     if (control.open) {
                         openDialogFilterGroup = control.dataset.filterGroup;
@@ -2222,14 +2273,13 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
         });
 
         backdrop
-            .querySelectorAll("[name='dialogTaskProfession']")
-            .forEach(input => {
-                input.addEventListener("change", () => {
-                    openDialogFilterGroup = "dialog-professions";
-                    collectVisibleWorkers();
-                    collectDialogFilters();
-                    render();
-                });
+            .querySelector("[data-filter-group='dialog-professions']")
+            ?.addEventListener("change", event => {
+                handleMultiSelectSelectAllChange(event);
+                openDialogFilterGroup = "dialog-professions";
+                collectVisibleWorkers();
+                collectDialogFilters();
+                render();
             });
     };
 

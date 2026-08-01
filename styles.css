@@ -9211,6 +9211,14 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     color: var(--text);
 }
 
+.task-assignment-multiselect__option--all {
+    margin-bottom: 4px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-weight: 900;
+}
+
 .task-assignment-multiselect__option input {
     width: 15px;
     height: 15px;
