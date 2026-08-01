@@ -14,6 +14,8 @@ const KANBAN_COLUMNS = [
     { key: "done", label: "Terminadas" }
 ];
 
+const KANBAN_CREATABLE_COLUMNS = new Set(["pending", "progress"]);
+
 const CARD_COLORS = [
     "cyan",
     "yellow",
@@ -120,12 +122,15 @@ function createCard({
     detail,
     status
 }) {
+    const cleanTitle = String(title || "").trim();
+    if (!cleanTitle) return false;
+
     const cards = getCards();
     const now = new Date().toISOString();
 
     cards.push({
         id: `kanban_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        title: String(title || "").trim(),
+        title: cleanTitle,
         detail: String(detail || "").trim(),
         status: isValidColumn(status) ? status : KANBAN_COLUMNS[0].key,
         color: CARD_COLORS[cards.length % CARD_COLORS.length],
@@ -134,6 +139,7 @@ function createCard({
     });
 
     saveCards(cards);
+    return true;
 }
 
 function deleteCard(cardId) {
@@ -243,7 +249,7 @@ function openEditCardDialog(cardId) {
         <form class="turn-change-dialog kanban-edit-dialog" data-kanban-edit-form autocomplete="off">
             <strong>Editar tarjeta</strong>
             <label class="metric-row metric-row--field">
-                <span class="metric-label">Titulo</span>
+                <span class="metric-label">Título</span>
                 <input name="title" type="text" maxlength="80" value="${escapeHTML(card.title)}" required>
             </label>
             <label class="metric-row metric-row--field">
@@ -286,6 +292,67 @@ function openEditCardDialog(cardId) {
         });
 }
 
+function openCreateCardDialog(status) {
+    const column = KANBAN_COLUMNS.find(item => item.key === status);
+
+    if (!column || !KANBAN_CREATABLE_COLUMNS.has(column.key)) return;
+
+    const backdrop = document.createElement("div");
+    const close = () => backdrop.remove();
+
+    backdrop.className = "turn-change-dialog-backdrop";
+    backdrop.innerHTML = `
+        <form class="turn-change-dialog kanban-edit-dialog kanban-create-dialog" role="dialog" aria-modal="true" aria-labelledby="kanbanCreateTitle" data-kanban-create-form autocomplete="off">
+            <strong id="kanbanCreateTitle">Nueva tarjeta</strong>
+            <div class="turn-change-dialog__meta">${escapeHTML(column.label)}</div>
+            <label class="metric-row metric-row--field">
+                <span class="metric-label">Título</span>
+                <input name="title" type="text" maxlength="80" required>
+            </label>
+            <label class="metric-row metric-row--field">
+                <span class="metric-label">Detalle</span>
+                <textarea name="detail" maxlength="280" rows="4"></textarea>
+            </label>
+            <div class="turn-change-dialog__actions">
+                <button class="secondary-button" type="button" data-dialog-cancel>Cancelar</button>
+                <button class="primary-button" type="submit">Agregar</button>
+            </div>
+        </form>
+    `;
+
+    document.body.appendChild(backdrop);
+    backdrop.querySelector("[data-dialog-cancel]")?.addEventListener("click", close);
+    backdrop
+        .querySelector("[data-kanban-create-form]")
+        ?.addEventListener("submit", event => {
+            event.preventDefault();
+
+            const data = new FormData(event.currentTarget);
+
+            if (
+                createCard({
+                    title: data.get("title"),
+                    detail: data.get("detail"),
+                    status: column.key
+                })
+            ) {
+                close();
+                renderKanbanBoard();
+            }
+        });
+    backdrop.querySelector("input[name='title']")?.focus();
+}
+
+function renderColumnAddButton(column) {
+    if (!KANBAN_CREATABLE_COLUMNS.has(column.key)) return "";
+
+    return `
+        <button class="kanban-column-add" type="button" aria-label="Agregar tarjeta en ${escapeHTML(column.label)}" title="Agregar tarjeta" data-kanban-add-status="${escapeHTML(column.key)}">
+            +
+        </button>
+    `;
+}
+
 function renderColumn(column, cards) {
     const columnCards = cards.filter(card => card.status === column.key);
 
@@ -302,30 +369,13 @@ function renderColumn(column, cards) {
                         : `<div class="kanban-empty">Sin tarjetas</div>`
                 }
             </div>
+            ${renderColumnAddButton(column)}
         </section>
     `;
 }
 
 function renderShell(cards) {
     return `
-        <div class="kanban-head">
-            <form class="kanban-form" data-kanban-form autocomplete="off">
-                <input name="title" type="text" maxlength="80" placeholder="Titulo de tarjeta" required>
-                <textarea name="detail" maxlength="280" placeholder="Detalle opcional"></textarea>
-                <select name="status" aria-label="Columna inicial">
-                    ${KANBAN_COLUMNS.map(column => `
-                        <option value="${escapeHTML(column.key)}">${escapeHTML(column.label)}</option>
-                    `).join("")}
-                </select>
-                <button class="primary-button kanban-add-button" type="submit">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M12 5v14"></path>
-                        <path d="M5 12h14"></path>
-                    </svg>
-                    <span>Crear</span>
-                </button>
-            </form>
-        </div>
         <div class="kanban-board">
             ${KANBAN_COLUMNS.map(column => renderColumn(column, cards)).join("")}
         </div>
@@ -333,28 +383,9 @@ function renderShell(cards) {
 }
 
 function bindKanbanEvents(root) {
-    const form = root.querySelector("[data-kanban-form]");
-
-    if (form) {
-        form.onsubmit = event => {
-            event.preventDefault();
-
-            const data = new FormData(form);
-            const title = String(data.get("title") || "").trim();
-
-            if (!title) return;
-
-            createCard({
-                title,
-                detail: data.get("detail"),
-                status: data.get("status")
-            });
-            renderKanbanBoard();
-            document
-                .querySelector("[data-kanban-form] input[name='title']")
-                ?.focus();
-        };
-    }
+    root.querySelectorAll("[data-kanban-add-status]").forEach(button => {
+        button.onclick = () => openCreateCardDialog(button.dataset.kanbanAddStatus);
+    });
 
     root.querySelectorAll("[data-kanban-delete]").forEach(button => {
         button.onclick = async () => {

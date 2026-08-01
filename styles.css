@@ -9811,47 +9811,6 @@ body.theme-dark .task-assignment-event--birthday {
     min-width: 0;
 }
 
-.kanban-head {
-    display: grid;
-    min-width: 0;
-}
-
-.kanban-form {
-    display: grid;
-    grid-template-columns: minmax(220px, 0.95fr) minmax(300px, 1.3fr) minmax(160px, 0.58fr) minmax(110px, auto);
-    gap: 10px;
-    align-items: center;
-    min-width: 0;
-}
-
-.kanban-form input,
-.kanban-form select,
-.kanban-form textarea {
-    min-height: 38px;
-    border-radius: 12px;
-}
-
-.kanban-form textarea {
-    height: 38px;
-    max-height: 82px;
-    resize: vertical;
-}
-
-.kanban-add-button {
-    min-height: 38px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    padding-inline: 14px;
-    white-space: nowrap;
-}
-
-.kanban-add-button svg {
-    width: 16px;
-    height: 16px;
-}
-
 .kanban-board {
     display: grid;
     grid-template-columns: repeat(3, minmax(220px, 1fr));
@@ -9871,7 +9830,7 @@ body.theme-dark .task-assignment-event--birthday {
 
 .kanban-column {
     display: grid;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: auto 1fr auto;
     min-width: 0;
     border-radius: 6px;
     border: 1px solid rgba(17, 32, 56, 0.16);
@@ -10036,6 +9995,39 @@ body.theme-dark .task-assignment-event--birthday {
     color: var(--text-muted);
     font-size: 0.84rem;
     font-weight: 800;
+}
+
+.kanban-column-add {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    justify-self: end;
+    margin: 0 14px 14px 0;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 1.05rem;
+    font-weight: 900;
+    line-height: 1;
+    box-shadow: 0 10px 20px rgba(var(--brand-blue-rgb), 0.2);
+    transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.kanban-column-add:hover {
+    background: var(--accent-2);
+    transform: translateY(-1px);
+}
+
+.kanban-edit-dialog,
+.kanban-create-dialog {
+    display: grid;
+    gap: 12px;
+}
+
+.kanban-edit-dialog .turn-change-dialog__actions,
+.kanban-create-dialog .turn-change-dialog__actions {
+    margin-top: 2px;
 }
 
 body.theme-dark .kanban-board {
