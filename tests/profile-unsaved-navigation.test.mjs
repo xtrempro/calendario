@@ -81,6 +81,18 @@ test("al guardar un perfil desactivado se selecciona otro activo", () => {
     assert.match(guardarPerfil, /selectProfileAfterSave\(nextName, nextProfilePayload\)/);
 });
 
+test("mover turno habilita deshacer al terminar la accion", () => {
+    const moveShiftTarget = sourceBlock(
+        "function handleMoveShiftTargetSelection",
+        "function startCreateMode"
+    );
+
+    assert.match(
+        moveShiftTarget,
+        /pushHistory\(\)[\s\S]*clearSelectionMode\(\);\s*updateHistoryNavState\(\);/
+    );
+});
+
 test("los clicks de menu no hacen scroll si el guard bloquea", () => {
     assert.match(
         source,

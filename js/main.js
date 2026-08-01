@@ -7076,6 +7076,7 @@ function handleMoveShiftTargetSelection(fecha) {
     );
 
     clearSelectionMode();
+    updateHistoryNavState();
 }
 
 function startCreateMode() {
