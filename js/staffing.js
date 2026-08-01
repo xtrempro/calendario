@@ -2206,7 +2206,9 @@ function getProfileStaffingAbsence(profileName, keyDay, cache) {
 function replacementCodeToTurno(code) {
     if (code === "L") return TURNO.LARGA;
     if (code === "N") return TURNO.NOCHE;
-    if (code === "24") return TURNO.TURNO24;
+    if (code === "24" || code === "24h" || code === "24H") {
+        return TURNO.TURNO24;
+    }
     if (code === "D") return TURNO.DIURNO;
     if (code === "D+N") return TURNO.DIURNO_NOCHE;
     if (code === "HM") return TURNO.MEDIA_MANANA;

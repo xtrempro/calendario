@@ -287,7 +287,7 @@ function toISO(date){
 function textoTurno(turno){
     if (turno === 1) return "L";
     if (turno === 2) return "N";
-    if (turno === 3) return "24";
+    if (turno === 3) return "24h";
     if (turno === 4) return "D";
     if (turno === 5) return "D+N";
 

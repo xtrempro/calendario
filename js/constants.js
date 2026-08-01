@@ -26,7 +26,7 @@ export const TURNO_LABEL = {
     0: "",
     1: "Larga",
     2: "Noche",
-    3: "24",
+    3: "24h",
     4: "Diurno",
     5: "D+N",
     6: "1/2M",

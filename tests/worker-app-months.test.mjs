@@ -7,6 +7,7 @@ import {
     normalizeProfileTargets,
     splitDaysByMonth
 } from "../js/workerAppMonths.js";
+import { TURNO, TURNO_LABEL } from "../js/constants.js";
 
 test("separa el calendario PWA en documentos mensuales", () => {
     const days = {
@@ -43,6 +44,20 @@ test("normaliza perfiles dirigidos sin duplicar", () => {
         normalizeProfileTargets([" Ana ", "", "Ana", "Luis"]),
         ["Ana", "Luis"]
     );
+});
+
+test("el turno de 24 horas se publica y muestra como 24h", async () => {
+    const [rotationBaseSource, swapsSource, swapUiSource] =
+        await Promise.all([
+            readFile(new URL("../js/rotationBase.js", import.meta.url), "utf8"),
+            readFile(new URL("../js/swaps.js", import.meta.url), "utf8"),
+            readFile(new URL("../js/swapUI.js", import.meta.url), "utf8")
+        ]);
+
+    assert.equal(TURNO_LABEL[TURNO.TURNO24], "24h");
+    assert.match(rotationBaseSource, /3:\s*"24h"/);
+    assert.match(swapsSource, /if \(code === "24"\) return "24h"/);
+    assert.match(swapUiSource, /if \(turno === 3\) return "24h"/);
 });
 
 test("la sincronizacion cliente no contiene una ruta de publicacion fria global", async () => {

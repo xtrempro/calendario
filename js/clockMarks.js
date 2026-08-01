@@ -515,7 +515,7 @@ export function getScheduledSegmentsForState(date, state, holidays = {}) {
     if (turno === TURNO.TURNO24) {
         return [{
             id: "turno24",
-            label: "24",
+            label: TURNO_LABEL[TURNO.TURNO24],
             start: dateAt(date, 8),
             end: nextDateAt(date, 8)
         }];

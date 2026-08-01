@@ -311,7 +311,7 @@ export function registrarCambio(data) {
 export function swapCodeLabel(code) {
     if (code === "L") return "Larga";
     if (code === "N") return "Noche";
-    if (code === "24") return "24";
+    if (code === "24") return "24h";
     if (code === "D") return "Diurno";
     if (code === "D+N") return "D+N";
     if (code === "HM") return "1/2M";
@@ -602,6 +602,8 @@ const SWAP_CODE_TO_TURNO = {
     L: TURNO.LARGA,
     N: TURNO.NOCHE,
     "24": TURNO.TURNO24,
+    "24h": TURNO.TURNO24,
+    "24H": TURNO.TURNO24,
     D: TURNO.DIURNO,
     "D+N": TURNO.DIURNO_NOCHE,
     "18": TURNO.TURNO18
