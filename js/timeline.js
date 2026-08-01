@@ -817,6 +817,26 @@ function timelineProfilesFromReplacementContractRaw(raw) {
     }
 }
 
+function timelineProfilesFromReplacementRaw(raw) {
+    if (!raw) return [];
+
+    try {
+        const replacements = JSON.parse(raw);
+
+        if (!Array.isArray(replacements)) return [];
+
+        return replacements
+            .flatMap(replacement => [
+                replacement?.worker,
+                replacement?.replaced
+            ])
+            .map(name => String(name || "").trim())
+            .filter(Boolean);
+    } catch {
+        return [];
+    }
+}
+
 function timelineAffectedProfilesFromKeys(keys = [], changes = {}) {
     const profiles = getProfiles();
     const names = new Set();
@@ -836,6 +856,16 @@ function timelineAffectedProfilesFromKeys(keys = [], changes = {}) {
 
     keys.forEach(key => {
         const text = String(key || "");
+
+        if (text === "replacements") {
+            const change = changes?.[text] || {};
+
+            timelineProfilesFromReplacementRaw(change.previous)
+                .forEach(name => names.add(name));
+            timelineProfilesFromReplacementRaw(change.next)
+                .forEach(name => names.add(name));
+            return;
+        }
 
         prefixes.forEach(prefix => {
             if (!text.startsWith(prefix)) return;
