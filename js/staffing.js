@@ -3599,16 +3599,105 @@ function clearAnalizarMesCache(event = null) {
     return true;
 }
 
+function parseStaffingCollectionChange(value) {
+    try {
+        const result = JSON.parse(value || "[]");
+
+        return Array.isArray(result) ? result : [];
+    } catch {
+        return [];
+    }
+}
+
+function staffingReplacementDateKey(replacement) {
+    const iso = String(replacement?.date || "");
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+
+    const keyDay = String(replacement?.keyDay || "");
+    const parts = keyDay.split("-").map(Number);
+
+    if (
+        parts.length !== 3 ||
+        !parts[0] ||
+        !Number.isFinite(parts[1]) ||
+        !parts[2]
+    ) {
+        return "";
+    }
+
+    return [
+        parts[0],
+        String(parts[1] + 1).padStart(2, "0"),
+        String(parts[2]).padStart(2, "0")
+    ].join("-");
+}
+
+function changedStaffingReplacementDays(change) {
+    if (!change || !("previous" in change) || !("next" in change)) {
+        return null;
+    }
+
+    const previous = parseStaffingCollectionChange(change.previous);
+    const next = parseStaffingCollectionChange(change.next);
+    const itemId = (item, index) => String(
+        item?.id || item?.requestId || `${index}:${JSON.stringify(item)}`
+    );
+    const previousById = new Map(
+        previous.map((item, index) => [itemId(item, index), item])
+    );
+    const nextById = new Map(
+        next.map((item, index) => [itemId(item, index), item])
+    );
+    const days = new Set();
+
+    new Set([...previousById.keys(), ...nextById.keys()])
+        .forEach(id => {
+            const before = previousById.get(id);
+            const after = nextById.get(id);
+
+            if (JSON.stringify(before) === JSON.stringify(after)) return;
+
+            [
+                staffingReplacementDateKey(before),
+                staffingReplacementDateKey(after)
+            ]
+                .filter(Boolean)
+                .forEach(day => days.add(day));
+        });
+
+    return [...days];
+}
+
+function immediateInlineStaffingDaysFromPersistence(event) {
+    const keys = event?.detail?.keys || [];
+
+    if (!keys.includes("replacements")) return [];
+
+    return changedStaffingReplacementDays(
+        event?.detail?.changes?.replacements
+    );
+}
+
 if (typeof window !== "undefined") {
     window.addEventListener(
         "proturnos:persistenceChanged",
         event => {
+            const immediateDays =
+                immediateInlineStaffingDaysFromPersistence(event);
+
             if (clearAnalizarMesCache(event)) {
                 scheduleStaffingReportPreload({
                     delay: 1400,
                     force: true
                 });
                 scheduleStaffingWeeklyPreload({ delay: 1400 });
+            }
+
+            if (immediateDays === null) {
+                void renderInlineStaffingAnalysis();
+            } else if (immediateDays.length) {
+                void updateInlineStaffingDays(immediateDays);
             }
         }
     );
