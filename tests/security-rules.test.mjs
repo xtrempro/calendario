@@ -1111,6 +1111,120 @@ test("reglas modulares de Firestore y Storage", async t => {
     );
 
     await t.test(
+        "la invitacion de trabajador puede reabrirse por el mismo uid en marcha blanca",
+        async () => {
+            await env.withSecurityRulesDisabled(async context => {
+                const db = context.firestore();
+
+                await setDoc(
+                    doc(
+                        db,
+                        "workspaces",
+                        WORKSPACE_ID,
+                        "workerAppInvites",
+                        "worker-reuse-accepted"
+                    ),
+                    {
+                        token: "worker-reuse-accepted",
+                        workspaceId: WORKSPACE_ID,
+                        workspaceName: "Pruebas",
+                        profileName: "Trabajador A",
+                        profileRut: "11111111-1",
+                        email: "worker-a@example.com",
+                        status: "accepted",
+                        workerUid: "worker-a",
+                        workerEmail: "worker-a@example.com",
+                        workerDisplayName: "Trabajador A"
+                    }
+                );
+                await setDoc(
+                    doc(
+                        db,
+                        "workspaces",
+                        WORKSPACE_ID,
+                        "workerAppInvites",
+                        "worker-reuse-other"
+                    ),
+                    {
+                        token: "worker-reuse-other",
+                        workspaceId: WORKSPACE_ID,
+                        workspaceName: "Pruebas",
+                        profileName: "Trabajador B",
+                        profileRut: "22222222-2",
+                        email: "worker-b@example.com",
+                        status: "accepted",
+                        workerUid: "worker-b",
+                        workerEmail: "worker-b@example.com",
+                        workerDisplayName: "Trabajador B"
+                    }
+                );
+            });
+
+            const ownAcceptedInvite = doc(
+                workerA.firestore(),
+                "workspaces",
+                WORKSPACE_ID,
+                "workerAppInvites",
+                "worker-reuse-accepted"
+            );
+
+            await assertSucceeds(getDoc(ownAcceptedInvite));
+            await assertSucceeds(
+                updateDoc(ownAcceptedInvite, {
+                    status: "accepted",
+                    workerUid: "worker-a",
+                    workerEmail: "worker-a@example.com",
+                    workerDisplayName: "Trabajador A",
+                    acceptedAt: new Date(),
+                    updatedAt: new Date()
+                })
+            );
+            await assertSucceeds(
+                setDoc(
+                    doc(
+                        workerA.firestore(),
+                        "workspaces",
+                        WORKSPACE_ID,
+                        "workerLinks",
+                        "worker-a"
+                    ),
+                    {
+                        uid: "worker-a",
+                        workspaceId: WORKSPACE_ID,
+                        inviteId: "worker-reuse-accepted",
+                        profileName: "Trabajador A",
+                        profileRut: "11111111-1",
+                        status: "active",
+                        updatedAt: new Date()
+                    }
+                )
+            );
+            await assertFails(
+                getDoc(
+                    doc(
+                        workerB.firestore(),
+                        "workspaces",
+                        WORKSPACE_ID,
+                        "workerAppInvites",
+                        "worker-reuse-accepted"
+                    )
+                )
+            );
+            await assertFails(
+                getDoc(
+                    doc(
+                        outsider.firestore(),
+                        "workspaces",
+                        WORKSPACE_ID,
+                        "workerAppInvites",
+                        "worker-reuse-other"
+                    )
+                )
+            );
+        }
+    );
+
+    await t.test(
         "trabajadores enlazados usan un directorio minimo para mensajes",
         async () => {
             const ownDirectoryDoc = doc(

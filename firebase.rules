@@ -303,10 +303,25 @@ service cloud.firestore {
       return false;
     }
 
+    function workerInviteSingleUseDisabledForPilot() {
+      // TEMPORAL marcha blanca: permite reabrir una invitacion ya aceptada solo
+      // desde el mismo uid que la acepto. Volver a false al cerrar esta fase.
+      return true;
+    }
+
+    function workerInviteCanBeOpened() {
+      return resource.data.status == "pending" ||
+        (
+          workerInviteSingleUseDisabledForPilot() &&
+          resource.data.status == "accepted" &&
+          resource.data.workerUid == request.auth.uid
+        );
+    }
+
     function canReadWorkerInvite(inviteId) {
       return signedIn() &&
         resource.data.token == inviteId &&
-        resource.data.status == "pending" &&
+        workerInviteCanBeOpened() &&
         workerInviteNotExpired();
     }
 
