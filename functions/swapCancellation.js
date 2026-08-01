@@ -6,6 +6,7 @@ const CANCELLABLE_SWAP_STATUSES = new Set([
   "assigned",
   "pending_colleague",
   "colleague_accepted",
+  "proposal_sent",
   "pending_supervisor"
 ]);
 

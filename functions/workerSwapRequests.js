@@ -1,6 +1,7 @@
 "use strict";
 
 const { randomBytes } = require("node:crypto");
+const { isFinalSwapStatus } = require("./swapCancellation");
 
 const SWAP_TURN_LABELS = new Set(["larga", "noche"]);
 const SWAP_TURN_CLASSES = new Set(["larga", "noche"]);
@@ -714,6 +715,7 @@ async function respondWorkerSwapRequestHandler(request, dependencies) {
     .doc(requestId);
   let acceptedCandidate = null;
   let acceptedAppData = null;
+  let finalStatus = status;
 
   if (status === "colleague_accepted") {
     [acceptedCandidate, acceptedAppData] = await Promise.all([
@@ -767,13 +769,19 @@ async function respondWorkerSwapRequestHandler(request, dependencies) {
       );
     }
 
+    const isOpenSwap = swap.type === "open_swap";
+    const effectiveStatus =
+      isOpenSwap && status === "colleague_accepted"
+        ? "proposal_sent"
+        : status;
+    finalStatus = effectiveStatus;
     const now = serverTimestamp();
     const patch = {
-      status,
+      status: effectiveStatus,
       colleagueResponseAt: now,
       notificationStatus:
         status === "colleague_accepted"
-          ? "accepted_by_colleague"
+          ? (isOpenSwap ? "proposal_sent" : "accepted_by_colleague")
           : "rejected_by_colleague",
       updatedAt: now
     };
@@ -798,6 +806,14 @@ async function respondWorkerSwapRequestHandler(request, dependencies) {
           HttpsError,
           "invalid-argument",
           "Selecciona una fecha valida para devolver el turno."
+        );
+      }
+
+      if (changeDate === effectiveReturnDate) {
+        callableError(
+          HttpsError,
+          "failed-precondition",
+          "La fecha de cambio y devolucion deben ser distintas."
         );
       }
 
@@ -869,7 +885,11 @@ async function respondWorkerSwapRequestHandler(request, dependencies) {
       );
       const returnTurnLabel = shiftLabel(returnDay);
 
-      patch.colleagueAcceptedAt = now;
+      if (isOpenSwap) {
+        patch.proposalSentAt = now;
+      } else {
+        patch.colleagueAcceptedAt = now;
+      }
       patch.returnDate = effectiveReturnDate;
       patch.devolucion = effectiveReturnDate;
       patch.returnTurnLabel = returnTurnLabel;
@@ -886,7 +906,185 @@ async function respondWorkerSwapRequestHandler(request, dependencies) {
   return {
     ok: true,
     requestId,
-    status
+    status: finalStatus
+  };
+}
+
+async function chooseWorkerSwapProposalHandler(request, dependencies) {
+  const {
+    db,
+    HttpsError,
+    serverTimestamp,
+    nowISO = defaultNowISO,
+    nowDate = () => new Date()
+  } = dependencies;
+  const { uid, workspaceId } = validateBasePayload(request, HttpsError);
+  const requestId = cleanText(request.data?.requestId, 220);
+
+  if (!requestId) {
+    callableError(
+      HttpsError,
+      "invalid-argument",
+      "No fue posible identificar la propuesta de cambio."
+    );
+  }
+
+  const workspaceRef = db.collection("workspaces").doc(workspaceId);
+
+  await requireActiveWorkerLink(
+    workspaceRef,
+    uid,
+    HttpsError,
+    "Tu cuenta ya no esta enlazada con esta unidad."
+  );
+
+  const requestRef = workspaceRef.collection("workerSwapRequests").doc(requestId);
+  let supervisorRequestId = "";
+  let groupId = "";
+
+  await db.runTransaction(async (transaction) => {
+    const requestSnap = await transaction.get(requestRef);
+
+    if (!requestSnap.exists) {
+      callableError(
+        HttpsError,
+        "not-found",
+        "La propuesta de cambio ya no existe."
+      );
+    }
+
+    const proposal = requestSnap.data() || {};
+    groupId = cleanText(proposal.groupId || proposal.openRequestId, 220);
+
+    if (
+      proposal.source !== "worker_app" ||
+      proposal.type !== "open_swap" ||
+      proposal.status !== "proposal_sent"
+    ) {
+      callableError(
+        HttpsError,
+        "failed-precondition",
+        "Esta propuesta ya no esta disponible."
+      );
+    }
+
+    if (proposal.createdByUid !== uid) {
+      callableError(
+        HttpsError,
+        "permission-denied",
+        "Solo quien creo la solicitud abierta puede elegir la propuesta."
+      );
+    }
+
+    if (!groupId) {
+      callableError(
+        HttpsError,
+        "failed-precondition",
+        "La solicitud abierta asociada ya no es valida."
+      );
+    }
+
+    const openRef = workspaceRef.collection("workerSwapOpenRequests").doc(groupId);
+    const openSnap = await transaction.get(openRef);
+
+    if (!openSnap.exists) {
+      callableError(
+        HttpsError,
+        "not-found",
+        "La solicitud abierta ya no existe."
+      );
+    }
+
+    const openData = openSnap.data() || {};
+
+    if (openData.createdByUid !== uid) {
+      callableError(
+        HttpsError,
+        "permission-denied",
+        "Solo quien creo la solicitud abierta puede elegir la propuesta."
+      );
+    }
+
+    if (
+      openData.status === "canceled" ||
+      isFinalSwapStatus(openData.status) ||
+      openData.winnerRequestId
+    ) {
+      callableError(
+        HttpsError,
+        "failed-precondition",
+        "Esta solicitud abierta ya fue resuelta."
+      );
+    }
+
+    const changeDate = normalizeISODate(proposal.fecha || proposal.date);
+    const returnDate = normalizeISODate(proposal.returnDate || proposal.devolucion);
+
+    if (!parseISODateParts(changeDate) || !parseISODateParts(returnDate)) {
+      callableError(
+        HttpsError,
+        "failed-precondition",
+        "La propuesta no tiene fechas validas."
+      );
+    }
+
+    supervisorRequestId = proposal.supervisorRequestId || `swap_${requestId}`;
+    const supervisorRequestRef = workspaceRef
+      .collection("workerRequests")
+      .doc(supervisorRequestId);
+    const now = serverTimestamp();
+
+    transaction.set(openRef, {
+      winnerRequestId: requestId,
+      winnerUid: proposal.targetUid || "",
+      supervisorRequestId,
+      status: "assigned",
+      assignedAt: now,
+      originAcceptedAt: now,
+      updatedAt: now
+    }, { merge: true });
+    transaction.set(supervisorRequestRef, {
+      id: supervisorRequestId,
+      type: "swap",
+      title: "Cambio de turno (abierto)",
+      profile: proposal.from || "",
+      from: proposal.from || "",
+      to: proposal.to || "",
+      targetProfile: proposal.to || "",
+      targetUid: proposal.targetUid || "",
+      createdByUid: proposal.createdByUid || "",
+      createdByEmail: proposal.createdByEmail || "",
+      source: "worker_app",
+      status: "pending",
+      date: changeDate,
+      fecha: changeDate,
+      returnDate,
+      devolucion: returnDate,
+      ownTurnLabel: proposal.ownTurnLabel || "",
+      returnTurnLabel: proposal.returnTurnLabel || "",
+      detail: proposal.detail || "",
+      swapRequestId: requestId,
+      openRequestId: groupId,
+      colleagueAcceptedAt: now,
+      originAcceptedAt: now,
+      createdAt: nowISO(nowDate),
+      updatedAt: now
+    }, { merge: true });
+    transaction.set(requestRef, {
+      status: "pending_supervisor",
+      supervisorRequestId,
+      originAcceptedAt: now,
+      supervisorSubmittedAt: now,
+      updatedAt: now
+    }, { merge: true });
+  });
+
+  return {
+    ok: true,
+    requestId,
+    openRequestId: groupId,
+    supervisorRequestId,
+    status: "pending_supervisor"
   };
 }
 
@@ -898,6 +1096,7 @@ function formatDateCL(value) {
 }
 
 module.exports = {
+  chooseWorkerSwapProposalHandler,
   createWorkerSwapOpenRequestHandler,
   createWorkerSwapRequestHandler,
   respondWorkerSwapRequestHandler,

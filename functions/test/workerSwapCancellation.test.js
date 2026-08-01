@@ -240,6 +240,7 @@ test("anula coordinadamente un cambio abierto y solo sus ofertas pendientes", as
     },
     [`${offersBase}/offer-b`]: { groupId: "open-a", status: "pending_colleague" },
     [`${offersBase}/offer-c`]: { groupId: "open-a", status: "superseded" },
+    [`${offersBase}/offer-d`]: { groupId: "open-a", status: "proposal_sent" },
     [supervisorPath]: { status: "pending" }
   });
 
@@ -253,5 +254,6 @@ test("anula coordinadamente un cambio abierto y solo sus ofertas pendientes", as
   assert.equal(db.data(`${offersBase}/offer-a`).status, "canceled");
   assert.equal(db.data(`${offersBase}/offer-b`).status, "canceled");
   assert.equal(db.data(`${offersBase}/offer-c`).status, "superseded");
+  assert.equal(db.data(`${offersBase}/offer-d`).status, "canceled");
   assert.equal(db.data(supervisorPath).status, "canceled");
 });

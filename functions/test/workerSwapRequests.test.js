@@ -3,6 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
+  chooseWorkerSwapProposalHandler,
   createWorkerSwapRequestHandler,
   respondWorkerSwapRequestHandler
 } = require("../workerSwapRequests");
@@ -405,7 +406,7 @@ test("rechaza aceptar oferta abierta si receptor ya no esta libre", async () => 
   );
 });
 
-test("acepta una oferta abierta validando devolucion en servidor", async () => {
+test("envia propuesta de cambio abierto validando devolucion en servidor", async () => {
   const db = new FakeFirestore(baseDocuments({
     [`workspaces/${WORKSPACE}/workerSwapRequests/open-offer`]: {
       id: "open-offer",
@@ -434,8 +435,68 @@ test("acepta una oferta abierta validando devolucion en servidor", async () => {
   );
 
   assert.equal(result.ok, true);
-  assert.equal(saved.status, "colleague_accepted");
+  assert.equal(result.status, "proposal_sent");
+  assert.equal(saved.status, "proposal_sent");
   assert.equal(saved.returnDate, "2026-07-15");
   assert.equal(saved.returnTurnLabel, "Noche");
-  assert.equal(saved.notificationStatus, "accepted_by_colleague");
+  assert.equal(saved.notificationStatus, "proposal_sent");
+  assert.equal(saved.proposalSentAt, "server-timestamp");
+});
+
+test("originador elige propuesta abierta y la envia al supervisor", async () => {
+  const db = new FakeFirestore(baseDocuments({
+    [`workspaces/${WORKSPACE}/workerSwapOpenRequests/open-a`]: {
+      id: "open-a",
+      workspaceId: WORKSPACE,
+      createdByUid: UID_A,
+      status: "distributed"
+    },
+    [`workspaces/${WORKSPACE}/workerSwapRequests/open-offer`]: {
+      id: "open-offer",
+      workspaceId: WORKSPACE,
+      type: "open_swap",
+      source: "worker_app",
+      status: "proposal_sent",
+      openRequestId: "open-a",
+      groupId: "open-a",
+      createdByUid: UID_A,
+      createdByEmail: "ana@example.com",
+      from: "Ana",
+      to: "Beto",
+      targetUid: UID_B,
+      fecha: "2026-07-10",
+      returnDate: "2026-07-15",
+      ownTurnLabel: "Larga",
+      returnTurnLabel: "Noche"
+    }
+  }));
+
+  const result = await chooseWorkerSwapProposalHandler(
+    request(UID_A, {
+      workspaceId: WORKSPACE,
+      requestId: "open-offer"
+    }),
+    dependencies(db)
+  );
+  const open = db.data(
+    `workspaces/${WORKSPACE}/workerSwapOpenRequests/open-a`
+  );
+  const proposal = db.data(
+    `workspaces/${WORKSPACE}/workerSwapRequests/open-offer`
+  );
+  const supervisor = db.data(
+    `workspaces/${WORKSPACE}/workerRequests/swap_open-offer`
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "pending_supervisor");
+  assert.equal(open.status, "assigned");
+  assert.equal(open.winnerRequestId, "open-offer");
+  assert.equal(proposal.status, "pending_supervisor");
+  assert.equal(proposal.supervisorRequestId, "swap_open-offer");
+  assert.equal(supervisor.status, "pending");
+  assert.equal(supervisor.type, "swap");
+  assert.equal(supervisor.openRequestId, "open-a");
+  assert.equal(supervisor.swapRequestId, "open-offer");
+  assert.equal(supervisor.returnDate, "2026-07-15");
 });
