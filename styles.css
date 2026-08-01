@@ -9034,6 +9034,58 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     font-size: 0.84rem;
 }
 
+.task-assignment-dialog__filters {
+    align-items: end;
+}
+
+.task-assignment-worker-search-field {
+    min-width: 0;
+}
+
+.task-assignment-worker-search {
+    display: block;
+    width: 100%;
+}
+
+.task-assignment-worker-search .profile-viewer__field {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 46px;
+    border-radius: var(--radius-sm);
+    background: var(--field);
+}
+
+.task-assignment-worker-search .profile-viewer__field input {
+    font-weight: 700;
+}
+
+.task-assignment-free-toggle {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--field);
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.task-assignment-free-toggle input {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    accent-color: var(--accent);
+}
+
+.task-assignment-free-toggle span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
 .task-assignment-filter-list {
     display: flex;
     flex-wrap: wrap;

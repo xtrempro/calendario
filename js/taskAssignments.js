@@ -6,6 +6,11 @@ import {
     getProfiles,
     isProfileActive
 } from "./storage.js";
+import {
+    getCalendarProfileSearchOptionValues,
+    getCalendarProfileSearchValue,
+    normalizeProfileSearch
+} from "./profileSearchUtils.js";
 import { getTurnoBase, getTurnoReal } from "./turnEngine.js";
 import { getAbsenceType } from "./rulesEngine.js";
 import { getHourReturn } from "./hourReturns.js";
@@ -852,7 +857,44 @@ function workerHasOtherTask(
     });
 }
 
-function candidateProfiles(shift, keyDay, roles, professions) {
+function profileShiftLabel(profile, keyDay) {
+    return TURNO_LABEL[getProfileShift(profile, keyDay)] || "Libre";
+}
+
+function profileMatchesWorkerSearch(profile, keyDay, query) {
+    const normalizedQuery = normalizeProfileSearch(query);
+
+    if (!normalizedQuery) return true;
+
+    return [
+        profile.name,
+        profile.estamento,
+        profileProfession(profile),
+        profileShiftLabel(profile, keyDay),
+        getCalendarProfileSearchValue(profile)
+    ]
+        .map(normalizeProfileSearch)
+        .some(value => value.includes(normalizedQuery));
+}
+
+function isAssignableCandidate(profile, keyDay, shift, includeWorkersWithoutShift) {
+    if (!profile || !isProfileActive(profile)) return false;
+    if (hasBlockingAbsence(profile.name, keyDay)) return false;
+
+    return includeWorkersWithoutShift ||
+        turnScheduledForShift(getProfileShift(profile, keyDay), shift);
+}
+
+function candidateProfiles(
+    shift,
+    keyDay,
+    roles,
+    professions,
+    {
+        includeWorkersWithoutShift = false,
+        query = ""
+    } = {}
+) {
     return getProfiles()
         .filter(isProfileActive)
         .filter(profile => profileMatchesFilters(
@@ -860,8 +902,41 @@ function candidateProfiles(shift, keyDay, roles, professions) {
             roles,
             professions
         ))
-        .filter(profile => isAvailableForShift(profile, keyDay, shift))
+        .filter(profile => isAssignableCandidate(
+            profile,
+            keyDay,
+            shift,
+            includeWorkersWithoutShift
+        ))
+        .filter(profile => profileMatchesWorkerSearch(
+            profile,
+            keyDay,
+            query
+        ))
         .sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+function renderDialogWorkerOptions(candidates) {
+    const used = new Set();
+
+    return candidates
+        .flatMap(profile =>
+            getCalendarProfileSearchOptionValues(profile)
+                .map(value => {
+                    if (!value || used.has(value)) return "";
+
+                    used.add(value);
+
+                    const searchValue =
+                        getCalendarProfileSearchValue(profile);
+                    const label = value !== searchValue
+                        ? ` label="${escapeHTML(searchValue)}"`
+                        : "";
+
+                    return `<option value="${escapeHTML(value)}"${label}></option>`;
+                })
+        )
+        .join("");
 }
 
 function filterSummaryLabel(options, selected) {
@@ -1913,7 +1988,7 @@ function renderDialogCandidate(
             <input type="checkbox" value="${escapeHTML(profile.name)}" ${selectedWorkers.has(profile.name) ? "checked" : ""}>
             <span>
                 <strong>${escapeHTML(profile.name)}</strong>
-                <small>${escapeHTML(profile.estamento || "Sin estamento")} | ${escapeHTML(profileProfession(profile))} | ${escapeHTML(TURNO_LABEL[getProfileShift(profile, keyDay)] || "")}</small>
+                <small>${escapeHTML(profile.estamento || "Sin estamento")} | ${escapeHTML(profileProfession(profile))} | ${escapeHTML(profileShiftLabel(profile, keyDay))}</small>
             </span>
         </label>
     `;
@@ -1927,12 +2002,12 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
     const cellKey = assignmentKey(shift, taskId, keyDay);
     const entry = assignments[cellKey] || { workers: [], note: "" };
     const selectedWorkers = new Set(assignmentWorkers(entry));
-    const roles = availableRoles();
     const professions = availableProfessions();
-    let dialogRoles = null;
     let dialogProfessions = null;
     let openDialogFilterGroup = "";
     let unbindDialogFilterOutside = null;
+    let workerSearch = "";
+    let includeWorkersWithoutShift = false;
     let note = entry.note || "";
     const backdrop = document.createElement("div");
 
@@ -1947,11 +2022,6 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
         backdrop.remove();
     };
     const collectDialogFilters = () => {
-        dialogRoles = selectedValues(
-            backdrop,
-            "[name='dialogTaskRole']",
-            roles
-        );
         dialogProfessions = selectedValues(
             backdrop,
             "[name='dialogTaskProfession']",
@@ -1969,13 +2039,29 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
                 }
             });
         note = backdrop.querySelector("[data-task-note]")?.value || "";
+        workerSearch = backdrop
+            .querySelector("[data-dialog-worker-search]")
+            ?.value || "";
+        includeWorkersWithoutShift = Boolean(
+            backdrop
+                .querySelector("[data-dialog-include-free-workers]")
+                ?.checked
+        );
     };
     const render = () => {
-        const candidates = candidateProfiles(
+        const allCandidates = candidateProfiles(
             shift,
             keyDay,
-            dialogRoles,
-            dialogProfessions
+            null,
+            dialogProfessions,
+            { includeWorkersWithoutShift }
+        );
+        const candidates = allCandidates.filter(profile =>
+            profileMatchesWorkerSearch(
+                profile,
+                keyDay,
+                workerSearch
+            )
         );
         const date = parseKey(keyDay);
 
@@ -1989,15 +2075,38 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
                     <button class="icon-button" type="button" data-dialog-close aria-label="Cerrar">&times;</button>
                 </div>
                 <div class="task-assignment-dialog__filters">
-                    <div>
-                        <strong>Estamento</strong>
-                        ${renderMultiSelectFilter("dialogTaskRole", roles, dialogRoles, "dialog-roles", openDialogFilterGroup)}
+                    <div class="task-assignment-worker-search-field">
+                        <strong>Trabajador</strong>
+                        <form class="profile-viewer task-assignment-worker-search" data-dialog-worker-search-form autocomplete="off">
+                            <div class="profile-viewer__field">
+                                <input
+                                    data-dialog-worker-search
+                                    type="search"
+                                    list="taskAssignmentWorkerOptions"
+                                    placeholder="Buscar trabajador"
+                                    value="${escapeHTML(workerSearch)}"
+                                >
+                                <button class="profile-viewer__button" type="submit" aria-label="Buscar trabajador">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="11" cy="11" r="7"></circle>
+                                        <path d="M21 21l-4.35-4.35"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <datalist id="taskAssignmentWorkerOptions">
+                                ${renderDialogWorkerOptions(allCandidates)}
+                            </datalist>
+                        </form>
                     </div>
                     <div>
                         <strong>Profesi&oacute;n</strong>
                         ${renderMultiSelectFilter("dialogTaskProfession", professions, dialogProfessions, "dialog-professions", openDialogFilterGroup)}
                     </div>
                 </div>
+                <label class="task-assignment-free-toggle">
+                    <input type="checkbox" data-dialog-include-free-workers ${includeWorkersWithoutShift ? "checked" : ""}>
+                    <span>Incluir trabajadores libres del d&iacute;a</span>
+                </label>
                 <div class="task-assignment-candidates" data-candidate-list>
                     ${
                         candidates.length
@@ -2027,6 +2136,36 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
 
         backdrop.querySelector("[data-dialog-close]")?.addEventListener("click", close);
         backdrop.querySelector("[data-dialog-cancel]")?.addEventListener("click", close);
+        backdrop
+            .querySelector("[data-dialog-worker-search-form]")
+            ?.addEventListener("submit", event => {
+                event.preventDefault();
+                collectVisibleWorkers();
+                render();
+            });
+        const searchInput =
+            backdrop.querySelector("[data-dialog-worker-search]");
+
+        if (searchInput) {
+            searchInput.addEventListener("input", () => {
+                collectVisibleWorkers();
+                render();
+                const nextInput =
+                    backdrop.querySelector("[data-dialog-worker-search]");
+
+                if (nextInput) {
+                    nextInput.focus();
+                    const end = nextInput.value.length;
+                    nextInput.setSelectionRange(end, end);
+                }
+            });
+        }
+        backdrop
+            .querySelector("[data-dialog-include-free-workers]")
+            ?.addEventListener("change", () => {
+                collectVisibleWorkers();
+                render();
+            });
         backdrop
             .querySelectorAll(".task-assignment-multiselect[data-filter-group]")
             .forEach(control => {
@@ -2083,13 +2222,10 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
         });
 
         backdrop
-            .querySelectorAll("[name='dialogTaskRole'], [name='dialogTaskProfession']")
+            .querySelectorAll("[name='dialogTaskProfession']")
             .forEach(input => {
                 input.addEventListener("change", () => {
-                    openDialogFilterGroup =
-                        input.name === "dialogTaskRole"
-                            ? "dialog-roles"
-                            : "dialog-professions";
+                    openDialogFilterGroup = "dialog-professions";
                     collectVisibleWorkers();
                     collectDialogFilters();
                     render();
