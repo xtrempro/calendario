@@ -11444,7 +11444,10 @@ document.addEventListener("keydown", event => {
 
     if (
         active &&
-        (active.tagName === "SELECT" || active.tagName === "BUTTON")
+        (active.tagName === "SELECT" ||
+            active.tagName === "BUTTON" ||
+            active.tagName === "TEXTAREA" ||
+            active.isContentEditable)
     ) {
         return;
     }

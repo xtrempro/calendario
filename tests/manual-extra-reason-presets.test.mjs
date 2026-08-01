@@ -41,3 +41,21 @@ test("el detalle de un turno extra manual prioriza el motivo escrito", async () 
         /\[\s*replacement\.replaced \? "Ausencia" : "Motivo",\s*replacementDetailReasonLabel\(replacement\)\s*\]/
     );
 });
+
+test("Enter dentro de motivos predefinidos conserva el salto de linea", async () => {
+    const calendarSource = await readFile(
+        new URL("../js/calendar.js", import.meta.url),
+        "utf8"
+    );
+    const mainSource = await readFile(
+        new URL("../js/main.js", import.meta.url),
+        "utf8"
+    );
+
+    assert.match(
+        calendarSource,
+        /<textarea[\s\S]*data-manual-reason-preset-list/
+    );
+    assert.match(mainSource, /active\.tagName === "TEXTAREA"/);
+    assert.match(mainSource, /active\.isContentEditable/);
+});
