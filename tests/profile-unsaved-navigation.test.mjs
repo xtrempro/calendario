@@ -62,6 +62,22 @@ test("guardarPerfil comunica exito o bloqueo al guard", () => {
     assert.doesNotMatch(guardarPerfil, /^\s*return;$/m);
 });
 
+test("al guardar un perfil desactivado se selecciona otro activo", () => {
+    const selectionHelpers = sourceBlock(
+        "function activeProfileNameAfterSave",
+        "function normalizeProfileDraftText"
+    );
+    const guardarPerfil = sourceBlock(
+        "async function guardarPerfil",
+        "function handleAvailabilityEdit"
+    );
+
+    assert.match(selectionHelpers, /savedProfile\.active !== false/);
+    assert.match(selectionHelpers, /isProfileActive\(profile\)/);
+    assert.match(selectionHelpers, /setCurrentProfile\(selectedName \|\| null\)/);
+    assert.match(guardarPerfil, /selectProfileAfterSave\(nextName, nextProfilePayload\)/);
+});
+
 test("los clicks de menu no hacen scroll si el guard bloquea", () => {
     assert.match(
         source,

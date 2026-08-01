@@ -7624,6 +7624,23 @@ function exitProfileMode(selectedName = getCurrentProfile()) {
     renderBotones();
 }
 
+function activeProfileNameAfterSave(savedName, savedProfile = {}) {
+    if (savedProfile.active !== false) return savedName;
+
+    return getProfiles()
+        .find(profile =>
+            profile.name !== savedName &&
+            isProfileActive(profile)
+        )?.name || "";
+}
+
+function selectProfileAfterSave(savedName, savedProfile = {}) {
+    const selectedName =
+        activeProfileNameAfterSave(savedName, savedProfile);
+
+    setCurrentProfile(selectedName || null);
+}
+
 function normalizeProfileDraftText(value) {
     return String(value || "").trim();
 }
@@ -9124,6 +9141,9 @@ async function guardarPerfil() {
                 label: "Confirmando guardado..."
             }
         );
+        selectProfileAfterSave(nextName, nextProfilePayload);
+        renderProfiles({ dashboard: false });
+        renderBotones();
         refreshAll();
         scheduleWorkerAppDataPublish(300, nextName);
 

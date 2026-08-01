@@ -238,6 +238,8 @@ test("el calendario usa delegación y una ruta de render parcial", async () => {
     assert.doesNotMatch(timelineSource, /dataTimelineLoadMore/);
     assert.match(timelineSource, /data-timeline-filter-select/);
     assert.match(timelineSource, /function timelineCurrentProfileGroup/);
+    assert.match(timelineSource, /function activeTimelineProfiles/);
+    assert.match(timelineSource, /isProfileActive\(profile\)/);
     assert.match(timelineSource, /selectedKey !== currentGroup\.key/);
     assert.match(timelineSource, /function syncTimelineActiveProfile/);
     assert.match(timelineSource, /is-current-calendar-profile/);
@@ -248,6 +250,8 @@ test("el calendario usa delegación y una ruta de render parcial", async () => {
     assert.match(timelineSource, /function orderTimelineProfiles/);
     assert.match(timelineSource, /function timelineSortContext\(year, month, diasMes, renderCache = null\)/);
     assert.match(timelineSource, /orderTimelineProfiles\(\s*grupo,\s*actual,\s*year,\s*month,\s*diasMes,\s*sortContext\s*\)/);
+    assert.match(timelineSource, /const profiles = activeTimelineProfiles\(allProfiles\)/);
+    assert.match(timelineSource, /const groupProfiles = activeTimelineProfiles\(getProfiles\(\)\)/);
     assert.doesNotMatch(timelineSource, /viewSignature = \[\s*actual,/);
     // El timeline pagina por viewport: solo la primera página se renderiza de
     // entrada y el resto se carga por scroll (armTimelineLazyLoad). Antes se

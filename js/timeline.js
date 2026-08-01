@@ -4,7 +4,8 @@ import {
     getCurrentProfile,
     getShiftAssigned,
     getReplacements,
-    getSwaps
+    getSwaps,
+    isProfileActive
 } from "./storage.js";
 
 import * as calendar from "./calendar.js";
@@ -95,7 +96,7 @@ const TIMELINE_FOREGROUND_INITIAL_LIMIT = 5;
 const TIMELINE_INITIAL_BATCH_SIZE = 5;
 const TIMELINE_INCREMENTAL_BATCH_SIZE = 5;
 const TIMELINE_VISIBLE_BATCH_SIZE = 1;
-const TIMELINE_CACHE_VERSION = 3;
+const TIMELINE_CACHE_VERSION = 4;
 const TIMELINE_CACHE_PREFIX = "proturnos_ui_cache_timeline_";
 const TIMELINE_ROW_CACHE_PREFIX = "proturnos_ui_cache_timeline_row_";
 const TIMELINE_METRICS_CACHE_PREFIX = "proturnos_ui_cache_timeline_metrics_";
@@ -185,9 +186,16 @@ function currentTimelineSelectedKey() {
     return Array.from(timelineFilterState.selectedKeys || [])[0] || "";
 }
 
+function activeTimelineProfiles(profiles = getProfiles()) {
+    const source = Array.isArray(profiles) ? profiles : [];
+
+    return source.filter(profile => isProfileActive(profile));
+}
+
 function timelineCurrentProfileGroup(profiles = getProfiles()) {
     const actual = getCurrentProfile();
-    const profile = profiles.find(item => item.name === actual);
+    const profile = activeTimelineProfiles(profiles)
+        .find(item => item.name === actual);
 
     return profile ? timelineGroupForProfile(profile) : null;
 }
@@ -250,7 +258,7 @@ function timelineMonthContractSignature(year, month) {
 }
 
 function timelineFastSignature(year, month) {
-    const profiles = getProfiles();
+    const profiles = activeTimelineProfiles(getProfiles());
     const selectedKey = currentTimelineSelectedKey();
     const currentGroup = timelineCurrentProfileGroup(profiles);
 
@@ -268,6 +276,7 @@ function timelineFastSignature(year, month) {
         month,
         selectedKey,
         profiles.length,
+        profiles.map(profile => timelineWorkerId(profile)).join("\u001f"),
         timelineMonthContractSignature(year, month)
     ].join("\u001f");
 }
@@ -3638,7 +3647,7 @@ function bindTimelineControls(container) {
         timelineFilterState.selectedKeys = new Set([key]);
         timelineFilterState.open = false;
 
-        const groupProfiles = getProfiles()
+        const groupProfiles = activeTimelineProfiles(getProfiles())
             .filter(profile =>
                 timelineGroupForProfile(profile).key === key
             );
@@ -3772,7 +3781,8 @@ function buildTimelineContext(year, month) {
             month
         }
     );
-    const profiles = getProfiles();
+    const allProfiles = getProfiles();
+    const profiles = activeTimelineProfiles(allProfiles);
     const actual = getCurrentProfile();
     const perfilActual =
         profiles.find(x => x.name === actual);
@@ -3780,10 +3790,11 @@ function buildTimelineContext(year, month) {
     if (!perfilActual) {
         finishContext({
             empty: true,
-            profileCount: profiles.length
+            profileCount: profiles.length,
+            allProfileCount: allProfiles.length
         });
         return {
-            empty: "Selecciona un colaborador para ver el reporte mensual."
+            empty: "Selecciona un colaborador activo para ver el reporte mensual."
         };
     }
 
