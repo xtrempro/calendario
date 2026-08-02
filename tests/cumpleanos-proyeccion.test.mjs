@@ -45,10 +45,14 @@ const profiles = [
   { name: "Sin Fecha", birthDate: "", active: true }
 ];
 
-test("excluye al propio trabajador y a los inactivos y sin fecha", () => {
+test("incluye al propio trabajador (marcado self) y excluye inactivos y sin fecha", () => {
   const out = runBuilder(profiles, "Yo Mismo");
   const names = out.map((b) => b.name).sort();
-  assert.deepEqual(names, ["Daniela", "Joaquin"]);
+  assert.deepEqual(names, ["Daniela", "Joaquin", "Yo"]);
+
+  // El propio va marcado self; los demas no.
+  assert.equal(out.find((b) => b.name === "Yo").self, true);
+  assert.equal(out.find((b) => b.name === "Daniela").self, false);
 });
 
 test("usa el año de referencia fijo (no expone la edad) y el primer nombre", () => {

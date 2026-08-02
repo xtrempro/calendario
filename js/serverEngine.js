@@ -495,9 +495,11 @@ function birthdayFirstName(name) {
 function buildBirthdayReminders(currentProfileName = "") {
     const selfKey = normalizeText(currentProfileName);
 
+    // Se incluye el propio cumpleaños (antes se excluia): el trabajador tambien
+    // debe verlo en su calendario. Se marca con self para que la PWA lo muestre
+    // como "Tu cumpleaños".
     return getProfiles()
         .filter(isProfileActive)
-        .filter(profile => normalizeText(profile.name) !== selfKey)
         .map(profile => {
             const parts = birthdayMonthDay(profile.birthDate);
 
@@ -521,7 +523,8 @@ function buildBirthdayReminders(currentProfileName = "") {
                 // Primer nombre para el titulo/calendario; nombre completo para la
                 // descripcion ("Cumpleaños de ...") en la PWA.
                 name: birthdayFirstName(profile.name),
-                fullName: String(profile.name || "").trim()
+                fullName: String(profile.name || "").trim(),
+                self: normalizeText(profile.name) === selfKey
             };
         })
         .filter(Boolean);
