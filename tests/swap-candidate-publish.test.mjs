@@ -30,7 +30,24 @@ test("publishLinkedWorkerDocs publica directorio de mensajes Y candidato por enl
   assert.match(fn, /writeWorkerMessageDirectoryEntry\(\s*\n\s*buildWorkerMessageDirectoryPayload\(/);
   // Candidato de cambio de turno.
   assert.match(fn, /writeWorkerSwapCandidate\(\s*\n\s*buildSwapCandidatePayload\(/);
-  assert.match(fn, /linkedProfiles\s*\n\s*\),/);
+  // El universo de compatibilidad va deduplicado.
+  assert.match(fn, /primaryProfiles\s*\n/);
+});
+
+test("dedup por perfil: conserva el enlace mas reciente y retira los duplicados", () => {
+  const fn = grab("publishLinkedWorkerDocs");
+  // Agrupa por perfil eligiendo el mas reciente.
+  assert.match(fn, /const primaryByProfile = new Map\(\)/);
+  assert.match(fn, /workerLinkRecency\(item\.link\) >= workerLinkRecency\(existing\.link\)/);
+  // Retira los docs derivados de los uids duplicados.
+  assert.match(fn, /const duplicates = linkedProfiles\.filter\(item => !primaryUids\.has\(item\.link\.uid\)\)/);
+  assert.match(fn, /retireDuplicateWorkerLinkDocs\(item\.link\.uid, workspace\.id\)/);
+
+  const retire = grab("retireDuplicateWorkerLinkDocs");
+  assert.match(retire, /"workerMessageDirectory", uid/);
+  assert.match(retire, /status: "unlinked"/);
+  assert.match(retire, /"workerSwapCandidates", uid/);
+  assert.match(retire, /status: "inactive"/);
 });
 
 test("se dispara en el arranque (primer snapshot) y en cada publicacion", () => {

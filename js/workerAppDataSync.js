@@ -2502,6 +2502,46 @@ async function publishHotNow() {
 //  - workerMessageDirectory: para que aparezca en el listado de Mensajes de la PWA.
 //  - workerSwapCandidates: compatibilidad (compatibleWorkerUids), su calendario
 //    (days) y la config del 24, para el cambio de turno directo.
+// Recencia de un enlace, para elegir la cuenta vigente cuando un mismo perfil
+// tiene mas de un uid enlazado (dos cuentas).
+function workerLinkRecency(link) {
+    const ts = link?.linkedAt || link?.claimedAt || link?.updatedAt;
+
+    if (ts && typeof ts.toMillis === "function") return ts.toMillis();
+
+    const parsed = Date.parse(
+        link?.updatedAtISO || link?.linkedAtISO || link?.updatedAt || ""
+    );
+
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+// Retira los docs derivados de un uid duplicado (misma persona, otra cuenta): el
+// directorio de mensajes queda "unlinked" y el candidato de cambio de turno pasa a
+// inactivo, para que la PWA no lo liste ni lo ofrezca dos veces. No toca workerLinks
+// (no desconecta la cuenta): si esa cuenta se usa, se re-publica sola.
+async function retireDuplicateWorkerLinkDocs(uid, workspaceId) {
+    if (!uid || !workspaceId) return;
+
+    try {
+        const { db, firestoreModule } = await getFirebaseServices();
+        const now = firestoreModule.serverTimestamp();
+
+        await firestoreModule.setDoc(
+            firestoreModule.doc(db, "workspaces", workspaceId, "workerMessageDirectory", uid),
+            { status: "unlinked", unlinkedAt: now, updatedAt: now },
+            { merge: true }
+        );
+        await firestoreModule.setDoc(
+            firestoreModule.doc(db, "workspaces", workspaceId, "workerSwapCandidates", uid),
+            { status: "inactive", updatedAt: now },
+            { merge: true }
+        );
+    } catch (error) {
+        console.warn("No se pudo retirar el doc duplicado del trabajador.", error);
+    }
+}
+
 async function publishLinkedWorkerDocs() {
     const workspace = currentWorkspace();
 
@@ -2514,7 +2554,24 @@ async function publishLinkedWorkerDocs() {
 
     if (!linkedProfiles.length) return;
 
-    for (const item of linkedProfiles) {
+    // Un mismo perfil puede tener mas de un uid enlazado (la persona uso dos
+    // cuentas). Se conserva SOLO el enlace mas reciente y se retiran los docs
+    // derivados de los demas, para no listar/ofrecer a la persona dos veces.
+    const primaryByProfile = new Map();
+    linkedProfiles.forEach(item => {
+        const key = normalizeText(item.profile.name);
+        const existing = primaryByProfile.get(key);
+
+        if (!existing || workerLinkRecency(item.link) >= workerLinkRecency(existing.link)) {
+            primaryByProfile.set(key, item);
+        }
+    });
+
+    const primaryProfiles = [...primaryByProfile.values()];
+    const primaryUids = new Set(primaryProfiles.map(item => item.link.uid));
+    const duplicates = linkedProfiles.filter(item => !primaryUids.has(item.link.uid));
+
+    for (const item of primaryProfiles) {
         try {
             await writeWorkerMessageDirectoryEntry(
                 buildWorkerMessageDirectoryPayload(
@@ -2537,7 +2594,9 @@ async function publishLinkedWorkerDocs() {
                     item.link,
                     item.profile,
                     workspace,
-                    linkedProfiles
+                    // El universo de compatibilidad tambien va sin duplicados, para
+                    // que compatibleWorkerUids no repita a la misma persona.
+                    primaryProfiles
                 ),
                 workspace.id
             );
@@ -2550,6 +2609,10 @@ async function publishLinkedWorkerDocs() {
 
         // No bloquear el hilo principal si hay varios enlazados.
         await waitWorkerAppIdle(300);
+    }
+
+    for (const item of duplicates) {
+        await retireDuplicateWorkerLinkDocs(item.link.uid, workspace.id);
     }
 }
 
