@@ -4745,6 +4745,31 @@ body.theme-light .day.worker-blocked-day {
     text-align: center;
 }
 
+/* CCTT (cambio) y DDTT (devolucion) con colores distintos. */
+.turn-change-day--change .day-badge {
+    background: rgba(234, 88, 12, 0.92);
+}
+
+.turn-change-day--return .day-badge {
+    background: rgba(124, 58, 237, 0.92);
+}
+
+.turn-change-day--return {
+    box-shadow: inset 0 0 0 2px rgba(124, 58, 237, 0.5);
+}
+
+/* Dia del turno DEVUELTO con color personalizado por el supervisor: pisa el color
+   normal del turno (incluso el gradiente inline) manteniendo texto legible. */
+.day.turn-change-return-day {
+    background: var(--color-turn-change-return) !important;
+    color: var(--color-turn-change-return-text, #fff) !important;
+}
+
+.day.turn-change-return-day .day-number,
+.day.turn-change-return-day .day-label {
+    color: var(--color-turn-change-return-text, #fff) !important;
+}
+
 .shift-move-day {
     box-shadow: inset 0 0 0 2px rgba(13, 148, 136, 0.58);
 }
@@ -6855,6 +6880,28 @@ body.theme-dark .overtime-backup-subsection {
     border-radius: 8px;
     background: #fff;
     cursor: pointer;
+}
+
+.settings-color-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.settings-color-toggle input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.settings-color-field input[type="color"]:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .settings-reset-colors {

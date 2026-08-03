@@ -42,6 +42,7 @@ import {
     getTurnoColorConfig,
     saveTurnoColorConfig,
     DEFAULT_BRAND_COLOR,
+    DEFAULT_TURN_CHANGE_RETURN_COLOR,
     getDefaultTurnoColorConfig,
     applyTurnoColors
 } from "./turnoColors.js";
@@ -609,6 +610,9 @@ function renderColorsPanel() {
     `).join("");
 
     const brandColor = config.brand || DEFAULT_BRAND_COLOR;
+    const returnColorEnabled = Boolean(config.turnChangeReturn);
+    const returnColorValue =
+        config.turnChangeReturn || DEFAULT_TURN_CHANGE_RETURN_COLOR;
 
     return `
         <div class="settings-section">
@@ -644,6 +648,26 @@ function renderColorsPanel() {
             </p>
             <div class="settings-color-grid">
                 ${namedRows}
+            </div>
+
+            <h4 class="settings-subtitle">Cambios de turno</h4>
+            <p class="settings-hint">
+                Color del turno DEVUELTO (DDTT) en un cambio de turno. Si lo dejas
+                sin personalizar, ese dia toma el color normal del turno (si devuelve
+                Noche usa el color de Noche, si devuelve Larga el de Larga).
+            </p>
+            <div class="settings-color-grid">
+                <div class="settings-color-row">
+                    <span class="settings-color-name">Turno devuelto</span>
+                    <label class="settings-color-toggle">
+                        <input type="checkbox" id="settingsTurnChangeReturnEnabled" ${returnColorEnabled ? "checked" : ""}>
+                        <span>Personalizar color</span>
+                    </label>
+                    <label class="settings-color-field">
+                        <span>Color</span>
+                        <input type="color" id="settingsTurnChangeReturnColor" data-turn-change-return-color value="${escapeHTML(returnColorValue)}" ${returnColorEnabled ? "" : "disabled"}>
+                    </label>
+                </div>
             </div>
 
             <button class="secondary-button settings-reset-colors" type="button" data-settings-reset-colors>
@@ -684,7 +708,19 @@ function readColorConfig(backdrop) {
     const brandInput = backdrop.querySelector("[data-brand-color]");
     const brand = brandInput?.value || current.brand || DEFAULT_BRAND_COLOR;
 
-    return { base, extra, named, brand };
+    // Turno devuelto: vacio cuando la personalizacion esta desactivada (usa el
+    // color normal del turno).
+    const returnEnabled = backdrop.querySelector(
+        "#settingsTurnChangeReturnEnabled"
+    )?.checked;
+    const returnColorInput = backdrop.querySelector(
+        "[data-turn-change-return-color]"
+    );
+    const turnChangeReturn = returnEnabled
+        ? (returnColorInput?.value || current.turnChangeReturn || "")
+        : "";
+
+    return { base, extra, named, brand, turnChangeReturn };
 }
 
 function renderActivePanel(config) {
@@ -1039,7 +1075,8 @@ function bindBackdrop(backdrop) {
             ![
                 "settingsAllowSwaps",
                 "settingsLimitMonthlySwaps",
-                "settingsEnableWorkerAcceptanceRequest"
+                "settingsEnableWorkerAcceptanceRequest",
+                "settingsTurnChangeReturnEnabled"
             ].includes(event.target?.id)
         ) {
             return;

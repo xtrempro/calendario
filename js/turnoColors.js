@@ -116,6 +116,16 @@ function normalizeHex(value, fallback) {
     return /^#[0-9a-fA-F]{6}$/.test(String(value || "")) ? String(value) : fallback;
 }
 
+// Color OPCIONAL: devuelve el hex valido o "" (sin color). Se usa para el turno
+// devuelto en un cambio de turno: vacio = usar el color normal del turno.
+function normalizeOptionalHex(value) {
+    return /^#[0-9a-fA-F]{6}$/.test(String(value || "")) ? String(value) : "";
+}
+
+// Color sugerido en el selector cuando el supervisor activa la personalizacion
+// del turno devuelto (no es el valor guardado por defecto, que es "").
+export const DEFAULT_TURN_CHANGE_RETURN_COLOR = "#7c3aed";
+
 // Cache del config parseado para no leer/parsear localStorage por cada celda
 // del timeline. Se invalida al guardar/resetear y en cada applyTurnoColors.
 let cachedConfig = null;
@@ -146,8 +156,9 @@ export function getTurnoColorConfig() {
 
     const named = buildNamedColors(saved?.named);
     const brand = normalizeHex(saved?.brand, DEFAULT_BRAND_COLOR);
+    const turnChangeReturn = normalizeOptionalHex(saved?.turnChangeReturn);
 
-    cachedConfig = { base, extra, named, brand };
+    cachedConfig = { base, extra, named, brand, turnChangeReturn };
     return cachedConfig;
 }
 
@@ -162,8 +173,9 @@ export function saveTurnoColorConfig(config) {
 
     const named = buildNamedColors(config?.named);
     const brand = normalizeHex(config?.brand, DEFAULT_BRAND_COLOR);
+    const turnChangeReturn = normalizeOptionalHex(config?.turnChangeReturn);
 
-    setJSON(CONFIG_KEY, { base, extra, named, brand });
+    setJSON(CONFIG_KEY, { base, extra, named, brand, turnChangeReturn });
     cachedConfig = null;
 }
 
@@ -181,7 +193,13 @@ export function getDefaultTurnoColorConfig() {
         extra[code] = DEFAULT_BASE[code];
     }
 
-    return { base, extra, named: { ...NAMED_DEFAULTS }, brand: DEFAULT_BRAND_COLOR };
+    return {
+        base,
+        extra,
+        named: { ...NAMED_DEFAULTS },
+        brand: DEFAULT_BRAND_COLOR,
+        turnChangeReturn: ""
+    };
 }
 
 export function defaultTurnoColor(code) {
@@ -218,8 +236,21 @@ export function applyTurnoColors() {
 
     // Relee fresco una vez por render (cubre cambios por sync de estado).
     cachedConfig = null;
-    const { base, extra, named, brand } = getTurnoColorConfig();
+    const { base, extra, named, brand, turnChangeReturn } = getTurnoColorConfig();
     const root = document.documentElement;
+
+    // Color del turno DEVUELTO en un cambio de turno (opcional). Si esta vacio se
+    // quita la variable y el dia toma el color normal del turno.
+    if (turnChangeReturn) {
+        root.style.setProperty("--color-turn-change-return", turnChangeReturn);
+        root.style.setProperty(
+            "--color-turn-change-return-text",
+            contrastTextColor(turnChangeReturn)
+        );
+    } else {
+        root.style.removeProperty("--color-turn-change-return");
+        root.style.removeProperty("--color-turn-change-return-text");
+    }
 
     // Token de marca: de el derivan --accent* y todas las sombras
     // rgba(var(--brand-blue-rgb), X) definidas en styles.css.

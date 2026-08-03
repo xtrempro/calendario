@@ -62,6 +62,7 @@ import {
     aplicarClaseTurno
 } from "./uiEngine.js";
 import { getDayColorGradient } from "./dayColorBands.js";
+import { getTurnoColorConfig } from "./turnoColors.js";
 import {
     cancelTimelineRender,
     renderTimeline,
@@ -6344,6 +6345,8 @@ async function renderCalendarImpl(options = {}) {
         m,
         holidays
     );
+    const turnChangeReturnColorEnabled =
+        Boolean(getTurnoColorConfig().turnChangeReturn);
     finishWorkerContext({
         days,
         workerId: activeWorkerId
@@ -6634,11 +6637,29 @@ async function renderCalendarImpl(options = {}) {
         div.dataset.workerId = activeWorkerId;
         div.dataset.action = "calendar-day";
 
+        // CCTT (cambio) y DDTT (devolucion) caen en dias distintos: se marca el tipo
+        // para que sus etiquetas lleven colores diferentes.
+        const hasReturnMarker =
+            turnChangeMarkers.some(marker => marker.type === "return");
+        const hasChangeMarker =
+            turnChangeMarkers.some(marker => marker.type === "change");
+        // Dia de devolucion con color personalizado por el supervisor.
+        const returnCustomColor =
+            hasReturnMarker && turnChangeReturnColorEnabled;
+
         if (turnChangeMarker) {
             div.classList.add("turn-change-day");
             div.dataset.swapId = String(
                 turnChangeMarker.swap.id
             );
+
+            if (hasChangeMarker) {
+                div.classList.add("turn-change-day--change");
+            }
+
+            if (hasReturnMarker) {
+                div.classList.add("turn-change-day--return");
+            }
         }
 
         if (shiftMoveMarkers.length) {
@@ -6700,6 +6721,25 @@ async function renderCalendarImpl(options = {}) {
             }
         }
 
+        const dayColorGradient = getDayColorGradient(
+            activeProfile,
+            keyDay,
+            state,
+            date,
+            holidays,
+            admin[keyDay],
+            baseState,
+            {
+                unbasedComponentsAreExtra: manualExtra,
+                singleBandGradient: manualExtra,
+                // En un dia de devolucion con color personalizado, la mitad DDTT
+                // (componente extra del 24h) se pinta con ese color.
+                extraColorOverride: returnCustomColor
+                    ? "var(--color-turn-change-return)"
+                    : undefined
+            }
+        );
+
         aplicarClasesEspeciales(
             div,
             keyDay,
@@ -6713,20 +6753,14 @@ async function renderCalendarImpl(options = {}) {
             absences,
             aplicarClaseTurno,
             baseState,
-            getDayColorGradient(
-                activeProfile,
-                keyDay,
-                state,
-                date,
-                holidays,
-                admin[keyDay],
-                baseState,
-                {
-                    unbasedComponentsAreExtra: manualExtra,
-                    singleBandGradient: manualExtra
-                }
-            )
+            dayColorGradient
         );
+
+        // Dia de devolucion de UN solo color (no 24h): se pinta la celda completa con
+        // el color personalizado (el 24h ya se resolvio via extraColorOverride).
+        if (returnCustomColor && !dayColorGradient) {
+            div.classList.add("turn-change-return-day");
+        }
 
         const bloqueado = estaBloqueadoModo(
             window.selectionMode,

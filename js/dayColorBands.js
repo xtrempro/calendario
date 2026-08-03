@@ -256,8 +256,16 @@ export function getDayColorGradient(
                     : options.unbasedComponentsAreExtra === true
             );
 
+        // Turno devuelto (DDTT) que forma un 24h: su mitad es el componente EXTRA.
+        // Si el supervisor personalizo el color del turno devuelto, esa banda se
+        // pinta con ese color y la otra mitad conserva su color normal.
+        const color =
+            isExtra && options.extraColorOverride
+                ? options.extraColorOverride
+                : resolveColor(comp.code, isExtra);
+
         bands.push({
-            color: resolveColor(comp.code, isExtra),
+            color,
             pct: baseRegion * ((comp.weight || 1) / weightTotal)
         });
     }
