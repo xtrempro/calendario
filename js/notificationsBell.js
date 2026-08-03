@@ -1,0 +1,201 @@
+// Campanita de notificaciones del supervisor. Reutiliza el evento
+// `proturnos:workerRequestsChanged` (que ya dispara el listener dedicado de
+// solicitudes en tiempo real, firebaseWorkerRequests.js) para NO abrir listeners
+// nuevos de Firestore: al llegar una solicitud del trabajador (permiso, cambio de
+// turno o incidencia de marcaje) se actualiza el badge y, si es una solicitud
+// nueva, se disparan alertas sonoras + vibracion en el celular del supervisor.
+
+import { getWorkerRequests } from "./storage.js";
+
+// Se alertan solo las solicitudes ORIGINADAS por el trabajador: permiso (leave),
+// cambio de turno (swap) e incidencia de marcaje (missing_clock / clock_incident).
+const WORKER_ORIGIN_TYPES = new Set([
+    "swap",
+    "missing_clock",
+    "clock_incident"
+]);
+
+// Al abrir la app hay una ventana de "hidratacion" en la que el sync inicial trae
+// las solicitudes ya existentes: durante ese lapso se actualiza el badge pero NO
+// se alerta, para no sonar por solicitudes viejas al entrar.
+const HYDRATION_GRACE_MS = 4000;
+const REFRESH_DEBOUNCE_MS = 120;
+
+let bellButton = null;
+let bellBadge = null;
+let onOpenRequests = () => {};
+let knownPendingIds = new Set();
+let alertsReadyAt = Infinity;
+let audioContext = null;
+let refreshTimer = null;
+let initialized = false;
+
+function pendingRequestId(request) {
+    return String(request?.id || request?.createdAt || "").trim();
+}
+
+function isWorkerLeaveRequest(request) {
+    const type = String(request?.type || "").trim();
+
+    // Un permiso puede no traer type (o traer el tipo de permiso): cuenta como
+    // solicitud del trabajador salvo los tipos administrativos entre unidades.
+    return WORKER_ORIGIN_TYPES.has(type) || Boolean(request?.profile);
+}
+
+// Solicitudes pendientes del trabajador (permiso / cambio de turno / marcaje).
+export function pendingWorkerRequests(requests = getWorkerRequests()) {
+    return (Array.isArray(requests) ? requests : []).filter(request =>
+        request?.status === "pending" && isWorkerLeaveRequest(request)
+    );
+}
+
+export function pendingRequestIds(requests) {
+    return new Set(
+        pendingWorkerRequests(requests)
+            .map(pendingRequestId)
+            .filter(Boolean)
+    );
+}
+
+// Hay solicitud nueva si aparece un id pendiente que no estaba antes.
+export function hasNewPendingRequest(previousIds, currentIds) {
+    const previous = previousIds instanceof Set
+        ? previousIds
+        : new Set(previousIds || []);
+
+    for (const id of currentIds) {
+        if (id && !previous.has(id)) return true;
+    }
+
+    return false;
+}
+
+function updateBadge(count) {
+    if (bellBadge) {
+        bellBadge.textContent = count > 99 ? "99+" : String(count);
+        bellBadge.classList.toggle("hidden", count === 0);
+    }
+
+    if (bellButton) {
+        bellButton.classList.toggle("has-notifications", count > 0);
+        bellButton.setAttribute(
+            "aria-label",
+            count > 0
+                ? `Solicitudes de trabajadores: ${count} pendiente${count === 1 ? "" : "s"}`
+                : "Solicitudes de trabajadores"
+        );
+    }
+}
+
+function vibrateDevice() {
+    if (!navigator.vibrate) return;
+
+    try {
+        navigator.vibrate([220, 90, 220]);
+    } catch (error) {
+        console.warn("No se pudo vibrar el dispositivo.", error);
+    }
+}
+
+function getAudioContextClass() {
+    return window.AudioContext || window.webkitAudioContext || null;
+}
+
+// El audio requiere un gesto previo del usuario: se prepara/reanuda el contexto.
+function unlockNotificationAudio() {
+    const AudioCtx = getAudioContextClass();
+
+    if (!AudioCtx) return;
+
+    try {
+        audioContext ||= new AudioCtx();
+
+        if (audioContext.state === "suspended") {
+            audioContext.resume?.().catch(() => {});
+        }
+    } catch (error) {
+        console.warn("No se pudo preparar el audio de alertas.", error);
+    }
+}
+
+function playNotificationTone() {
+    const AudioCtx = getAudioContextClass();
+
+    if (!AudioCtx) return;
+
+    try {
+        const context = audioContext || new AudioCtx();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+
+        audioContext = context;
+        context.resume?.().catch(() => {});
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(880, context.currentTime);
+        oscillator.frequency.setValueAtTime(1175, context.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.0001, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.2, context.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.36);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.38);
+    } catch (error) {
+        console.warn("No se pudo reproducir el sonido de alerta.", error);
+    }
+}
+
+function alertNewRequest() {
+    vibrateDevice();
+    playNotificationTone();
+}
+
+function refreshNow() {
+    const currentIds = pendingRequestIds();
+
+    updateBadge(currentIds.size);
+
+    const isNew = hasNewPendingRequest(knownPendingIds, currentIds);
+
+    knownPendingIds = currentIds;
+
+    if (isNew && Date.now() >= alertsReadyAt) {
+        alertNewRequest();
+    }
+}
+
+function scheduleRefresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refreshNow, REFRESH_DEBOUNCE_MS);
+}
+
+export function initNotificationsBell({ onOpen } = {}) {
+    if (initialized) return;
+
+    bellButton = document.getElementById("notificationsBellBtn");
+    bellBadge = document.getElementById("notificationsBellBadge");
+    onOpenRequests = typeof onOpen === "function" ? onOpen : () => {};
+
+    if (!bellButton) return;
+
+    initialized = true;
+
+    // Estado inicial desde la cache local (sin alertar) + ventana de gracia para
+    // absorber la hidratacion del sync sin sonar por solicitudes viejas.
+    knownPendingIds = pendingRequestIds();
+    alertsReadyAt = Date.now() + HYDRATION_GRACE_MS;
+    updateBadge(knownPendingIds.size);
+
+    bellButton.addEventListener("click", () => {
+        unlockNotificationAudio();
+        onOpenRequests();
+    });
+
+    // Desbloquea el audio en el primer gesto del supervisor.
+    const unlock = () => unlockNotificationAudio();
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+
+    // Reutiliza el evento existente en vez de abrir un listener nuevo.
+    window.addEventListener("proturnos:workerRequestsChanged", scheduleRefresh);
+}

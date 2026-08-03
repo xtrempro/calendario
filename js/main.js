@@ -379,6 +379,7 @@ import {
     startSupervisorInviteRequestsListener,
     stopSupervisorInviteRequestsListener
 } from "./workerRequests.js";
+import { initNotificationsBell } from "./notificationsBell.js";
 import {
     openWorkerAppInviteDialog,
     sendWorkerAppInviteEmail,
@@ -11909,6 +11910,9 @@ loadWorkspacePermissions()
 initHoursCharts(getPerfilActual);
 updateMemosNavBadge();
 refreshWorkerRequestsNavBadge();
+initNotificationsBell({
+    onOpen: () => { void setActiveShortcut("workerRequestsPanel"); }
+});
 renderProfiles({ dashboard: false });
 renderBotones();
 bindAppNavigationHistory();
