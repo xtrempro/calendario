@@ -5,6 +5,7 @@ const { logger } = require("firebase-functions");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const {
   onDocumentCreated,
+  onDocumentDeleted,
   onDocumentWritten
 } = require("firebase-functions/v2/firestore");
 const {
@@ -799,11 +800,74 @@ const syncWorkspacePwaCounters = onDocumentWritten(
   }
 );
 
+// Desvinculacion EXPLICITA hacia la PWA del trabajador.
+//
+// Al desvincular, el supervisor ELIMINA workspaces/{ws}/workerLinks/{uid} (asi las
+// reglas revocan el acceso de verdad). El problema: el trabajador, ya sin acceso al
+// workspace, no puede leer ningun aviso ahi, y la PWA terminaba INFIRIENDO la
+// desvinculacion de un permission-denied. Pero ese error tambien ocurre de forma
+// TRANSITORIA cuando la conexion es inestable (token de auth caducado), generando
+// falsos "cuenta desvinculada".
+//
+// Aqui, tras el borrado, se deja un marcador EXPLICITO en el unico lugar que el
+// trabajador siempre puede leer (su propio doc), con status "unlinked". La PWA se
+// desvincula de forma DETERMINISTICA solo cuando ve este marcador; un permission-
+// denied por si solo ya no basta. Al re-enlazar, el claim sobrescribe el doc con
+// status "active", limpiando el marcador.
+const markWorkerLinkUnlinked = onDocumentDeleted(
+  {
+    document: "workspaces/{workspaceId}/workerLinks/{workerUid}",
+    region: REGION
+  },
+  async (event) => {
+    const { workspaceId, workerUid } = event.params || {};
+    if (!workspaceId || !workerUid) return;
+
+    // No dejar marcadores huerfanos cuando el borrado es un teardown en cascada
+    // (se elimina el workspace completo, o la cuenta del propio trabajador): en
+    // esos casos no hay a quien avisar y el marcador quedaria colgado.
+    const [workspaceSnap, userSnap] = await Promise.all([
+      db.collection("workspaces").doc(workspaceId).get(),
+      db.collection("users").doc(workerUid).get()
+    ]);
+    if (!workspaceSnap.exists || !userSnap.exists) return;
+
+    const previous = event.data?.data() || {};
+
+    try {
+      await db
+        .collection("users")
+        .doc(workerUid)
+        .collection("workerLinks")
+        .doc(workspaceId)
+        .set(
+          {
+            workspaceId,
+            status: "unlinked",
+            unlinkedAt: admin.firestore.FieldValue.serverTimestamp(),
+            unlinkedBy: "supervisor",
+            workspaceName:
+              previous.workspaceName || workspaceSnap.data()?.name || "",
+            profileName: previous.profileName || ""
+          },
+          { merge: true }
+        );
+    } catch (error) {
+      logger.error("No se pudo marcar la desvinculacion del trabajador.", {
+        workspaceId,
+        workerUid,
+        error: error?.message || String(error)
+      });
+    }
+  }
+);
+
 module.exports = {
   deleteAdminUser,
   deleteAdminWorkspace,
   getAccountsAndUnits,
   initializeWorkspaceUsageCounters,
+  markWorkerLinkUnlinked,
   setAdminAccountPlan,
   syncLegacyWorkspaceWorkerCounters,
   syncWorkspacePwaCounters,
