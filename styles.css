@@ -4631,11 +4631,11 @@ body.theme-light .day.worker-blocked-day {
 }
 
 .day-label__primary {
-    animation: pendingLeavePrimaryBlink 1.35s ease-in-out infinite;
+    animation: pendingLeavePrimaryBlink 1.75s ease-in-out infinite;
 }
 
 .day-label__alternate {
-    animation: pendingLeaveAlternateBlink 1.35s ease-in-out infinite;
+    animation: pendingLeaveAlternateBlink 1.75s ease-in-out infinite;
 }
 
 @keyframes pendingLeavePrimaryBlink {
@@ -4803,7 +4803,28 @@ body.theme-light .day.worker-blocked-day {
     opacity: 0;
     pointer-events: none;
     z-index: 0;
-    animation: pendingLeaveColorBlink 1.35s ease-in-out infinite;
+    animation: pendingLeaveColorBlink 1.75s ease-in-out infinite;
+}
+
+/* Timeline: la casilla-dia (mini) de un permiso pendiente parpadea alternando el
+   color del turno (fondo de la celda) con el color del permiso (overlay). */
+td.mini.timeline-leave-pending {
+    position: relative;
+}
+
+td.mini.timeline-leave-pending > .timeline-leave-overlay {
+    position: absolute;
+    inset: 0;
+    background: var(--pending-leave-color, var(--color-admin, #f97316));
+    opacity: 0;
+    pointer-events: none;
+    z-index: 0;
+    animation: pendingLeaveColorBlink 1.75s ease-in-out infinite;
+}
+
+td.mini.timeline-leave-pending > .timeline-replacement-marker {
+    position: relative;
+    z-index: 1;
 }
 
 .day.pending-leave-request-day > .day-number,

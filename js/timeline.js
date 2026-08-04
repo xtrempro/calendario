@@ -19,6 +19,12 @@ import {
 import { TURNO, TURNO_COLOR } from "./constants.js";
 import { getTurnoColor } from "./turnoColors.js";
 import { getDayColorGradient } from "./dayColorBands.js";
+import {
+    getPendingLeaveRequestsForProfile,
+    getPendingLeaveRequestForDate,
+    leaveRequestCoversISODate,
+    pendingLeaveColorValue
+} from "./pendingLeaveRequests.js";
 import { fetchHolidays } from "./holidays.js";
 import { calcularHorasMesPerfil } from "./hoursEngine.js";
 import { isBusinessDay } from "./calculations.js";
@@ -2515,11 +2521,28 @@ function buildTimelineRowAuxiliaryContext(
         }
     });
 
+    // Solicitudes de permiso PENDIENTES del trabajador: el dia parpadea alternando
+    // el color del turno con el del permiso. Se precomputa una vez por perfil.
+    const pendingLeaveByKey = new Map();
+    const profilePendingLeaves = getPendingLeaveRequestsForProfile(profileName);
+
+    if (profilePendingLeaves.length) {
+        for (const keyDay of keys) {
+            const iso = isoByKey.get(keyDay) || isoFromKey(keyDay);
+            const request = profilePendingLeaves.find(item =>
+                leaveRequestCoversISODate(item, iso)
+            );
+
+            if (request) pendingLeaveByKey.set(keyDay, request);
+        }
+    }
+
     const aux = {
         data,
         keys,
         isoByKey,
         dateByKey,
+        pendingLeaveByKey,
         blockedByIso,
         hourReturns: getTimelineCachedHourReturns(profileName, renderCache),
         clockMarks: getTimelineCachedClockMarks(profileName, renderCache),
@@ -3065,6 +3088,11 @@ function renderTimelineDayCell(profile, d, {
     const key = `${year}-${month}-${d}`;
     const iso = rowAux?.isoByKey?.get(key) || isoFromKey(key);
     const date = rowAux?.dateByKey?.get(key) || new Date(year, month, d);
+    // Solicitud de permiso pendiente: la casilla parpadea alternando el color del
+    // turno con el del permiso (mismo criterio que el calendario principal).
+    const pendingLeave = rowAux?.pendingLeaveByKey?.has(key)
+        ? rowAux.pendingLeaveByKey.get(key)
+        : getPendingLeaveRequestForDate(profile.name, iso);
     const realTurn = rowAux?.realTurnByKey?.has(key)
         ? rowAux.realTurnByKey.get(key)
         : getTurnoReal(profile.name, key);
@@ -3239,12 +3267,16 @@ function renderTimelineDayCell(profile, d, {
             : ""
     ].filter(Boolean).join("\n");
 
+    const pendingLeaveStyle = pendingLeave
+        ? `;--pending-leave-color:${pendingLeaveColorValue(pendingLeave.type)}`
+        : "";
+
     return `
         <td
             data-timeline-profile="${escapeHtml(profile.name)}"
             data-timeline-key="${escapeHtml(key)}"
-            class="mini ${workerBlockedDay ? "worker-blocked-mini" : ""} ${isInhabil ? "timeline-inhabil" : ""} ${contractError ? "contract-error-day" : ""} ${honorariaExcess ? "honoraria-limit-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${hourReturn ? "hours-return-mini" : ""} ${replacement ? "replacement-day" : ""}"
-            style="background:${escapeHtml(background)}"
+            class="mini ${pendingLeave ? "timeline-leave-pending" : ""} ${workerBlockedDay ? "worker-blocked-mini" : ""} ${isInhabil ? "timeline-inhabil" : ""} ${contractError ? "contract-error-day" : ""} ${honorariaExcess ? "honoraria-limit-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${hourReturn ? "hours-return-mini" : ""} ${replacement ? "replacement-day" : ""}"
+            style="${escapeHtml(`background:${background}${pendingLeaveStyle}`)}"
             title="${escapeHtml(titleText)}"
             ${contractError ? `data-contract-error-profile="${escapeHtml(profile.name)}" data-contract-error-key="${escapeHtml(key)}"` : ""}
             ${showHonorariaLimit ? `data-honoraria-limit-profile="${escapeHtml(profile.name)}" data-honoraria-limit-key="${escapeHtml(key)}" data-honoraria-limit-message="${escapeHtml(getHonorariaLimitMessage(honorariaSummary, key))}"` : ""}
@@ -3253,6 +3285,7 @@ function renderTimelineDayCell(profile, d, {
             ${showExtraReason ? `data-extra-profile="${escapeHtml(profile.name)}" data-extra-key="${escapeHtml(key)}" data-extra-turn="${escapeHtml(showExtraReason)}"` : ""}
             ${showClockExtra && !showExtraReason ? `data-clock-extra-profile="${escapeHtml(profile.name)}" data-clock-extra-key="${escapeHtml(key)}" data-clock-extra-turn="${escapeHtml(realTurn)}"` : ""}
         >
+            ${pendingLeave ? `<span class="timeline-leave-overlay" aria-hidden="true"></span>` : ""}
             ${marker ? `<span class="timeline-replacement-marker">${marker}</span>` : ""}
         </td>
     `;
