@@ -5098,6 +5098,39 @@ body.auth-gate-active .app-shell {
     font-weight: 700;
 }
 
+/* Detalle del cambio de turno: dia y turno (Larga/Noche) que se entrega y que se
+   devuelve. */
+.turn-change-dialog__swap-detail {
+    list-style: none;
+    margin: -8px 0 18px;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}
+
+.turn-change-dialog__swap-detail li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: var(--field);
+    border: 1px solid var(--border);
+}
+
+.turn-change-dialog__swap-detail li span {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.turn-change-dialog__swap-detail li strong {
+    color: var(--text-strong);
+    font-weight: 800;
+    text-align: right;
+}
+
 .turn-change-dialog__actions {
     display: grid;
     grid-template-columns: 1fr 1fr;

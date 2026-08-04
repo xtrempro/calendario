@@ -2640,6 +2640,20 @@ function confirmUndoTurnChange(swap) {
                 <div class="turn-change-dialog__meta">
                     ${swap.from} -> ${swap.to}
                 </div>
+                <ul class="turn-change-dialog__swap-detail">
+                    ${swap.fecha ? `
+                        <li>
+                            <span>Entrega</span>
+                            <strong>${escapeHTML(formatISODateForSwapHover(swap.fecha))} &middot; ${escapeHTML(swapCodeLabel(swap.turno))}</strong>
+                        </li>
+                    ` : ""}
+                    ${swap.devolucion ? `
+                        <li>
+                            <span>Devuelve</span>
+                            <strong>${escapeHTML(formatISODateForSwapHover(swap.devolucion))} &middot; ${escapeHTML(swapCodeLabel(swap.turnoDevuelto))}</strong>
+                        </li>
+                    ` : ""}
+                </ul>
                 <div class="turn-change-dialog__actions">
                     <button class="secondary-button" type="button" data-action="cancel">
                         Cancelar
