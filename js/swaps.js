@@ -598,6 +598,38 @@ function createsInvertedTwentyFourForReceiver({
     );
 }
 
+// Un turno de 24h ocupa el dia completo y su transicion horaria: nunca puede haber
+// trabajo con inicio diurno (Larga/Diurno/24/D+N) el dia SIGUIENTE a un 24h, ni una
+// Noche el dia ANTERIOR a un 24h (el trabajador recien sale del 24h, o entraria sin
+// descanso). Es una restriccion FISICA: NO depende de los ajustes de 24h / 24h
+// invertido; nunca se puede formar en ningun caso.
+function createsForbiddenTwentyFourAdjacency({
+    receiver,
+    keyDay,
+    projectedTurn
+}) {
+    if (!receiver || !keyDay || !projectedTurn) return false;
+
+    const projected = Number(projectedTurn) || TURNO.LIBRE;
+    const previousTurn =
+        Number(getSwapTurnState(receiver, offsetKey(keyDay, -1))) || TURNO.LIBRE;
+    const nextTurn =
+        Number(getSwapTurnState(receiver, offsetKey(keyDay, 1))) || TURNO.LIBRE;
+    const isTwentyFour = turno => turno === TURNO.TURNO24;
+
+    return (
+        // Inicio diurno el dia siguiente a un 24h.
+        (isTwentyFour(previousTurn) && includesDaytimeStart(projected)) ||
+        // Noche el dia anterior a un 24h.
+        (isTwentyFour(nextTurn) && includesNoche(projected)) ||
+        // El propio proyectado es un 24h y su vecino lo hace imposible.
+        (
+            isTwentyFour(projected) &&
+            (includesNoche(previousTurn) || includesDaytimeStart(nextTurn))
+        )
+    );
+}
+
 const SWAP_CODE_TO_TURNO = {
     L: TURNO.LARGA,
     N: TURNO.NOCHE,
@@ -742,6 +774,21 @@ export function getSwapDateBlockReason({
         !config.allowTwentyFourHourShifts
     ) {
         return `${receiver} quedaria con turno 24 y esa opcion esta desactivada.`;
+    }
+
+    // Restriccion fisica (siempre, sin importar los ajustes): no se puede quedar con
+    // una Larga el dia siguiente a un 24h ni con una Noche el dia anterior a un 24h.
+    if (
+        createsForbiddenTwentyFourAdjacency({
+            receiver,
+            keyDay,
+            projectedTurn: projectedReceiverTurn(
+                giverTurn,
+                receiverTurn
+            )
+        })
+    ) {
+        return `${receiver} no puede quedar con un turno pegado a un turno 24 (ni Larga el dia siguiente, ni Noche el dia anterior a un 24).`;
     }
 
     if (

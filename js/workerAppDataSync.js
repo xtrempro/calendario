@@ -1530,12 +1530,14 @@ function buildSwapCandidatePayload(
         },
         rotativa: getRotativa(profile.name),
         shiftAssigned: Boolean(getShiftAssigned(profile.name)),
-        // Config de la unidad para el cambio de turno que deja al receptor con
-        // turno 24 (Larga+Noche). La PWA y la Cloud Function la usan para permitir
-        // recibir en un dia complementario (no solo dia libre). El invertido y la
-        // materializacion los valida el motor del supervisor al aprobar.
+        // Config de la unidad para el cambio de turno: si permite dejar al receptor
+        // con turno 24 (Larga+Noche) y si permite el 24 invertido. La PWA las usa
+        // para aplicar las MISMAS reglas que el supervisor al armar el cambio (ademas
+        // de la regla fisica: nunca Larga tras un 24h ni Noche antes de un 24h).
         allowTwentyFourHourShifts:
             getTurnChangeConfig().allowTwentyFourHourShifts !== false,
+        allowInvertedTwentyFourHourShifts:
+            getTurnChangeConfig().allowInvertedTwentyFourHourShifts !== false,
         compatibleWorkerUids,
         blockedDayDates: blockedDatesForProfile(profile.name),
         scheduleStart: resolvedSchedule.start,

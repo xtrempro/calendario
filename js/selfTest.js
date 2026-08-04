@@ -1138,6 +1138,82 @@ const TESTS = [
         }
     },
     {
+        name: "Cambio de turno: nunca permite Larga el dia despues de un 24h",
+        run() {
+            const { changeKey } = setupSwapSelfTest();
+            const prevKey = key(2026, 5, 9);
+
+            // 24 invertido PERMITIDO: aun asi, la adyacencia a un 24h real se prohibe
+            // SIEMPRE (restriccion fisica).
+            saveTurnChangeConfig({
+                allowSwaps: true,
+                allowDifferentTurnTypes: true,
+                allowTwentyFourHourShifts: true,
+                allowInvertedTwentyFourHourShifts: true,
+                limitMonthlySwaps: false
+            });
+            saveBaseProfileData({
+                [changeKey]: TURNO.LARGA
+            }, FAKE_PROFILE);
+            saveBaseProfileData({
+                [prevKey]: TURNO.TURNO24,
+                [changeKey]: TURNO.LIBRE
+            }, FAKE_SWAP_RECEIVER);
+
+            const reason = getSwapDateBlockReason({
+                giver: FAKE_PROFILE,
+                receiver: FAKE_SWAP_RECEIVER,
+                keyDay: changeKey
+            });
+
+            assert(
+                reason.includes("turno 24") && !reason.includes("invertido"),
+                "debe bloquear una Larga el dia siguiente a un 24h aunque el 24 invertido este permitido"
+            );
+            assert(
+                !hasEligibleSwapReceiver(
+                    FAKE_PROFILE,
+                    changeKey,
+                    FAKE_SWAP_RECEIVER
+                ),
+                "el receptor con Larga pegada a un 24h no deberia aparecer en el combobox"
+            );
+        }
+    },
+    {
+        name: "Cambio de turno: nunca permite Noche el dia anterior a un 24h",
+        run() {
+            const { changeKey } = setupSwapSelfTest();
+            const nextKey = key(2026, 5, 11);
+
+            saveTurnChangeConfig({
+                allowSwaps: true,
+                allowDifferentTurnTypes: true,
+                allowTwentyFourHourShifts: true,
+                allowInvertedTwentyFourHourShifts: true,
+                limitMonthlySwaps: false
+            });
+            saveBaseProfileData({
+                [changeKey]: TURNO.NOCHE
+            }, FAKE_PROFILE);
+            saveBaseProfileData({
+                [changeKey]: TURNO.LIBRE,
+                [nextKey]: TURNO.TURNO24
+            }, FAKE_SWAP_RECEIVER);
+
+            const reason = getSwapDateBlockReason({
+                giver: FAKE_PROFILE,
+                receiver: FAKE_SWAP_RECEIVER,
+                keyDay: changeKey
+            });
+
+            assert(
+                reason.includes("turno 24") && !reason.includes("invertido"),
+                "debe bloquear una Noche el dia anterior a un 24h aunque el 24 invertido este permitido"
+            );
+        }
+    },
+    {
         name: "Cambio de turno: aplica entrega y devolucion en ambos calendarios",
         run() {
             const { changeKey, returnKey } = setupSwapSelfTest();
