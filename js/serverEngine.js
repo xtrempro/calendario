@@ -195,8 +195,15 @@ function computeMonthDays(profile, month, ctx) {
             isManualExtra: manualExtra,
             hasLeave,
             // Solo se incluye cuando hay cambio, para no engordar la proyeccion.
+            // counterpart = el companero del cambio (para el detalle en la PWA).
             ...(swapMarker
-                ? { swapMarker: { type: swapMarker.type, label: swapMarker.label } }
+                ? {
+                    swapMarker: {
+                        type: swapMarker.type,
+                        label: swapMarker.label,
+                        counterpart: swapMarker.perspective?.counterpart || ""
+                    }
+                }
                 : {})
         };
     }

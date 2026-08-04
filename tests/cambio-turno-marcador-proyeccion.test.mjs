@@ -35,11 +35,12 @@ for (const [nombre, src] of [
     assert.match(src, /const swapMarker = getCambioTurnoCalendario\(profile\.name, keyDay\)/);
   });
 
-  test(`${nombre}: incluye swapMarker solo cuando hay cambio`, () => {
-    assert.match(
-      src,
-      /\.\.\.\(swapMarker\s*\n?\s*\? \{ swapMarker: \{ type: swapMarker\.type, label: swapMarker\.label \} \}\s*\n?\s*: \{\}\)/
-    );
+  test(`${nombre}: incluye swapMarker (type/label/counterpart) solo cuando hay cambio`, () => {
+    assert.match(src, /swapMarker: \{/);
+    assert.match(src, /type: swapMarker\.type/);
+    assert.match(src, /label: swapMarker\.label/);
+    // counterpart = el companero del cambio, para el detalle en la PWA.
+    assert.match(src, /counterpart: swapMarker\.perspective\?\.counterpart \|\| ""/);
   });
 
   test(`${nombre}: dayDiffersFromBase considera el marcador`, () => {
