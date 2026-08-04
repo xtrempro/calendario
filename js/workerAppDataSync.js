@@ -30,7 +30,7 @@ import {
     getTurnoExtraAgregado,
     obtenerLabelDia
 } from "./rulesEngine.js";
-import { canSwapProfiles, activeMonthlySwapCount } from "./swaps.js";
+import { canSwapProfiles, activeMonthlySwapCount, getCambioTurnoCalendario } from "./swaps.js";
 import { getWorkerBlockedDays } from "./workerAvailability.js";
 import {
     buildWorkerHheeMonthSummary,
@@ -496,6 +496,11 @@ function computeMonthDays(profile, month, ctx) {
         const cursor = new Date(year, monthIndex, day);
         const iso = toISODate(cursor);
         const keyDay = keyFromDate(cursor);
+        // Cambio de turno aplicado: CCTT (entrega su turno) / DDTT (lo devuelve),
+        // el mismo marcador que muestra el calendario del supervisor. Debe ir tanto
+        // aca (publicacion del cliente supervisor) como en serverEngine.js (Cloud
+        // Function): son dos copias del motor.
+        const swapMarker = getCambioTurnoCalendario(profile.name, keyDay);
         const programmedTurn = getTurnoProgramado(profile.name, keyDay);
         const actualTurn = aplicarCambiosTurno(
             profile.name,
@@ -566,7 +571,11 @@ function computeMonthDays(profile, month, ctx) {
             className: classNameForDay(actualTurn, hasLeave),
             colorGradient: colorGradient || "",
             isManualExtra: manualExtra,
-            hasLeave
+            hasLeave,
+            // Solo cuando hay cambio, para no engordar la proyeccion.
+            ...(swapMarker
+                ? { swapMarker: { type: swapMarker.type, label: swapMarker.label } }
+                : {})
         };
     }
 
@@ -738,7 +747,10 @@ function dayDiffersFromBase(actual, base) {
         String(actual.displayLabel || "") !== String(base.displayLabel || "") ||
         String(actual.className || "") !== String(base.className || "") ||
         Boolean(actual.hasLeave) !== Boolean(base.hasLeave) ||
-        Boolean(actual.isManualExtra) !== Boolean(base.isManualExtra)
+        Boolean(actual.isManualExtra) !== Boolean(base.isManualExtra) ||
+        // Un dia con marcador CCTT/DDTT se publica como excepcion aunque el turno
+        // coincida con la base.
+        String(actual.swapMarker?.label || "") !== String(base.swapMarker?.label || "")
     );
 }
 
