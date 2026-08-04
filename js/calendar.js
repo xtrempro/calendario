@@ -2319,6 +2319,22 @@ function addDaysISO(iso, offset) {
     ].join("-");
 }
 
+// Color (valor CSS) del permiso solicitado, para parpadear alternando con el color
+// del turno mientras la solicitud esta pendiente. Coincide con el color con que se
+// pinta ese permiso una vez aprobado.
+function pendingLeaveColorValue(type) {
+    if (type === "half_admin_morning" || type === "half_admin_afternoon") {
+        return "linear-gradient(135deg, #f4b223, #ffd15c)";
+    }
+    if (type === "legal") return "var(--color-legal, #0ea5a6)";
+    if (type === "comp") return "var(--color-comp, #8b2bd9)";
+    if (type === "union_leave") return "linear-gradient(135deg, #dc2626, #fb7185)";
+    if (type === "unpaid_leave") return "var(--color-unpaid_leave, #6b7280)";
+
+    // admin y cualquier otro permiso.
+    return "var(--color-admin, #f97316)";
+}
+
 function pendingLeaveRequestLabel(type) {
     if (type === "admin") return "ADM";
     if (type === "half_admin_morning") return "1/2M";
@@ -6673,6 +6689,16 @@ async function renderCalendarImpl(options = {}) {
         if (pendingLeaveRequest) {
             div.classList.add("pending-leave-request-day");
             div.dataset.workerRequestId = pendingLeaveRequest.id;
+            // El parpadeo alterna el color del turno (fondo de la celda) con el
+            // color del permiso solicitado (overlay), en sincronia con el nombre.
+            div.style.setProperty(
+                "--pending-leave-color",
+                pendingLeaveColorValue(pendingLeaveRequest.type)
+            );
+            const pendingOverlay = document.createElement("span");
+            pendingOverlay.className = "pending-leave-color-overlay";
+            pendingOverlay.setAttribute("aria-hidden", "true");
+            div.insertBefore(pendingOverlay, div.firstChild);
         }
 
         if (!activeProfileEnabled) {
