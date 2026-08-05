@@ -27,6 +27,7 @@ import {
 } from "./pendingLeaveRequests.js";
 import { fetchHolidays } from "./holidays.js";
 import { calcularHorasMesPerfil } from "./hoursEngine.js";
+import { readPublishedRrhhSummary } from "./rrhhSummaryPublisher.js";
 import { isBusinessDay } from "./calculations.js";
 import {
     getJSON,
@@ -114,9 +115,10 @@ const TIMELINE_ROW_CACHE_MAX_ENTRIES = 2500;
 const TIMELINE_METRICS_CACHE_MAX_ENTRIES = 2500;
 const TIMELINE_MONTH_INDEX_CACHE_MAX_ENTRIES = 72;
 const TIMELINE_MONTH_INDEX_WRITE_EVERY = 5;
-const TIMELINE_METRICS_USER_QUIET_MS = 60000;
+// Periodo de calma antes de computar las HHEE del timeline con la pestaña visible:
+// tras unos segundos sin interaccion del usuario (no compite con scroll/clicks).
+const TIMELINE_METRICS_USER_QUIET_MS = 4000;
 const TIMELINE_METRICS_RETRY_MS = 15000;
-const TIMELINE_METRICS_VISIBLE_RETRY_MS = 60000;
 const TIMELINE_SORT_LARGA_TURNS = new Set([TURNO.LARGA]);
 const TIMELINE_SORT_NIGHT_TURNS = new Set([
     TURNO.NOCHE,
@@ -139,6 +141,10 @@ const timelineMonthIndexMemoryCache = new Map();
 const timelineVisibilityResolvers = new Set();
 const timelineMetricsRefreshTimers = new Map();
 const timelineMetricsRefreshRequests = new Map();
+// Caché corto del resumen RRHH publicado (Opción A): pinta las HH.EE al instante
+// en cualquier PC sin recomputar. Se relee cada TTL o al limpiar el timeline.
+const timelinePublishedSummaryCache = new Map();
+const TIMELINE_PUBLISHED_SUMMARY_TTL_MS = 60000;
 let timelineLastUserActivityAt = Date.now();
 // Contexto del ultimo render (mes visible) para actualizar casillas sueltas
 // sin reconstruir todo el timeline.
@@ -793,6 +799,7 @@ function clearTimelineCache() {
     timelineRowMemoryCache.clear();
     timelineMetricsMemoryCache.clear();
     timelineMonthIndexMemoryCache.clear();
+    timelinePublishedSummaryCache.clear();
     listKeys(TIMELINE_CACHE_PREFIX).forEach(removeKey);
     listKeys(TIMELINE_ROW_CACHE_PREFIX).forEach(removeKey);
     listKeys(TIMELINE_METRICS_CACHE_PREFIX).forEach(removeKey);
@@ -832,24 +839,85 @@ function timelineProfilesFromReplacementContractRaw(raw) {
     }
 }
 
-function timelineProfilesFromReplacementRaw(raw) {
+function parseReplacementsRaw(raw) {
     if (!raw) return [];
 
     try {
         const replacements = JSON.parse(raw);
 
-        if (!Array.isArray(replacements)) return [];
-
-        return replacements
-            .flatMap(replacement => [
-                replacement?.worker,
-                replacement?.replaced
-            ])
-            .map(name => String(name || "").trim())
-            .filter(Boolean);
+        return Array.isArray(replacements) ? replacements : [];
     } catch {
         return [];
     }
+}
+
+// Huella de los campos de un reemplazo que afectan el timeline/HH.EE de sus
+// trabajadores. Cambiar cualquiera marca el reemplazo como "modificado".
+function replacementFingerprint(replacement) {
+    return [
+        replacement?.worker,
+        replacement?.replaced,
+        replacement?.date,
+        replacement?.turno,
+        replacement?.canceled,
+        replacement?.addsShift,
+        replacement?.overtimeHours,
+        replacement?.diurnoLongCoverage
+    ]
+        .map(value => String(value ?? ""))
+        .join("|");
+}
+
+// Trabajadores afectados SOLO por los reemplazos que cambiaron entre el estado
+// anterior y el nuevo (agregados, eliminados o modificados). Antes se devolvian
+// TODOS los trabajadores de TODO el arreglo, asi que agregar un reemplazo
+// recalculaba (y parpadeaba) las HH.EE de cada trabajador con algun reemplazo.
+function timelineChangedReplacementProfiles(previousRaw, nextRaw) {
+    const previous = parseReplacementsRaw(previousRaw);
+    const next = parseReplacementsRaw(nextRaw);
+    const indexById = list => {
+        const map = new Map();
+
+        list.forEach((replacement, index) => {
+            const id = String(
+                replacement?.id ??
+                `idx_${index}_${replacementFingerprint(replacement)}`
+            );
+
+            map.set(id, replacement);
+        });
+
+        return map;
+    };
+    const prevMap = indexById(previous);
+    const nextMap = indexById(next);
+    const names = new Set();
+    const addNames = replacement => {
+        [replacement?.worker, replacement?.replaced]
+            .map(name => String(name || "").trim())
+            .filter(Boolean)
+            .forEach(name => names.add(name));
+    };
+
+    // Agregados o modificados.
+    nextMap.forEach((replacement, id) => {
+        const prev = prevMap.get(id);
+
+        if (
+            !prev ||
+            replacementFingerprint(prev) !== replacementFingerprint(replacement)
+        ) {
+            addNames(replacement);
+            if (prev) addNames(prev);
+        }
+    });
+
+    // Eliminados.
+    prevMap.forEach((replacement, id) => {
+        if (!nextMap.has(id)) addNames(replacement);
+    });
+
+    return names;
 }
 
 function timelineAffectedProfilesFromKeys(keys = [], changes = {}) {
@@ -875,9 +943,7 @@ function timelineAffectedProfilesFromKeys(keys = [], changes = {}) {
         if (text === "replacements") {
             const change = changes?.[text] || {};
 
-            timelineProfilesFromReplacementRaw(change.previous)
-                .forEach(name => names.add(name));
-            timelineProfilesFromReplacementRaw(change.next)
+            timelineChangedReplacementProfiles(change.previous, change.next)
                 .forEach(name => names.add(name));
             return;
         }
@@ -1126,20 +1192,24 @@ function timelineHasPendingInput() {
 
 function timelineInteractiveDelay(quietMs = TIMELINE_METRICS_USER_QUIET_MS) {
     if (typeof document === "undefined") return 0;
+    // Pestaña oculta: se puede computar de inmediato en segundo plano.
     if (document.visibilityState !== "visible") return 0;
 
-    // Las metricas HHEE son utiles pero no deben competir con scroll, clicks
-    // ni cambios de mes. Mientras la pestaña esta visible se reintentan luego;
-    // al ocultarse, pueden refrescar cache en segundo plano.
-    const delay = Math.max(
-        TIMELINE_METRICS_VISIBLE_RETRY_MS,
-        TIMELINE_METRICS_RETRY_MS,
-        Number(quietMs) || TIMELINE_METRICS_USER_QUIET_MS
-    );
+    // Las metricas HHEE no deben competir con scroll, clicks ni cambios de mes: se
+    // computan cuando el usuario lleva un rato SIN interactuar (periodo de calma).
+    // Antes esta funcion difería siempre con la pestaña visible (ignoraba la ultima
+    // actividad), asi que las HHEE solo se calculaban al ocultar la pestaña y
+    // quedaban en blanco para quien mantenia el timeline abierto.
+    const quiet = Number(quietMs) || TIMELINE_METRICS_USER_QUIET_MS;
+    const sinceActivity = Date.now() - timelineLastUserActivityAt;
 
-    return timelineHasPendingInput()
-        ? Math.max(delay, TIMELINE_METRICS_RETRY_MS)
-        : delay;
+    if (!timelineHasPendingInput() && sinceActivity >= quiet) {
+        return 0;
+    }
+
+    // Reintentar cuando deberia cumplirse el periodo de calma (piso corto para no
+    // hacer busy-loop si hay input pendiente).
+    return Math.max(500, quiet - sinceActivity);
 }
 
 function waitTimelineBackgroundIdle(timeout = 500) {
@@ -1432,6 +1502,36 @@ export function updateTimelineCells(profileName, keys = null) {
 // motor de horas que Reportes (calcularHorasMesPerfil vía
 // computeTimelineRowMetrics), computa un único trabajador y persiste la caché de
 // métricas para que un render completo posterior sea coherente.
+// Pinta las celdas de HH.EE (diurnas/nocturnas) de una fila con valores YA
+// calculados (de un cómputo local o del resumen publicado). No computa nada.
+function setTimelineRowHheeCells(row, {
+    profileName,
+    dayHhee,
+    nightHhee,
+    honorariaExcess,
+    monthDate
+}) {
+    if (!row) return;
+
+    const dayCell = row.querySelector(".timeline-hhee--day");
+    const nightCell = row.querySelector(".timeline-hhee--night");
+    const honorariaHheeClass = honorariaExcess ? " honoraria-hhee-excess" : "";
+
+    if (dayCell) {
+        dayCell.className =
+            "timeline-hhee timeline-hhee--day" +
+            dayExtraAlertClass(profileName, dayHhee, monthDate) +
+            honorariaHheeClass;
+        dayCell.textContent = formatTimelineHours(dayHhee);
+    }
+
+    if (nightCell) {
+        nightCell.className =
+            "timeline-hhee timeline-hhee--night" + honorariaHheeClass;
+        nightCell.textContent = formatTimelineHours(nightHhee);
+    }
+}
+
 function refreshTimelineRowHheeCells(row, profile, {
     year,
     month,
@@ -1459,28 +1559,14 @@ function refreshTimelineRowHheeCells(row, profile, {
     const nightHhee = honorariaSummary
         ? honorariaSummary.overtimeNight
         : stats.hheeNocturnas;
-    const honorariaHheeClass =
-        honorariaSummary?.overtimeHours > 0
-            ? " honoraria-hhee-excess"
-            : "";
 
-    if (dayCell) {
-        dayCell.className =
-            "timeline-hhee timeline-hhee--day" +
-            dayExtraAlertClass(
-                profile.name,
-                dayHhee,
-                new Date(year, month, 1)
-            ) +
-            honorariaHheeClass;
-        dayCell.textContent = formatTimelineHours(dayHhee);
-    }
-
-    if (nightCell) {
-        nightCell.className =
-            "timeline-hhee timeline-hhee--night" + honorariaHheeClass;
-        nightCell.textContent = formatTimelineHours(nightHhee);
-    }
+    setTimelineRowHheeCells(row, {
+        profileName: profile.name,
+        dayHhee,
+        nightHhee,
+        honorariaExcess: honorariaSummary?.overtimeHours > 0,
+        monthDate: new Date(year, month, 1)
+    });
 
     const workerId = timelineWorkerId(profile);
     const monthKey = timelineMonthKey(year, month);
@@ -3951,11 +4037,14 @@ function timelineProfilesMissingMetrics(profiles, context) {
     return profiles.filter(profile => {
         const { workerId, cacheKey } =
             timelineMetricsCacheInfo(profile, context);
-
-        return !readTimelineMetricsCache(cacheKey, {
+        const cached = readTimelineMetricsCache(cacheKey, {
             monthKey: context.monthKey,
             workerId
         });
+
+        // Los valores traidos del resumen publicado se muestran al instante, pero
+        // igual se recalculan localmente (el resumen puede ir hasta 5 min atrasado).
+        return !cached || cached.fromPublished === true;
     });
 }
 
@@ -4134,6 +4223,104 @@ function scheduleTimelineMetricsRefresh(options = {}, delay = TIMELINE_METRICS_R
     );
 }
 
+async function getPublishedRrhhSummaryCached(monthKeyStr) {
+    const cached = timelinePublishedSummaryCache.get(monthKeyStr);
+
+    if (cached && Date.now() - cached.at < TIMELINE_PUBLISHED_SUMMARY_TTL_MS) {
+        return cached.summary;
+    }
+
+    const summary = await readPublishedRrhhSummary(monthKeyStr);
+    timelinePublishedSummaryCache.set(monthKeyStr, {
+        at: Date.now(),
+        summary
+    });
+    return summary;
+}
+
+// Opción A: pinta al instante las HH.EE del timeline desde el resumen RRHH ya
+// publicado (mismo dato que se calcula localmente), asi otros PC no esperan su
+// periodo de calma para el primer despliegue. Marca las entradas como
+// `fromPublished` para que el calculo local igual las refine (el resumen puede ir
+// hasta ~5 min atrasado).
+async function hydrateTimelineHheeFromPublished({ profiles, context, requestId }) {
+    if (!Array.isArray(profiles) || !profiles.length || !context) return;
+
+    // Clave interna del caché del timeline (mes 0-based) vs. clave del doc en
+    // Firestore que publica rrhhSummaryPublisher ("YYYY-MM", mes 1-based con cero).
+    const monthKeyStr = timelineMonthKey(context.year, context.month);
+    const publishedMonthKey =
+        `${context.year}-${String(context.month + 1).padStart(2, "0")}`;
+    const summary = await getPublishedRrhhSummaryCached(publishedMonthKey);
+    const workers = summary && summary.workers;
+
+    if (!workers || typeof workers !== "object") return;
+    if (!timelineRenderIsCurrent(requestId, context.year, context.month)) return;
+
+    const container = document.getElementById("teamTimeline");
+
+    if (!container) return;
+
+    const monthDate = new Date(context.year, context.month, 1);
+
+    for (const profile of profiles) {
+        const entry = profile && profile.name ? workers[profile.name] : null;
+
+        if (!entry) continue;
+
+        const workerId = timelineWorkerId(profile);
+        const cacheKey = timelineMetricsCacheKey({ monthKey: monthKeyStr, workerId });
+        const cached = readTimelineMetricsCache(cacheKey, {
+            monthKey: monthKeyStr,
+            workerId
+        });
+
+        // No pisar un calculo local ya fresco.
+        if (cached && cached.fromPublished !== true) continue;
+
+        const isHonoraria = entry.od !== undefined && entry.od !== null;
+        const stats = {
+            hheeDiurnas: Number(entry.d) || 0,
+            hheeNocturnas: Number(entry.n) || 0
+        };
+        const honorariaSummary = isHonoraria
+            ? {
+                overtimeDay: Number(entry.od) || 0,
+                overtimeNight: Number(entry.on) || 0,
+                overtimeHours: Number(entry.oh) || 0
+            }
+            : null;
+
+        writeTimelineMetricsCache(cacheKey, {
+            monthKey: monthKeyStr,
+            workerId,
+            profileName: profile.name,
+            stats,
+            honorariaSummary,
+            totalHhee: stats.hheeDiurnas + stats.hheeNocturnas,
+            fromPublished: true
+        });
+
+        const row = timelineExistingRow(container, workerId);
+
+        if (row) {
+            setTimelineRowHheeCells(row, {
+                profileName: profile.name,
+                dayHhee: honorariaSummary
+                    ? honorariaSummary.overtimeDay
+                    : stats.hheeDiurnas,
+                nightHhee: honorariaSummary
+                    ? honorariaSummary.overtimeNight
+                    : stats.hheeNocturnas,
+                honorariaExcess: honorariaSummary
+                    ? honorariaSummary.overtimeHours > 0
+                    : false,
+                monthDate
+            });
+        }
+    }
+}
+
 async function refreshTimelineMetricsInBackground({
     profiles,
     context,
@@ -4141,6 +4328,10 @@ async function refreshTimelineMetricsInBackground({
     requestId
 }) {
     if (!profiles.length) return;
+
+    // Despliegue instantaneo desde el resumen publicado (no bloquea el calculo
+    // local, que corre igual para mantener el dato fresco).
+    void hydrateTimelineHheeFromPublished({ profiles, context, requestId });
 
     const initialDelay = timelineInteractiveDelay();
 

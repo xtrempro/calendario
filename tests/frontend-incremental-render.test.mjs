@@ -268,7 +268,9 @@ test("el calendario usa delegación y una ruta de render parcial", async () => {
     assert.match(timelineSource, /createTimelineRow/);
     assert.match(timelineSource, /updateTimelineRow/);
     assert.match(timelineSource, /reconcileTimelineRows/);
-    assert.match(timelineSource, /function timelineProfilesFromReplacementRaw\(raw\)/);
+    assert.match(timelineSource, /function parseReplacementsRaw\(raw\)/);
+    assert.match(timelineSource, /function replacementFingerprint\(replacement\)/);
+    assert.match(timelineSource, /function timelineChangedReplacementProfiles\(previousRaw, nextRaw\)/);
     assert.match(timelineSource, /text === "replacements"/);
     assert.match(timelineSource, /replacement\?\.worker/);
     assert.match(timelineSource, /replacement\?\.replaced/);

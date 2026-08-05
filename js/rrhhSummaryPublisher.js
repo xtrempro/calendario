@@ -29,6 +29,7 @@ import {
     getProfiles, getProfileData, getReplacements, isProfileActive, getGradeHourValue, getValorHora, getContractTypeAt
 } from "./storage.js";
 import { calcularHorasMesPerfil } from "./hoursEngine.js";
+import { getHonorariaMonthlySummary } from "./honoraria.js";
 import { analizarMes } from "./staffing.js";
 import { fetchHolidays } from "./holidays.js";
 import { isReplacementProfile, isReplacementContractType, isHonorariaContractType } from "./contracts.js";
@@ -61,6 +62,7 @@ function parseISODateMonth(v) {
     return m ? { year: Number(m[1]), month0: Number(m[2]) - 1 } : null;
 }
 function turnFactor(turnCode) { return /noche/i.test(String(turnCode || "")) ? 1.5 : 1.25; }
+function roundHrs(value) { return Math.round((Number(value) || 0) * 100) / 100; }
 function idleYield() {
     return new Promise((resolve) => {
         if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: 500 });
@@ -173,6 +175,9 @@ async function computeRrhhSummary(year, month0, activeId) {
     let hheeGastoClp = 0, honorariosClp = 0;
 
     const activos = getProfiles().filter((p) => p && isProfileActive(p));
+    // HHEE por trabajador (mismo dato que el timeline calcula localmente). Se publica
+    // en el mismo doc para que otros PC lo lean al instante sin recomputar.
+    const workers = {};
     let i = 0;
     for (const profile of activos) {
         const stats = profileStats(profile, year, month0, days, holidays);
@@ -181,16 +186,30 @@ async function computeRrhhSummary(year, month0, activeId) {
         const label = roleLabel(profile.estamento);
         if (label) gastoPorEstamento[label] += cost;
         const monthReferenceDate = new Date(year, month0, 15);
-        if (
-            isHonorariaContractType(
-                getContractTypeAt(profile.name, monthReferenceDate)
-            )
-        ) {
+        const isHono = isHonorariaContractType(
+            getContractTypeAt(profile.name, monthReferenceDate)
+        );
+        if (isHono) {
             // Tarifa del contrato de honorarios vigente en el mes (getValorHora ya
             // resuelve el contrato por fecha; cae al campo legado si no hay).
             const rate = getValorHora(profile.name, monthReferenceDate);
             honorariosClp += workedHours(stats) * (Number(rate) || 0);
         }
+
+        const workerHhee = {
+            d: roundHrs(stats.hheeDiurnas),
+            n: roundHrs(stats.hheeNocturnas)
+        };
+        if (isHono) {
+            // Honorarios: el timeline muestra el excedente sobre el tope (overtime),
+            // no las HHEE diurnas/nocturnas normales.
+            const hs = getHonorariaMonthlySummary(profile.name, year, month0, holidays);
+            workerHhee.od = roundHrs(hs?.overtimeDay);
+            workerHhee.on = roundHrs(hs?.overtimeNight);
+            workerHhee.oh = roundHrs(hs?.overtimeHours);
+        }
+        workers[profile.name] = workerHhee;
+
         if (++i % 8 === 0) await idleYield();
     }
 
@@ -222,7 +241,9 @@ async function computeRrhhSummary(year, month0, activeId) {
         otroServicio: cov.otroServicio * HORAS_POR_TURNO,
         sinReemplazo: sinReemplazoTurnos * HORAS_POR_TURNO,
         coverageUnit: "horas",
-        horasPorTurno: HORAS_POR_TURNO
+        horasPorTurno: HORAS_POR_TURNO,
+        // HHEE por trabajador para el timeline: { [nombre]: { d, n, od?, on?, oh? } }.
+        workers
     };
     return { summary, loanOut: out };
 }
@@ -237,6 +258,32 @@ async function writeSummary(workspaceId, summary) {
         generatedByUid: (auth && auth.currentUser && auth.currentUser.uid) || null,
         source: "app"
     }, { merge: true });
+}
+
+// Lee el resumen RRHH publicado de un mes ("YYYY-MM") de la unidad activa. Lo usa
+// el timeline para mostrar las HHEE al instante sin recomputar en cada PC. Devuelve
+// el objeto del resumen (incluye el mapa `workers`) o null.
+export async function readPublishedRrhhSummary(month) {
+    const workspace = getActiveWorkspace();
+
+    if (!workspace || !workspace.id || !month) return null;
+
+    try {
+        const { db, firestoreModule } = await getFirebaseServices();
+        const ref = firestoreModule.doc(
+            db,
+            "workspaces",
+            workspace.id,
+            "rrhhSummaries",
+            String(month)
+        );
+        const snap = await firestoreModule.getDoc(ref);
+
+        return snap.exists() ? snap.data() : null;
+    } catch (error) {
+        console.warn("No se pudo leer el resumen RRHH publicado.", error);
+        return null;
+    }
 }
 
 async function attributeLoanCost(sourceWorkspaceId, loanId, hheeCostClp, month) {
