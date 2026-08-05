@@ -894,6 +894,12 @@ const LEAVE_UNDO_BALANCE_FIELD = {
     comp: "comp"
 };
 
+// Guarda de idempotencia: cada anulacion de permiso (logId unico) restaura el
+// saldo manual UNA sola vez. Sin esto, si el evento auditUndoApplied llegara a
+// dispararse dos veces para la misma anulacion (doble click / doble listener),
+// el saldo se sumaria dos veces (p. ej. 13 -> 26 -> 39).
+const restoredBalanceLogIds = new Set();
+
 function restoreLeaveBalanceFromUndo(detail = {}) {
     const field = LEAVE_UNDO_BALANCE_FIELD[detail.leaveType];
     const amount = Number(detail.leaveAmount) || 0;
@@ -901,6 +907,13 @@ function restoreLeaveBalanceFromUndo(detail = {}) {
     const profile = String(detail.profile || "") || getCurrentProfile();
 
     if (!field || amount <= 0 || !profile) return;
+
+    const logId = String(detail.logId || "");
+
+    if (logId) {
+        if (restoredBalanceLogIds.has(logId)) return;
+        restoredBalanceLogIds.add(logId);
+    }
 
     const manual = getManualLeaveBalances(year, profile);
     const currentValue = Number(manual[field]);
@@ -11359,6 +11372,15 @@ window.addEventListener("proturnos:auditUndoApplied", event => {
         // Refresca el saldo entre parentesis de los botones inmediatamente.
         renderLeaveActionLabels();
     }
+
+    // Refresca tambien las filas del timeline de quienes dejaron de cubrir: sin
+    // esto su turno extra desaparecia pero el resumen de HH.EE quedaba con el
+    // valor anterior (servido del resumen publicado) hasta cambiar de mes.
+    new Set(
+        canceledReplacements
+            .map(replacement => String(replacement?.worker || "").trim())
+            .filter(Boolean)
+    ).forEach(worker => updateTimelineCells(worker));
 
     notifyWorkersOfAuditUndo(detail);
 });

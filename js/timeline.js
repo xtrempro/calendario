@@ -145,6 +145,12 @@ const timelineMetricsRefreshRequests = new Map();
 // en cualquier PC sin recomputar. Se relee cada TTL o al limpiar el timeline.
 const timelinePublishedSummaryCache = new Map();
 const TIMELINE_PUBLISHED_SUMMARY_TTL_MS = 60000;
+// Trabajadores editados localmente en esta sesion: su resumen RRHH publicado
+// (Opcion A) quedo stale (se publica en reposo cada ~5 min), asi que NUNCA se
+// vuelve a hidratar desde el publicado; siempre se usa el calculo local fresco.
+// Sin esto, tras anular un permiso el turno cubierto se quitaba pero la
+// hidratacion del publicado repintaba las HH.EE viejas de quien cubria.
+const timelineLocallyDirtyProfiles = new Set();
 let timelineLastUserActivityAt = Date.now();
 // Contexto del ultimo render (mes visible) para actualizar casillas sueltas
 // sin reconstruir todo el timeline.
@@ -576,6 +582,15 @@ function writeTimelineMetricsCache(cacheKey, payload) {
         version: TIMELINE_CACHE_VERSION,
         savedAt: Date.now()
     };
+
+    // Todo calculo LOCAL fresco (no proveniente del resumen publicado) marca al
+    // trabajador como "dirty": desde aqui su resumen publicado quedo stale y no
+    // debe volver a hidratarse (ver hydrateTimelineHheeFromPublished). Sin esto,
+    // tras anular un permiso el eco de sincronizacion re-hidrataba las HH.EE
+    // viejas de quien cubria por encima del recalculo fresco.
+    if (payload && payload.fromPublished !== true && payload.profileName) {
+        timelineLocallyDirtyProfiles.add(payload.profileName);
+    }
 
     timelineMetricsMemoryCache.set(cacheKey, next);
 
@@ -1430,6 +1445,12 @@ export function updateTimelineCells(profileName, keys = null) {
 
     if (!profile) return false;
 
+    // Captura la fila (<tr data-timeline-row>) AHORA, antes de reemplazar las
+    // casillas: si no se pasan claves se reemplazan TODAS las casillas-dia
+    // (incluida rowCell), que quedaria desprendida del DOM y su .closest()
+    // devolveria null, dejando las HH.EE sin recalcular tras anular un permiso.
+    const timelineRow = rowCell.closest("[data-timeline-row]");
+
     const { year, month, diasMes, holidays } = timelineViewState;
     const ctx = {
         year,
@@ -1488,7 +1509,7 @@ export function updateTimelineCells(profileName, keys = null) {
         // quedaba con el valor previo (0 -> vacía) tras editar (regresión de la
         // actualización incremental de casillas).
         refreshTimelineRowHheeCells(
-            rowCell.closest("[data-timeline-row]"),
+            timelineRow,
             profile,
             { year, month, diasMes, holidays }
         );
@@ -4268,6 +4289,9 @@ async function hydrateTimelineHheeFromPublished({ profiles, context, requestId }
 
         if (!entry) continue;
 
+        // Editado localmente: el publicado quedo stale, nunca hidratarlo.
+        if (timelineLocallyDirtyProfiles.has(profile.name)) continue;
+
         const workerId = timelineWorkerId(profile);
         const cacheKey = timelineMetricsCacheKey({ monthKey: monthKeyStr, workerId });
         const cached = readTimelineMetricsCache(cacheKey, {
@@ -5473,8 +5497,21 @@ if (typeof window !== "undefined") {
         clearLegacyTimelineCache();
 
         if (affectedProfiles.size) {
+            // Marca a los editados: su resumen publicado quedo stale, no volver a
+            // hidratarlo (siempre calculo local fresco de aqui en adelante).
+            affectedProfiles.forEach(name =>
+                timelineLocallyDirtyProfiles.add(name)
+            );
             clearTimelineRowCacheForProfiles(affectedProfiles);
-            void refreshVisibleTimelineRows(affectedProfiles);
+            // forceFreshMetrics: recomputa las HH.EE de los perfiles afectados en
+            // vez de tomarlas del caché/resumen publicado (que queda stale tras
+            // una edicion). Sin esto, al anular un permiso el turno cubierto se
+            // quitaba pero el resumen de HH.EE de quien cubria no se actualizaba.
+            // El set esta acotado (1-3 trabajadores por edicion), asi que el
+            // calculo sincrono es barato (mismo patron que calendarDirectEdit).
+            void refreshVisibleTimelineRows(affectedProfiles, {
+                forceFreshMetrics: true
+            });
             return;
         }
 

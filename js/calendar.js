@@ -4627,12 +4627,152 @@ function replacementDialogHTML({
                 ${items}
             </div>
             <div class="turn-change-dialog__actions">
+                <button class="leave-detail-undo" type="button" data-action="cancel-leave">
+                    Anular permiso
+                </button>
                 <button class="secondary-button" type="button" data-action="cancel">
                     Cancelar
                 </button>
             </div>
         </div>
     `;
+}
+
+// Anula el permiso/ausencia del trabajador ausente para ese dia y restablece su
+// turno original. Reutiliza el mismo camino que el modal de detalle de permiso
+// (undoAuditLogEntry): quita el permiso, cancela los reemplazos asociados y
+// notifica a los afectados. Si el permiso no tiene un registro undoable en el
+// LOG (p. ej. fue evicto por el limite de logs), limpia manualmente los mapas
+// del dia para dejar igualmente el turno original.
+async function cancelReplacedProfileLeave(profileName, keyDay) {
+    const admin = getJSON(`admin_${profileName}`, {});
+    const legal = getJSON(`legal_${profileName}`, {});
+    const comp = getJSON(`comp_${profileName}`, {});
+    const absences = getJSON(`absences_${profileName}`, {});
+    const type = leaveTypeForDay(keyDay, admin, legal, comp, absences);
+
+    if (!type) return { ok: false, reason: "no-leave" };
+
+    // Captura ANTES de cancelar a todos los que cubren a este ausente: sus filas
+    // del timeline deben recalcularse (turno cubierto + HH.EE). El undo del LOG
+    // no siempre devuelve estos trabajadores, asi que no dependemos de su salida.
+    const coveringBefore = new Set(
+        getReplacements()
+            .filter(replacement =>
+                replacement &&
+                !replacement.canceled &&
+                replacement.replaced === profileName
+            )
+            .map(replacement => String(replacement.worker || "").trim())
+            .filter(Boolean)
+    );
+
+    const info = type === "half_admin"
+        ? null
+        : getLeaveApplicationInfo({
+            profile: profileName,
+            keyDay,
+            type,
+            sourceMap: leaveSourceMapForType(
+                type,
+                admin,
+                legal,
+                comp,
+                absences
+            )
+        });
+
+    if (info?.canUndo && info?.logId) {
+        const result = await undoAuditLogEntry(info.logId, {
+            source: "calendar"
+        });
+
+        if (result?.ok) {
+            // Trabajadores cuyos reemplazos se cancelaron: hay que refrescar sus
+            // filas del timeline para quitar el turno cubierto y sus HH.EE. Se
+            // unen los capturados antes y los que reporta el undo del LOG.
+            const coveringWorkers = new Set(coveringBefore);
+
+            (result.canceledReplacements || [])
+                .map(replacement => String(replacement?.worker || "").trim())
+                .filter(Boolean)
+                .forEach(worker => coveringWorkers.add(worker));
+
+            return { ok: true, type, coveringWorkers };
+        }
+        // Si el undo del LOG falla, cae a la limpieza manual de abajo.
+    }
+
+    // Limpieza manual: quita el permiso del mapa correspondiente al dia.
+    const sourceMap = leaveSourceMapForType(
+        type,
+        admin,
+        legal,
+        comp,
+        absences
+    );
+    delete sourceMap[keyDay];
+
+    if (
+        type === "admin" ||
+        type === "half_admin_morning" ||
+        type === "half_admin_afternoon" ||
+        type === "half_admin"
+    ) {
+        setJSON(`admin_${profileName}`, admin);
+    } else if (type === "legal") {
+        setJSON(`legal_${profileName}`, legal);
+    } else if (type === "comp") {
+        setJSON(`comp_${profileName}`, comp);
+    } else {
+        setJSON(`absences_${profileName}`, absences);
+    }
+
+    // Si el dia ya no tiene ninguna ausencia, libera el bloqueo.
+    const blocked = getJSON(`blocked_${profileName}`, {});
+    if (
+        blocked[keyDay] &&
+        !admin[keyDay] &&
+        !legal[keyDay] &&
+        !comp[keyDay] &&
+        !absences[keyDay]
+    ) {
+        delete blocked[keyDay];
+        setJSON(`blocked_${profileName}`, blocked);
+    }
+
+    // Sin LOG no se cancelan solos: anula los reemplazos que cubrian este dia
+    // del ausente y recopila a esos trabajadores para refrescar sus filas.
+    const iso = keyToISODate(keyDay);
+    const coveringWorkers = new Set(coveringBefore);
+    const now = new Date().toISOString();
+    let changedReplacements = false;
+    const nextReplacements = getReplacements().map(replacement => {
+        if (
+            replacement &&
+            !replacement.canceled &&
+            replacement.replaced === profileName &&
+            replacement.date === iso
+        ) {
+            changedReplacements = true;
+
+            const worker = String(replacement.worker || "").trim();
+            if (worker) coveringWorkers.add(worker);
+
+            return {
+                ...replacement,
+                canceled: true,
+                canceledAt: now,
+                cancelReason: "leave_absence_canceled"
+            };
+        }
+
+        return replacement;
+    });
+
+    if (changedReplacements) saveReplacements(nextReplacements);
+
+    return { ok: true, type, manual: true, coveringWorkers };
 }
 
 async function openReplacementDialog(profileName, keyDay) {
@@ -4764,6 +4904,61 @@ async function openReplacementDialog(profileName, keyDay) {
         backdrop
             .querySelector("[data-action='cancel']")
             .onclick = close;
+
+        const cancelLeaveButton =
+            backdrop.querySelector("[data-action='cancel-leave']");
+        if (cancelLeaveButton) {
+            cancelLeaveButton.onclick = async () => {
+                const label = absenceType || "el permiso";
+                const confirmed = await showConfirm(
+                    `Se anulará ${label} de ${profileName} y se restablecerá su turno original. También se cancelarán los reemplazos asociados y se notificará a los trabajadores.`,
+                    {
+                        title: "Anular permiso",
+                        tone: "danger",
+                        confirmText: "Anular permiso",
+                        destructive: true
+                    }
+                );
+
+                if (!confirmed) return;
+
+                await withBusyState(async () => {
+                    if (typeof window.pushUndoState === "function") {
+                        window.pushUndoState("Anular permiso");
+                    }
+
+                    const result = await cancelReplacedProfileLeave(
+                        profileName,
+                        keyDay
+                    );
+
+                    if (!result?.ok) {
+                        alert(
+                            result?.reason === "no-leave"
+                                ? "Este dia ya no tiene un permiso o ausencia que anular."
+                                : "No se pudo anular el permiso."
+                        );
+                        return;
+                    }
+
+                    close();
+
+                    // Refresca la fila completa (turnos + HH.EE) del ausente y de
+                    // cada trabajador que dejo de cubrir, para que el timeline se
+                    // actualice al instante sin cambiar de mes.
+                    const affectedProfiles = new Set([
+                        profileName,
+                        ...(result.coveringWorkers || [])
+                    ]);
+
+                    await updateDayCell(profileName, keyDay);
+                    affectedProfiles.forEach(worker => {
+                        updateTimelineCells(worker);
+                    });
+                    await updateVisibleCalendarDays({ updateSummary: true });
+                }, { label: "Anulando permiso..." });
+            };
+        }
 
         const toggleForceButton =
             backdrop.querySelector("[data-action='toggle-force']");
