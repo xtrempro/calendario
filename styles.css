@@ -7946,6 +7946,7 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 
 .availability-history__list {
     display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 7px;
     max-height: 250px;
     overflow-y: auto;
@@ -7991,6 +7992,7 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 }
 
 .availability-history__empty {
+    grid-column: 1 / -1;
     padding: 10px;
     border: 1px dashed var(--border);
     border-radius: 11px;
@@ -8000,6 +8002,10 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 }
 
 @media (max-width: 520px) {
+    .availability-history__list {
+        grid-template-columns: 1fr;
+    }
+
     .availability-history__head,
     .availability-history__item {
         align-items: flex-start;

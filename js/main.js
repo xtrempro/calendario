@@ -380,6 +380,7 @@ import {
     stopSupervisorInviteRequestsListener
 } from "./workerRequests.js";
 import { initNotificationsBell } from "./notificationsBell.js";
+import { initPendingLeaveBlinkSync } from "./pendingLeaveBlinkSync.js";
 import {
     openWorkerAppInviteDialog,
     sendWorkerAppInviteEmail,
@@ -11935,6 +11936,7 @@ refreshWorkerRequestsNavBadge();
 initNotificationsBell({
     onOpen: () => { void setActiveShortcut("workerRequestsPanel"); }
 });
+initPendingLeaveBlinkSync();
 renderProfiles({ dashboard: false });
 renderBotones();
 bindAppNavigationHistory();
