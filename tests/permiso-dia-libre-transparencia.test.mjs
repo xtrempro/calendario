@@ -51,9 +51,17 @@ test("sin permiso no se agrega la transparencia aunque el dia sea libre", () => 
   assert.equal(run({ baseTurn: 0 }).has("leave-free-day"), false);
 });
 
-test("el CSS del supervisor define la transparencia", async () => {
+test("el CSS del supervisor define la transparencia en calendario y timeline", async () => {
   const css = await (await import("node:fs/promises")).readFile(
     new URL("../styles.css", import.meta.url), "utf8"
   );
-  assert.match(css, /\.day\.leave-free-day \{\s*opacity: 0\.5;/);
+  assert.match(css, /\.day\.leave-free-day,\s*\n\s*\.mini\.leave-free-day \{\s*\n?\s*opacity: 0\.5;/);
+});
+
+test("el timeline tambien aplica la transparencia (dia libre dentro de un permiso)", async () => {
+  const timeline = await (await import("node:fs/promises")).readFile(
+    new URL("../js/timeline.js", import.meta.url), "utf8"
+  );
+  assert.match(timeline, /const isLeaveFreeDay = hasLeave && \(Number\(baseTurn\) \|\| 0\) === 0;/);
+  assert.match(timeline, /\$\{isLeaveFreeDay \? "leave-free-day" : ""\}/);
 });

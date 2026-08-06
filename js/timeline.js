@@ -3378,11 +3378,21 @@ function renderTimelineDayCell(profile, d, {
         ? `;--pending-leave-color:${pendingLeaveColorValue(pendingLeave.type)}`
         : "";
 
+    // Permiso/ausencia sobre un dia LIBRE por rotativa (sin turno base): se pinta al
+    // 50% de transparencia, igual que el calendario. Con turno base se mantiene solido.
+    const hasLeave = Boolean(
+        leaveMaps.admin?.[key] ||
+        leaveMaps.legal?.[key] ||
+        leaveMaps.comp?.[key] ||
+        leaveMaps.absences?.[key]
+    );
+    const isLeaveFreeDay = hasLeave && (Number(baseTurn) || 0) === 0;
+
     return `
         <td
             data-timeline-profile="${escapeHtml(profile.name)}"
             data-timeline-key="${escapeHtml(key)}"
-            class="mini ${pendingLeave ? "timeline-leave-pending" : ""} ${workerBlockedDay ? "worker-blocked-mini" : ""} ${isInhabil ? "timeline-inhabil" : ""} ${contractError ? "contract-error-day" : ""} ${honorariaExcess ? "honoraria-limit-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${hourReturn ? "hours-return-mini" : ""} ${replacement ? "replacement-day" : ""}"
+            class="mini ${isLeaveFreeDay ? "leave-free-day" : ""} ${pendingLeave ? "timeline-leave-pending" : ""} ${workerBlockedDay ? "worker-blocked-mini" : ""} ${isInhabil ? "timeline-inhabil" : ""} ${contractError ? "contract-error-day" : ""} ${honorariaExcess ? "honoraria-limit-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${hourReturn ? "hours-return-mini" : ""} ${replacement ? "replacement-day" : ""}"
             style="${escapeHtml(`background:${background}${pendingLeaveStyle}`)}"
             title="${escapeHtml(titleText)}"
             ${contractError ? `data-contract-error-profile="${escapeHtml(profile.name)}" data-contract-error-key="${escapeHtml(key)}"` : ""}
