@@ -113,6 +113,56 @@ function isSwapTurnDay(day) {
   return SWAP_TURN_LABELS.has(label) || SWAP_TURN_CLASSES.has(className);
 }
 
+function isTwentyFourDay(day) {
+  if (!day) return false;
+
+  const label = normalizeTextKey(shiftLabel(day));
+  const className = shiftClass(day);
+
+  return className === "turno24" || label === "24h" || label === "24";
+}
+
+// Turno que ENTREGA el que hace el cambio. En un dia 24 (base + extra) el cambio
+// opera sobre el turno BASE (Larga/Noche); el extra queda intacto. En un dia normal,
+// es el propio turno. 1 = Larga, 2 = Noche, 0 = ninguno.
+function giverTurnCodeFromDay(day) {
+  if (!day || day.hasLeave === true) return 0;
+
+  if (isTwentyFourDay(day)) {
+    const base = Number(day.baseTurn) || 0;
+    return base === 1 || base === 2 ? base : 0;
+  }
+
+  return swapTurnCodeFromDay(day);
+}
+
+// El dia a cambiar (propio o de devolucion) debe ser Larga/Noche, O un 24 cuyo turno
+// BASE sea Larga/Noche (en ese caso se entrega el base y el extra queda).
+function isSwappableTurnDay(day) {
+  return isSwapTurnDay(day) || giverTurnCodeFromDay(day) !== 0;
+}
+
+function turnCodeLabel(code) {
+  return code === 1 ? "Larga" : code === 2 ? "Noche" : "";
+}
+
+function turnCodeClassName(code) {
+  return code === 1 ? "larga" : code === 2 ? "noche" : "";
+}
+
+// Etiqueta/clase del turno que realmente se entrega (el BASE en un dia 24).
+function giverTurnLabel(day) {
+  return isTwentyFourDay(day)
+    ? turnCodeLabel(giverTurnCodeFromDay(day))
+    : shiftLabel(day);
+}
+
+function giverTurnClassName(day) {
+  return isTwentyFourDay(day)
+    ? turnCodeClassName(giverTurnCodeFromDay(day))
+    : (shiftClass(day) || shiftClassFromLabel(shiftLabel(day)));
+}
+
 function isFreeTurnDay(day) {
   if (!day || day.hasLeave === true) return false;
 
@@ -286,7 +336,7 @@ function assertOwnSwapDate(candidate, iso, HttpsError, nowDate) {
     );
   }
 
-  if (!isSwapTurnDay(day)) {
+  if (!isSwappableTurnDay(day)) {
     callableError(
       HttpsError,
       "failed-precondition",
@@ -350,7 +400,7 @@ function assertReturnSwapDate(candidate, iso, HttpsError, nowDate) {
     );
   }
 
-  if (!isSwapTurnDay(day)) {
+  if (!isSwappableTurnDay(day)) {
     callableError(
       HttpsError,
       "failed-precondition",
@@ -522,7 +572,9 @@ async function createWorkerSwapRequestHandler(request, dependencies) {
   // si la unidad lo permite. El motor del supervisor valida el 24/invertido al
   // aprobar; aqui solo se habilita que la solicitud se pueda crear.
   assertReceiverCanCoverDate(targetCandidate, ownDate, HttpsError, {
-    giverTurn: swapTurnCodeFromDay(ownDay),
+    // En un dia 24 el que entrega da su turno BASE (no el 24), asi que la
+    // compatibilidad se evalua contra ese base.
+    giverTurn: giverTurnCodeFromDay(ownDay),
     allowTwentyFour: allowsTwentyFour(targetCandidate)
   });
   const returnDay = assertReturnSwapDate(
@@ -536,12 +588,11 @@ async function createWorkerSwapRequestHandler(request, dependencies) {
   const now = serverTimestamp();
   const fromProfile = profileNameFor(requesterCandidate, requesterLink);
   const toProfile = profileNameFor(targetCandidate, targetLink);
-  const ownTurnLabel = shiftLabel(ownDay);
-  const returnTurnLabel = shiftLabel(returnDay);
-  const ownTurnClassName =
-    shiftClass(ownDay) || shiftClassFromLabel(ownTurnLabel);
-  const returnTurnClassName =
-    shiftClass(returnDay) || shiftClassFromLabel(returnTurnLabel);
+  // En un dia 24 se entrega/devuelve el turno BASE; la etiqueta lo refleja.
+  const ownTurnLabel = giverTurnLabel(ownDay);
+  const returnTurnLabel = giverTurnLabel(returnDay);
+  const ownTurnClassName = giverTurnClassName(ownDay);
+  const returnTurnClassName = giverTurnClassName(returnDay);
   const requestData = {
     id: requestId,
     workspaceId,
@@ -642,9 +693,9 @@ async function createWorkerSwapOpenRequestHandler(request, dependencies) {
   const openId = idFactory("open", uid);
   const now = serverTimestamp();
   const createdAtISO = nowISO(nowDate);
-  const ownTurnLabel = shiftLabel(ownDay);
-  const ownTurnClassName =
-    shiftClass(ownDay) || shiftClassFromLabel(ownTurnLabel);
+  // En un dia 24 se entrega el turno BASE; la etiqueta lo refleja.
+  const ownTurnLabel = giverTurnLabel(ownDay);
+  const ownTurnClassName = giverTurnClassName(ownDay);
   const openData = {
     id: openId,
     workspaceId,
