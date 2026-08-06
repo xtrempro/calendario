@@ -482,6 +482,27 @@ function profileLeaveMaps(profileName) {
 
 // Calcula los dias de UN mes (objeto keyed por ISO). Reproduce la logica
 // dia-a-dia original, acotada al mes pedido.
+// Tipo de permiso CANCELABLE por el trabajador para un dia (mismos tipos que
+// LEAVE_CANCEL_TYPES del supervisor). "" si no es cancelable o no hay permiso.
+// Copia identica a la de serverEngine.js (motor duplicado).
+function cancelableLeaveTypeForDay(maps, keyDay) {
+    const adminVal = maps.admin[keyDay];
+    if (adminVal) {
+        if (adminVal === "0.5M") return "half_admin_morning";
+        if (adminVal === "0.5T") return "half_admin_afternoon";
+        return "admin";
+    }
+    if (maps.legal[keyDay]) return "legal";
+    if (maps.comp[keyDay]) return "comp";
+    const absence = maps.absences[keyDay];
+    const absType = typeof absence === "string"
+        ? absence
+        : String(absence?.type || absence?.previousType || "");
+    if (absType === "union_leave") return "union_leave";
+    if (absType === "unpaid_leave") return "unpaid_leave";
+    return "";
+}
+
 function computeMonthDays(profile, month, ctx) {
     const { maps, profileData, colorResolver, holidaysByYear } = ctx;
     const { year, monthIndex } = month;
@@ -572,6 +593,11 @@ function computeMonthDays(profile, month, ctx) {
             colorGradient: colorGradient || "",
             isManualExtra: manualExtra,
             hasLeave,
+            // Tipo cancelable del permiso del dia (para "Solicitar anulacion" en la
+            // PWA, incluso si lo aplico el supervisor). Solo cuando corresponde.
+            ...(hasLeave && cancelableLeaveTypeForDay(maps, keyDay)
+                ? { leaveCancelType: cancelableLeaveTypeForDay(maps, keyDay) }
+                : {}),
             // Solo cuando hay cambio, para no engordar la proyeccion.
             // counterpart = el companero del cambio (para el detalle en la PWA).
             ...(swapMarker

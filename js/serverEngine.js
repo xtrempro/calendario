@@ -125,6 +125,29 @@ function profileLeaveMaps(profileName) {
     };
 }
 
+// Tipo de permiso CANCELABLE por el trabajador para un dia (mismos tipos que
+// LEAVE_CANCEL_TYPES del supervisor). "" si el permiso no es cancelable (licencia
+// medica, injustificada) o no hay permiso. Permite que la PWA ofrezca "Solicitar
+// anulacion" sobre cualquier permiso del calendario, aunque lo haya aplicado el
+// supervisor directamente (sin solicitud previa del trabajador).
+function cancelableLeaveTypeForDay(maps, keyDay) {
+    const adminVal = maps.admin[keyDay];
+    if (adminVal) {
+        if (adminVal === "0.5M") return "half_admin_morning";
+        if (adminVal === "0.5T") return "half_admin_afternoon";
+        return "admin";
+    }
+    if (maps.legal[keyDay]) return "legal";
+    if (maps.comp[keyDay]) return "comp";
+    const absence = maps.absences[keyDay];
+    const absType = typeof absence === "string"
+        ? absence
+        : String(absence?.type || absence?.previousType || "");
+    if (absType === "union_leave") return "union_leave";
+    if (absType === "unpaid_leave") return "unpaid_leave";
+    return "";
+}
+
 function computeMonthDays(profile, month, ctx) {
     const { maps, profileData, colorResolver, holidaysByYear } = ctx;
     const { year, monthIndex } = month;
@@ -194,6 +217,11 @@ function computeMonthDays(profile, month, ctx) {
             colorGradient: colorGradient || "",
             isManualExtra: manualExtra,
             hasLeave,
+            // Tipo cancelable del permiso del dia (para "Solicitar anulacion" en la
+            // PWA). Solo cuando corresponde, para no engordar la proyeccion.
+            ...(hasLeave && cancelableLeaveTypeForDay(maps, keyDay)
+                ? { leaveCancelType: cancelableLeaveTypeForDay(maps, keyDay) }
+                : {}),
             // Solo se incluye cuando hay cambio, para no engordar la proyeccion.
             // counterpart = el companero del cambio (para el detalle en la PWA).
             ...(swapMarker

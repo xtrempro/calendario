@@ -42,9 +42,10 @@ function build(extra = {}) {
   };
   const code = `
     const LEAVE_CANCEL_TYPES = new Set(["admin","half_admin_morning","half_admin_afternoon","legal","comp","union_leave","unpaid_leave"]);
+    ${grab("leaveLogCoversDate")}
     ${grab("findLeaveApplicationLog")}
     ${grab("applyLeaveCancellation")}
-    return { findLeaveApplicationLog, applyLeaveCancellation };
+    return { findLeaveApplicationLog, applyLeaveCancellation, leaveLogCoversDate };
   `;
   const api = new Function(...Object.keys(env), code)(...Object.values(env));
   return { ...api, undone, patched };
@@ -93,6 +94,16 @@ test("tipo de permiso no valido se rechaza", async () => {
   const res = await box.applyLeaveCancellation({ profile: "Juan", leaveType: "swap", date: "2026-09-11" });
   assert.equal(res.ok, false);
   assert.deepEqual(box.undone, []);
+});
+
+test("permiso multi-dia: ubica el LOG si se toca un dia intermedio (cobertura)", () => {
+  const { leaveLogCoversDate } = build();
+  const log = { meta: { date: "2026-09-10", amount: 5 } }; // 10..14
+  assert.equal(leaveLogCoversDate(log, "2026-09-10"), true); // inicio
+  assert.equal(leaveLogCoversDate(log, "2026-09-12"), true); // intermedio
+  assert.equal(leaveLogCoversDate(log, "2026-09-14"), true); // fin
+  assert.equal(leaveLogCoversDate(log, "2026-09-15"), false); // fuera
+  assert.equal(leaveLogCoversDate(log, "2026-09-09"), false); // antes
 });
 
 test("el dispatcher enruta leave_cancel y trae etiqueta", () => {

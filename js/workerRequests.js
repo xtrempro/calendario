@@ -425,22 +425,47 @@ const LEAVE_CANCEL_TYPES = new Set([
 // tipo), para poder anularlo. Debe ser UNICO y no estar ya anulado; si hay 0 o
 // varios coincidentes, se prefiere que el supervisor lo anule a mano (no se
 // arriesga a revertir el permiso equivocado).
-function findLeaveApplicationLog(profile, startDate, leaveType) {
+function leaveLogCoversDate(log, iso) {
+    const start = String(log.meta?.date || "");
+    if (!start) return false;
+
+    const amount = Math.max(1, Math.ceil(Number(log.meta?.amount) || 1));
+    const startTime = Date.parse(`${start}T00:00:00`);
+    const target = Date.parse(`${iso}T00:00:00`);
+
+    if (Number.isNaN(startTime) || Number.isNaN(target)) return false;
+
+    // Rango en dias calendario desde el inicio. Aproximado para permisos por dias
+    // habiles (legal/comp saltan fines de semana), por eso es solo un FALLBACK con
+    // guarda de "exactamente uno".
+    const endTime = startTime + (amount - 1) * 86400000;
+    return target >= startTime && target <= endTime;
+}
+
+function findLeaveApplicationLog(profile, dayIso, leaveType) {
     const target = String(profile || "").trim().toLowerCase();
-    const date = String(startDate || "");
+    const date = String(dayIso || "");
     const type = String(leaveType || "");
 
     if (!target || !date || !type) return null;
 
-    const matches = getAuditLogs().filter(log =>
+    const leaveLogs = getAuditLogs().filter(log =>
         log.category === AUDIT_CATEGORY.LEAVE_ABSENCE &&
         !log.canceledAt &&
         String(log.profile || log.meta?.profile || "").trim().toLowerCase() === target &&
-        String(log.meta?.date || "") === date &&
         String(log.meta?.type || "") === type
     );
 
-    return matches.length === 1 ? matches[0] : null;
+    // 1) Coincidencia exacta por fecha de inicio (permiso de un dia o su dia inicial).
+    const exact = leaveLogs.filter(log => String(log.meta?.date || "") === date);
+    if (exact.length === 1) return exact[0];
+
+    // 2) Cobertura de rango: el trabajador toco un dia intermedio de un permiso
+    //    multi-dia. Solo si hay exactamente un permiso que cubre ese dia.
+    const covering = leaveLogs.filter(log => leaveLogCoversDate(log, date));
+    if (covering.length === 1) return covering[0];
+
+    return null;
 }
 
 // Anula un permiso YA aceptado a pedido del trabajador. Reutiliza la anulacion
@@ -1937,7 +1962,17 @@ export async function renderWorkerRequestsPanel() {
         ...workerRequests,
         ...replacementRequests
     ];
-    const requests = filterRequestsBySelectedMonth(allRequests);
+    // Las PENDIENTES se muestran SIEMPRE, sin importar el mes seleccionado: una
+    // solicitud de anulacion se archiva por su fecha de creacion (hoy), que puede
+    // no coincidir con el mes del permiso; antes quedaba invisible aunque el badge
+    // la contara. Las resueltas siguen filtradas por mes.
+    const monthRequests = filterRequestsBySelectedMonth(allRequests);
+    const requests = [
+        ...allRequests.filter(request =>
+            request.status === "pending" && !monthRequests.includes(request)
+        ),
+        ...monthRequests
+    ];
     const allPending = allRequests.filter(request =>
         request.status === "pending"
     );
