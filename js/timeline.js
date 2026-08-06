@@ -17,8 +17,8 @@ import {
     getTurnoReal
 } from "./turnEngine.js";
 import { TURNO, TURNO_COLOR } from "./constants.js";
-import { getTurnoColor } from "./turnoColors.js";
-import { getDayColorGradient } from "./dayColorBands.js";
+import { getTurnoColor, getTurnoColorConfig } from "./turnoColors.js";
+import { getDayColorGradient, buildHexColorResolver } from "./dayColorBands.js";
 import {
     getPendingLeaveRequestsForProfile,
     getPendingLeaveRequestForDate,
@@ -2184,15 +2184,25 @@ function getColor(nombre, key, maps = null, isExtra = false, realTurn = null){
     const comp = maps?.comp || getComp(nombre);
     const abs = maps?.absences || getAbs(nombre);
     const absenceType = getAbsenceType(abs[key]);
+    // Mismos colores personalizables por el supervisor que usa el calendario
+    // (var(--color-X) sale de esta misma config). Asi el timeline coincide con el
+    // color que el supervisor eligio para cada tipo de permiso.
+    const named = getTurnoColorConfig().named || {};
 
-    if (absenceType === "professional_license") return "#2563eb";
-    if (absenceType === "union_leave") return "#e64747";
-    if (absenceType === "unpaid_leave") return "#6b7280";
-    if (abs[key]) return "#d97706";
-    if (legal[key]) return "#0ea5a6";
-    if (comp[key]) return "#f97316";
+    if (absenceType === "professional_license") {
+        return named.professional_license || "#2563eb";
+    }
+    if (absenceType === "union_leave") return "#dc2626"; // no configurable (rojo)
+    if (absenceType === "unpaid_leave") return named.unpaid_leave || "#6b7280";
+    if (abs[key]) {
+        return esAusenciaInjustificada(abs[key])
+            ? (named.unjustified_absence || "#b91c1c")
+            : (named.license || "#d97706");
+    }
+    if (legal[key]) return named.legal || "#0ea5a6";
+    if (comp[key]) return named.comp || "#8b2bd9";
 
-    if (admin[key] === 1) return "#f59e0b";
+    if (admin[key] === 1) return named.admin || "#f97316";
     if (admin[key] === "0.5M") return "#fbbf24";
     if (admin[key] === "0.5T") return "#facc15";
 
@@ -3234,7 +3244,10 @@ function renderTimelineDayCell(profile, d, {
                 date,
                 holidays,
                 leaveMaps.admin?.[key],
-                baseTurn
+                baseTurn,
+                // Mismos colores personalizados que el calendario para los
+                // componentes (admin, turnos combinados).
+                { resolveColor: buildHexColorResolver(getTurnoColorConfig()) }
             )
             : null;
     const background = workerBlockedDay

@@ -65,3 +65,18 @@ test("el timeline tambien aplica la transparencia (dia libre dentro de un permis
   assert.match(timeline, /const isLeaveFreeDay = hasLeave && \(Number\(baseTurn\) \|\| 0\) === 0;/);
   assert.match(timeline, /\$\{isLeaveFreeDay \? "leave-free-day" : ""\}/);
 });
+
+test("el timeline usa el color personalizado del permiso (config), igual que el calendario", async () => {
+  const timeline = await (await import("node:fs/promises")).readFile(
+    new URL("../js/timeline.js", import.meta.url), "utf8"
+  );
+  // getColor toma los colores nombrados de la config (misma fuente que --color-X).
+  assert.match(timeline, /const named = getTurnoColorConfig\(\)\.named \|\| \{\};/);
+  assert.match(timeline, /if \(comp\[key\]\) return named\.comp \|\| "#8b2bd9";/);
+  assert.match(timeline, /if \(legal\[key\]\) return named\.legal \|\| "#0ea5a6";/);
+  assert.match(timeline, /if \(admin\[key\] === 1\) return named\.admin \|\| "#f97316";/);
+  // Ya no usa el naranja hardcodeado para compensatorio.
+  assert.doesNotMatch(timeline, /if \(comp\[key\]\) return "#f97316";/);
+  // El gradiente (admin / turnos combinados) tambien resuelve con la config.
+  assert.match(timeline, /resolveColor: buildHexColorResolver\(getTurnoColorConfig\(\)\)/);
+});
