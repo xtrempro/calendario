@@ -759,21 +759,23 @@ export function aplicarClasesEspeciales(
     /* legal */
 
     if (legal[keyDay]) {
-        div.classList.add(
-            state > 0 || isHab
-                ? "legal-day"
-                : "legal-soft"
-        );
+        div.classList.add("legal-day");
     }
 
     /* compensatorio */
 
     if (comp[keyDay]) {
-        div.classList.add(
-            state > 0 || isHab
-                ? "comp-day"
-                : "comp-soft"
-        );
+        div.classList.add("comp-day");
+    }
+
+    // Permiso/ausencia cuyo turno BASE (rotativa) es LIBRE: el trabajador no tenia
+    // turno ese dia, asi que se pinta al 50% de transparencia (clase uniforme para
+    // todos los tipos). Con turno base (> 0) se mantiene el color solido.
+    const hasLeave =
+        admin[keyDay] || legal[keyDay] || comp[keyDay] || absences[keyDay];
+
+    if (hasLeave && (Number(baseTurn) || 0) === 0) {
+        div.classList.add("leave-free-day");
     }
 }
 
