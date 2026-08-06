@@ -445,8 +445,9 @@ function findLeaveApplicationLog(profile, startDate, leaveType) {
 
 // Anula un permiso YA aceptado a pedido del trabajador. Reutiliza la anulacion
 // del LOG (undoAuditLogEntry): revierte el calendario del perfil correcto,
-// restaura el saldo, cancela los reemplazos asociados y notifica a los
-// afectados (via el listener proturnos:auditUndoApplied).
+// restaura el saldo, cancela los reemplazos asociados y notifica + RE-PUBLICA la
+// proyeccion de los afectados (via el listener proturnos:auditUndoApplied), para
+// que el permiso desaparezca del calendario de la PWA del trabajador.
 async function applyLeaveCancellation(request) {
     const profile = resolveProfileName(request);
     const leaveType = String(request.leaveType || "");

@@ -11377,11 +11377,21 @@ window.addEventListener("proturnos:auditUndoApplied", event => {
     // Refresca tambien las filas del timeline de quienes dejaron de cubrir: sin
     // esto su turno extra desaparecia pero el resumen de HH.EE quedaba con el
     // valor anterior (servido del resumen publicado) hasta cambiar de mes.
-    new Set(
+    const affectedReplacementWorkers = new Set(
         canceledReplacements
             .map(replacement => String(replacement?.worker || "").trim())
             .filter(Boolean)
-    ).forEach(worker => updateTimelineCells(worker));
+    );
+    affectedReplacementWorkers.forEach(worker => updateTimelineCells(worker));
+
+    // Re-publica la proyeccion de los afectados. Sin esto, tras anular un permiso
+    // (p.ej. a pedido del trabajador) el dia seguia PINTADO con el permiso en la
+    // PWA aunque el calendario del supervisor ya lo habia quitado. Cubre al dueno
+    // del permiso y a quienes se les anulo el reemplazo asociado.
+    if (detail.profile) scheduleWorkerAppDataPublish(300, detail.profile);
+    affectedReplacementWorkers.forEach(worker =>
+        scheduleWorkerAppDataPublish(300, worker)
+    );
 
     notifyWorkersOfAuditUndo(detail);
 });
