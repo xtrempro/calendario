@@ -64,3 +64,9 @@ test("la compatibilidad y las etiquetas usan el turno base del 24", () => {
   assert.match(src, /const returnTurnLabel = giverTurnLabel\(returnDay\)/);
   assert.match(src, /const ownTurnClassName = giverTurnClassName\(ownDay\)/);
 });
+
+test("no se puede devolver un turno en un dia de permiso del solicitante", () => {
+  assert.match(src, /const requesterReturnDay = dayFor\(requesterCandidate, returnDate\)/);
+  assert.match(src, /if \(requesterReturnDay && requesterReturnDay\.hasLeave === true\)/);
+  assert.match(src, /No puedes devolver un turno un dia en que tienes un permiso o vacaciones/);
+});

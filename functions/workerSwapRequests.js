@@ -583,6 +583,17 @@ async function createWorkerSwapRequestHandler(request, dependencies) {
     HttpsError,
     nowDate
   );
+  // El SOLICITANTE recibe el turno del companero en la devolucion: no puede ser un
+  // dia en que el mismo este de permiso/vacaciones (no podria cubrirlo). El resto de
+  // reglas (24, adyacencia) las valida el motor del supervisor al aprobar.
+  const requesterReturnDay = dayFor(requesterCandidate, returnDate);
+  if (requesterReturnDay && requesterReturnDay.hasLeave === true) {
+    callableError(
+      HttpsError,
+      "failed-precondition",
+      "No puedes devolver un turno un dia en que tienes un permiso o vacaciones."
+    );
+  }
   const requestId = idFactory("swap", uid);
   const createdAt = nowISO(nowDate);
   const now = serverTimestamp();
