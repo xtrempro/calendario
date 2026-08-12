@@ -505,14 +505,16 @@ export function getLeaveApplicationInfo({
 // Fecha y usuario de la ultima modificacion de marcaje reloj control para un
 // dia/perfil (para el modal de detalle). Se apoya en el registro del LOG que crea
 // el flujo de marcaje; si fue evicto, actorName cae a "No registrado".
-export function getClockMarkAuditInfo(profile, keyDay) {
+// Ultimo registro del LOG de una accion de calendario para un dia/perfil
+// (fecha + usuario). Sirve para los modales de detalle (marcaje, sin cobertura).
+function latestCalendarActionInfo(profile, keyDay, action) {
     if (!profile || !keyDay) return null;
 
     const target = String(keyDay);
     const log = getAuditLogs()
         .filter(item =>
             item?.category === AUDIT_CATEGORY.CALENDAR &&
-            String(item?.action || "") === "Modifico marcaje reloj control" &&
+            String(item?.action || "") === action &&
             sameProfileName(String(item?.meta?.profile || ""), profile) &&
             String(item?.meta?.keyDay || "") === target
         )
@@ -529,6 +531,18 @@ export function getClockMarkAuditInfo(profile, keyDay) {
         createdAtLabel: formatTimestamp(log.createdAt),
         actorName: actorName || "No registrado"
     };
+}
+
+export function getClockMarkAuditInfo(profile, keyDay) {
+    return latestCalendarActionInfo(
+        profile,
+        keyDay,
+        "Modifico marcaje reloj control"
+    );
+}
+
+export function getNoCoverageAuditInfo(profile, keyDay) {
+    return latestCalendarActionInfo(profile, keyDay, "Marco sin cobertura");
 }
 
 function canUndoAuditLog(log) {

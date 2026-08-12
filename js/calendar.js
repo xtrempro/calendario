@@ -128,6 +128,7 @@ import {
     AUDIT_CATEGORY,
     getLeaveApplicationInfo,
     getClockMarkAuditInfo,
+    getNoCoverageAuditInfo,
     undoAuditLogEntry
 } from "./auditLog.js";
 import {
@@ -3619,6 +3620,10 @@ function openLeaveDetailDialog({
         });
     const canUndo = Boolean(info?.canUndo && info?.logId);
     const covering = getCoveringWorkersForShift(profile, keyDay);
+    const noCoverage = isNoCoverageDay(profile, keyDay);
+    const noCoverageInfo = noCoverage
+        ? getNoCoverageAuditInfo(profile, keyDay)
+        : null;
 
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
@@ -3634,12 +3639,28 @@ function openLeaveDetailDialog({
                     ? `<div><span>Cubre</span><b>${escapeHTML(covering.join(", "))}</b></div>`
                     : ""}
             </div>
-            <p class="leave-detail-note">
-                ${canUndo
-                    ? "Anular quitara el permiso/ausencia, cancelara los reemplazos asociados, notificara a los trabajadores afectados y dejara el registro del LOG marcado como anulado."
-                    : "Este permiso no tiene un registro en el LOG que permita anularlo automaticamente."}
-            </p>
-            <div class="turn-change-dialog__actions">
+            ${noCoverage ? `
+                <div class="leave-detail-nocoverage">
+                    <strong>Marcado como "No requiere cobertura"</strong>
+                    <div class="leave-detail-rows">
+                        <div><span>Asignado</span><b>${escapeHTML(noCoverageInfo?.createdAtLabel || "Sin registro")}</b></div>
+                        <div><span>Por</span><b>${escapeHTML(noCoverageInfo?.actorName || "No registrado")}</b></div>
+                    </div>
+                    <p class="leave-detail-note">
+                        "Sí requiere cobertura" revierte esta marca: vuelve a aparecer la alerta para asignar un reemplazo.
+                    </p>
+                </div>
+            ` : `
+                <p class="leave-detail-note">
+                    ${canUndo
+                        ? "Anular quitara el permiso/ausencia, cancelara los reemplazos asociados, notificara a los trabajadores afectados y dejara el registro del LOG marcado como anulado."
+                        : "Este permiso no tiene un registro en el LOG que permita anularlo automaticamente."}
+                </p>
+            `}
+            <div class="turn-change-dialog__actions ${noCoverage ? "leave-detail-actions--stacked" : ""}">
+                ${noCoverage
+                    ? `<button class="primary-button" type="button" data-action="require-coverage">Sí requiere cobertura</button>`
+                    : ""}
                 ${canUndo
                     ? `<button class="leave-detail-undo" type="button" data-action="undo">Anular permiso</button>`
                     : ""}
@@ -3662,6 +3683,27 @@ function openLeaveDetailDialog({
     backdrop
         .querySelector("[data-action='close']")
         ?.addEventListener("click", close);
+    backdrop
+        .querySelector("[data-action='require-coverage']")
+        ?.addEventListener("click", async () => {
+            await withBusyState(async () => {
+                if (typeof window.pushUndoState === "function") {
+                    window.pushUndoState("Reactivar cobertura");
+                }
+
+                setNoCoverageDay(profile, keyDay, false);
+                addAuditLog(
+                    AUDIT_CATEGORY.CALENDAR,
+                    "Reactivo cobertura",
+                    `${profile}: ${keyDay} vuelve a requerir cobertura.`,
+                    { profile, keyDay }
+                );
+                close();
+                await updateDayCell(profile, keyDay);
+                updateTimelineCells(profile, [keyDay]);
+                await updateVisibleCalendarDays({ updateSummary: true });
+            }, { label: "Guardando..." });
+        });
     backdrop
         .querySelector("[data-action='undo']")
         ?.addEventListener("click", async event => {
@@ -5065,6 +5107,12 @@ async function openReplacementDialog(profileName, keyDay) {
                     }
 
                     setNoCoverageDay(profileName, keyDay, true);
+                    addAuditLog(
+                        AUDIT_CATEGORY.CALENDAR,
+                        "Marco sin cobertura",
+                        `${profileName}: marco el ${keyDay} como no requiere cobertura.`,
+                        { profile: profileName, keyDay }
+                    );
                     close();
                     await updateDayCell(profileName, keyDay);
                     updateTimelineCells(profileName, [keyDay]);

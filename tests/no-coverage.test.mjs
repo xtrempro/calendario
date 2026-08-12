@@ -78,6 +78,26 @@ test("el modal agrupa opciones, agrega No requiere cobertura y renombra", async 
     assert.doesNotMatch(calendar, /Solicitar aceptacion al trabajador/);
 });
 
+test("se puede revertir desde el detalle del permiso (Sí requiere cobertura)", async () => {
+    const [calendar, audit] = await Promise.all([
+        readFile(new URL("../js/calendar.js", import.meta.url), "utf8"),
+        readFile(new URL("../js/auditLog.js", import.meta.url), "utf8")
+    ]);
+
+    // Al marcar sin cobertura se registra en el LOG (quien/cuando).
+    assert.match(calendar, /"Marco sin cobertura"/);
+    assert.match(audit, /export function getNoCoverageAuditInfo\(profile, keyDay\)/);
+
+    // El modal de detalle del permiso muestra la seccion y el boton de revertir.
+    assert.match(calendar, /getNoCoverageAuditInfo\(profile, keyDay\)/);
+    assert.match(calendar, /Marcado como "No requiere cobertura"/);
+    assert.match(calendar, /data-action="require-coverage"/);
+    assert.match(calendar, /Sí requiere cobertura/);
+    // El handler revierte (setNoCoverageDay false) y registra la reactivacion.
+    assert.match(calendar, /setNoCoverageDay\(profile, keyDay, false\)/);
+    assert.match(calendar, /"Reactivo cobertura"/);
+});
+
 test("el footer Anular/Cancelar queda en 2 columnas", async () => {
     const css = await readFile(
         new URL("../styles.css", import.meta.url),
