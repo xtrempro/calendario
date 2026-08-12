@@ -54,7 +54,8 @@ import {
     findClockSegmentForKey,
     fallbackClockSegment,
     hasClockMarkRecordData,
-    getClockMarkTimingFlags
+    getClockMarkTimingFlags,
+    classifyClockMarkSegment
 } from "./clockMarkUtils.js";
 import {
     ATTACHMENT_ACCEPT,
@@ -5809,47 +5810,21 @@ async function renderReportsProfiles(options = {}) {
 }
 
 function renderClockMarkRecord(record) {
-    const timing = getClockMarkTimingFlags(
+    // Clasificacion compartida (extra/deficit/recuperacion/reduccion). La
+    // recuperacion solo aplica a segmentos diurnos/larga; en noche/24 el atraso
+    // es reduccion y el excedente es hora extra por separado.
+    const {
+        timing,
+        isMissing,
+        recoveryMinutes,
+        netExtraMinutes,
+        isReduction
+    } = classifyClockMarkSegment(
         record.date,
         record.segment,
-        record.segmentMark
+        record.segmentMark,
+        { isBaseOrSwap: record.isBaseOrSwap }
     );
-    const isMissing =
-        record.segmentMark.missingEntry ||
-        record.segmentMark.missingExit;
-
-    // Magnitudes (en minutos) de horas trabajadas de mas (ingreso antes /
-    // salida despues) y de tiempo programado no trabajado (ingreso tarde /
-    // salida antes). Solo aplica a segmentos del turno base/cambio.
-    let extraMinutes = 0;
-    let deficitMinutes = 0;
-
-    if (record.isBaseOrSwap && !isMissing) {
-        if (timing.entry) {
-            const diff =
-                (record.segment.start - timing.entry) / 60000;
-            if (diff > 0) extraMinutes += diff;
-            else deficitMinutes += -diff;
-        }
-
-        if (timing.exit) {
-            const diff =
-                (timing.exit - record.segment.end) / 60000;
-            if (diff > 0) extraMinutes += diff;
-            else deficitMinutes += -diff;
-        }
-    }
-
-    // La recuperacion es la parte del tiempo extra que compensa el deficit.
-    const recoveryMinutes = Math.min(extraMinutes, deficitMinutes);
-    const netExtraMinutes = extraMinutes - recoveryMinutes;
-    const uncoveredMinutes = deficitMinutes - recoveryMinutes;
-
-    // Hay reduccion de jornada solo si la recuperacion NO cubre el deficit.
-    const isReduction =
-        record.isBaseOrSwap &&
-        !isMissing &&
-        uncoveredMinutes > 0;
 
     const classes = [
         "clockmark-record",

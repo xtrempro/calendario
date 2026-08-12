@@ -67,7 +67,7 @@ import {
 import {
     getClockMarks,
     getClockIncidentDetail,
-    hasClockExtra,
+    hasClockNetExtra,
     hasSevereClockIncident,
     hasSimpleClockIncident
 } from "./clockMarks.js";
@@ -3297,7 +3297,7 @@ function renderTimelineDayCell(profile, d, {
     const clockExtra = rowAux?.clockMarks
         ? (
             clockMark &&
-            hasClockExtra(
+            hasClockNetExtra(
                 profile.name,
                 key,
                 date,
@@ -3305,7 +3305,7 @@ function renderTimelineDayCell(profile, d, {
                 holidays
             )
         )
-        : hasClockExtra(
+        : hasClockNetExtra(
             profile.name,
             key,
             date,

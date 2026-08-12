@@ -129,8 +129,8 @@ import {
 } from "./auditLog.js";
 import {
     getClockMarks,
-    getClockExtraHours,
-    hasClockExtra,
+    getClockNetExtraHours,
+    hasClockNetExtra,
     hasSevereClockIncident,
     hasSimpleClockIncident
 } from "./clockMarks.js";
@@ -1071,7 +1071,7 @@ async function handleCalendarCellFallbackClick(cell, event) {
         !replacementContractError &&
         pendingManualExtra;
     const clockExtra =
-        hasClockExtra(
+        hasClockNetExtra(
             activeProfile,
             keyDay,
             date,
@@ -5743,7 +5743,7 @@ async function openExtraReasonDialog(
     const date = new Date(year, month, day);
     const holidays = await fetchHolidays(year);
     const hasClockSection =
-        hasClockExtra(
+        hasClockNetExtra(
             profileName,
             keyDay,
             date,
@@ -5752,7 +5752,7 @@ async function openExtraReasonDialog(
         ) &&
         !getClockExtraBackupForWorker(profileName, keyDay);
     const clockHours = hasClockSection
-        ? getClockExtraHours(
+        ? getClockNetExtraHours(
             profileName,
             keyDay,
             date,
@@ -6626,7 +6626,7 @@ async function renderCalendarImpl(options = {}) {
             clockMarkHasSimpleIncident(clockMark);
         const clockExtra =
             clockMark &&
-            hasClockExtra(
+            hasClockNetExtra(
                 activeProfile,
                 keyDay,
                 date,

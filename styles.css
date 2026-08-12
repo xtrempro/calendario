@@ -6643,6 +6643,20 @@ body.theme-dark .overtime-backup-subsection {
     gap: 28px;
 }
 
+.clock-mark-segment__status {
+    margin: 10px 0 0;
+    padding: 6px 10px;
+    border-radius: 9px;
+    background: rgba(var(--brand-blue-rgb), 0.1);
+    color: var(--accent);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.clock-mark-segment__status[hidden] {
+    display: none;
+}
+
 .clock-mark-column {
     display: grid;
     gap: 8px;

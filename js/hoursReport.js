@@ -59,8 +59,14 @@ import { getJSON } from "./persistence.js";
 import {
     getClockExtraHours,
     getClockDeficitHours,
-    getClockMarks
+    getClockMarks,
+    getClockScheduleState,
+    getScheduledSegmentsForProfile
 } from "./clockMarks.js";
+import {
+    classifyClockMarkSegment,
+    findClockMarkEntry
+} from "./clockMarkUtils.js";
 
 const UNBACKED_OVERTIME_DETAIL = "Horas sin respaldo registrado";
 const SHIFT_MOVE_REPORT_DETAIL = "Turno base modificado";
@@ -250,7 +256,7 @@ function replacementDetail(profileName, keyDay) {
             return `Reemplaza a ${record.replaced} por ${record.absenceType || "ausencia"}`;
         }
 
-        return `Motivo: ${record.reason || record.absenceType || "sin detalle"}`;
+        return `Motivo horas extras: ${record.reason || record.absenceType || "sin detalle"}`;
     }).join(" | ");
 }
 
@@ -587,25 +593,54 @@ function assignedCarryOut(profileName, year, month, days, data, holidays) {
     );
 }
 
-function clockMarkSummary(profileName, keyDay) {
+function clockMarkSummary(profileName, keyDay, date, state, holidays = {}) {
     const mark = getClockMarks(profileName)[keyDay];
 
     if (!mark?.segments) return "";
 
-    const items = Object.values(mark.segments)
+    // Segmentos programados del turno (mismo criterio que el motor de horas), para
+    // clasificar cada marca en recuperacion / reduccion segun sus tiempos reales.
+    const scheduledState = getClockScheduleState(profileName, keyDay, state);
+    const segments = getScheduledSegmentsForProfile(
+        profileName,
+        keyDay,
+        date,
+        scheduledState,
+        holidays
+    );
+    const items = segments
         .map(segment => {
+            const segmentMark = findClockMarkEntry(mark, segment)?.value;
+
+            if (!segmentMark) return "";
+
             const details = [];
 
-            if (segment.missingEntry) details.push("Sin entrada");
-            if (segment.missingExit) details.push("Sin salida");
-            if (segment.entryTime) {
-                details.push(`Entrada ${segment.entryTime}`);
+            if (segmentMark.missingEntry) details.push("Sin entrada");
+            if (segmentMark.missingExit) details.push("Sin salida");
+            if (segmentMark.entryTime) {
+                details.push(`Entrada a las ${segmentMark.entryTime}`);
             }
-            if (segment.exitTime) {
-                details.push(`Salida ${segment.exitTime}`);
+            if (segmentMark.exitTime) {
+                details.push(`Salida a las ${segmentMark.exitTime}`);
             }
 
-            const note = segment.adminNote || segment.comments;
+            // Recuperacion (atraso compensado con salida tardia, solo diurno/larga)
+            // o reduccion de jornada (atraso/salida temprana sin recuperar).
+            const classification = classifyClockMarkSegment(
+                date,
+                segment,
+                segmentMark,
+                { isBaseOrSwap: true }
+            );
+
+            if (classification.recoveryMinutes > 0) {
+                details.push("Recuperación de horas");
+            } else if (classification.isReduction) {
+                details.push("Reducción de jornada");
+            }
+
+            const note = segmentMark.adminNote || segmentMark.comments;
 
             return [
                 details.join(" / "),
@@ -694,7 +729,7 @@ function buildNoAssignmentDayRows(
         const replacement = replacementDetail(profileName, keyDay);
         const shiftMove = shiftMoveDetail(profileName, keyDay);
         const contract = contractDetail(contracts, iso);
-        const clock = clockMarkSummary(profileName, keyDay);
+        const clock = clockMarkSummary(profileName, keyDay, date, actual, holidays);
         const details = [
             absence?.label,
             replacement,
@@ -797,15 +832,33 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
                 actual,
                 holidays
             );
-        const extraHours = combineNumericHours(
+        // Deficit por incidencia de marcaje (salida temprana / atraso): descuenta
+        // lo programado no trabajado. Sin esto, un turno cubierto con salida
+        // temprana mantenia las HH.EE del turno completo (p. ej. una Larga
+        // cubierta con "Salida 15:00" mostraba 12 en vez de 7). Espeja el ajuste
+        // de buildNoAssignmentDayRows y deja el reporte consistente con el motor.
+        const clockDeficitHours = absence?.full
+            ? { d: 0, n: 0 }
+            : getClockDeficitHours(
+                profileName,
+                keyDay,
+                date,
+                actual,
+                holidays
+            );
+        const grossExtraHours = combineNumericHours(
             shiftExtraHours,
             clockExtraHours
         );
+        const extraHours = {
+            d: Math.max(0, grossExtraHours.d - clockDeficitHours.d),
+            n: Math.max(0, grossExtraHours.n - clockDeficitHours.n)
+        };
         const swap = getSwapDetail(profileName, keyDay, swaps);
         const replacement = replacementDetail(profileName, keyDay);
         const shiftMove = shiftMoveDetail(profileName, keyDay);
         const contract = contractDetail(contracts, iso);
-        const clock = clockMarkSummary(profileName, keyDay);
+        const clock = clockMarkSummary(profileName, keyDay, date, actual, holidays);
         const details = [
             absence?.label,
             replacement,

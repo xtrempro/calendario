@@ -14,6 +14,7 @@ import {
     parseTimeValue as parseTime,
     timeNearReference
 } from "./timeUtils.js";
+import { classifyClockMarkSegment } from "./clockMarkUtils.js";
 
 const BLOCK_MINUTES = 30;
 
@@ -838,6 +839,28 @@ export function getClockDeficitHours(
     };
 }
 
+// Horas extra NETAS del marcaje: el excedente trabajado menos el deficit. Es el
+// espejo de la "Recuperacion de horas": si el atraso se compensa con la salida
+// tardia (turnos diurnos/larga), esa parte NO es hora extra y no requiere
+// motivo. Se resta por banda (d/n); en la noche el excedente (manana, diurno) y
+// el deficit (tarde, nocturno) caen en bandas distintas, asi que no se
+// compensan entre si (la noche no recupera). Coincide con la HH.EE del reporte.
+export function getClockNetExtraHours(profile, keyDay, date, state, holidays = {}) {
+    const extra = getClockExtraHours(profile, keyDay, date, state, holidays);
+    const deficit = getClockDeficitHours(profile, keyDay, date, state, holidays);
+
+    return {
+        d: Math.max(0, extra.d - deficit.d),
+        n: Math.max(0, extra.n - deficit.n)
+    };
+}
+
+export function hasClockNetExtra(profile, keyDay, date, state, holidays = {}) {
+    const net = getClockNetExtraHours(profile, keyDay, date, state, holidays);
+
+    return Boolean(net.d || net.n);
+}
+
 export function hasSevereClockIncident(profile, keyDay) {
     const mark = getClockMark(profile, keyDay);
 
@@ -1146,8 +1169,63 @@ function clockSegmentHTML(segment, currentMark) {
                     currentSegmentMark
                 })}
             </div>
+            <p class="clock-mark-segment__status" data-segment-status="${segment.id}" hidden></p>
         </section>
     `;
+}
+
+// Mensaje por segmento segun los tiempos actuales del dialogo: recuperacion de
+// horas (atraso compensado con salida tardia, solo diurno/larga), horas extra
+// generadas y/o reduccion de jornada. Se recalcula en vivo al editar.
+function clockSegmentStatusLabel(date, segment, dialog) {
+    const missingEntry = isMissingInDialog(dialog, segment, "entry");
+    const missingExit = isMissingInDialog(dialog, segment, "exit");
+    const segmentMark = {
+        missingEntry,
+        missingExit,
+        entryTime: missingEntry
+            ? ""
+            : readTimeFromDialog(dialog, segment, "entry"),
+        exitTime: missingExit
+            ? ""
+            : readTimeFromDialog(dialog, segment, "exit")
+    };
+    const classification = classifyClockMarkSegment(
+        date,
+        segment,
+        segmentMark,
+        { isBaseOrSwap: true }
+    );
+    const labels = [];
+
+    if (classification.recoveryMinutes > 0) {
+        labels.push("Recuperación de horas");
+    }
+
+    if (classification.netExtraMinutes > 0) {
+        labels.push("Genera horas extra");
+    }
+
+    if (classification.isReduction) {
+        labels.push("Reducción de jornada");
+    }
+
+    return labels.join(" · ");
+}
+
+function updateClockSegmentStatuses(dialog, segments, date) {
+    segments.forEach(segment => {
+        const element = dialog.querySelector(
+            `[data-segment-status="${segment.id}"]`
+        );
+
+        if (!element) return;
+
+        const label = clockSegmentStatusLabel(date, segment, dialog);
+
+        element.textContent = label;
+        element.hidden = !label;
+    });
 }
 
 function setMissingState(dialog, button, active) {
@@ -1343,7 +1421,16 @@ export function openClockMarkDialog({
                         button,
                         button.dataset.active !== "true"
                     );
+                    updateClockSegmentStatuses(dialog, segments, date);
                 };
+            });
+
+        dialog
+            .querySelectorAll(".clock-time-number")
+            .forEach(input => {
+                input.addEventListener("input", () => {
+                    updateClockSegmentStatuses(dialog, segments, date);
+                });
             });
 
         dialog
@@ -1436,6 +1523,7 @@ export function openClockMarkDialog({
         document.addEventListener("keydown", onKeydown);
         document.body.appendChild(backdrop);
         syncMissingButtons(dialog);
+        updateClockSegmentStatuses(dialog, segments, date);
         dialog.querySelector(".clock-time-number:not(:disabled)")?.focus();
     });
 }

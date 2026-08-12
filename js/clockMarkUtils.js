@@ -140,3 +140,74 @@ export function getClockMarkTimingFlags(date, segment, segmentMark) {
         lateExit: Boolean(exit && exit > segment.end)
     };
 }
+
+// Segmentos donde aplica la "Recuperacion de horas": diurnos y larga (incluye el
+// componente diurno de un D+N). En noche/24 las horas NO se pueden recuperar el
+// mismo dia (la noche cruza dos dias), asi que el atraso es reduccion de jornada
+// y el excedente es hora extra, por separado (sin compensarse entre si).
+const HOUR_RECOVERY_SEGMENT_IDS = new Set(["larga", "diurno"]);
+
+/**
+ * Indica si en un segmento se puede recuperar el atraso el mismo dia.
+ * @param {{id?: string}} segment
+ * @returns {boolean}
+ */
+export function isHourRecoverySegment(segment) {
+    return Boolean(segment) && HOUR_RECOVERY_SEGMENT_IDS.has(segment.id);
+}
+
+/**
+ * Clasifica una marca de segmento del turno base/cambio: minutos trabajados de
+ * mas (extra), programados no trabajados (deficit), recuperacion (la parte del
+ * extra que compensa el deficit, solo en segmentos diurnos/larga), extra neta y
+ * si hubo reduccion de jornada.
+ * @param {Date} date
+ * @param {{id?: string, start: Date, end: Date}} segment
+ * @param {{entryTime?: string, exitTime?: string, missingEntry?: boolean, missingExit?: boolean}} segmentMark
+ * @param {{isBaseOrSwap?: boolean}} [options]
+ */
+export function classifyClockMarkSegment(date, segment, segmentMark, options = {}) {
+    const isBaseOrSwap = options.isBaseOrSwap === true;
+    const timing = getClockMarkTimingFlags(date, segment, segmentMark);
+    const isMissing = Boolean(
+        segmentMark?.missingEntry || segmentMark?.missingExit
+    );
+
+    let extraMinutes = 0;
+    let deficitMinutes = 0;
+
+    if (isBaseOrSwap && !isMissing) {
+        if (timing.entry) {
+            const diff = (segment.start - timing.entry) / 60000;
+            if (diff > 0) extraMinutes += diff;
+            else deficitMinutes += -diff;
+        }
+
+        if (timing.exit) {
+            const diff = (timing.exit - segment.end) / 60000;
+            if (diff > 0) extraMinutes += diff;
+            else deficitMinutes += -diff;
+        }
+    }
+
+    // La recuperacion es la parte del extra que compensa el deficit; solo aplica
+    // a segmentos diurnos/larga.
+    const recoveryMinutes = isHourRecoverySegment(segment)
+        ? Math.min(extraMinutes, deficitMinutes)
+        : 0;
+    const netExtraMinutes = extraMinutes - recoveryMinutes;
+    const uncoveredMinutes = deficitMinutes - recoveryMinutes;
+    const isReduction = isBaseOrSwap && !isMissing && uncoveredMinutes > 0;
+
+    return {
+        timing,
+        isMissing,
+        extraMinutes,
+        deficitMinutes,
+        recoveryMinutes,
+        netExtraMinutes,
+        uncoveredMinutes,
+        isReduction,
+        isRecovery: recoveryMinutes > 0
+    };
+}
