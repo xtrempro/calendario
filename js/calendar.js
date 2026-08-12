@@ -2597,7 +2597,13 @@ function buildDayCell({
     const badgeHTML = visibleBadges.length
         ? `
             <span class="day-badges">
-                ${visibleBadges.map(item => `<span class="day-badge">${escapeHTML(item)}</span>`).join("")}
+                ${visibleBadges.map(item => {
+                    const className = item === "No disp."
+                        ? "day-badge day-badge--worker-blocked"
+                        : "day-badge";
+
+                    return `<span class="${className}">${escapeHTML(item)}</span>`;
+                }).join("")}
             </span>
         `
         : "";

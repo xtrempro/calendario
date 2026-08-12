@@ -107,3 +107,28 @@ test("el calendario relee el turno y guarda solo la fecha pulsada", async () => 
     );
     assert.doesNotMatch(source, /data\[keyDay\] = nuevo/);
 });
+
+test("la etiqueta No disp. conserva estilo gris aunque el dia pida motivo", async () => {
+    const [calendarSource, stylesSource] = await Promise.all([
+        readFile(new URL("../js/calendar.js", import.meta.url), "utf8"),
+        readFile(new URL("../styles.css", import.meta.url), "utf8")
+    ]);
+
+    assert.match(
+        calendarSource,
+        /item === "No disp\."\s*\?\s*"day-badge day-badge--worker-blocked"/
+    );
+
+    const alertBadgeIndex = stylesSource.indexOf(
+        ".day.needs-extra-reason .day-badge"
+    );
+    const blockedBadgeIndex = stylesSource.lastIndexOf(
+        ".day.worker-blocked-day .day-badge--worker-blocked"
+    );
+
+    assert.ok(blockedBadgeIndex > alertBadgeIndex);
+    assert.match(
+        stylesSource.slice(blockedBadgeIndex),
+        /background: rgba\(100, 116, 139, 0\.9\);[\s\S]{0,180}font-size: 0\.65rem;/
+    );
+});

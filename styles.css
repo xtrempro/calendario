@@ -4592,7 +4592,7 @@ body.theme-dark .history-action-toast span {
         var(--field);
 }
 
-.day.worker-blocked-day .day-badge {
+.day.worker-blocked-day .day-badge--worker-blocked {
     background: rgba(100, 116, 139, 0.9);
     color: #fff;
     letter-spacing: 0;
@@ -4944,6 +4944,17 @@ td.mini.timeline-leave-pending > .timeline-replacement-marker {
     padding: 1px 6px;
     font-size: 0.54rem;
     letter-spacing: 0.04em;
+}
+
+.day.worker-blocked-day .day-badge--worker-blocked {
+    min-width: 20px;
+    min-height: 20px;
+    padding: 2px 7px;
+    background: rgba(100, 116, 139, 0.9);
+    color: #fff;
+    font-size: 0.65rem;
+    line-height: 1;
+    letter-spacing: 0;
 }
 
 .turn-change-dialog-backdrop {
