@@ -4705,6 +4705,16 @@ body.theme-light .day.worker-blocked-day {
     letter-spacing: 0.08em;
 }
 
+.day-badge--clock {
+    padding: 2px;
+    background: rgba(var(--brand-blue-rgb), 0.92);
+}
+
+.day-badge--clock svg {
+    width: 14px;
+    height: 14px;
+}
+
 .day.has-multiple-badges {
     min-height: auto;
     height: max-content;
@@ -5594,6 +5604,85 @@ body.auth-gate-active .app-shell {
     color: var(--text-soft);
     font-size: 0.82rem;
     line-height: 1.4;
+}
+
+.clock-detail-dialog {
+    width: min(460px, 100%);
+}
+
+.clock-detail-rows {
+    display: grid;
+    gap: 8px;
+    margin: 6px 0 10px;
+}
+
+.clock-detail-rows > div {
+    display: grid;
+    grid-template-columns: minmax(0, 110px) minmax(0, 1fr);
+    gap: 10px;
+    align-items: baseline;
+}
+
+.clock-detail-rows span {
+    color: var(--text-soft);
+    font-size: 0.82rem;
+}
+
+.clock-detail-rows b {
+    color: var(--text);
+}
+
+.clock-detail-segments {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.clock-detail-segment {
+    display: grid;
+    gap: 3px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--field);
+}
+
+.clock-detail-segment strong {
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.clock-detail-segment > span {
+    color: var(--text-soft);
+    font-size: 0.82rem;
+}
+
+.clock-detail-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.clock-detail-tags em {
+    font-style: normal;
+    font-weight: 700;
+    font-size: 0.74rem;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(var(--brand-blue-rgb), 0.12);
+    color: var(--accent);
+}
+
+.clock-detail-reason {
+    margin: 0 0 6px;
+    color: var(--text);
+    font-size: 0.84rem;
+}
+
+.clock-detail-reason span {
+    color: var(--text-soft);
+    font-weight: 700;
 }
 
 .leave-detail-undo {
@@ -8743,6 +8832,11 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 .mini.clock-incident-day .timeline-replacement-marker {
     background: #0ea5e9;
     color: #fff;
+}
+
+.timeline-replacement-marker .timeline-clock-marker {
+    width: 12px;
+    height: 12px;
 }
 
 .mini.clock-severe-day .timeline-replacement-marker {

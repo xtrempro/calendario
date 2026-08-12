@@ -502,6 +502,35 @@ export function getLeaveApplicationInfo({
     };
 }
 
+// Fecha y usuario de la ultima modificacion de marcaje reloj control para un
+// dia/perfil (para el modal de detalle). Se apoya en el registro del LOG que crea
+// el flujo de marcaje; si fue evicto, actorName cae a "No registrado".
+export function getClockMarkAuditInfo(profile, keyDay) {
+    if (!profile || !keyDay) return null;
+
+    const target = String(keyDay);
+    const log = getAuditLogs()
+        .filter(item =>
+            item?.category === AUDIT_CATEGORY.CALENDAR &&
+            String(item?.action || "") === "Modifico marcaje reloj control" &&
+            sameProfileName(String(item?.meta?.profile || ""), profile) &&
+            String(item?.meta?.keyDay || "") === target
+        )
+        .sort((a, b) =>
+            String(b.createdAt).localeCompare(String(a.createdAt))
+        )[0];
+
+    if (!log) return null;
+
+    const actorName = logActorName(log);
+
+    return {
+        createdAt: log.createdAt,
+        createdAtLabel: formatTimestamp(log.createdAt),
+        actorName: actorName || "No registrado"
+    };
+}
+
 function canUndoAuditLog(log) {
     if (log?.canceledAt) return false;
 

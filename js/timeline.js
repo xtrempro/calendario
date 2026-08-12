@@ -151,6 +151,9 @@ const TIMELINE_PUBLISHED_SUMMARY_TTL_MS = 60000;
 // Sin esto, tras anular un permiso el turno cubierto se quitaba pero la
 // hidratacion del publicado repintaba las HH.EE viejas de quien cubria.
 const timelineLocallyDirtyProfiles = new Set();
+// Marcador de "marcaje reloj control modificado" en el timeline: reemplaza el
+// antiguo asterisco por un icono de reloj (mismo criterio que el calendario).
+const TIMELINE_CLOCK_MARKER = `<svg class="timeline-clock-marker" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>`;
 let timelineLastUserActivityAt = Date.now();
 // Contexto del ultimo render (mes visible) para actualizar casillas sueltas
 // sin reconstruir todo el timeline.
@@ -3338,7 +3341,7 @@ function renderTimelineDayCell(profile, d, {
                 : showExtraReason || showClockExtra
                     ? "?"
                     : simpleClockIncident
-                    ? "*"
+                    ? TIMELINE_CLOCK_MARKER
                     : (hourReturn
                         ? hourReturnTimelineMarker(hourReturn)
                         : replacement

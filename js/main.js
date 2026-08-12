@@ -10028,6 +10028,10 @@ async function handleClockMarkSelection(fecha) {
     clearSelectionMode();
 }
 
+// Permite abrir el editor de marcaje para una fecha desde fuera del modo de
+// seleccion (p. ej. el boton "Modificar marcaje" del modal de detalle).
+window.openClockMarkEditorForDate = handleClockMarkSelection;
+
 function primeBirthDatePickerDefault() {
     const field = DOM.profileBirthDateInput;
 

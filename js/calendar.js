@@ -125,15 +125,22 @@ import {
     addAuditLog,
     AUDIT_CATEGORY,
     getLeaveApplicationInfo,
+    getClockMarkAuditInfo,
     undoAuditLogEntry
 } from "./auditLog.js";
 import {
     getClockMarks,
     getClockNetExtraHours,
+    getClockScheduleState,
+    getScheduledSegmentsForProfile,
     hasClockNetExtra,
     hasSevereClockIncident,
     hasSimpleClockIncident
 } from "./clockMarks.js";
+import {
+    classifyClockMarkSegment,
+    findClockMarkEntry
+} from "./clockMarkUtils.js";
 import {
     getHourReturns,
     hourReturnCalendarLabel
@@ -1043,6 +1050,11 @@ async function handleCalendarCellFallbackClick(cell, event) {
         getHonorariaExcessForKey(honorariaSummary, keyDay);
     const severeClockIncident =
         hasSevereClockIncident(activeProfile, keyDay);
+    const clockMarkForDay = getClockMarks(activeProfile)[keyDay] || null;
+    const simpleClockIncident =
+        Boolean(clockMarkForDay) &&
+        !severeClockIncident &&
+        clockMarkHasSimpleIncident(clockMarkForDay);
     const inheritedContractCoverage =
         getInheritedReplacementContractForCoveredShift(
             activeProfile,
@@ -1120,6 +1132,24 @@ async function handleCalendarCellFallbackClick(cell, event) {
             keyDay,
             state
         );
+    }
+
+    // Dia con marcaje modificado (icono de reloj): al presionarlo se abre el
+    // detalle del marcaje. No aplica si aun falta el motivo de horas extra (badge
+    // "?") ni durante un modo de seleccion (p. ej. marcaje/permisos).
+    if (
+        simpleClockIncident &&
+        !showClockExtraReason &&
+        !window.selectionMode
+    ) {
+        event.stopPropagation();
+        return openClockMarkDetailDialog({
+            profile: activeProfile,
+            keyDay,
+            date,
+            state,
+            holidays
+        });
     }
 
     if (
@@ -2535,6 +2565,17 @@ const HONORARIA_CONTRACT_ICON = `
     </svg>
 `;
 
+// Badge de "marcaje reloj control modificado": reemplaza el antiguo asterisco por
+// un icono de reloj. Es un centinela (no texto visible) que buildDayCell detecta
+// para renderizar el SVG en vez de escaparlo como texto.
+const CLOCK_MARK_BADGE = "clock-mark";
+const CLOCK_MARK_BADGE_ICON = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="8.5"/>
+        <path d="M12 7.5V12l3 2"/>
+    </svg>
+`;
+
 function buildDayCell({
     day,
     month,
@@ -2598,6 +2639,10 @@ function buildDayCell({
         ? `
             <span class="day-badges">
                 ${visibleBadges.map(item => {
+                    if (item === CLOCK_MARK_BADGE) {
+                        return `<span class="day-badge day-badge--clock" title="Marcaje reloj control modificado">${CLOCK_MARK_BADGE_ICON}</span>`;
+                    }
+
                     const className = item === "No disp."
                         ? "day-badge day-badge--worker-blocked"
                         : "day-badge";
@@ -6028,6 +6073,146 @@ async function openClockExtraReasonDialog(
 
 window.openClockExtraReasonDialog = openClockExtraReasonDialog;
 
+// Detalle por segmento del marcaje: entrada/salida reales + etiquetas de
+// recuperacion / reduccion / horas extra (usa el mismo clasificador del reporte).
+function clockDetailSegmentsHTML(profile, keyDay, date, state, holidays, mark) {
+    const scheduledState = getClockScheduleState(profile, keyDay, state);
+    const segments = getScheduledSegmentsForProfile(
+        profile,
+        keyDay,
+        date,
+        scheduledState,
+        holidays
+    );
+
+    return segments
+        .map(segment => {
+            const segmentMark = findClockMarkEntry(mark, segment)?.value;
+
+            if (!segmentMark) return "";
+
+            const times = [];
+
+            if (segmentMark.missingEntry) {
+                times.push("Sin entrada");
+            } else if (segmentMark.entryTime) {
+                times.push(`Entrada a las ${segmentMark.entryTime}`);
+            }
+
+            if (segmentMark.missingExit) {
+                times.push("Sin salida");
+            } else if (segmentMark.exitTime) {
+                times.push(`Salida a las ${segmentMark.exitTime}`);
+            }
+
+            const classification = classifyClockMarkSegment(
+                date,
+                segment,
+                segmentMark,
+                { isBaseOrSwap: true }
+            );
+            const tags = [];
+
+            if (classification.recoveryMinutes > 0) {
+                tags.push("Recuperación de horas");
+            }
+
+            if (classification.netExtraMinutes > 0) {
+                tags.push("Genera horas extra");
+            }
+
+            if (classification.isReduction) {
+                tags.push("Reducción de jornada");
+            }
+
+            return `
+                <div class="clock-detail-segment">
+                    <strong>${escapeHTML(segment.label || "Turno")}</strong>
+                    ${times.length
+                        ? `<span>${escapeHTML(times.join(" · "))}</span>`
+                        : ""}
+                    ${tags.length
+                        ? `<span class="clock-detail-tags">${tags.map(tag =>
+                            `<em>${escapeHTML(tag)}</em>`).join("")}</span>`
+                        : ""}
+                </div>
+            `;
+        })
+        .filter(Boolean)
+        .join("");
+}
+
+function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {} }) {
+    const mark = getClockMarks(profile)[keyDay];
+
+    if (!mark?.segments) return;
+
+    const audit = getClockMarkAuditInfo(profile, keyDay);
+    const modifiedLabel = audit?.createdAtLabel ||
+        (mark.updatedAt
+            ? new Date(mark.updatedAt).toLocaleString("es-CL")
+            : "Sin registro");
+    const actorName = audit?.actorName || "No registrado";
+    const segmentsHTML = clockDetailSegmentsHTML(
+        profile,
+        keyDay,
+        date,
+        state,
+        holidays,
+        mark
+    );
+    const reason = getClockExtraBackupForWorker(profile, keyDay)?.reason || "";
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "turn-change-dialog-backdrop";
+    backdrop.innerHTML = `
+        <section class="turn-change-dialog clock-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="clockDetailTitle">
+            <strong id="clockDetailTitle">Marcaje reloj control</strong>
+            <div class="clock-detail-rows">
+                <div><span>Trabajador</span><b>${escapeHTML(profile)}</b></div>
+                <div><span>Fecha</span><b>${escapeHTML(leaveDateLabelFromKey(keyDay))}</b></div>
+                <div><span>Modificado</span><b>${escapeHTML(modifiedLabel)}</b></div>
+                <div><span>Por</span><b>${escapeHTML(actorName)}</b></div>
+            </div>
+            <div class="clock-detail-segments">
+                ${segmentsHTML || `<div class="clock-detail-segment"><span>Sin detalle de segmentos.</span></div>`}
+            </div>
+            ${reason
+                ? `<p class="clock-detail-reason"><span>Motivo horas extras:</span> ${escapeHTML(reason)}</p>`
+                : ""}
+            <div class="turn-change-dialog__actions">
+                <button class="primary-button" type="button" data-action="edit">Modificar marcaje</button>
+                <button class="ghost-button" type="button" data-action="close">Cerrar</button>
+            </div>
+        </section>
+    `;
+
+    const close = () => {
+        document.removeEventListener("keydown", onKeydown);
+        backdrop.remove();
+    };
+    const onKeydown = event => {
+        if (event.key === "Escape") close();
+    };
+
+    backdrop.addEventListener("click", event => {
+        if (event.target === backdrop) close();
+    });
+    backdrop
+        .querySelector("[data-action='close']")
+        ?.addEventListener("click", close);
+    backdrop
+        .querySelector("[data-action='edit']")
+        ?.addEventListener("click", () => {
+            close();
+            window.openClockMarkEditorForDate?.(date);
+        });
+
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(backdrop);
+    backdrop.querySelector("[data-action='edit']")?.focus();
+}
+
 async function clickDia(
     keyDay,
     isHab,
@@ -6677,7 +6862,7 @@ async function renderCalendarImpl(options = {}) {
                     : showExtraReason || showClockExtraReason
                     ? "?"
                     : simpleClockIncident
-                        ? "*"
+                        ? CLOCK_MARK_BADGE
                         : workerReplacement
                             ? (
                                 workerReplacement.isLoan
@@ -7066,6 +7251,24 @@ async function renderCalendarImpl(options = {}) {
                     keyDay,
                     state
                 );
+            }
+
+            // Dia con marcaje modificado (icono de reloj): abre el detalle del
+            // marcaje. No aplica si falta el motivo de horas extra (badge "?") ni
+            // durante un modo de seleccion.
+            if (
+                simpleClockIncident &&
+                !showClockExtraReason &&
+                !window.selectionMode
+            ) {
+                event.stopPropagation();
+                return openClockMarkDetailDialog({
+                    profile: activeProfile,
+                    keyDay,
+                    date,
+                    state,
+                    holidays
+                });
             }
 
             if (
