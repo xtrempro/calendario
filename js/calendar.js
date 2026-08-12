@@ -36,7 +36,9 @@ import {
     getSwaps,
     isProfileActive,
     profileCanCoverProfile,
-    saveReplacements
+    saveReplacements,
+    isNoCoverageDay,
+    setNoCoverageDay
 } from "./storage.js";
 import {
     tieneAusencia,
@@ -1070,7 +1072,8 @@ async function handleCalendarCellFallbackClick(cell, event) {
             absences
         ) &&
         !coveredReplacement &&
-        !inheritedContractCoverage;
+        !inheritedContractCoverage &&
+        !isNoCoverageDay(activeProfile, keyDay);
     const pendingManualExtra =
         getPendingManualExtraTurn(
             activeProfile,
@@ -2573,6 +2576,19 @@ const CLOCK_MARK_BADGE_ICON = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="8.5"/>
         <path d="M12 7.5V12l3 2"/>
+    </svg>
+`;
+
+// Icono del boton de opciones del modal de reemplazo (barras + triangulo hacia
+// abajo): al presionarlo despliega el panel de opciones.
+const REPLACEMENT_OPTIONS_ICON = `
+    <svg viewBox="0 0 30 24" fill="none" aria-hidden="true">
+        <g stroke="currentColor" stroke-width="2.8" stroke-linecap="round">
+            <line x1="2" y1="5" x2="15" y2="5"/>
+            <line x1="2" y1="12" x2="15" y2="12"/>
+            <line x1="2" y1="19" x2="15" y2="19"/>
+        </g>
+        <path d="M19 8H28L23.5 15Z" fill="currentColor"/>
     </svg>
 `;
 
@@ -4463,7 +4479,8 @@ function replacementDialogHTML({
     requestMode,
     pendingRequests,
     selectedRequestWorkers,
-    linkedStatus = ""
+    linkedStatus = "",
+    optionsOpen = false
 }) {
     const replacementConfig = getReplacementRequestConfig();
     const allowLinkedSuggestions =
@@ -4620,7 +4637,7 @@ function replacementDialogHTML({
             </div>
         `
         : "";
-    const toolbarButtons = [
+    const optionControls = [
         allowCrossRoleSuggestions
             ? `
                 <button class="secondary-button" type="button" data-action="toggle-force">
@@ -4640,32 +4657,57 @@ function replacementDialogHTML({
                     }
                 </button>
             `
-            : ""
+            : "",
+        (!linkedMode && allowWorkerAcceptanceRequest)
+            ? `
+                <label class="replacement-request-toggle">
+                    <input type="checkbox" data-action="request-mode" ${isRequestMode ? "checked" : ""}>
+                    <span>
+                        <strong>Solicitar aprobación del trabajador</strong>
+                    </span>
+                </label>
+            `
+            : "",
+        `
+            <button class="ghost-button" type="button" data-action="no-coverage">
+                No requiere cobertura
+            </button>
+        `
     ].filter(Boolean).join("");
 
     return `
         <div class="turn-change-dialog replacement-dialog" role="dialog" aria-modal="true" aria-labelledby="replacementDialogTitle">
-            <strong id="replacementDialogTitle">Seleccionar reemplazo</strong>
+            <div class="replacement-dialog-header">
+                <strong id="replacementDialogTitle">Seleccionar reemplazo</strong>
+                <button
+                    class="replacement-options-icon ${optionsOpen ? "is-open" : ""}"
+                    type="button"
+                    data-action="toggle-options"
+                    aria-expanded="${optionsOpen ? "true" : "false"}"
+                    aria-label="Más opciones"
+                    title="Más opciones"
+                >
+                    ${REPLACEMENT_OPTIONS_ICON}
+                </button>
+            </div>
             <p>
                 ${escapeHTML(profileName)} requiere cobertura para ${escapeHTML(turnoReplacementLabel(neededTurn))}
                 por ${escapeHTML(absenceType)}.
             </p>
-            ${toolbarButtons ? `
-                <div class="replacement-dialog-toolbar">
-                    ${toolbarButtons}
-                </div>
-            ` : ""}
+            <div class="replacement-options-panel ${optionsOpen ? "" : "is-hidden"}" data-options-panel>
+                ${optionControls}
+            </div>
+            <input
+                type="search"
+                class="replacement-search is-hidden"
+                data-replacement-search
+                placeholder="Buscar reemplazo por nombre"
+                autocomplete="off"
+            >
             ${linkedMode ? `
                 <div class="replacement-dialog-note">
                     Sugerencias de unidades enlazadas activas: se muestran trabajadores compatibles y disponibles segun su unidad. Al asignar, se registra como prestamo en ambas unidades.
                 </div>
-            ` : allowWorkerAcceptanceRequest ? `
-            <label class="replacement-request-toggle">
-                <input type="checkbox" data-action="request-mode" ${isRequestMode ? "checked" : ""}>
-                <span>
-                    <strong>Solicitar aceptacion al trabajador</strong>
-                </span>
-            </label>
             ` : ""}
             ${bulkActions}
             ${pendingList}
@@ -4677,7 +4719,7 @@ function replacementDialogHTML({
             <div class="replacement-candidate-list">
                 ${items}
             </div>
-            <div class="turn-change-dialog__actions">
+            <div class="turn-change-dialog__actions replacement-dialog__actions">
                 <button class="leave-detail-undo" type="button" data-action="cancel-leave">
                     Anular permiso
                 </button>
@@ -4850,6 +4892,7 @@ async function openReplacementDialog(profileName, keyDay) {
     let scope = "compatible";
     let requestMode = false;
     let selectedRequestWorkers = new Set();
+    let optionsOpen = false;
     const normalizeReplacementDialogState = () => {
         const replacementConfig = getReplacementRequestConfig();
 
@@ -4955,6 +4998,80 @@ async function openReplacementDialog(profileName, keyDay) {
         backdrop
             .querySelector("[data-action='cancel']")
             .onclick = close;
+
+        const optionsTrigger =
+            backdrop.querySelector("[data-action='toggle-options']");
+        const optionsPanel =
+            backdrop.querySelector("[data-options-panel]");
+        if (optionsTrigger && optionsPanel) {
+            // Toggle directo del DOM (sin re-render): el estado se conserva en
+            // optionsOpen para no cerrarse al recomputar candidatos (force/linked).
+            optionsTrigger.onclick = () => {
+                optionsOpen = !optionsOpen;
+                optionsPanel.classList.toggle("is-hidden", !optionsOpen);
+                optionsTrigger.classList.toggle("is-open", optionsOpen);
+                optionsTrigger.setAttribute(
+                    "aria-expanded",
+                    optionsOpen ? "true" : "false"
+                );
+            };
+        }
+
+        // Filtro de busqueda: oculta los candidatos cuyo nombre no coincide.
+        const searchInput =
+            backdrop.querySelector("[data-replacement-search]");
+        if (searchInput) {
+            const normalize = value => String(value || "")
+                .normalize("NFD")
+                .replace(/[̀-ͯ]/g, "")
+                .toLowerCase()
+                .trim();
+
+            searchInput.oninput = () => {
+                const term = normalize(searchInput.value);
+
+                backdrop
+                    .querySelectorAll(".replacement-candidate")
+                    .forEach(candidate => {
+                        const name = normalize(
+                            candidate.querySelector("strong")?.textContent
+                        );
+
+                        candidate.classList.toggle(
+                            "is-search-hidden",
+                            Boolean(term) && !name.includes(term)
+                        );
+                    });
+            };
+        }
+
+        const noCoverageButton =
+            backdrop.querySelector("[data-action='no-coverage']");
+        if (noCoverageButton) {
+            noCoverageButton.onclick = async () => {
+                const confirmed = await showConfirm(
+                    `Se marcará este turno de ${profileName} como "no requiere cobertura": desaparecerá la alerta y no se volverá a pedir un reemplazo para este día.`,
+                    {
+                        title: "No requiere cobertura",
+                        confirmText: "No requiere cobertura"
+                    }
+                );
+
+                if (!confirmed) return;
+
+                await withBusyState(async () => {
+                    if (typeof window.pushUndoState === "function") {
+                        window.pushUndoState("Marcar sin cobertura");
+                    }
+
+                    setNoCoverageDay(profileName, keyDay, true);
+                    close();
+                    await updateDayCell(profileName, keyDay);
+                    updateTimelineCells(profileName, [keyDay]);
+                    await updateVisibleCalendarDays({ updateSummary: true });
+                }, { label: "Guardando..." });
+            };
+        }
 
         const cancelLeaveButton =
             backdrop.querySelector("[data-action='cancel-leave']");
@@ -5384,12 +5501,25 @@ async function openReplacementDialog(profileName, keyDay) {
             requestMode,
             pendingRequests,
             selectedRequestWorkers,
+            optionsOpen,
             linkedStatus: scope === "linked"
                 ? linkedReplacementStatus
                 : ""
         });
 
         bindActions();
+
+        // El buscador solo aparece cuando el listado desborda (hay scroll). Se mide
+        // tras insertar el DOM (el backdrop ya esta en el documento).
+        const candidateList =
+            backdrop.querySelector(".replacement-candidate-list");
+        const searchBox =
+            backdrop.querySelector("[data-replacement-search]");
+        if (candidateList && searchBox) {
+            const scrollable =
+                candidateList.scrollHeight > candidateList.clientHeight + 4;
+            searchBox.classList.toggle("is-hidden", !scrollable);
+        }
 
         (
             backdrop.querySelector(".replacement-candidate") ||
@@ -6287,7 +6417,8 @@ async function clickDia(
         !getInheritedReplacementContractForCoveredShift(
             profileName,
             keyDay
-        );
+        ) &&
+        !isNoCoverageDay(profileName, keyDay);
 
     if (needsReplacement) {
         return openReplacementDialog(
@@ -6835,7 +6966,8 @@ async function renderCalendarImpl(options = {}) {
                 absences
             ) &&
             !coveredReplacement &&
-            !inheritedContractCoverage;
+            !inheritedContractCoverage &&
+            !isNoCoverageDay(activeProfile, keyDay);
         const showExtraReason =
             !needsReplacement &&
             !turnChange &&

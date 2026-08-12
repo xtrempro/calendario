@@ -816,6 +816,29 @@ export function saveReplacements(data){
     setJSON("replacements", data);
 }
 
+// Dias marcados por el supervisor como "no requiere cobertura": aunque el
+// trabajador tenga un permiso/licencia sobre un turno base, no se solicita
+// reemplazo (se suprime el signo de exclamacion en calendario/timeline/staffing).
+export function getNoCoverageDays(profile){
+    return getJSON(`noCoverage_${profile}`, {});
+}
+
+export function isNoCoverageDay(profile, keyDay){
+    return getNoCoverageDays(profile)[keyDay] === true;
+}
+
+export function setNoCoverageDay(profile, keyDay, value){
+    const map = getNoCoverageDays(profile);
+
+    if (value) {
+        map[keyDay] = true;
+    } else {
+        delete map[keyDay];
+    }
+
+    setJSON(`noCoverage_${profile}`, map);
+}
+
 const DEFAULT_REPLACEMENT_REQUEST_CONFIG = {
     expiresMinutes: 60,
     enableLinkedUnitSuggestions: true,

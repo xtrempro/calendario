@@ -14,6 +14,7 @@ import {
     getReplacements,
     getRotativa,
     isProfileActive,
+    isNoCoverageDay,
     getProfessionOptionsForEstamento,
     normalizeProfession
 } from "./storage.js";
@@ -2532,7 +2533,8 @@ function weeklyProfileNeedsReplacement(profile, keyDay, turno) {
         !getInheritedReplacementContractForCoveredShift(
             profile.name,
             keyDay
-        );
+        ) &&
+        !isNoCoverageDay(profile.name, keyDay);
 }
 
 function profileWeeklyPendingReplacementSlot(
@@ -3450,7 +3452,8 @@ function getPendingReplacementTarget(profile, keyDay) {
             legal,
             comp,
             absences
-        )
+        ) ||
+        isNoCoverageDay(profile.name, keyDay)
     ) {
         return null;
     }

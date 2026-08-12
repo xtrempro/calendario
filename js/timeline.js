@@ -5,7 +5,8 @@ import {
     getShiftAssigned,
     getReplacements,
     getSwaps,
-    isProfileActive
+    isProfileActive,
+    isNoCoverageDay
 } from "./storage.js";
 
 import * as calendar from "./calendar.js";
@@ -948,6 +949,7 @@ function timelineAffectedProfilesFromKeys(keys = [], changes = {}) {
         "comp_",
         "absences_",
         "blocked_",
+        "noCoverage_",
         "rotativa_",
         "replacementContracts_",
         "carry_",
@@ -2302,7 +2304,8 @@ function needsReplacementMarker(nombre, key) {
             getAbs(nombre)
         ) &&
         !getReplacementForCoveredShift(nombre, key) &&
-        !getInheritedReplacementContractForCoveredShift(nombre, key)
+        !getInheritedReplacementContractForCoveredShift(nombre, key) &&
+        !isNoCoverageDay(nombre, key)
     );
 }
 
@@ -2630,7 +2633,8 @@ function buildTimelineRowAuxiliaryContext(
                 leaveMaps.comp,
                 leaveMaps.absences
             ) &&
-            !coveredReplacementByIso.has(iso)
+            !coveredReplacementByIso.has(iso) &&
+            !isNoCoverageDay(profileName, keyDay)
         );
 
         if (isReplacement) {

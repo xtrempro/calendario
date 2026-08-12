@@ -55,6 +55,7 @@ const PREFIX_KEY_MODULES = [
     ["comp_", "turnos"],
     ["absences_", "turnos"],
     ["blocked_", "turnos"],
+    ["noCoverage_", "turnos"],
     ["leaveBalances_", "turnos"],
     ["clockMarks_", "clockmarks"],
     ["carry_", "hours"],
