@@ -105,17 +105,20 @@ function attachmentMetadata(
     moduleId,
     ownerId,
     recordId,
-    uploadedByUid
+    uploadedByUid,
+    contentType = "application/pdf"
 ) {
     return {
-        contentType: "application/pdf",
+        contentType,
         customMetadata: {
             workspaceId: WORKSPACE_ID,
             moduleId,
             ownerId,
             recordId,
             uploadedByUid,
-            originalName: "prueba.pdf"
+            originalName: contentType.startsWith("image/")
+                ? "programacion.jpg"
+                : "prueba.pdf"
         }
     };
 }
@@ -160,6 +163,20 @@ test("reglas modulares de Firestore y Storage", async t => {
     });
     const profileEditor = env.authenticatedContext("profile-editor", {
         email: "profile@example.com",
+        firebase: {
+            sign_in_provider: "google.com",
+            sign_in_second_factor: "totp"
+        }
+    });
+    const tasksEditor = env.authenticatedContext("tasks-editor", {
+        email: "tasks@example.com",
+        firebase: {
+            sign_in_provider: "google.com",
+            sign_in_second_factor: "totp"
+        }
+    });
+    const weeklyEditor = env.authenticatedContext("weekly-editor", {
+        email: "weekly@example.com",
         firebase: {
             sign_in_provider: "google.com",
             sign_in_second_factor: "totp"
@@ -247,6 +264,26 @@ test("reglas modulares de Firestore y Storage", async t => {
                 "profile-editor"
             ),
             { role: "member", permissions: permissions(["profile"]) }
+        );
+        await setDoc(
+            doc(
+                db,
+                "workspaces",
+                WORKSPACE_ID,
+                "members",
+                "tasks-editor"
+            ),
+            { role: "member", permissions: permissions(["tasks"]) }
+        );
+        await setDoc(
+            doc(
+                db,
+                "workspaces",
+                WORKSPACE_ID,
+                "members",
+                "weekly-editor"
+            ),
+            { role: "member", permissions: permissions(["weekly"]) }
         );
         await setDoc(
             doc(
@@ -1749,6 +1786,122 @@ test("reglas modulares de Firestore y Storage", async t => {
                         "worker-1",
                         "profile-documents",
                         "owner"
+                    )
+                )
+            );
+        }
+    );
+
+    await t.test(
+        "Storage permite publicar la programacion semanal solo como imagen",
+        async () => {
+            const schedulePath = [
+                "workspaces",
+                WORKSPACE_ID,
+                "attachments",
+                "tasks",
+                "weekly-schedule",
+                "published-schedule",
+                "programacion.jpg"
+            ].join("/");
+            const pdfPath = [
+                "workspaces",
+                WORKSPACE_ID,
+                "attachments",
+                "tasks",
+                "weekly-schedule",
+                "published-schedule",
+                "programacion.pdf"
+            ].join("/");
+            const bytes = new Uint8Array([255, 216, 255, 224]);
+
+            await assertSucceeds(
+                uploadBytes(
+                    ref(tasksEditor.storage(), schedulePath),
+                    bytes,
+                    attachmentMetadata(
+                        "tasks",
+                        "weekly-schedule",
+                        "published-schedule",
+                        "tasks-editor",
+                        "image/jpeg"
+                    )
+                )
+            );
+            await assertSucceeds(
+                uploadBytes(
+                    ref(weeklyEditor.storage(), schedulePath.replace(
+                        "programacion.jpg",
+                        "programacion-weekly.jpg"
+                    )),
+                    bytes,
+                    attachmentMetadata(
+                        "tasks",
+                        "weekly-schedule",
+                        "published-schedule",
+                        "weekly-editor",
+                        "image/jpg"
+                    )
+                )
+            );
+            await assertSucceeds(
+                uploadBytes(
+                    ref(turnosEditor.storage(), schedulePath.replace(
+                        "programacion.jpg",
+                        "programacion-turnos.jpg"
+                    )),
+                    bytes,
+                    attachmentMetadata(
+                        "tasks",
+                        "weekly-schedule",
+                        "published-schedule",
+                        "turnos-editor",
+                        "image/jpeg"
+                    )
+                )
+            );
+            await assertSucceeds(
+                uploadBytes(
+                    ref(viewer.storage(), schedulePath.replace(
+                        "programacion.jpg",
+                        "programacion-viewer.jpg"
+                    )),
+                    bytes,
+                    attachmentMetadata(
+                        "tasks",
+                        "weekly-schedule",
+                        "published-schedule",
+                        "viewer",
+                        "image/jpeg"
+                    )
+                )
+            );
+            await assertSucceeds(
+                uploadBytes(
+                    ref(owner.storage(), schedulePath.replace(
+                        "programacion.jpg",
+                        "programacion-pjpeg.jpg"
+                    )),
+                    bytes,
+                    attachmentMetadata(
+                        "tasks",
+                        "weekly-schedule",
+                        "published-schedule",
+                        "owner",
+                        "image/pjpeg"
+                    )
+                )
+            );
+            await assertFails(
+                uploadBytes(
+                    ref(tasksEditor.storage(), pdfPath),
+                    new Uint8Array([37, 80, 68, 70]),
+                    attachmentMetadata(
+                        "tasks",
+                        "weekly-schedule",
+                        "published-schedule",
+                        "tasks-editor",
+                        "application/pdf"
                     )
                 )
             );

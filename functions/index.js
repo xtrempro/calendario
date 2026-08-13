@@ -127,6 +127,29 @@ const MENU_PERMISSION_KEYS = [
   "dashboard",
   "log"
 ];
+const SCHEDULE_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
+const SCHEDULE_ATTACHMENT_MODULE_ID = "tasks";
+const SCHEDULE_ATTACHMENT_OWNER_ID = "weekly-schedule";
+const SCHEDULE_ATTACHMENT_RECORD_ID = "published-schedule";
+const SCHEDULE_IMAGE_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/bmp",
+  "image/heic",
+  "image/heif"
+]);
+const SCHEDULE_IMAGE_MIME_BY_EXTENSION = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  heic: "image/heic",
+  heif: "image/heif"
+};
 
 function cleanCallableText(value, maxLength = 160) {
   return String(value || "").trim().slice(0, maxLength);
@@ -262,6 +285,175 @@ async function requireWorkspaceOwner(workspaceId, uid, token) {
 
   return member;
 }
+
+function scheduleFileExtension(name) {
+  const match = String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match?.[1] || "";
+}
+
+function safeStoragePathSegment(value, fallback = "item") {
+  const clean = String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 120);
+
+  return clean || fallback;
+}
+
+function normalizeScheduleImageType(type) {
+  const clean = cleanCallableText(type, 160).toLowerCase();
+
+  return clean === "image/jpg" || clean === "image/pjpeg"
+    ? "image/jpeg"
+    : clean;
+}
+
+function scheduleContentTypeFor(name, type) {
+  const cleanType = normalizeScheduleImageType(type);
+  const extension = scheduleFileExtension(name);
+
+  if (SCHEDULE_IMAGE_MIME_TYPES.has(cleanType)) return cleanType;
+  return SCHEDULE_IMAGE_MIME_BY_EXTENSION[extension] || "";
+}
+
+function decodeScheduleAttachmentPayload(data = {}) {
+  const name = cleanCallableText(data.name || "programacion.jpg", 180);
+  const dataUrl = String(data.dataUrl || "");
+  const base64Value = String(data.base64 || "");
+  const match = dataUrl.match(/^data:([^;,]+)?;base64,(.*)$/s);
+  const base64 = (match ? match[2] : base64Value).replace(/\s/g, "");
+  const dataUrlType = normalizeScheduleImageType(match?.[1]);
+  const contentType = scheduleContentTypeFor(name, dataUrlType || data.type);
+
+  if (!name || !base64 || !contentType) {
+    throw new HttpsError(
+      "invalid-argument",
+      "La programacion debe adjuntarse como imagen."
+    );
+  }
+
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64) || base64.length % 4 === 1) {
+    throw new HttpsError(
+      "invalid-argument",
+      "No se pudo leer la imagen adjunta."
+    );
+  }
+
+  const buffer = Buffer.from(base64, "base64");
+
+  if (!buffer.length || buffer.length > SCHEDULE_ATTACHMENT_MAX_SIZE) {
+    throw new HttpsError(
+      "invalid-argument",
+      "La imagen debe pesar hasta 10 MB."
+    );
+  }
+
+  return {
+    buffer,
+    contentType,
+    originalName: name,
+    safeName: safeStoragePathSegment(
+      name,
+      `programacion.${scheduleFileExtension(name) || "jpg"}`
+    )
+  };
+}
+
+function storageDownloadURL(bucketName, storagePath, token) {
+  return [
+    "https://firebasestorage.googleapis.com/v0/b/",
+    encodeURIComponent(bucketName),
+    "/o/",
+    encodeURIComponent(storagePath),
+    "?alt=media&token=",
+    encodeURIComponent(token)
+  ].join("");
+}
+
+exports.uploadScheduleAttachment = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 60,
+    memory: "512MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para adjuntar la programacion."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+
+    if (!workspaceId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Selecciona una unidad antes de adjuntar la programacion."
+      );
+    }
+
+    await requireWorkspaceMember(workspaceId, uid, request.auth.token || {});
+
+    const decoded = decodeScheduleAttachmentPayload(request.data || {});
+    const bucket = admin.storage().bucket();
+
+    if (!bucket) {
+      throw new HttpsError(
+        "failed-precondition",
+        "El almacenamiento de programaciones no esta disponible."
+      );
+    }
+
+    const id = `schedule_${Date.now()}_${randomBytes(6).toString("hex")}`;
+    const downloadToken = randomBytes(24).toString("hex");
+    const storagePath = [
+      "workspaces",
+      safeStoragePathSegment(workspaceId, "workspace"),
+      "attachments",
+      SCHEDULE_ATTACHMENT_MODULE_ID,
+      SCHEDULE_ATTACHMENT_OWNER_ID,
+      SCHEDULE_ATTACHMENT_RECORD_ID,
+      `${safeStoragePathSegment(id, "schedule")}_${decoded.safeName}`
+    ].join("/");
+    const addedAt = new Date().toISOString();
+
+    await bucket.file(storagePath).save(decoded.buffer, {
+      resumable: false,
+      metadata: {
+        cacheControl: "private, max-age=0, no-cache",
+        contentType: decoded.contentType,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+          workspaceId,
+          moduleId: SCHEDULE_ATTACHMENT_MODULE_ID,
+          ownerId: SCHEDULE_ATTACHMENT_OWNER_ID,
+          recordId: SCHEDULE_ATTACHMENT_RECORD_ID,
+          uploadedByUid: uid,
+          originalName: decoded.originalName
+        }
+      }
+    });
+
+    return {
+      id,
+      name: decoded.originalName,
+      type: decoded.contentType,
+      size: decoded.buffer.length,
+      addedAt,
+      updatedAtISO: addedAt,
+      uploadedByUid: uid,
+      storagePath,
+      downloadURL: storageDownloadURL(bucket.name, storagePath, downloadToken),
+      mode: "image",
+      source: "supervisor_image"
+    };
+  }
+);
 
 async function requireAcceptedWorkspaceLink(
   linkId,

@@ -24,6 +24,8 @@ const ALLOWED_EXTENSIONS = new Set(
 const ALLOWED_MIME_TYPES = new Set([
     "image/png",
     "image/jpeg",
+    "image/jpg",
+    "image/pjpeg",
     "image/gif",
     "image/webp",
     "image/bmp",
@@ -43,6 +45,7 @@ const STORAGE_MODULES = new Set([
     "agenda",
     "memos",
     "weekly",
+    "tasks",
     "requests"
 ]);
 const MIME_BY_EXTENSION = {
@@ -66,6 +69,8 @@ const PREVIEWABLE_MIME_TYPES = new Set([
     "application/pdf",
     "image/png",
     "image/jpeg",
+    "image/jpg",
+    "image/pjpeg",
     "image/gif",
     "image/webp",
     "image/bmp",
@@ -101,16 +106,26 @@ function safePathSegment(value, fallback = "item") {
 }
 
 function fileContentType(file) {
-    return String(file.type || "").toLowerCase() ||
+    const type = String(file.type || "").toLowerCase();
+
+    return (
+        type === "image/jpg" || type === "image/pjpeg"
+            ? "image/jpeg"
+            : type
+    ) ||
         MIME_BY_EXTENSION[fileExtension(file.name)] ||
         "application/octet-stream";
 }
 
 function baseContentType(type) {
-    return String(type || "")
+    const clean = String(type || "")
         .toLowerCase()
         .split(";")[0]
         .trim();
+
+    return clean === "image/jpg" || clean === "image/pjpeg"
+        ? "image/jpeg"
+        : clean;
 }
 
 export function canPreviewAttachment(attachment) {
@@ -177,6 +192,14 @@ export function attachmentStorageErrorMessage(error, action = "usar") {
         code === "storage/unauthorized" ||
         code === "permission-denied"
     ) {
+        if (action === "subir") {
+            return "No tienes permisos para subir este archivo adjunto en la unidad activa.";
+        }
+
+        if (action === "eliminar") {
+            return "No tienes permisos para eliminar este archivo adjunto.";
+        }
+
         return "No tienes permisos para acceder a este archivo adjunto.";
     }
 

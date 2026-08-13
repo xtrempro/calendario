@@ -9649,6 +9649,69 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     white-space: nowrap;
 }
 
+.task-schedule-attachment-status {
+    flex: 1 1 100%;
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1.25;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.task-schedule-attachment-dialog {
+    width: min(520px, calc(100vw - 28px));
+}
+
+.task-schedule-attachment-form,
+.task-schedule-attachment-field,
+.task-schedule-current {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.task-schedule-attachment-field span,
+.task-schedule-current strong {
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.task-schedule-attachment-field input {
+    width: 100%;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--text);
+}
+
+.task-schedule-attachment-field small {
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.task-schedule-current {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel-alt);
+}
+
+.task-schedule-current span {
+    min-width: 0;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
 .task-assignment-view-filters,
 .task-assignment-dialog__filters {
     display: grid;

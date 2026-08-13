@@ -54,6 +54,37 @@ const EXCEPTIONS_MONTHS_BACK = 2;
 const EXCEPTIONS_MONTHS_FORWARD = 12;
 const HOT_CALENDAR_FUTURE_MONTH_COUNT = 6;
 
+function normalizePublishedScheduleAttachment(value) {
+    if (!value || typeof value !== "object") return null;
+
+    const storagePath = String(value.storagePath || "").trim();
+    const dataUrl = String(value.dataUrl || "").trim();
+    const downloadURL = String(value.downloadURL || value.downloadUrl || "").trim();
+
+    if (!storagePath && !dataUrl && !downloadURL) return null;
+
+    return {
+        id: String(value.id || "").trim(),
+        name: String(value.name || "programacion").trim(),
+        type: String(value.type || "").toLowerCase(),
+        size: Number(value.size || 0),
+        addedAt: String(value.addedAt || "").trim(),
+        updatedAtISO: String(value.updatedAtISO || value.addedAt || "").trim(),
+        storagePath,
+        dataUrl,
+        downloadURL,
+        uploadedByUid: String(value.uploadedByUid || "").trim(),
+        mode: "image",
+        source: "supervisor_image"
+    };
+}
+
+function getPublishedScheduleAttachment() {
+    return normalizePublishedScheduleAttachment(
+        getJSON("weekly_task_schedule_attachment", null)
+    );
+}
+
 // ───────── Rango y meses ─────────
 
 function hotScheduleRange(today = new Date()) {
@@ -857,6 +888,7 @@ export async function buildFullProjection(
         scheduleStart: schedule.start,
         scheduleEnd: schedule.end,
         days: schedule.days,
+        weeklyScheduleAttachment: getPublishedScheduleAttachment(),
         supervisorReminders: buildSupervisorReminders(profile),
         birthdays: buildBirthdayReminders(profile.name),
         overtimeSummaries,

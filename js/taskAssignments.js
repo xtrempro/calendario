@@ -1,7 +1,16 @@
 import { keyFromDate, keyToDate as parseKey } from "./dateUtils.js";
+import { IS_TEST_ENVIRONMENT } from "./firebaseConfig.js";
+import {
+    getCurrentFirebaseUser,
+    getFirebaseServices
+} from "./firebaseClient.js";
 import { stripAccents } from "./stringUtils.js";
 import { escapeHTML } from "./htmlUtils.js";
 import { getJSON, setJSON } from "./persistence.js";
+import {
+    deleteStoredAttachment,
+    readFileAsDataURL
+} from "./attachmentUtils.js";
 import {
     getProfiles,
     isProfileActive
@@ -18,11 +27,42 @@ import { TURNO, TURNO_LABEL } from "./constants.js";
 import { fetchHolidays, getCachedHolidays } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
 import { showConfirm } from "./dialogs.js";
-import { scheduleWorkerAppDataPublish } from "./workerAppDataSync.js";
+import { getActiveWorkspace } from "./workspaces.js";
+import {
+    getWorkerAppLinks,
+    publishWorkerScheduleAttachmentNow,
+    scheduleWorkerAppDataPublish
+} from "./workerAppDataSync.js";
 
 const TASKS_KEY = "weekly_task_assignment_tasks";
 const ASSIGNMENTS_KEY = "weekly_task_assignment_entries";
+const SCHEDULE_ATTACHMENT_KEY = "weekly_task_schedule_attachment";
 const TASK_ASSIGNMENT_PUBLISH_DELAY_MS = 3000;
+const SCHEDULE_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp,.bmp,.heic,.heif";
+const SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS = 1400 * 1024;
+const SCHEDULE_UPLOAD_MAX_WIDTHS = [1800, 1600, 1400, 1200, 1000];
+const SCHEDULE_UPLOAD_JPEG_QUALITIES = [0.9, 0.82, 0.72, 0.62];
+const SCHEDULE_IMAGE_EXTENSIONS = new Set([
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+    "bmp",
+    "heic",
+    "heif"
+]);
+const SCHEDULE_IMAGE_TYPES = new Set([
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/pjpeg",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/heic",
+    "image/heif"
+]);
 
 const SHIFT_CONFIG = {
     day: {
@@ -47,6 +87,252 @@ let unbindTaskFilterOutside = null;
 let draggedTask = null;
 let draggedWorker = null;
 let renderToken = 0;
+
+function fileExtension(name) {
+    return String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
+}
+
+function normalizeScheduleAttachment(value) {
+    if (!value || typeof value !== "object") return null;
+
+    const storagePath = String(value.storagePath || "").trim();
+    const dataUrl = String(value.dataUrl || "").trim();
+    const downloadURL = String(value.downloadURL || value.downloadUrl || "").trim();
+    const type = String(value.type || "").toLowerCase();
+
+    if (!storagePath && !dataUrl && !downloadURL) return null;
+
+    return {
+        id: String(value.id || "").trim(),
+        name: String(value.name || "programacion").trim(),
+        type,
+        size: Number(value.size || 0),
+        addedAt: String(value.addedAt || "").trim(),
+        updatedAtISO: String(value.updatedAtISO || value.addedAt || "").trim(),
+        storagePath,
+        dataUrl,
+        downloadURL,
+        uploadedByUid: String(value.uploadedByUid || "").trim(),
+        mode: "image",
+        source: "supervisor_image"
+    };
+}
+
+function getScheduleAttachment() {
+    return normalizeScheduleAttachment(getJSON(SCHEDULE_ATTACHMENT_KEY, null));
+}
+
+function saveScheduleAttachment(attachment) {
+    setJSON(SCHEDULE_ATTACHMENT_KEY, normalizeScheduleAttachment(attachment));
+}
+
+function clearScheduleAttachment() {
+    setJSON(SCHEDULE_ATTACHMENT_KEY, null);
+}
+
+function validateScheduleImage(file) {
+    if (!(file instanceof File)) {
+        throw new Error("Selecciona una imagen valida.");
+    }
+
+    const type = String(file.type || "").toLowerCase();
+    const extension = fileExtension(file.name);
+
+    if (
+        !SCHEDULE_IMAGE_TYPES.has(type) &&
+        !SCHEDULE_IMAGE_EXTENSIONS.has(extension)
+    ) {
+        throw new Error("La programacion debe adjuntarse como imagen.");
+    }
+
+    return file;
+}
+
+function scheduleUploadDebugContext() {
+    const user = getCurrentFirebaseUser();
+    const workspace = getActiveWorkspace();
+    const email = String(user?.email || "").trim();
+
+    return {
+        user,
+        workspace,
+        email: email || "sin correo",
+        uid: String(user?.uid || "").trim() || "sin UID",
+        workspaceId: String(workspace?.id || "").trim() || "sin unidad"
+    };
+}
+
+function scheduleUploadErrorCode(error) {
+    const code = String(error?.code || error?.cause?.code || "").trim();
+
+    return code.startsWith("functions/") ? code.slice("functions/".length) : code;
+}
+
+function imageFromDataUrl(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error(
+            "No se pudo procesar la imagen adjunta. Prueba con JPG o PNG."
+        ));
+        image.src = dataUrl;
+    });
+}
+
+async function compressedScheduleDataUrl(file) {
+    const original = await readFileAsDataURL(file);
+
+    if (original.length <= SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS) {
+        return original;
+    }
+
+    const image = await imageFromDataUrl(original);
+    let best = original;
+
+    for (const maxWidth of SCHEDULE_UPLOAD_MAX_WIDTHS) {
+        const ratio = Math.min(1, maxWidth / image.naturalWidth);
+        const width = Math.max(1, Math.round(image.naturalWidth * ratio));
+        const height = Math.max(1, Math.round(image.naturalHeight * ratio));
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+
+        if (!context) break;
+
+        canvas.width = width;
+        canvas.height = height;
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, width, height);
+        context.drawImage(image, 0, 0, width, height);
+
+        for (const quality of SCHEDULE_UPLOAD_JPEG_QUALITIES) {
+            const candidate = canvas.toDataURL("image/jpeg", quality);
+
+            if (candidate.length < best.length) {
+                best = candidate;
+            }
+
+            if (candidate.length <= SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS) {
+                return candidate;
+            }
+        }
+    }
+
+    if (best.length > SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS) {
+        throw new Error(
+            "La imagen es muy grande para publicarla. " +
+            "Intenta con un JPG/PNG mas liviano."
+        );
+    }
+
+    return best;
+}
+
+async function createScheduleAttachment(file) {
+    const workspace = getActiveWorkspace();
+    const dataUrl = await compressedScheduleDataUrl(file);
+    const { functions, functionsModule } = await getFirebaseServices();
+    const upload = functionsModule.httpsCallable(
+        functions,
+        "uploadScheduleAttachment"
+    );
+    const result = await upload({
+        workspaceId: workspace?.id || "",
+        name: file.name || "programacion.jpg",
+        type: file.type || "",
+        dataUrl
+    });
+    const attachment = normalizeScheduleAttachment(result.data);
+
+    if (!attachment) {
+        throw new Error("No se recibio la URL de la programacion publicada.");
+    }
+
+    return attachment;
+}
+
+function scheduleUploadPermissionMessage(error) {
+    const code = scheduleUploadErrorCode(error);
+    const context = scheduleUploadDebugContext();
+    const base = String(
+        error?.message ||
+        "No se pudo publicar la programacion."
+    );
+
+    if (
+        code !== "permission-denied" &&
+        code !== "unauthenticated" &&
+        code !== "storage/unauthorized" &&
+        code !== "storage/unauthenticated" &&
+        code !== "schedule/workspace-access-denied"
+    ) {
+        return base;
+    }
+
+    const hint = (
+        "Verifica que la cuenta actual tenga acceso de supervisor " +
+        "a la unidad activa."
+    );
+
+    if (!IS_TEST_ENVIRONMENT) {
+        return `${base}\n\n${hint}`;
+    }
+
+    return [
+        base,
+        "",
+        hint,
+        "",
+        `Cuenta Test: ${context.email}`,
+        `UID: ${context.uid}`,
+        `Unidad activa: ${context.workspaceId}`,
+        code ? `Codigo Firebase: ${code}` : ""
+    ].filter(Boolean).join("\n");
+}
+
+async function assertScheduleAttachmentUploadAccess() {
+    const context = scheduleUploadDebugContext();
+
+    if (!context.user?.uid) {
+        throw new Error("Debes iniciar sesion para adjuntar la programacion.");
+    }
+
+    if (!context.workspace?.id) {
+        throw new Error("Selecciona una unidad antes de adjuntar la programacion.");
+    }
+
+    try {
+        const { db, firestoreModule } = await getFirebaseServices();
+        const userWorkspaceRef = firestoreModule.doc(
+            db,
+            "users",
+            context.user.uid,
+            "workspaces",
+            context.workspace.id
+        );
+        const userWorkspaceSnap = await firestoreModule.getDoc(userWorkspaceRef);
+
+        if (!userWorkspaceSnap.exists()) {
+            console.warn(
+                "La unidad activa no aparece vinculada al usuario actual.",
+                {
+                    uid: context.uid,
+                    email: context.email,
+                    workspaceId: context.workspaceId
+                }
+            );
+        }
+    } catch (error) {
+        if (scheduleUploadErrorCode(error) !== "permission-denied") {
+            throw error;
+        }
+
+        console.warn(
+            "No se pudo verificar la unidad activa antes de subir.",
+            error
+        );
+    }
+}
 
 function normalizeText(value) {
     return stripAccents(String(value || "")).toLowerCase();
@@ -358,6 +644,10 @@ function publishTaskAssignmentChanges(workerNames = null) {
         null,
         { requiresLocalStateFlush: true }
     );
+}
+
+async function publishScheduleAttachmentChanges() {
+    await publishWorkerScheduleAttachmentNow(getScheduleAttachment());
 }
 
 function getWeekAssignments(start = currentWeekStart) {
@@ -1204,6 +1494,28 @@ function renderTaskAddForm() {
     `;
 }
 
+function renderScheduleAttachmentStatus() {
+    const attachment = getScheduleAttachment();
+
+    if (!attachment) return "";
+
+    const updated = attachment.updatedAtISO || attachment.addedAt;
+    const detail = updated
+        ? new Date(updated).toLocaleString("es-CL", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit"
+        })
+        : "publicada";
+
+    return `
+        <span class="task-schedule-attachment-status" title="${escapeHTML(attachment.name)}">
+            Programaci&oacute;n: ${escapeHTML(attachment.name)} | ${escapeHTML(detail)}
+        </span>
+    `;
+}
+
 function renderBoard(shift, tasks, days, assignments, holidays = {}) {
     const config = SHIFT_CONFIG[shift];
     const sectionTasks = tasks.map(task => taskForShift(task, shift));
@@ -1309,10 +1621,12 @@ function renderShell(holidays = {}) {
                 </div>
                 ${renderTaskAddForm()}
                 <span class="task-assignment-toolbar">
+                    <button class="secondary-button secondary-button--small" type="button" data-task-schedule-attach>Adjuntar Programaci&oacute;n</button>
                     <button class="secondary-button secondary-button--small" type="button" data-task-week-prev>Anterior</button>
                     <button class="secondary-button secondary-button--small" type="button" data-task-week-current>Semana actual</button>
                     <button class="secondary-button secondary-button--small" type="button" data-task-week-next>Siguiente</button>
                     <button class="primary-button secondary-button--small" type="button" data-task-export>Descargar Excel</button>
+                    ${renderScheduleAttachmentStatus()}
                 </span>
             </section>
             ${renderBoard("day", tasks, days, assignments, holidays)}
@@ -1763,6 +2077,142 @@ function openWorkerDefaultDialog({ taskId, workerName, shift, keyDay }) {
     });
 }
 
+function openScheduleAttachmentDialog() {
+    const current = getScheduleAttachment();
+    const linkedCount = getWorkerAppLinks()
+        .filter(item => item.uid && item.profile)
+        .length;
+    const backdrop = document.createElement("div");
+
+    backdrop.className = "task-assignment-dialog-backdrop";
+    document.body.appendChild(backdrop);
+
+    const close = () => {
+        backdrop.remove();
+    };
+
+    backdrop.innerHTML = `
+        <section class="task-assignment-dialog task-schedule-attachment-dialog">
+            <div class="task-assignment-dialog__head">
+                <div>
+                    <h3>Adjuntar Programaci&oacute;n</h3>
+                    <span>${linkedCount || 0} trabajador(es) enlazado(s)</span>
+                </div>
+                <button class="ghost-button" type="button" data-close-schedule-attachment aria-label="Cerrar">&times;</button>
+            </div>
+            <form data-schedule-attachment-form class="task-schedule-attachment-form">
+                <label class="task-schedule-attachment-field">
+                    <span>Imagen de programaci&oacute;n</span>
+                    <input type="file" name="scheduleImage" accept="${SCHEDULE_IMAGE_ACCEPT}" required>
+                    <small>Formatos aceptados: PNG, JPG, JPEG, GIF, WEBP, BMP, HEIC o HEIF. M&aacute;ximo 10 MB.</small>
+                </label>
+                ${current ? `
+                    <div class="task-schedule-current">
+                        <strong>Publicada actualmente</strong>
+                        <span>${escapeHTML(current.name)}</span>
+                    </div>
+                ` : ""}
+                <div class="task-assignment-dialog__actions">
+                    ${current ? `<button class="ghost-button" type="button" data-remove-schedule-attachment>Quitar actual</button>` : ""}
+                    <button class="secondary-button" type="button" data-close-schedule-attachment>Cancelar</button>
+                    <button class="primary-button" type="submit">Publicar imagen</button>
+                </div>
+            </form>
+        </section>
+    `;
+
+    backdrop
+        .querySelectorAll("[data-close-schedule-attachment]")
+        .forEach(button => {
+            button.addEventListener("click", close);
+        });
+
+    backdrop
+        .querySelector("[data-remove-schedule-attachment]")
+        ?.addEventListener("click", async () => {
+            const previous = getScheduleAttachment();
+
+            if (
+                !await showConfirm(
+                    "La programacion dejara de mostrarse en la PWA del trabajador.",
+                    {
+                        title: "Quitar programacion",
+                        tone: "danger",
+                        confirmText: "Quitar",
+                        destructive: true
+                    }
+                )
+            ) {
+                return;
+            }
+
+            clearScheduleAttachment();
+            await publishScheduleAttachmentChanges();
+            if (previous?.storagePath) {
+                deleteStoredAttachment(previous).catch(error => {
+                    console.warn(
+                        "No se pudo eliminar la programacion anterior.",
+                        error
+                    );
+                });
+            }
+            close();
+            renderTaskAssignmentsPanel();
+        });
+
+    backdrop
+        .querySelector("[data-schedule-attachment-form]")
+        ?.addEventListener("submit", async event => {
+            event.preventDefault();
+
+            const form = event.currentTarget;
+            const submit = form.querySelector("button[type='submit']");
+            const file = form.elements.scheduleImage?.files?.[0];
+            const previous = getScheduleAttachment();
+
+            try {
+                validateScheduleImage(file);
+                submit.disabled = true;
+                submit.textContent = "Publicando...";
+
+                await assertScheduleAttachmentUploadAccess();
+
+                const attachment = await createScheduleAttachment(file);
+
+                saveScheduleAttachment({
+                    ...attachment,
+                    updatedAtISO: new Date().toISOString()
+                });
+                await publishScheduleAttachmentChanges();
+
+                if (
+                    previous?.storagePath &&
+                    previous.storagePath !== attachment.storagePath
+                ) {
+                    deleteStoredAttachment(previous).catch(error => {
+                        console.warn(
+                            "No se pudo eliminar la programacion reemplazada.",
+                            error
+                        );
+                    });
+                }
+
+                close();
+                renderTaskAssignmentsPanel();
+            } catch (error) {
+                console.warn(
+                    "No se pudo publicar la programacion adjunta.",
+                    error?.cause || error
+                );
+                alert(scheduleUploadPermissionMessage(error));
+                submit.disabled = false;
+                submit.textContent = "Publicar imagen";
+            }
+        });
+
+    backdrop.querySelector("input[type='file']")?.focus();
+}
+
 function bindShellEvents(root) {
     const roleOptions = availableRoles();
     const professionOptions = availableProfessions();
@@ -1780,6 +2230,7 @@ function bindShellEvents(root) {
         renderTaskAssignmentsPanel();
     });
     root.querySelector("[data-task-export]")?.addEventListener("click", exportTaskAssignmentsExcel);
+    root.querySelector("[data-task-schedule-attach]")?.addEventListener("click", openScheduleAttachmentDialog);
 
     root
         .querySelectorAll("[data-task-add-form]")

@@ -111,7 +111,8 @@ const WORKER_APP_PROJECTION_GLOBAL_STATE_KEYS = [
     "turnoColorConfig",
     "turnChangeConfig",
     "weekly_task_assignment_tasks",
-    "weekly_task_assignment_entries"
+    "weekly_task_assignment_entries",
+    "weekly_task_schedule_attachment"
 ];
 
 // Claves de localStorage por-perfil que afectan lo que ve el trabajador. El
@@ -147,6 +148,7 @@ const GLOBAL_RELEVANT_KEYS = new Set([
     "staffing_custom_reminders",
     "weekly_task_assignment_tasks",
     "weekly_task_assignment_entries",
+    "weekly_task_schedule_attachment",
     "gradeHourConfig",
     "profiles"
 ]);
@@ -1267,6 +1269,37 @@ function buildContractTimeline(profile = {}) {
         .sort((a, b) => a.start.localeCompare(b.start));
 }
 
+function normalizePublishedScheduleAttachment(value) {
+    if (!value || typeof value !== "object") return null;
+
+    const storagePath = String(value.storagePath || "").trim();
+    const dataUrl = String(value.dataUrl || "").trim();
+    const downloadURL = String(value.downloadURL || value.downloadUrl || "").trim();
+
+    if (!storagePath && !dataUrl && !downloadURL) return null;
+
+    return {
+        id: String(value.id || "").trim(),
+        name: String(value.name || "programacion").trim(),
+        type: String(value.type || "").toLowerCase(),
+        size: Number(value.size || 0),
+        addedAt: String(value.addedAt || "").trim(),
+        updatedAtISO: String(value.updatedAtISO || value.addedAt || "").trim(),
+        storagePath,
+        dataUrl,
+        downloadURL,
+        uploadedByUid: String(value.uploadedByUid || "").trim(),
+        mode: "image",
+        source: "supervisor_image"
+    };
+}
+
+function getPublishedScheduleAttachment() {
+    return normalizePublishedScheduleAttachment(
+        getJSON("weekly_task_schedule_attachment", null)
+    );
+}
+
 async function buildWorkerAppPayload(
     link,
     profile,
@@ -1426,6 +1459,7 @@ async function buildWorkerAppPayload(
                 scheduleStart: schedule.start,
                 scheduleEnd: schedule.end,
                 days: schedule.days,
+                weeklyScheduleAttachment: getPublishedScheduleAttachment(),
                 supervisorReminders: buildSupervisorReminders(profile),
                 overtimeSummaries: overtimePayload.summaries,
                 overtimeSummariesSignature: overtimePayload.signature,
@@ -1473,6 +1507,7 @@ function buildMissingProfilePayload(link, workspace) {
         scheduleStart: "",
         scheduleEnd: "",
         days: {},
+        weeklyScheduleAttachment: getPublishedScheduleAttachment(),
         updatedAtISO: new Date().toISOString()
     };
 }
@@ -2733,6 +2768,63 @@ export async function publishWorkerAppDataNow(profileTargets = []) {
         .forEach(name => dirtyProfileNames.add(name));
 
     await publishHotNow();
+}
+
+export async function publishWorkerScheduleAttachmentNow(attachment) {
+    if (!activeWorkspace?.id || !workerLinks.length) return 0;
+
+    const workspace = currentWorkspace();
+    const profiles = getProfiles();
+    const linked = linkedProfilePairs(profiles)
+        .filter(item => item.link?.uid && item.profile);
+
+    if (!linked.length) return 0;
+
+    await flushPendingFirebaseAppStateEntries({
+        keys: ["weekly_task_schedule_attachment"],
+        reason: "worker-schedule-attachment"
+    });
+
+    const payload = normalizePublishedScheduleAttachment(attachment);
+    const { db, firestoreModule } = await getFirebaseServices();
+    const updatedAt = new Date().toISOString();
+    const serverUpdatedAt = firestoreModule.serverTimestamp();
+
+    for (let index = 0; index < linked.length; index += 400) {
+        const batch = firestoreModule.writeBatch(db);
+        linked.slice(index, index + 400).forEach(item => {
+            const docRef = firestoreModule.doc(
+                db,
+                "workspaces",
+                workspace.id,
+                "workerAppData",
+                item.link.uid
+            );
+            const next = payload
+                ? {
+                    weeklyScheduleAttachment: payload,
+                    updatedAtISO: updatedAt,
+                    updatedAt: serverUpdatedAt
+                }
+                : {
+                    weeklyScheduleAttachment: firestoreModule.deleteField(),
+                    updatedAtISO: updatedAt,
+                    updatedAt: serverUpdatedAt
+                };
+
+            batch.set(docRef, next, { merge: true });
+        });
+        await batch.commit();
+    }
+
+    recordPerformanceEvent("worker-app:publish-schedule-attachment", {
+        type: "worker-app",
+        workspaceId: workspace.id,
+        linkedCount: linked.length,
+        hasAttachment: Boolean(payload)
+    });
+
+    return linked.length;
 }
 
 export async function startWorkerAppDataSync(workspace) {

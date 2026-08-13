@@ -24,6 +24,18 @@ service firebase.storage {
       ).data;
     }
 
+    function workspace(workspaceId) {
+      return firestore.get(
+        /databases/(default)/documents/workspaces/$(workspaceId)
+      ).data;
+    }
+
+    function isWorkspaceOwnerByDoc(workspaceId) {
+      return signedIn() &&
+        firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId)) &&
+        workspace(workspaceId).ownerUid == request.auth.uid;
+    }
+
     function memberRequiresMfa(workspaceId) {
       let data = member(workspaceId);
       let permissions =
@@ -49,7 +61,8 @@ service firebase.storage {
     function memberHasExplicitAccess(workspaceId) {
       let data = member(workspaceId);
 
-      return data.role == "owner" ||
+      return isWorkspaceOwnerByDoc(workspaceId) ||
+        data.role == "owner" ||
         (
           data.role == "member" &&
           "permissions" in data &&
@@ -59,18 +72,26 @@ service firebase.storage {
 
     function isWorkspaceMember(workspaceId) {
       return signedIn() &&
-        firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid)) &&
-        memberHasExplicitAccess(workspaceId) &&
         (
-          !mfaRequirementActive() ||
-          !memberRequiresMfa(workspaceId) ||
-          hasMfa()
+          isWorkspaceOwnerByDoc(workspaceId) ||
+          (
+            firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid)) &&
+            memberHasExplicitAccess(workspaceId) &&
+            (
+              !mfaRequirementActive() ||
+              !memberRequiresMfa(workspaceId) ||
+              hasMfa()
+            )
+          )
         );
     }
 
     function isWorkspaceOwner(workspaceId) {
-      return isWorkspaceMember(workspaceId) &&
-        member(workspaceId).role == "owner";
+      return isWorkspaceOwnerByDoc(workspaceId) ||
+        (
+          isWorkspaceMember(workspaceId) &&
+          member(workspaceId).role == "owner"
+        );
     }
 
     function canViewModule(workspaceId, moduleId) {
@@ -106,8 +127,41 @@ service firebase.storage {
       return request.resource.size > 0 &&
         request.resource.size <= 10 * 1024 * 1024 &&
         request.resource.contentType.matches(
-          "image/(png|jpeg|gif|webp|bmp|heic|heif)|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.wordprocessingml.document|application/vnd.ms-excel|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|text/plain|text/csv"
+          "image/(png|jpeg|jpg|pjpeg|gif|webp|bmp|heic|heif)|application/pdf|application/msword|application/vnd.openxmlformats-officedocument.wordprocessingml.document|application/vnd.ms-excel|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|text/plain|text/csv"
         );
+    }
+
+    function allowedScheduleImage() {
+      return request.resource.size > 0 &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        request.resource.contentType.matches(
+          "image/(png|jpeg|jpg|pjpeg|gif|webp|bmp|heic|heif)"
+        );
+    }
+
+    function isPublishedScheduleAttachment(moduleId, ownerId, recordId) {
+      return moduleId == "tasks" &&
+        ownerId == "weekly-schedule" &&
+        recordId == "published-schedule";
+    }
+
+    function canPublishScheduleAttachment(workspaceId) {
+      return signedIn() &&
+        (
+          isWorkspaceOwnerByDoc(workspaceId) ||
+          (
+            firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid)) &&
+            memberHasExplicitAccess(workspaceId)
+          )
+        );
+    }
+
+    function requestMetadataMatchesPath(workspaceId, moduleId, ownerId, recordId) {
+      return request.resource.metadata.workspaceId == workspaceId &&
+        request.resource.metadata.moduleId == moduleId &&
+        request.resource.metadata.ownerId == ownerId &&
+        request.resource.metadata.recordId == recordId &&
+        request.resource.metadata.uploadedByUid == request.auth.uid;
     }
 
     match /workspaces/{workspaceId}/attachments/{moduleId}/{ownerId}/{recordId}/{fileName} {
@@ -115,25 +169,53 @@ service firebase.storage {
         (
           canViewModule(workspaceId, moduleId) ||
           resource.metadata.uploadedByUid == request.auth.uid
+        ) ||
+        (
+          isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
+          signedIn() &&
+          firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId)/workerLinks/$(request.auth.uid))
         );
 
       allow create: if
-        isWorkspaceMember(workspaceId) &&
-        canEditModule(workspaceId, moduleId) &&
-        allowedFile() &&
-        request.resource.metadata.workspaceId == workspaceId &&
-        request.resource.metadata.moduleId == moduleId &&
-        request.resource.metadata.ownerId == ownerId &&
-        request.resource.metadata.recordId == recordId &&
-        request.resource.metadata.uploadedByUid == request.auth.uid;
+        (
+          (
+            isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
+            canPublishScheduleAttachment(workspaceId) &&
+            allowedScheduleImage()
+          ) ||
+          (
+            moduleId != "tasks" &&
+            !isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
+            canEditModule(workspaceId, moduleId) &&
+            allowedFile()
+          )
+        ) &&
+        (
+          isPublishedScheduleAttachment(moduleId, ownerId, recordId) ||
+          requestMetadataMatchesPath(workspaceId, moduleId, ownerId, recordId)
+        );
 
       allow update: if
         isWorkspaceMember(workspaceId) &&
         (
-          canEditModule(workspaceId, moduleId) ||
-          resource.metadata.uploadedByUid == request.auth.uid
+          (
+            isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
+            (
+              canPublishScheduleAttachment(workspaceId) ||
+              resource.metadata.uploadedByUid == request.auth.uid
+            ) &&
+            allowedScheduleImage()
+          ) ||
+          (
+            moduleId != "tasks" &&
+            !isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
+            (
+              canEditModule(workspaceId, moduleId) ||
+              resource.metadata.uploadedByUid == request.auth.uid
+            ) &&
+            allowedFile()
+          )
         ) &&
-        allowedFile() &&
         request.resource.metadata.workspaceId == resource.metadata.workspaceId &&
         request.resource.metadata.moduleId == resource.metadata.moduleId &&
         request.resource.metadata.ownerId == resource.metadata.ownerId &&
@@ -143,6 +225,10 @@ service firebase.storage {
       allow delete: if
         isWorkspaceMember(workspaceId) &&
         (
+          (
+            isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
+            canPublishScheduleAttachment(workspaceId)
+          ) ||
           canEditModule(workspaceId, moduleId) ||
           resource.metadata.uploadedByUid == request.auth.uid
         );
