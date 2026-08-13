@@ -54,6 +54,11 @@ import {
     replacementActive
 } from "./replacements.js";
 import {
+    getPreassignmentForCoveredShift,
+    getPreassignmentForWorker,
+    getPreassignmentTurnForWorker
+} from "./preassignments.js";
+import {
     getAllReplacementContracts,
     getInheritedReplacementContractForCoveredShift,
     hasContractForDate,
@@ -155,6 +160,9 @@ const timelineLocallyDirtyProfiles = new Set();
 // Marcador de "marcaje reloj control modificado" en el timeline: reemplaza el
 // antiguo asterisco por un icono de reloj (mismo criterio que el calendario).
 const TIMELINE_CLOCK_MARKER = `<svg class="timeline-clock-marker" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>`;
+// Marker de "turno preasignado" en el timeline (tres puntos). El fondo naranjo lo
+// da la clase .mini.preassign-day .timeline-replacement-marker.
+const TIMELINE_PREASSIGN_MARKER = `<svg class="timeline-preassign-marker" viewBox="0 0 24 10" fill="currentColor" aria-hidden="true"><circle cx="5" cy="5" r="2.3"/><circle cx="12" cy="5" r="2.3"/><circle cx="19" cy="5" r="2.3"/></svg>`;
 let timelineLastUserActivityAt = Date.now();
 // Contexto del ultimo render (mes visible) para actualizar casillas sueltas
 // sin reconstruir todo el timeline.
@@ -1318,6 +1326,7 @@ function ensureTimelineCellDelegation(container) {
     container.dataset.timelineDelegated = "1";
     container.addEventListener("click", event => {
         const cell = event.target.closest(
+            "[data-preassign-profile]," +
             "[data-replacement-profile]," +
             "[data-worker-replacement-profile]," +
             "[data-extra-profile]," +
@@ -1338,6 +1347,11 @@ function ensureTimelineCellDelegation(container) {
                     cell.dataset.contractErrorProfile,
                     cell.dataset.contractErrorKey
                 );
+            } else if (cell.dataset.preassignProfile) {
+                window.openPreassignmentDialog?.({
+                    profile: cell.dataset.preassignProfile,
+                    keyDay: cell.dataset.preassignKey
+                });
             } else if (cell.dataset.replacementProfile) {
                 window.openReplacementDialog?.(
                     cell.dataset.replacementProfile,
@@ -3334,12 +3348,34 @@ function renderTimelineDayCell(profile, d, {
         !contractError &&
         !severeClockIncident &&
         !needsReplacement;
+    // Preasignaciones: del ausente (reemplaza el "!") y de este trabajador como
+    // reemplazante tentativo (turno extra sin proyectar).
+    const preassignedCovered = Boolean(
+        getPreassignmentForCoveredShift(profile.name, key)
+    );
+    const preassignedWorker = getPreassignmentForWorker(profile.name, key);
+    const preassignedTurn = preassignedWorker
+        ? getPreassignmentTurnForWorker(profile.name, key)
+        : TURNO.LIBRE;
+    // Reemplazante tentativo sobre un dia sin turno real: pinta el color del turno
+    // preasignado (atenuado por la clase .preassign-day). No toca getTurnoReal.
+    const preassignBackground =
+        (preassignedWorker && (Number(realTurn) || 0) === TURNO.LIBRE)
+            ? timelineCellBackground(
+                getColor(profile.name, key, leaveMaps, false, preassignedTurn),
+                isInhabil
+            )
+            : null;
     const marker = contractError
         ? "X"
         : severeClockIncident
             ? "!!!"
+            : preassignedCovered
+                ? TIMELINE_PREASSIGN_MARKER
             : needsReplacement
                 ? "!"
+            : preassignedWorker
+                ? TIMELINE_PREASSIGN_MARKER
                 : showHonorariaLimit
                     ? "!"
                 : showExtraReason || showClockExtra
@@ -3412,12 +3448,13 @@ function renderTimelineDayCell(profile, d, {
         <td
             data-timeline-profile="${escapeHtml(profile.name)}"
             data-timeline-key="${escapeHtml(key)}"
-            class="mini ${isLeaveFreeDay ? "leave-free-day" : ""} ${pendingLeave ? "timeline-leave-pending" : ""} ${workerBlockedDay ? "worker-blocked-mini" : ""} ${isInhabil ? "timeline-inhabil" : ""} ${contractError ? "contract-error-day" : ""} ${honorariaExcess ? "honoraria-limit-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement ? "needs-replacement" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${hourReturn ? "hours-return-mini" : ""} ${replacement ? "replacement-day" : ""}"
-            style="${escapeHtml(`background:${background}${pendingLeaveStyle}`)}"
+            class="mini ${isLeaveFreeDay ? "leave-free-day" : ""} ${pendingLeave ? "timeline-leave-pending" : ""} ${workerBlockedDay ? "worker-blocked-mini" : ""} ${isInhabil ? "timeline-inhabil" : ""} ${contractError ? "contract-error-day" : ""} ${honorariaExcess ? "honoraria-limit-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement && !preassignedCovered ? "needs-replacement" : ""} ${preassignedCovered || preassignedWorker ? "preassign-day" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${hourReturn ? "hours-return-mini" : ""} ${replacement ? "replacement-day" : ""}"
+            style="${escapeHtml(`background:${preassignBackground || background}${pendingLeaveStyle}`)}"
             title="${escapeHtml(titleText)}"
+            ${preassignedCovered || preassignedWorker ? `data-preassign-profile="${escapeHtml(profile.name)}" data-preassign-key="${escapeHtml(key)}"` : ""}
             ${contractError ? `data-contract-error-profile="${escapeHtml(profile.name)}" data-contract-error-key="${escapeHtml(key)}"` : ""}
             ${showHonorariaLimit ? `data-honoraria-limit-profile="${escapeHtml(profile.name)}" data-honoraria-limit-key="${escapeHtml(key)}" data-honoraria-limit-message="${escapeHtml(getHonorariaLimitMessage(honorariaSummary, key))}"` : ""}
-            ${needsReplacement ? `data-replacement-profile="${escapeHtml(profile.name)}" data-replacement-key="${escapeHtml(key)}"` : ""}
+            ${needsReplacement && !preassignedCovered ? `data-replacement-profile="${escapeHtml(profile.name)}" data-replacement-key="${escapeHtml(key)}"` : ""}
             ${replacement ? `data-worker-replacement-profile="${escapeHtml(profile.name)}" data-worker-replacement-key="${escapeHtml(key)}" data-worker-replacement-id="${escapeHtml(replacement.id || "")}"` : ""}
             ${showExtraReason ? `data-extra-profile="${escapeHtml(profile.name)}" data-extra-key="${escapeHtml(key)}" data-extra-turn="${escapeHtml(showExtraReason)}"` : ""}
             ${showClockExtra && !showExtraReason ? `data-clock-extra-profile="${escapeHtml(profile.name)}" data-clock-extra-key="${escapeHtml(key)}" data-clock-extra-turn="${escapeHtml(realTurn)}"` : ""}

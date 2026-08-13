@@ -129,8 +129,16 @@ import {
     getLeaveApplicationInfo,
     getClockMarkAuditInfo,
     getNoCoverageAuditInfo,
+    getPreassignmentAuditInfo,
     undoAuditLogEntry
 } from "./auditLog.js";
+import {
+    addPreassignment,
+    removePreassignment,
+    getPreassignmentForCoveredShift,
+    getPreassignmentForWorker,
+    getPreassignmentTurnForWorker
+} from "./preassignments.js";
 import {
     getClockMarks,
     getClockNetExtraHours,
@@ -2580,6 +2588,19 @@ const CLOCK_MARK_BADGE_ICON = `
     </svg>
 `;
 
+// Badge de "turno preasignado" (cobertura tentativa): pastilla con gradiente
+// naranjo (via CSS) y tres puntos blancos. Reemplaza al "!" en la casilla del
+// ausente y marca el turno tentativo del reemplazante. Centinela que buildDayCell
+// detecta para rendir el SVG.
+const PREASSIGN_BADGE = "preassign";
+const PREASSIGN_BADGE_ICON = `
+    <svg viewBox="0 0 24 10" fill="currentColor" aria-hidden="true">
+        <circle cx="5" cy="5" r="2.3"/>
+        <circle cx="12" cy="5" r="2.3"/>
+        <circle cx="19" cy="5" r="2.3"/>
+    </svg>
+`;
+
 // Icono del boton de opciones del modal de reemplazo (barras + triangulo hacia
 // abajo): al presionarlo despliega el panel de opciones.
 const REPLACEMENT_OPTIONS_ICON = `
@@ -2658,6 +2679,10 @@ function buildDayCell({
                 ${visibleBadges.map(item => {
                     if (item === CLOCK_MARK_BADGE) {
                         return `<span class="day-badge day-badge--clock" title="Marcaje reloj control modificado">${CLOCK_MARK_BADGE_ICON}</span>`;
+                    }
+
+                    if (item === PREASSIGN_BADGE) {
+                        return `<span class="day-badge day-badge--preassign" title="Turno preasignado (pendiente de confirmar)">${PREASSIGN_BADGE_ICON}</span>`;
                     }
 
                     const className = item === "No disp."
@@ -4100,6 +4125,46 @@ function replacementCreatesInvertedTwentyFour(
     );
 }
 
+// Estado COMPROMETIDO del trabajador ese dia: su estado real/proyectado fusionado
+// con lo que tenga PREASIGNADO (aun sin proyectar). Sirve para las reglas de
+// compatibilidad: una preasignacion cuenta como si el turno ya estuviera tomado.
+function committedStateWithPreassign(profileName, keyDay) {
+    return fusionarTurnos(
+        getActualState(profileName, keyDay),
+        getPreassignmentTurnForWorker(profileName, keyDay)
+    );
+}
+
+// Un candidato NO debe sugerirse si, al cubrir el turno buscado, se formaria un 24
+// incompatible con un dia adyacente (larga despues de un 24, noche antes de un 24)
+// considerando sus preasignaciones. Es la regla SIEMPRE prohibida de adyacencia de
+// 24h; al cancelar una preasignacion, el candidato vuelve a ser elegible.
+function preassignmentBlocksReplacementCandidate(profileName, keyDay, neededTurn) {
+    const projected = fusionarTurnos(
+        committedStateWithPreassign(profileName, keyDay),
+        neededTurn
+    );
+    const previous = committedStateWithPreassign(
+        profileName,
+        offsetCalendarKey(keyDay, -1)
+    );
+    const next = committedStateWithPreassign(
+        profileName,
+        offsetCalendarKey(keyDay, 1)
+    );
+    const isTwentyFour = turno => Number(turno) === TURNO.TURNO24;
+
+    return (
+        (isTwentyFour(previous) &&
+            replacementTurnIncludesDaytimeStart(projected)) ||
+        (isTwentyFour(next) &&
+            replacementTurnIncludesNight(projected)) ||
+        (isTwentyFour(projected) &&
+            (replacementTurnIncludesNight(previous) ||
+                replacementTurnIncludesDaytimeStart(next)))
+    );
+}
+
 // Etiqueta de posicion del candidato dentro del bloque consecutivo del mismo
 // turno (p.ej. "Primer libre", "Segunda larga"). Cuenta hacia atras cuantos dias
 // seguidos tiene el mismo estado que el dia objetivo. Solo aplica a rotativas de
@@ -4478,6 +4543,11 @@ async function getReplacementCandidates(
                 neededTurn,
                 getTurnChangeConfig()
             ) &&
+            !preassignmentBlocksReplacementCandidate(
+                candidate.profile.name,
+                keyDay,
+                neededTurn
+            ) &&
             !cededSwapTurnBlocks(
                 candidate.profile.name,
                 keyDay,
@@ -4522,7 +4592,8 @@ function replacementDialogHTML({
     pendingRequests,
     selectedRequestWorkers,
     linkedStatus = "",
-    optionsOpen = false
+    optionsOpen = false,
+    preassignMode = false
 }) {
     const replacementConfig = getReplacementRequestConfig();
     const allowLinkedSuggestions =
@@ -4702,8 +4773,8 @@ function replacementDialogHTML({
             : "",
         (!linkedMode && allowWorkerAcceptanceRequest)
             ? `
-                <label class="replacement-request-toggle">
-                    <input type="checkbox" data-action="request-mode" ${isRequestMode ? "checked" : ""}>
+                <label class="replacement-request-toggle ${preassignMode ? "is-disabled" : ""}">
+                    <input type="checkbox" data-action="request-mode" ${isRequestMode ? "checked" : ""} ${preassignMode ? "disabled" : ""}>
                     <span>
                         <strong>Solicitar aprobación del trabajador</strong>
                     </span>
@@ -4711,7 +4782,21 @@ function replacementDialogHTML({
             `
             : "",
         `
-            <button class="ghost-button" type="button" data-action="no-coverage">
+            <button
+                type="button"
+                class="replacement-preassign-toggle ${preassignMode ? "is-active" : ""}"
+                data-action="preassign-mode"
+                aria-pressed="${preassignMode ? "true" : "false"}"
+            >
+                <span class="replacement-preassign-text">
+                    <strong>Preasignar turno</strong>
+                    <small>Reserva tentativa: no proyecta el turno ni suma horas hasta confirmar.</small>
+                </span>
+                <span class="replacement-preassign-switch" aria-hidden="true"></span>
+            </button>
+        `,
+        `
+            <button class="ghost-button" type="button" data-action="no-coverage" ${preassignMode ? "disabled" : ""}>
                 No requiere cobertura
             </button>
         `
@@ -4935,6 +5020,7 @@ async function openReplacementDialog(profileName, keyDay) {
     let requestMode = false;
     let selectedRequestWorkers = new Set();
     let optionsOpen = false;
+    let preassignMode = false;
     const normalizeReplacementDialogState = () => {
         const replacementConfig = getReplacementRequestConfig();
 
@@ -5205,7 +5291,24 @@ async function openReplacementDialog(profileName, keyDay) {
         if (requestToggle) {
             requestToggle.onchange = async () => {
                 requestMode = requestToggle.checked;
+                // Aprobacion y preasignar son excluyentes.
+                if (requestMode) preassignMode = false;
                 selectedRequestWorkers = new Set();
+                await renderContent();
+            };
+        }
+
+        const preassignToggle =
+            backdrop.querySelector("[data-action='preassign-mode']");
+        if (preassignToggle) {
+            preassignToggle.onclick = async () => {
+                preassignMode = !preassignMode;
+                // Al activar el estado intermedio, aprobacion y "no requiere
+                // cobertura" no aplican en conjunto: se apagan.
+                if (preassignMode) {
+                    requestMode = false;
+                    selectedRequestWorkers = new Set();
+                }
                 await renderContent();
             };
         }
@@ -5384,10 +5487,54 @@ async function openReplacementDialog(profileName, keyDay) {
                     await withBusyState(async () => {
                         if (typeof window.pushUndoState === "function") {
                             window.pushUndoState(
-                                requestMode
-                                    ? "Crear solicitud de reemplazo"
-                                    : "Asignar reemplazo"
+                                preassignMode
+                                    ? "Preasignar turno"
+                                    : requestMode
+                                        ? "Crear solicitud de reemplazo"
+                                        : "Asignar reemplazo"
                             );
+                        }
+
+                        // Modo preasignar: reserva tentativa (no proyecta turno ni
+                        // suma horas). Solo candidatos de esta unidad.
+                        if (preassignMode) {
+                            const coveringWorker = button.dataset.worker;
+
+                            if (button.dataset.workerWorkspaceId) {
+                                alert("La preasignación no está disponible para unidades enlazadas.");
+                                return;
+                            }
+
+                            addPreassignment({
+                                worker: coveringWorker,
+                                replaced: profileName,
+                                keyDay,
+                                turno: neededTurn,
+                                absenceType,
+                                ...replacementCoverageFromDataset(
+                                    button.dataset
+                                )
+                            });
+                            addAuditLog(
+                                AUDIT_CATEGORY.CALENDAR,
+                                "Preasigno turno",
+                                `${profileName}: ${coveringWorker} preasignado para el ${keyDay}.`,
+                                { profile: profileName, keyDay }
+                            );
+
+                            close();
+                            await updateDayCell(profileName, keyDay);
+                            if (
+                                coveringWorker &&
+                                coveringWorker !== profileName
+                            ) {
+                                await updateDayCell(coveringWorker, keyDay);
+                            }
+                            updateTimelineCells(profileName, [keyDay]);
+                            if (coveringWorker) {
+                                updateTimelineCells(coveringWorker, [keyDay]);
+                            }
+                            return;
                         }
 
                         if (
@@ -5550,6 +5697,7 @@ async function openReplacementDialog(profileName, keyDay) {
             pendingRequests,
             selectedRequestWorkers,
             optionsOpen,
+            preassignMode,
             linkedStatus: scope === "linked"
                 ? linkedReplacementStatus
                 : ""
@@ -6391,6 +6539,132 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
     backdrop.querySelector("[data-action='edit']")?.focus();
 }
 
+// Modal de un turno PREASIGNADO (cobertura tentativa). Se abre al clickear la
+// casilla del ausente o del reemplazante preasignado. Permite Confirmar (el
+// trabajador acepto -> pasa a reemplazo real: proyecta + suma horas) o Cancelar
+// (vuelve el "!").
+function openPreassignmentDialog({ profile, keyDay }) {
+    const preassignment =
+        getPreassignmentForCoveredShift(profile, keyDay) ||
+        getPreassignmentForWorker(profile, keyDay);
+
+    if (!preassignment) return;
+
+    const { id, worker, replaced, turno, absenceType } = preassignment;
+    const audit = getPreassignmentAuditInfo(replaced, keyDay);
+    const preassignedLabel = audit?.createdAtLabel ||
+        (preassignment.at
+            ? new Date(preassignment.at).toLocaleString("es-CL")
+            : "Sin registro");
+    const actorName = audit?.actorName || "No registrado";
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "turn-change-dialog-backdrop";
+    backdrop.innerHTML = `
+        <section class="turn-change-dialog leave-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="preassignDialogTitle">
+            <strong id="preassignDialogTitle">Turno preasignado</strong>
+            <div class="leave-detail-rows">
+                <div><span>Reemplaza a</span><b>${escapeHTML(replaced)}</b></div>
+                <div><span>Reemplazante</span><b>${escapeHTML(worker)}</b></div>
+                <div><span>Turno</span><b>${escapeHTML(turnoReplacementLabel(turno))}</b></div>
+                <div><span>Fecha</span><b>${escapeHTML(leaveDateLabelFromKey(keyDay))}</b></div>
+                <div><span>Preasignado</span><b>${escapeHTML(preassignedLabel)}</b></div>
+                <div><span>Por</span><b>${escapeHTML(actorName)}</b></div>
+            </div>
+            <p class="leave-detail-note">
+                Reserva tentativa: aun no proyecta el turno ni suma horas. Confirma
+                cuando el trabajador acepte; cancelar deja el turno pendiente de
+                cobertura ("!").
+            </p>
+            <div class="turn-change-dialog__actions leave-detail-actions--stacked">
+                <button class="primary-button" type="button" data-action="confirm">Confirmar (el trabajador aceptó)</button>
+                <button class="leave-detail-undo" type="button" data-action="cancel-preassign">Cancelar preasignación</button>
+                <button class="ghost-button" type="button" data-action="close">Cerrar</button>
+            </div>
+        </section>
+    `;
+
+    const close = () => {
+        document.removeEventListener("keydown", onKeydown);
+        backdrop.remove();
+    };
+    const onKeydown = event => {
+        if (event.key === "Escape") close();
+    };
+    const refresh = async () => {
+        await updateDayCell(replaced, keyDay);
+        if (worker && worker !== replaced) {
+            await updateDayCell(worker, keyDay);
+        }
+        updateTimelineCells(replaced, [keyDay]);
+        if (worker) updateTimelineCells(worker, [keyDay]);
+        await updateVisibleCalendarDays({ updateSummary: true });
+    };
+
+    backdrop.addEventListener("click", event => {
+        if (event.target === backdrop) close();
+    });
+    backdrop
+        .querySelector("[data-action='close']")
+        ?.addEventListener("click", close);
+    backdrop
+        .querySelector("[data-action='confirm']")
+        ?.addEventListener("click", async () => {
+            await withBusyState(async () => {
+                if (typeof window.pushUndoState === "function") {
+                    window.pushUndoState("Confirmar preasignacion");
+                }
+
+                // Pasa a reemplazo real (proyecta + suma horas), igual que el
+                // paso directo de asignar.
+                saveReplacement({
+                    worker,
+                    replaced,
+                    keyDay,
+                    turno,
+                    absenceType,
+                    source: "replacement",
+                    overtimeHours: preassignment.overtimeHours || null,
+                    diurnoLongCoverage: Boolean(preassignment.diurnoLongCoverage)
+                });
+                removePreassignment(id);
+                addAuditLog(
+                    AUDIT_CATEGORY.CALENDAR,
+                    "Confirmo preasignacion",
+                    `${replaced}: ${worker} confirmo el turno preasignado del ${keyDay}.`,
+                    { profile: replaced, keyDay }
+                );
+                close();
+                await refresh();
+            }, { label: "Confirmando..." });
+        });
+    backdrop
+        .querySelector("[data-action='cancel-preassign']")
+        ?.addEventListener("click", async () => {
+            await withBusyState(async () => {
+                if (typeof window.pushUndoState === "function") {
+                    window.pushUndoState("Cancelar preasignacion");
+                }
+
+                removePreassignment(id);
+                addAuditLog(
+                    AUDIT_CATEGORY.CALENDAR,
+                    "Cancelo preasignacion",
+                    `${replaced}: se cancelo el turno preasignado del ${keyDay}.`,
+                    { profile: replaced, keyDay }
+                );
+                close();
+                await refresh();
+            }, { label: "Cancelando..." });
+        });
+
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(backdrop);
+    backdrop.querySelector("[data-action='confirm']")?.focus();
+}
+
+window.openPreassignmentDialog = openPreassignmentDialog;
+
 async function clickDia(
     keyDay,
     isHab,
@@ -6467,6 +6741,15 @@ async function clickDia(
             keyDay
         ) &&
         !isNoCoverageDay(profileName, keyDay);
+
+    // Turno preasignado (del ausente o del reemplazante): abre el modal de
+    // confirmar/cancelar en vez del de reemplazo.
+    if (
+        getPreassignmentForCoveredShift(profileName, keyDay) ||
+        getPreassignmentForWorker(profileName, keyDay)
+    ) {
+        return openPreassignmentDialog({ profile: profileName, keyDay });
+    }
 
     if (needsReplacement) {
         return openReplacementDialog(
@@ -6924,6 +7207,20 @@ async function renderCalendarImpl(options = {}) {
             getTurnoProgramado(activeProfile, keyDay)
         );
 
+        // Preasignaciones: del ausente (reemplaza el "!") y de este perfil como
+        // reemplazante tentativo (muestra el turno extra sin proyectarlo).
+        const preassignedCovered = Boolean(
+            getPreassignmentForCoveredShift(activeProfile, keyDay)
+        );
+        const preassignedWorker = getPreassignmentForWorker(
+            activeProfile,
+            keyDay
+        );
+        const preassignDisplayTurn =
+            preassignedWorker && (Number(state) || 0) === TURNO.LIBRE
+                ? getPreassignmentTurnForWorker(activeProfile, keyDay)
+                : TURNO.LIBRE;
+
         const date = new Date(y, m, d);
         const isWeekendDay = isWeekend(date);
         const isHoliday = holidays[keyDay];
@@ -6939,7 +7236,9 @@ async function renderCalendarImpl(options = {}) {
         const shiftMoveMarkers =
             shiftMoveIndex.get(keyDay) || [];
         const hourReturn = hourReturns[keyDay] || null;
-        const label = hourReturn
+        const label = preassignDisplayTurn
+            ? turnoLabel(preassignDisplayTurn)
+            : hourReturn
             ? hourReturnCalendarLabel(hourReturn)
             : (
                 pendingLeaveRequest
@@ -7035,8 +7334,12 @@ async function renderCalendarImpl(options = {}) {
             ? "X"
             : severeClockIncident
                 ? "!!!"
+                : preassignedCovered
+                    ? PREASSIGN_BADGE
                 : needsReplacement
                     ? "!"
+                : preassignedWorker
+                    ? PREASSIGN_BADGE
                     : showHonorariaLimitBadge
                         ? "!"
                     : showExtraReason || showClockExtraReason
@@ -7224,8 +7527,12 @@ async function renderCalendarImpl(options = {}) {
             div.classList.add("inactive-profile-day");
         }
 
-        if (needsReplacement) {
+        if (needsReplacement && !preassignedCovered) {
             div.classList.add("needs-replacement");
+        }
+
+        if (preassignedCovered || preassignedWorker) {
+            div.classList.add("preassign-day");
         }
 
         if (honorariaExcess) {

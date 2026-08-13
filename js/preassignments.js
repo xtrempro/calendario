@@ -1,0 +1,100 @@
+// Preasignaciones: cobertura TENTATIVA de un turno con permiso. Es un paso
+// intermedio entre "pendiente (!)" y "asignado": el supervisor le pregunta a un
+// trabajador si puede cubrir y este dice "te confirmo". Se guarda aparte de los
+// reemplazos (getReplacements) a proposito: asi el motor de horas y la proyeccion
+// NUNCA la ven (no proyecta turno ni suma HH.EE) hasta que se confirma y se
+// convierte en un reemplazo real via saveReplacement.
+import { getJSON, setJSON } from "./persistence.js";
+import { isoFromKey } from "./dateUtils.js";
+import { getTurnoComponentes, turnoDesdeComponentes } from "./rulesEngine.js";
+import { TURNO } from "./constants.js";
+
+const STORAGE_KEY = "preassignments";
+
+export function getPreassignments() {
+    const list = getJSON(STORAGE_KEY, []);
+
+    return Array.isArray(list) ? list : [];
+}
+
+export function savePreassignments(list) {
+    setJSON(STORAGE_KEY, Array.isArray(list) ? list : []);
+}
+
+// Crea (o reemplaza) la preasignacion de la cobertura de un ausente en un dia.
+// La forma del registro coincide con lo que espera saveReplacement, para poder
+// convertirla 1:1 al confirmar.
+export function addPreassignment(data = {}) {
+    const date = data.date || (data.keyDay ? isoFromKey(data.keyDay) : "");
+    const record = {
+        id: data.id ||
+            `pre_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        worker: data.worker || "",
+        replaced: data.replaced || "",
+        date,
+        turno: Number(data.turno) || TURNO.LIBRE,
+        absenceType: data.absenceType || "",
+        overtimeHours: data.overtimeHours || null,
+        diurnoLongCoverage: Boolean(data.diurnoLongCoverage),
+        at: data.at || new Date().toISOString(),
+        by: data.by || ""
+    };
+    // Una cobertura por ausente/dia: reemplaza cualquier preasignacion previa de
+    // ese mismo turno del ausente.
+    const list = getPreassignments().filter(item =>
+        !(item?.replaced === record.replaced && item?.date === date)
+    );
+
+    list.push(record);
+    savePreassignments(list);
+
+    return record;
+}
+
+export function removePreassignment(id) {
+    if (!id) return;
+
+    savePreassignments(
+        getPreassignments().filter(item => String(item?.id) !== String(id))
+    );
+}
+
+// Preasignacion que cubre el turno de un AUSENTE en un dia (para el badge y el
+// modal del ausente).
+export function getPreassignmentForCoveredShift(replaced, keyDay) {
+    const iso = isoFromKey(keyDay);
+
+    return getPreassignments().find(item =>
+        item?.replaced === replaced && item?.date === iso
+    ) || null;
+}
+
+// Preasignacion que un REEMPLAZANTE tiene ese dia (para pintar el turno tentativo
+// en su calendario y para las reglas de compatibilidad).
+export function getPreassignmentForWorker(worker, keyDay) {
+    const iso = isoFromKey(keyDay);
+
+    return getPreassignments().find(item =>
+        item?.worker === worker && item?.date === iso
+    ) || null;
+}
+
+export function hasPreassignment(worker, keyDay) {
+    return Boolean(getPreassignmentForWorker(worker, keyDay));
+}
+
+// Turno tentativo que el reemplazante tomaria ese dia (fusion de sus
+// preasignaciones). Display-only: no altera getTurnoReal ni las horas.
+export function getPreassignmentTurnForWorker(worker, keyDay) {
+    const iso = isoFromKey(keyDay);
+
+    return getPreassignments()
+        .filter(item => item?.worker === worker && item?.date === iso)
+        .reduce(
+            (turno, item) => turnoDesdeComponentes([
+                ...getTurnoComponentes(turno),
+                ...getTurnoComponentes(Number(item?.turno) || TURNO.LIBRE)
+            ]),
+            TURNO.LIBRE
+        );
+}

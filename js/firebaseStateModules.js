@@ -20,6 +20,7 @@ const EXACT_KEY_MODULES = new Map([
     ["shiftMoves", "swap"],
     ["turnChangeConfig", "swap"],
     ["replacements", "turnos"],
+    ["preassignments", "turnos"],
     ["manualHolidays", "turnos"],
     ["manualExtraReasonPresets", "turnos"],
     ["turnoColorConfig", "turnos"],

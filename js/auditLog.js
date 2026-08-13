@@ -545,6 +545,10 @@ export function getNoCoverageAuditInfo(profile, keyDay) {
     return latestCalendarActionInfo(profile, keyDay, "Marco sin cobertura");
 }
 
+export function getPreassignmentAuditInfo(profile, keyDay) {
+    return latestCalendarActionInfo(profile, keyDay, "Preasigno turno");
+}
+
 function canUndoAuditLog(log) {
     if (log?.canceledAt) return false;
 
