@@ -112,3 +112,14 @@ test("guardar un marcaje republica la proyeccion del trabajador (con flush de es
     /addEventListener\("proturnos:clockMarksChanged"[\s\S]*?scheduleWorkerAppDataPublish\([\s\S]*?requiresLocalStateFlush: true/
   );
 });
+
+test("el detalle de turnos extra incluye la extension horaria por marcaje", () => {
+  // buildDayRows ("extra-only") suma la hora extra NETA del marcaje como una
+  // extension, aunque el turno base no sea "extra". El total ya la cuenta
+  // (getWorkedIntervalsForState); esto la hace visible en el detalle HH.EE.
+  const rows = grab("buildDayRows");
+  assert.match(rows, /getClockNetExtraHours\(profileName, keyDay, date, actual, holidays\)/);
+  assert.match(rows, /hasClockExtension/);
+  // Se incluye el dia por la extension aunque no sea turno extra ni reemplazo.
+  assert.match(rows, /isExtra \|\| hasClockExtension \|\| hasReplacement/);
+});

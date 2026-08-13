@@ -59,6 +59,7 @@ import { getJSON } from "./persistence.js";
 import {
     getClockExtraHours,
     getClockDeficitHours,
+    getClockNetExtraHours,
     getClockMarks,
     getClockScheduleState,
     getScheduledSegmentsForProfile
@@ -1050,14 +1051,29 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             swap
         ].filter(Boolean).join(" | ");
         const actualHours = rowHours(date, actual, holidays);
-        const extraHours = rowHours(date, extraState, holidays);
+        const scheduleExtraHours = rowHours(date, extraState, holidays);
+        // Extension horaria por MODIFICACION DE MARCAJE: la hora extra NETA del
+        // marcaje (excedente trabajado menos deficit; la parte recuperada no
+        // cuenta) es una extension aunque el turno base no sea "extra". El motor
+        // autoritativo ya la suma a las HH.EE del mes (getWorkedIntervalsForState);
+        // sin esto quedaba contada en el total pero invisible en el detalle
+        // "Turnos extra y extensiones horarias". Solo en el detalle de excedente
+        // ("extra-only"): en "all"/"replacement" las horas ya son las realizadas.
+        const clockExtraHours = kind === "extra-only"
+            ? getClockNetExtraHours(profileName, keyDay, date, actual, holidays)
+            : { d: 0, n: 0 };
+        const extraHours = {
+            d: formatHour(scheduleExtraHours.d + clockExtraHours.d),
+            n: formatHour(scheduleExtraHours.n + clockExtraHours.n)
+        };
+        const hasClockExtension = clockExtraHours.d + clockExtraHours.n > 0.001;
         const isExtra = Number(extraState) > TURNO.LIBRE;
         const hasReplacement =
             getReplacementsForWorkerShift(profileName, keyDay).length > 0;
         const shiftMove = shiftMoveDetail(profileName, keyDay);
         const include =
             kind === "extra-only"
-                ? isExtra || hasReplacement || Boolean(shiftMove)
+                ? isExtra || hasClockExtension || hasReplacement || Boolean(shiftMove)
                 : kind === "replacement"
                     ? actual || hasReplacement || contract || swap || shiftMove
                     : rawBase || baseWithSwaps || actual || hasReplacement || swap || shiftMove;
@@ -1091,7 +1107,9 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             respaldo: shiftMove || details || (
                 isExtra
                     ? UNBACKED_OVERTIME_DETAIL
-                    : ""
+                    : hasClockExtension
+                        ? "Extensión horaria por modificación de marcaje"
+                        : ""
             )
         });
     }
