@@ -11302,6 +11302,21 @@ window.addEventListener("proturnos:workerRequestsChanged", () => {
     void updateVisibleCalendarDays({ updateSummary: true });
 });
 
+// Al modificar un marcaje (recuperación de horas / horas extra / reducción), el
+// motor server-side debe recomputar clockMarkModifications para la PWA. El guardado
+// local no dispara el rebuild, así que forzamos el flush del estado
+// (clockMarks_<perfil>) antes del projectionRequest para que
+// buildWorkerAppProjection vea el marcaje fresco.
+window.addEventListener("proturnos:clockMarksChanged", event => {
+    const profile = event.detail?.profile;
+
+    if (profile) {
+        scheduleWorkerAppDataPublish(300, profile, null, {
+            requiresLocalStateFlush: true
+        });
+    }
+});
+
 window.addEventListener("proturnos:replacementRequestsChanged", () => {
     if (document.body.dataset.activeView === "requests") {
         renderWorkerRequestsPanel();

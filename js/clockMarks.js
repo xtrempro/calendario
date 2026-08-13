@@ -176,6 +176,17 @@ export function saveClockMarks(profile, marks) {
     if (!profile) return;
 
     setJSON(storageKey(profile), marks || {});
+
+    // Republicar la proyección del trabajador: modificar un marcaje (recuperación
+    // de horas / horas extra / reducción) debe reflejarse en la PWA. El guardado
+    // local no dispara el rebuild por sí solo, así que avisamos a quien orquesta la
+    // publicación. La hidratación desde Firestore escribe el storage directo (no
+    // pasa por aquí), por eso esto no genera un bucle.
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+        window.dispatchEvent(new CustomEvent("proturnos:clockMarksChanged", {
+            detail: { profile }
+        }));
+    }
 }
 
 export function getClockMark(profile, keyDay) {

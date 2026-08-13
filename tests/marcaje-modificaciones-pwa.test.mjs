@@ -7,6 +7,8 @@ import { readFile } from "node:fs/promises";
 
 const src = await readFile(new URL("../js/hoursReport.js", import.meta.url), "utf8");
 const engineSrc = await readFile(new URL("../js/serverEngine.js", import.meta.url), "utf8");
+const clockMarksSrc = await readFile(new URL("../js/clockMarks.js", import.meta.url), "utf8");
+const mainSrc = await readFile(new URL("../js/main.js", import.meta.url), "utf8");
 
 function grab(name) {
   const decl = `function ${name}(`;
@@ -87,4 +89,21 @@ test("el builder salta dias futuros y el motor publica clockMarkModifications", 
   // serverEngine computa y publica el mapa junto a overtimeSummaries.
   assert.match(engineSrc, /buildWorkerClockMarkModifications/);
   assert.match(engineSrc, /clockMarkModifications,/);
+});
+
+test("guardar un marcaje republica la proyeccion del trabajador (con flush de estado)", () => {
+  // Sin esto, modificar un marcaje NO regeneraba la proyeccion: el detalle
+  // (recuperacion / horas extra / reduccion) no aparecia en la PWA hasta que
+  // alguna otra edicion del perfil disparaba un projectionRequest.
+  assert.match(
+    clockMarksSrc,
+    /dispatchEvent\(\s*new CustomEvent\("proturnos:clockMarksChanged"/
+  );
+  // main.js escucha el evento y republica forzando el flush del estado
+  // (clockMarks_<perfil>) antes del projectionRequest, para que
+  // buildWorkerAppProjection recompute con el marcaje fresco.
+  assert.match(
+    mainSrc,
+    /addEventListener\("proturnos:clockMarksChanged"[\s\S]*?scheduleWorkerAppDataPublish\([\s\S]*?requiresLocalStateFlush: true/
+  );
 });
