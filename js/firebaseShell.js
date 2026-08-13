@@ -31,6 +31,7 @@ import {
     normalizeEmailKey
 } from "./emailUtils.js";
 import { replaceLocalSnapshot } from "./persistence.js";
+import { saveReportSignatureConfig } from "./storage.js";
 import {
     MENU_PERMISSION_DEFS,
     normalizeMenuPermissions
@@ -65,6 +66,7 @@ let supervisorInviteState = {
     invites: []
 };
 let activeFirebaseBackdrop = null;
+let createWorkspaceFormOpen = false;
 let handlingAccessLost = false;
 let loginGateEnabled = true;
 let unsubscribeUserWorkspaces = null;
@@ -1000,11 +1002,15 @@ function renderSignedInModal(backdrop) {
             ` : ""}
 
             <div class="firebase-dialog-grid">
-                <label class="firebase-field">
+                <div class="firebase-field">
                     <span>Crear nueva unidad</span>
-                    <input id="firebaseCreateWorkspaceName" type="text" placeholder="Ej: UCI Hospital Central">
+                    ${createWorkspaceFormOpen ? `
+                        <input id="firebaseCreateWorkspaceName" type="text" placeholder="Nombre de la unidad (Ej: Unidad de Cuidados Intensivos)">
+                        <input id="firebaseCreateSupervisorName" type="text" placeholder="Nombre del supervisor (pie de firma)">
+                        <input id="firebaseCreateHospitalName" type="text" placeholder="Nombre del hospital (pie de firma)">
+                    ` : ""}
                     <button class="primary-button" type="button" data-action="create-workspace">Crear unidad</button>
-                </label>
+                </div>
             </div>
 
             <div class="firebase-workspace-list">
@@ -1379,9 +1385,24 @@ async function handleAction(action, backdrop, sourceButton = null) {
         }
 
         if (action === "create-workspace") {
+            // Primer click: despliega los campos y enfoca el nombre. El segundo
+            // click (con los campos ya visibles) crea la unidad.
+            if (!createWorkspaceFormOpen) {
+                createWorkspaceFormOpen = true;
+                renderSignedInModal(backdrop);
+                backdrop.querySelector("#firebaseCreateWorkspaceName")?.focus();
+                return;
+            }
+
             const input = backdrop.querySelector(
                 "#firebaseCreateWorkspaceName"
             );
+            const supervisorName = String(
+                backdrop.querySelector("#firebaseCreateSupervisorName")?.value || ""
+            ).trim();
+            const hospitalName = String(
+                backdrop.querySelector("#firebaseCreateHospitalName")?.value || ""
+            ).trim();
 
             currentWorkspace =
                 await createWorkspace(currentUser, input?.value);
@@ -1393,6 +1414,20 @@ async function handleAction(action, backdrop, sourceButton = null) {
             refreshShellGate();
             updateTopbar();
             await options.onWorkspaceChange?.(currentWorkspace);
+
+            // Pre-rellena el pie de firma de la nueva unidad: 1a linea el
+            // supervisor, 2a la unidad (entorno), 3a el hospital. Editable
+            // luego en Ajustes -> Pie de Firma.
+            saveReportSignatureConfig({
+                lines: [
+                    supervisorName,
+                    currentWorkspace?.name || String(input?.value || "").trim(),
+                    hospitalName,
+                    ""
+                ]
+            });
+
+            createWorkspaceFormOpen = false;
             closeModal(backdrop, { force: true });
             return;
         }
@@ -1665,6 +1700,7 @@ async function openFirebaseModal(modalOptions = {}) {
     if (await maybeActivateSingleWorkspace()) return;
 
     await refreshLinkedUnits();
+    createWorkspaceFormOpen = false;
     renderSignedInModal(backdrop);
 }
 
