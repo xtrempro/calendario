@@ -83,9 +83,14 @@ test("sin marca registrada -> null (no engorda la proyeccion)", () => {
   assert.equal(fn("Ana", "K", new Date(), 1, {}), null);
 });
 
-test("el builder salta dias futuros y el motor publica clockMarkModifications", () => {
+test("el builder recorre los dias con marca (cubre meses futuros) y el motor publica", () => {
   assert.match(src, /export async function buildWorkerClockMarkModifications/);
-  assert.match(src, /if \(date > today\) break;/);
+  // Recorre las claves de getClockMarks (no un rango fijo de meses hacia atras),
+  // asi cubre cualquier mes con marca, incl. futuros relativos a hoy. Antes el
+  // rango fijo + `if (date > today) break;` dejaba esos dias sin detalle.
+  assert.match(src, /getClockMarks\(profileName\)/);
+  assert.match(src, /Object\.keys\(marks\)/);
+  assert.doesNotMatch(src, /if \(date > today\) break;/);
   // serverEngine computa y publica el mapa junto a overtimeSummaries.
   assert.match(engineSrc, /buildWorkerClockMarkModifications/);
   assert.match(engineSrc, /clockMarkModifications,/);

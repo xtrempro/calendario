@@ -731,43 +731,43 @@ function clockMarkDayDetail(profileName, keyDay, date, state, holidays = {}) {
 // Mapa { [iso]: detalle } de las modificaciones de marcaje del trabajador en los
 // ultimos meses (mas el mes en curso). Se publica en la proyeccion para que la PWA
 // muestre un badge por dia en el calendario y la seccion en "Marcajes".
-export async function buildWorkerClockMarkModifications(profile, monthsBack = 3) {
+export async function buildWorkerClockMarkModifications(profile) {
     if (!profile?.name) return {};
 
     const profileName = profile.name;
     const data = getProfileData(profileName);
-    const today = new Date();
+    // Recorremos SOLO los dias que tienen marca registrada (getClockMarks), no un
+    // rango fijo de meses relativo a "hoy". Las marcas se guardan unicamente en los
+    // dias que el supervisor modifica (son dispersas), asi que esto es barato y —lo
+    // importante— cubre CUALQUIER mes, incluidos los futuros relativos a hoy (una
+    // modificacion cargada en un mes por venir, p. ej. en un escenario de prueba o
+    // planificacion). El rango fijo hacia atras dejaba esos dias sin detalle aunque
+    // el color por-dia ya apareciera desde la proyeccion de `days`.
+    const marks = getClockMarks(profileName);
+    const holidaysByYear = new Map();
     const result = {};
 
-    for (let offset = monthsBack; offset >= 0; offset -= 1) {
-        const monthDate = new Date(
-            today.getFullYear(),
-            today.getMonth() - offset,
-            1
-        );
-        const year = monthDate.getFullYear();
-        const month = monthDate.getMonth();
-        const holidays = await fetchHolidays(year);
-        const daysInMonth = new Date(year, month + 1, 0).getDate();
+    for (const keyDay of Object.keys(marks)) {
+        const date = parseKey(keyDay);
 
-        for (let day = 1; day <= daysInMonth; day += 1) {
-            const date = new Date(year, month, day);
+        if (Number.isNaN(date.getTime())) continue;
 
-            // No hay marcas en el futuro.
-            if (date > today) break;
+        const year = date.getFullYear();
 
-            const keyDay = key(year, month, day);
-            const actual = actualStateForReport(profileName, data, keyDay);
-            const detail = clockMarkDayDetail(
-                profileName,
-                keyDay,
-                date,
-                actual,
-                holidays
-            );
-
-            if (detail) result[isoFromKey(keyDay)] = detail;
+        if (!holidaysByYear.has(year)) {
+            holidaysByYear.set(year, await fetchHolidays(year));
         }
+
+        const actual = actualStateForReport(profileName, data, keyDay);
+        const detail = clockMarkDayDetail(
+            profileName,
+            keyDay,
+            date,
+            actual,
+            holidaysByYear.get(year)
+        );
+
+        if (detail) result[isoFromKey(keyDay)] = detail;
     }
 
     return result;
