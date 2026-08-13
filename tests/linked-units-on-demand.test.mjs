@@ -78,7 +78,7 @@ test("las unidades enlazadas solo se consultan desde la accion explicita", async
     assert.doesNotMatch(calendar, /readLinkedStaffingMonth|listAcceptedLinkedWorkspaces/);
     assert.match(
         calendar,
-        /data-action="linked-units"[\s\S]{0,500}Buscar reemplazo compatible en unidades enlazadas/
+        /data-action="linked-units"[\s\S]{0,500}Unidades enlazadas/
     );
     assert.match(calendar, /findCompatibleReplacementInLinkedUnits\(\{/);
     assert.match(

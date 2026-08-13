@@ -74,7 +74,7 @@ test("el modal agrupa opciones, agrega No requiere cobertura y renombra", async 
     assert.match(calendar, /No requiere cobertura/);
     assert.match(calendar, /setNoCoverageDay\(profileName, keyDay, true\)/);
     // Rename del toggle.
-    assert.match(calendar, /Solicitar aprobación del trabajador/);
+    assert.match(calendar, /Solicitar aprobaci&oacute;n/);
     assert.doesNotMatch(calendar, /Solicitar aceptacion al trabajador/);
 });
 
