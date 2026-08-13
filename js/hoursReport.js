@@ -1050,8 +1050,11 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             contract,
             swap
         ].filter(Boolean).join(" | ");
-        const actualHours = rowHours(date, actual, holidays);
-        const scheduleExtraHours = rowHours(date, extraState, holidays);
+        // OJO: rowHours/formatHour devuelven STRINGS con coma decimal ("10,8").
+        // La hora extra hay que SUMARLA en numerico (numberHours) y formatear
+        // recien al final; sumar los strings concatenaba ("10" + 0 -> "100").
+        const actualHoursNum = numberHours(date, actual, holidays);
+        const scheduleExtraHoursNum = numberHours(date, extraState, holidays);
         // Extension horaria por MODIFICACION DE MARCAJE: la hora extra NETA del
         // marcaje (excedente trabajado menos deficit; la parte recuperada no
         // cuenta) es una extension aunque el turno base no sea "extra". El motor
@@ -1062,9 +1065,13 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
         const clockExtraHours = kind === "extra-only"
             ? getClockNetExtraHours(profileName, keyDay, date, actual, holidays)
             : { d: 0, n: 0 };
+        const actualHours = {
+            d: formatHour(actualHoursNum.d),
+            n: formatHour(actualHoursNum.n)
+        };
         const extraHours = {
-            d: formatHour(scheduleExtraHours.d + clockExtraHours.d),
-            n: formatHour(scheduleExtraHours.n + clockExtraHours.n)
+            d: formatHour(scheduleExtraHoursNum.d + clockExtraHours.d),
+            n: formatHour(scheduleExtraHoursNum.n + clockExtraHours.n)
         };
         const hasClockExtension = clockExtraHours.d + clockExtraHours.n > 0.001;
         const isExtra = Number(extraState) > TURNO.LIBRE;
@@ -2594,8 +2601,10 @@ export async function buildWorkerHheeMonthSummary(
         model = buildNoAssignmentReportModel({ profile, monthDate, holidays, stats });
     }
 
+    // Las horas vienen formateadas con coma decimal ("10,8"); Number("10,8") es
+    // NaN, así que las diurnas fraccionarias caían a 0. Normalizamos la coma.
     const num = value => {
-        const parsed = Number(value);
+        const parsed = Number(String(value).replace(",", "."));
         return Number.isFinite(parsed) ? parsed : 0;
     };
 

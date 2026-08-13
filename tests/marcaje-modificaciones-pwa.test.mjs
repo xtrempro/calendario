@@ -123,3 +123,15 @@ test("el detalle de turnos extra incluye la extension horaria por marcaje", () =
   // Se incluye el dia por la extension aunque no sea turno extra ni reemplazo.
   assert.match(rows, /isExtra \|\| hasClockExtension \|\| hasReplacement/);
 });
+
+test("las horas del detalle se suman en numerico (no concatenan strings)", () => {
+  // rowHours/formatHour devuelven strings con coma ("10,8"); sumar la hora extra
+  // como string concatenaba: "10" + 0 -> "100" (D+N mostraba 0/100). La suma debe
+  // ser numerica (numberHours) y recien despues formatear.
+  const rows = grab("buildDayRows");
+  assert.match(rows, /numberHours\(date, extraState, holidays\)/);
+  assert.match(rows, /scheduleExtraHoursNum\.n \+ clockExtraHours\.n/);
+  assert.doesNotMatch(rows, /formatHour\(scheduleExtraHours\.n \+ clockExtraHours\.n\)/);
+  // El parseo de vuelta normaliza la coma decimal (si no, "10,8" -> NaN -> 0).
+  assert.match(src, /Number\(String\(value\)\.replace\(",", "\."\)\)/);
+});
