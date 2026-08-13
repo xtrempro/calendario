@@ -4750,57 +4750,99 @@ function replacementDialogHTML({
             </div>
         `
         : "";
-    const optionControls = [
+    const scopeControls = [
+        `
+            <button
+                class="replacement-segment ${(!forceMode && !linkedMode) ? "is-active" : ""}"
+                type="button"
+                data-action="scope-compatible"
+                aria-pressed="${(!forceMode && !linkedMode) ? "true" : "false"}"
+            >
+                Compatibles
+            </button>
+        `,
         allowCrossRoleSuggestions
             ? `
-                <button class="secondary-button" type="button" data-action="toggle-force">
-                    ${forceMode
-                        ? "Volver a profesiones/estamentos compatibles"
-                        : "Mostrar personal de otras profesiones y/o estamentos"
-                    }
+                <button
+                    class="replacement-segment ${forceMode ? "is-active" : ""}"
+                    type="button"
+                    data-action="toggle-force"
+                    aria-pressed="${forceMode ? "true" : "false"}"
+                >
+                    Otras profesiones
                 </button>
             `
             : "",
         allowLinkedSuggestions
             ? `
-                <button class="ghost-button" type="button" data-action="linked-units">
-                    ${linkedMode
-                        ? "Volver a personal de esta unidad"
-                        : "Buscar reemplazo compatible en unidades enlazadas"
-                    }
+                <button
+                    class="replacement-segment replacement-segment--green ${linkedMode ? "is-active" : ""}"
+                    type="button"
+                    data-action="linked-units"
+                    aria-pressed="${linkedMode ? "true" : "false"}"
+                >
+                    Unidades enlazadas
                 </button>
             `
-            : "",
+            : ""
+    ].filter(Boolean).join("");
+    const assignmentControls = [
+        `
+            <button
+                class="replacement-segment ${(!isRequestMode && !preassignMode) ? "is-active" : ""}"
+                type="button"
+                data-action="assignment-direct"
+                aria-pressed="${(!isRequestMode && !preassignMode) ? "true" : "false"}"
+            >
+                Asignar ahora
+            </button>
+        `,
         (!linkedMode && allowWorkerAcceptanceRequest)
             ? `
-                <label class="replacement-request-toggle ${preassignMode ? "is-disabled" : ""}">
-                    <input type="checkbox" data-action="request-mode" ${isRequestMode ? "checked" : ""} ${preassignMode ? "disabled" : ""}>
-                    <span>
-                        <strong>Solicitar aprobación del trabajador</strong>
-                    </span>
-                </label>
+                <button
+                    class="replacement-segment replacement-segment--green ${isRequestMode ? "is-active" : ""}"
+                    type="button"
+                    data-action="request-mode"
+                    aria-pressed="${isRequestMode ? "true" : "false"}"
+                >
+                    Solicitar aprobaci&oacute;n
+                </button>
             `
             : "",
         `
             <button
                 type="button"
-                class="replacement-preassign-toggle ${preassignMode ? "is-active" : ""}"
+                class="replacement-segment replacement-segment--amber ${preassignMode ? "is-active" : ""}"
                 data-action="preassign-mode"
                 aria-pressed="${preassignMode ? "true" : "false"}"
             >
-                <span class="replacement-preassign-text">
-                    <strong>Preasignar turno</strong>
-                    <small>Reserva tentativa: no proyecta el turno ni suma horas hasta confirmar.</small>
-                </span>
-                <span class="replacement-preassign-switch" aria-hidden="true"></span>
-            </button>
-        `,
-        `
-            <button class="ghost-button" type="button" data-action="no-coverage" ${preassignMode ? "disabled" : ""}>
-                No requiere cobertura
+                Preasignar
             </button>
         `
     ].filter(Boolean).join("");
+    const optionControls = `
+        <div class="replacement-option-row">
+            <span class="replacement-option-label">Alcance</span>
+            <div class="replacement-segmented">
+                ${scopeControls}
+            </div>
+        </div>
+        <div class="replacement-option-row">
+            <span class="replacement-option-label">Asignaci&oacute;n</span>
+            <div class="replacement-segmented">
+                ${assignmentControls}
+            </div>
+        </div>
+        <div class="replacement-coverage-exception ${preassignMode ? "is-disabled" : ""}">
+            <span class="replacement-coverage-exception-copy">
+                <strong>Excepci&oacute;n de cobertura</strong>
+                <small>Oculta la alerta de este d&iacute;a cuando el turno no necesita reemplazo.</small>
+            </span>
+            <button class="replacement-coverage-button" type="button" data-action="no-coverage" ${preassignMode ? "disabled" : ""}>
+                No requiere cobertura
+            </button>
+        </div>
+    `;
 
     return `
         <div class="turn-change-dialog replacement-dialog" role="dialog" aria-modal="true" aria-labelledby="replacementDialogTitle">
@@ -5207,6 +5249,15 @@ async function openReplacementDialog(profileName, keyDay) {
             };
         }
 
+        const compatibleScopeButton =
+            backdrop.querySelector("[data-action='scope-compatible']");
+        if (compatibleScopeButton) {
+            compatibleScopeButton.onclick = async () => {
+                scope = "compatible";
+                await renderContent();
+            };
+        }
+
         const cancelLeaveButton =
             backdrop.querySelector("[data-action='cancel-leave']");
         if (cancelLeaveButton) {
@@ -5286,11 +5337,22 @@ async function openReplacementDialog(profileName, keyDay) {
             };
         }
 
+        const assignmentDirectButton =
+            backdrop.querySelector("[data-action='assignment-direct']");
+        if (assignmentDirectButton) {
+            assignmentDirectButton.onclick = async () => {
+                requestMode = false;
+                preassignMode = false;
+                selectedRequestWorkers = new Set();
+                await renderContent();
+            };
+        }
+
         const requestToggle =
             backdrop.querySelector("[data-action='request-mode']");
         if (requestToggle) {
-            requestToggle.onchange = async () => {
-                requestMode = requestToggle.checked;
+            requestToggle.onclick = async () => {
+                requestMode = !requestMode;
                 // Aprobacion y preasignar son excluyentes.
                 if (requestMode) preassignMode = false;
                 selectedRequestWorkers = new Set();
