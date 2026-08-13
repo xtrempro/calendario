@@ -38,7 +38,8 @@ import { addTaskAssignmentsToSchedule } from "./taskAssignmentProjection.js";
 import {
     buildWorkerHheeSummaries,
     buildWorkerHheeMonthSummary,
-    buildWorkerReportPreviewHTML
+    buildWorkerReportPreviewHTML,
+    buildWorkerClockMarkModifications
 } from "./hoursReport.js";
 
 const OVERTIME_SUMMARY_MONTHS_BACK = 2;
@@ -803,6 +804,7 @@ export async function buildFullProjection(
     const leaveBalancesByYear = await leaveBalancesByScheduleYear(profile.name, schedule, today);
     const leaveBalances = leaveBalancesByYear[String(today.getFullYear())];
     const overtimeSummaries = await computeOvertimeSummaries(profile, schedule);
+    const clockMarkModifications = await buildWorkerClockMarkModifications(profile);
     const reportsByMonth = await buildWorkerReports(profile, today);
     const { exceptions, exceptionsStart, exceptionsEnd } =
         computeProfileExceptions(profile, today);
@@ -895,6 +897,9 @@ export async function buildFullProjection(
         overtimeSummariesCacheVersion: OVERTIME_SUMMARY_CACHE_VERSION,
         overtimeSummariesStatus: "fresh",
         overtimeSummariesSource: "computed",
+        // Modificaciones de marcaje del supervisor (recuperacion / horas extra /
+        // reduccion) por dia, para el badge del calendario y la seccion "Marcajes".
+        clockMarkModifications,
         reportsByMonth,
         reportsByMonthStatus: "fresh",
         swapLimit: buildSwapLimit(profile.name, today),

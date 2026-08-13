@@ -652,6 +652,127 @@ function clockMarkSummary(profileName, keyDay, date, state, holidays = {}) {
     return items.join(" | ");
 }
 
+// Detalle ESTRUCTURADO de las modificaciones de marcaje de un dia para la PWA del
+// trabajador: entrada/salida, recuperacion, horas extra netas, reduccion y flags.
+// Misma clasificacion que el supervisor (classifyClockMarkSegment) y el texto del
+// reporte (clockMarkSummary). Devuelve null si ese dia no tiene marca registrada.
+function clockMarkDayDetail(profileName, keyDay, date, state, holidays = {}) {
+    const mark = getClockMarks(profileName)[keyDay];
+
+    if (!mark?.segments) return null;
+
+    const scheduledState = getClockScheduleState(profileName, keyDay, state);
+    const segments = getScheduledSegmentsForProfile(
+        profileName,
+        keyDay,
+        date,
+        scheduledState,
+        holidays
+    );
+
+    let recoveryMinutes = 0;
+    let netExtraMinutes = 0;
+    let uncoveredMinutes = 0;
+    let missingEntry = false;
+    let missingExit = false;
+    let entryTime = "";
+    let exitTime = "";
+    let hasMark = false;
+    const badges = [];
+    const addBadge = value => {
+        if (!badges.includes(value)) badges.push(value);
+    };
+
+    for (const segment of segments) {
+        const segmentMark = findClockMarkEntry(mark, segment)?.value;
+
+        if (!segmentMark) continue;
+
+        hasMark = true;
+
+        if (segmentMark.missingEntry) {
+            missingEntry = true;
+            addBadge("Sin entrada");
+        }
+        if (segmentMark.missingExit) {
+            missingExit = true;
+            addBadge("Sin salida");
+        }
+        if (segmentMark.entryTime && !entryTime) entryTime = segmentMark.entryTime;
+        if (segmentMark.exitTime) exitTime = segmentMark.exitTime;
+
+        const c = classifyClockMarkSegment(date, segment, segmentMark, {
+            isBaseOrSwap: true
+        });
+
+        recoveryMinutes += c.recoveryMinutes;
+        netExtraMinutes += c.netExtraMinutes;
+        uncoveredMinutes += c.uncoveredMinutes;
+
+        if (c.recoveryMinutes > 0) addBadge("Recuperación de horas");
+        if (c.netExtraMinutes > 0) addBadge("Genera horas extra");
+        if (c.isReduction) addBadge("Reducción de jornada");
+    }
+
+    if (!hasMark) return null;
+
+    return {
+        entryTime,
+        exitTime,
+        recoveryMinutes: Math.round(recoveryMinutes),
+        netExtraMinutes: Math.round(netExtraMinutes),
+        uncoveredMinutes: Math.round(uncoveredMinutes),
+        missingEntry,
+        missingExit,
+        badges
+    };
+}
+
+// Mapa { [iso]: detalle } de las modificaciones de marcaje del trabajador en los
+// ultimos meses (mas el mes en curso). Se publica en la proyeccion para que la PWA
+// muestre un badge por dia en el calendario y la seccion en "Marcajes".
+export async function buildWorkerClockMarkModifications(profile, monthsBack = 3) {
+    if (!profile?.name) return {};
+
+    const profileName = profile.name;
+    const data = getProfileData(profileName);
+    const today = new Date();
+    const result = {};
+
+    for (let offset = monthsBack; offset >= 0; offset -= 1) {
+        const monthDate = new Date(
+            today.getFullYear(),
+            today.getMonth() - offset,
+            1
+        );
+        const year = monthDate.getFullYear();
+        const month = monthDate.getMonth();
+        const holidays = await fetchHolidays(year);
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+        for (let day = 1; day <= daysInMonth; day += 1) {
+            const date = new Date(year, month, day);
+
+            // No hay marcas en el futuro.
+            if (date > today) break;
+
+            const keyDay = key(year, month, day);
+            const actual = actualStateForReport(profileName, data, keyDay);
+            const detail = clockMarkDayDetail(
+                profileName,
+                keyDay,
+                date,
+                actual,
+                holidays
+            );
+
+            if (detail) result[isoFromKey(keyDay)] = detail;
+        }
+    }
+
+    return result;
+}
+
 function buildNoAssignmentDayRows(
     profile,
     year,
