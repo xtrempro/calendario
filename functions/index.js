@@ -2,7 +2,6 @@ const admin = require("firebase-admin");
 const { createHash, randomBytes } = require("node:crypto");
 const logger = require("firebase-functions/logger");
 const { setGlobalOptions } = require("firebase-functions/v2");
-const { GoogleAuth } = require("google-auth-library");
 const {
   onDocumentCreated,
   onDocumentUpdated
@@ -404,6 +403,8 @@ function scheduleOcrBaseStatus(status, requestedAtISO) {
 
 async function getVisionAuthClient() {
   if (!visionAuthClientPromise) {
+    const { GoogleAuth } = require("google-auth-library");
+
     visionAuthClientPromise = new GoogleAuth({
       scopes: ["https://www.googleapis.com/auth/cloud-platform"]
     }).getClient();
