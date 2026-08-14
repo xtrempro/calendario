@@ -92,6 +92,27 @@ function fileExtension(name) {
     return String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
 }
 
+function normalizeScheduleOcr(value) {
+    if (!value || typeof value !== "object") return null;
+
+    const status = String(value.status || "").trim() || "failed";
+    const text = String(value.text || "").trim();
+    const error = String(value.error || "").trim();
+
+    return {
+        status,
+        engine: String(value.engine || "").trim(),
+        source: String(value.source || "automatic_upload").trim(),
+        reviewRequired: value.reviewRequired === true,
+        requestedAtISO: String(value.requestedAtISO || "").trim(),
+        extractedAtISO: String(value.extractedAtISO || "").trim(),
+        text,
+        textLength: Number(value.textLength || text.length || 0),
+        truncated: value.truncated === true,
+        error
+    };
+}
+
 function normalizeScheduleAttachment(value) {
     if (!value || typeof value !== "object") return null;
 
@@ -114,7 +135,8 @@ function normalizeScheduleAttachment(value) {
         downloadURL,
         uploadedByUid: String(value.uploadedByUid || "").trim(),
         mode: "image",
-        source: "supervisor_image"
+        source: "supervisor_image",
+        ocr: normalizeScheduleOcr(value.ocr)
     };
 }
 
@@ -648,6 +670,23 @@ function publishTaskAssignmentChanges(workerNames = null) {
 
 async function publishScheduleAttachmentChanges() {
     await publishWorkerScheduleAttachmentNow(getScheduleAttachment());
+}
+
+function scheduleOcrStatusLabel(ocr) {
+    const status = String(ocr?.status || "").trim();
+
+    if (status === "completed") {
+        const count = Number(ocr?.textLength || ocr?.text?.length || 0);
+
+        return count ? `OCR listo (${count})` : "OCR listo";
+    }
+
+    if (status === "empty") return "OCR sin texto";
+    if (status === "failed") return "OCR con error";
+    if (status === "processing" || status === "pending") return "OCR pendiente";
+    if (status) return `OCR ${status}`;
+
+    return "OCR pendiente";
 }
 
 function getWeekAssignments(start = currentWeekStart) {
@@ -1508,10 +1547,11 @@ function renderScheduleAttachmentStatus() {
             minute: "2-digit"
         })
         : "publicada";
+    const ocrLabel = scheduleOcrStatusLabel(attachment.ocr);
 
     return `
         <span class="task-schedule-attachment-status" title="${escapeHTML(attachment.name)}">
-            Programaci&oacute;n: ${escapeHTML(attachment.name)} | ${escapeHTML(detail)}
+            Programaci&oacute;n: ${escapeHTML(attachment.name)} | ${escapeHTML(detail)} | ${escapeHTML(ocrLabel)}
         </span>
     `;
 }
@@ -2173,7 +2213,7 @@ function openScheduleAttachmentDialog() {
             try {
                 validateScheduleImage(file);
                 submit.disabled = true;
-                submit.textContent = "Publicando...";
+                submit.textContent = "Publicando y leyendo OCR...";
 
                 await assertScheduleAttachmentUploadAccess();
 

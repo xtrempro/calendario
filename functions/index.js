@@ -2,6 +2,7 @@ const admin = require("firebase-admin");
 const { createHash, randomBytes } = require("node:crypto");
 const logger = require("firebase-functions/logger");
 const { setGlobalOptions } = require("firebase-functions/v2");
+const { GoogleAuth } = require("google-auth-library");
 const {
   onDocumentCreated,
   onDocumentUpdated
@@ -128,6 +129,9 @@ const MENU_PERMISSION_KEYS = [
   "log"
 ];
 const SCHEDULE_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
+const SCHEDULE_OCR_MAX_TEXT_LENGTH = 30000;
+const SCHEDULE_OCR_TIMEOUT_MS = 20000;
+const VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate";
 const SCHEDULE_ATTACHMENT_MODULE_ID = "tasks";
 const SCHEDULE_ATTACHMENT_OWNER_ID = "weekly-schedule";
 const SCHEDULE_ATTACHMENT_RECORD_ID = "published-schedule";
@@ -372,10 +376,151 @@ function storageDownloadURL(bucketName, storagePath, token) {
   ].join("");
 }
 
+let visionAuthClientPromise = null;
+
+function cleanScheduleOcrText(value) {
+  return String(value || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\u0000/g, "")
+    .trim()
+    .slice(0, SCHEDULE_OCR_MAX_TEXT_LENGTH);
+}
+
+function scheduleOcrBaseStatus(status, requestedAtISO) {
+  return {
+    status,
+    engine: "google-cloud-vision",
+    source: "automatic_upload",
+    reviewRequired: false,
+    requestedAtISO,
+    extractedAtISO: "",
+    text: "",
+    textLength: 0,
+    truncated: false,
+    error: ""
+  };
+}
+
+async function getVisionAuthClient() {
+  if (!visionAuthClientPromise) {
+    visionAuthClientPromise = new GoogleAuth({
+      scopes: ["https://www.googleapis.com/auth/cloud-platform"]
+    }).getClient();
+  }
+
+  return visionAuthClientPromise;
+}
+
+async function automaticScheduleImageOcr(decoded, context = {}) {
+  const requestedAtISO = new Date().toISOString();
+  const base = scheduleOcrBaseStatus("failed", requestedAtISO);
+
+  try {
+    const authClient = await getVisionAuthClient();
+    const accessToken = await authClient.getAccessToken();
+    const token = typeof accessToken === "string"
+      ? accessToken
+      : accessToken?.token;
+
+    if (!token) {
+      throw new Error("No se pudo obtener token para OCR.");
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SCHEDULE_OCR_TIMEOUT_MS);
+
+    let response;
+    try {
+      response = await fetch(VISION_API_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              image: {
+                content: decoded.buffer.toString("base64")
+              },
+              features: [
+                {
+                  type: "DOCUMENT_TEXT_DETECTION",
+                  maxResults: 1
+                }
+              ],
+              imageContext: {
+                languageHints: ["es"]
+              }
+            }
+          ]
+        }),
+        signal: controller.signal
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(
+        `Vision OCR ${response.status}: ${cleanCallableText(body, 240)}`
+      );
+    }
+
+    const body = await response.json();
+    const annotation = body?.responses?.[0] || {};
+
+    if (annotation.error) {
+      throw new Error(
+        cleanCallableText(
+          annotation.error.message || annotation.error.code,
+          240
+        )
+      );
+    }
+
+    const rawText =
+      annotation.fullTextAnnotation?.text ||
+      annotation.textAnnotations?.[0]?.description ||
+      "";
+    const text = cleanScheduleOcrText(rawText);
+    const textLength = String(rawText || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/\u0000/g, "")
+      .trim()
+      .length;
+
+    return {
+      ...scheduleOcrBaseStatus(text ? "completed" : "empty", requestedAtISO),
+      extractedAtISO: new Date().toISOString(),
+      text,
+      textLength,
+      truncated: textLength > text.length
+    };
+  } catch (error) {
+    logger.warn("No se pudo ejecutar OCR automatico de programacion.", {
+      workspaceId: context.workspaceId,
+      storagePath: context.storagePath,
+      message: cleanCallableText(error?.message || error?.code, 240)
+    });
+
+    return {
+      ...base,
+      error: cleanCallableText(
+        error?.message || "No se pudo ejecutar OCR automatico.",
+        240
+      )
+    };
+  }
+}
+
 exports.uploadScheduleAttachment = onCall(
   {
     enforceAppCheck: ENFORCE_APP_CHECK,
-    timeoutSeconds: 60,
+    timeoutSeconds: 120,
     memory: "512MiB"
   },
   async (request) => {
@@ -439,6 +584,11 @@ exports.uploadScheduleAttachment = onCall(
       }
     });
 
+    const ocr = await automaticScheduleImageOcr(decoded, {
+      workspaceId,
+      storagePath
+    });
+
     return {
       id,
       name: decoded.originalName,
@@ -450,7 +600,8 @@ exports.uploadScheduleAttachment = onCall(
       storagePath,
       downloadURL: storageDownloadURL(bucket.name, storagePath, downloadToken),
       mode: "image",
-      source: "supervisor_image"
+      source: "supervisor_image",
+      ocr
     };
   }
 );

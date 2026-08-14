@@ -80,10 +80,16 @@ test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
     assert.match(source, /createScheduleAttachment\(file\)/);
     assert.match(source, /compressedScheduleDataUrl\(file\)/);
     assert.match(source, /httpsCallable\([\s\S]*"uploadScheduleAttachment"/);
+    assert.match(source, /normalizeScheduleOcr\(value\.ocr\)/);
+    assert.match(source, /Publicando y leyendo OCR/);
     assert.doesNotMatch(source, /storageFallbackReason/);
     assert.doesNotMatch(source, /inlineScheduleAttachment/);
     assert.match(source, /publishWorkerScheduleAttachmentNow\(getScheduleAttachment\(\)\)/);
     assert.match(functionsSource, /exports\.uploadScheduleAttachment = onCall/);
+    assert.match(functionsSource, /automaticScheduleImageOcr\(decoded/);
+    assert.match(functionsSource, /DOCUMENT_TEXT_DETECTION/);
+    assert.match(functionsSource, /reviewRequired: false/);
+    assert.match(functionsSource, /ocr/);
     assert.match(functionsSource, /enforceAppCheck: ENFORCE_APP_CHECK/);
     assert.match(functionsSource, /SCHEDULE_ATTACHMENT_MODULE_ID = "tasks"/);
     assert.match(functionsSource, /SCHEDULE_ATTACHMENT_OWNER_ID = "weekly-schedule"/);
