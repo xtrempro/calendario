@@ -1275,6 +1275,10 @@ function normalizePublishedScheduleAttachment(value) {
     const storagePath = String(value.storagePath || "").trim();
     const dataUrl = String(value.dataUrl || "").trim();
     const downloadURL = String(value.downloadURL || value.downloadUrl || "").trim();
+    const ocr = normalizePublishedScheduleOcr(value.ocr);
+    const ocrText = ocr?.status === "completed"
+        ? String(ocr.text || "").trim()
+        : "";
 
     if (!storagePath && !dataUrl && !downloadURL) return null;
 
@@ -1289,8 +1293,34 @@ function normalizePublishedScheduleAttachment(value) {
         dataUrl,
         downloadURL,
         uploadedByUid: String(value.uploadedByUid || "").trim(),
-        mode: "image",
-        source: "supervisor_image"
+        mode: ocrText ? "ocr_text" : "image",
+        source: "supervisor_image",
+        ocr,
+        ocrText,
+        text: ocrText
+    };
+}
+
+function normalizePublishedScheduleOcr(value) {
+    if (!value || typeof value !== "object") return null;
+
+    const status = String(value.status || "").trim();
+    const text = String(value.text || "").trim();
+    const error = String(value.error || "").trim();
+
+    if (!status && !text && !error) return null;
+
+    return {
+        status: status || (text ? "completed" : "failed"),
+        engine: String(value.engine || "").trim(),
+        source: String(value.source || "automatic_upload").trim(),
+        reviewRequired: value.reviewRequired === true,
+        requestedAtISO: String(value.requestedAtISO || "").trim(),
+        extractedAtISO: String(value.extractedAtISO || "").trim(),
+        text,
+        textLength: Number(value.textLength || text.length || 0),
+        truncated: value.truncated === true,
+        error
     };
 }
 

@@ -1666,8 +1666,8 @@ function renderShell(holidays = {}) {
                     <button class="secondary-button secondary-button--small" type="button" data-task-week-current>Semana actual</button>
                     <button class="secondary-button secondary-button--small" type="button" data-task-week-next>Siguiente</button>
                     <button class="primary-button secondary-button--small" type="button" data-task-export>Descargar Excel</button>
-                    ${renderScheduleAttachmentStatus()}
                 </span>
+                ${renderScheduleAttachmentStatus()}
             </section>
             ${renderBoard("day", tasks, days, assignments, holidays)}
             ${renderBoard("night", tasks, days, assignments, holidays)}

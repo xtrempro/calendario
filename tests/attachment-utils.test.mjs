@@ -100,9 +100,15 @@ test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
     assert.match(syncSource, /weeklyScheduleAttachment: payload/);
     assert.match(syncSource, /weeklyScheduleAttachment: firestoreModule\.deleteField\(\)/);
     assert.match(syncSource, /downloadURL/);
+    assert.match(syncSource, /normalizePublishedScheduleOcr\(value\.ocr\)/);
+    assert.match(syncSource, /mode: ocrText \? "ocr_text" : "image"/);
+    assert.match(syncSource, /ocrText/);
     assert.match(syncSource, /writeBatch\(db\)/);
     assert.match(engineSource, /weeklyScheduleAttachment: getPublishedScheduleAttachment\(\)/);
     assert.match(engineSource, /downloadURL/);
+    assert.match(engineSource, /normalizePublishedScheduleOcr\(value\.ocr\)/);
+    assert.match(engineSource, /mode: ocrText \? "ocr_text" : "image"/);
+    assert.match(engineSource, /ocrText/);
     assert.match(rules, /function allowedScheduleImage\(\)/);
     assert.match(rules, /function isPublishedScheduleAttachment\(moduleId, ownerId, recordId\)/);
     assert.match(rules, /workerLinks\/\$\(request\.auth\.uid\)/);

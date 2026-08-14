@@ -505,7 +505,8 @@ async function automaticScheduleImageOcr(decoded, context = {}) {
     logger.warn("No se pudo ejecutar OCR automatico de programacion.", {
       workspaceId: context.workspaceId,
       storagePath: context.storagePath,
-      message: cleanCallableText(error?.message || error?.code, 240)
+      errorMessage: cleanCallableText(error?.message || error?.code, 240),
+      errorCode: cleanCallableText(error?.code, 80)
     });
 
     return {
