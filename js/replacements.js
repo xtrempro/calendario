@@ -1454,3 +1454,132 @@ export function renderReplacementLogHTML(profile, year, month, holidays = {}) {
         </div>
     `;
 }
+
+const HHEE_RECORD_MONTHS_SHORT = [
+    "ene", "feb", "mar", "abr", "may", "jun",
+    "jul", "ago", "sep", "oct", "nov", "dic"
+];
+
+function hheeRecordDateParts(iso) {
+    const key = keyFromISO(iso);
+    const parts = key.split("-");
+    const monthIndex = Number(parts[1]) || 0;
+
+    return {
+        day: String(Number(parts[2])).padStart(2, "0"),
+        monthShort: HHEE_RECORD_MONTHS_SHORT[monthIndex] || "",
+        label: formatDate(iso)
+    };
+}
+
+function hheeRecordBadgeClass(label, isClockExtra) {
+    if (isClockExtra) return "t-marcaje";
+
+    const normalized = String(label || "").toLowerCase();
+
+    if (normalized.includes("larga")) return "t-larga";
+    if (normalized.includes("noche")) return "t-noche";
+    if (normalized.includes("diurn")) return "t-diurno";
+
+    return "t-larga";
+}
+
+/**
+ * Devuelve los registros de HHEE de un mes ya normalizados para la vista nueva:
+ * fecha, tipo de turno (con clase de badge), horas diurnas/nocturnas, detalle y
+ * si tiene respaldo. Reutiliza exactamente el mismo calculo que
+ * renderReplacementLogHTML (backed = con respaldo, pending = sin respaldo).
+ */
+export function getHheeMonthRecords(profile, year, month, holidays = {}) {
+    const records =
+        getReplacementLogForWorkerMonth(profile, year, month);
+    const pendingEntries =
+        getUnbackedOvertimeLogEntries(profile, year, month, holidays);
+    const profiles = getProfiles();
+
+    const backedItems = records.map((record) => {
+        const key = keyFromISO(record.date);
+        const date = parseKey(key);
+        const isClockExtra = record.source === "clock_extra";
+        const turno = codeToTurno(record.turno);
+        const savedClockHours = record.clockHours || null;
+        const needsClockRecalculation =
+            isClockExtra &&
+            (
+                !savedClockHours ||
+                (
+                    !Number(savedClockHours.d) &&
+                    !Number(savedClockHours.n)
+                )
+            );
+        const hours = isClockExtra
+            ? (
+                needsClockRecalculation
+                    ? getClockExtraHours(
+                        record.worker,
+                        key,
+                        date,
+                        turno,
+                        holidays
+                    )
+                    : savedClockHours
+            )
+            : getReplacementOvertimeHours(
+                record,
+                date,
+                turno,
+                holidays
+            );
+        const label = isClockExtra
+            ? (record.clockLabel || "Marcaje reloj control")
+            : turnoReplacementLabel(turno);
+        const replacedProfile = profiles.find(
+            (profileItem) => profileItem.name === record.replaced
+        );
+        const estamento = replacedProfile?.estamento
+            ? ` - ${replacedProfile.estamento}`
+            : "";
+        const unitText = record.isLoan
+            ? ` Prestamo en ${record.hostWorkspaceName || "otra unidad"}.`
+            : "";
+        const detail = record.replaced
+            ? `${record.isLoan ? "Prestamo cubriendo a" : "Reemplaza a"} ${record.replaced}${estamento} por ${record.absenceType || "ausencia"}.${unitText}`
+            : `Motivo: ${record.reason || record.absenceType || "sin detalle"}.`;
+        const parts = hheeRecordDateParts(record.date);
+
+        return {
+            date: record.date,
+            day: parts.day,
+            monthShort: parts.monthShort,
+            dateLabel: parts.label,
+            label,
+            badgeClass: hheeRecordBadgeClass(label, isClockExtra),
+            d: Number(hours?.d) || 0,
+            n: Number(hours?.n) || 0,
+            detail,
+            backed: true
+        };
+    });
+
+    const unbackedItems = pendingEntries.map((entry) => {
+        const isClockExtra = entry.label === "Marcaje reloj control";
+        const parts = hheeRecordDateParts(entry.date);
+
+        return {
+            date: entry.date,
+            day: parts.day,
+            monthShort: parts.monthShort,
+            dateLabel: parts.label,
+            label: entry.label,
+            badgeClass: hheeRecordBadgeClass(entry.label, isClockExtra),
+            d: Number(entry.hours?.d) || 0,
+            n: Number(entry.hours?.n) || 0,
+            detail: entry.detail,
+            backed: false
+        };
+    });
+
+    return [...backedItems, ...unbackedItems].sort(
+        (a, b) => a.date.localeCompare(b.date)
+    );
+}

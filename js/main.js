@@ -378,7 +378,8 @@ import {
     cancelReplacementsForWorkerRange,
     cancelFutureReplacementsForWorker,
     getActiveCoveredReplacementsForProfileRange,
-    renderReplacementLogHTML
+    renderReplacementLogHTML,
+    getHheeMonthRecords
 } from "./replacements.js";
 import {
     refreshWorkerRequestsNavBadge,
@@ -3553,6 +3554,8 @@ async function renderProfileHoursSummary(profile = getPerfilActual()) {
                 </div>
             `;
         }
+        hheeRecordsCache = [];
+        clearHheeExtras();
         return;
     }
 
@@ -3585,12 +3588,165 @@ async function renderProfileHoursSummary(profile = getPerfilActual()) {
     );
     renderHheeReturnTransferControl(profile, y, m, stats);
 
-    summary.innerHTML = renderSummaryHTML(stats);
+    // Comparativa vs. mes anterior (para el chip del resumen).
+    const prevBase = new Date(y, m - 1, 1);
+    const prevY = prevBase.getFullYear();
+    const prevM = prevBase.getMonth();
+    const prevHolidays = prevY === y ? holidays : await fetchHolidays(prevY);
 
-    if (records) {
-        records.innerHTML =
-            renderReplacementLogHTML(profile.name, y, m, holidays);
+    if (requestId !== profileHoursSummaryRequest) return;
+
+    const prevStats = getHheeMonthStats(profile.name, prevY, prevM, prevHolidays);
+    const curTotalHours =
+        (Number(stats.hheeDiurnas) || 0) + (Number(stats.hheeNocturnas) || 0);
+    const prevTotalHours =
+        (Number(prevStats.hheeDiurnas) || 0) + (Number(prevStats.hheeNocturnas) || 0);
+    const deltaHours = curTotalHours - prevTotalHours;
+    const prevLabel = prevBase.toLocaleString("es-CL", { month: "long" });
+
+    summary.innerHTML = renderSummaryHTML(stats, { deltaHours, prevLabel });
+
+    renderHheeKpis(profile, y, m, stats, holidays);
+
+    hheeRecordsProfileName = profile.name;
+    hheeRecordsCache = getHheeMonthRecords(profile.name, y, m, holidays);
+    renderHheeRecordsList();
+}
+
+let hheeRecordsCache = [];
+let hheeOnlyMissing = false;
+let hheeRecordsProfileName = "";
+
+const HHEE_KPI_PAY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>`;
+const HHEE_KPI_YEAR_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V4M16 19v-7M22 19H2"></path></svg>`;
+const HHEE_KPI_BANK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M4 21V10l8-5 8 5v11M9 21v-6h6v6"></path></svg>`;
+const HHEE_KPI_DIST_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>`;
+const HHEE_RESP_OK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>`;
+const HHEE_RESP_MISSING_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16h.01"></path></svg>`;
+
+function fmtHheeHours(value) {
+    const n = Math.round((Number(value) || 0) * 10) / 10;
+    return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(".", ",");
+}
+
+function clearHheeExtras() {
+    const kpis = document.getElementById("hheeKpis");
+    if (kpis) kpis.innerHTML = "";
+
+    const bar = document.getElementById("hheeRespBar");
+    const txt = document.getElementById("hheeRespTxt");
+    if (bar) bar.style.width = "0%";
+    if (txt) txt.textContent = "0 de 0";
+}
+
+function renderHheeKpis(profile, year, month, stats, holidays) {
+    const host = document.getElementById("hheeKpis");
+    if (!host) return;
+
+    const currency = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 });
+    const enabled = stats.returnTransferEnabled;
+
+    const monthHours =
+        (Number(stats.hheeDiurnas) || 0) + (Number(stats.hheeNocturnas) || 0);
+    const monthPago =
+        (Number(stats.paymentDiurno) || 0) + (Number(stats.paymentNocturno) || 0);
+
+    // Acumulado del anio (enero..mes actual del anio seleccionado).
+    let yearHours = 0;
+    let yearPago = 0;
+    for (let mm = 0; mm <= month; mm++) {
+        const s = mm === month
+            ? stats
+            : getHheeMonthStats(profile.name, year, mm, holidays);
+        yearHours += (Number(s.hheeDiurnas) || 0) + (Number(s.hheeNocturnas) || 0);
+        yearPago += (Number(s.paymentDiurno) || 0) + (Number(s.paymentNocturno) || 0);
     }
+
+    const bankHours = normalizeBalanceValue(
+        getManualLeaveBalances(year, profile.name).hoursReturn
+    );
+
+    const nightPct = monthHours > 0
+        ? Math.round(((Number(stats.hheeNocturnas) || 0) / monthHours) * 100)
+        : 0;
+    const dayPct = monthHours > 0 ? 100 - nightPct : 0;
+
+    const yearMoney = yearPago >= 1e6
+        ? `$${(yearPago / 1e6).toFixed(2).replace(".", ",")}M`
+        : `$${currency.format(yearPago)}`;
+
+    host.innerHTML = `
+        <div class="hh-kpi kpi-pay">
+            <span class="k-ico">${HHEE_KPI_PAY_ICON}</span>
+            <div class="k-lbl">Total del mes</div>
+            <div class="k-val">${enabled ? `${fmtHheeHours(monthHours)} h` : `$${currency.format(monthPago)}`}</div>
+            <div class="k-sub">${enabled ? "a devolución" : `${fmtHheeHours(monthHours)} h extraordinarias`}</div>
+        </div>
+        <div class="hh-kpi kpi-year">
+            <span class="k-ico">${HHEE_KPI_YEAR_ICON}</span>
+            <div class="k-lbl">Acumulado ${year}</div>
+            <div class="k-val">${fmtHheeHours(yearHours)} h</div>
+            <div class="k-sub">${yearMoney} en el año</div>
+        </div>
+        <div class="hh-kpi kpi-bank">
+            <span class="k-ico">${HHEE_KPI_BANK_ICON}</span>
+            <div class="k-lbl">Banco de devolución</div>
+            <div class="k-val">${fmtHheeHours(bankHours)} h</div>
+            <div class="k-sub">disponibles para tomar</div>
+        </div>
+        <div class="hh-kpi kpi-dist">
+            <span class="k-ico">${HHEE_KPI_DIST_ICON}</span>
+            <div class="k-lbl">Distribución</div>
+            <div class="k-val">${nightPct}%</div>
+            <div class="k-sub">nocturnas · ${dayPct}% diurnas</div>
+        </div>
+    `;
+}
+
+function renderHheeRecordsList() {
+    const host = DOM.hheeMonthlyRecords;
+    if (!host) return;
+
+    const all = hheeRecordsCache;
+    const total = all.length;
+    const backedCount = all.filter((r) => r.backed).length;
+
+    const bar = document.getElementById("hheeRespBar");
+    const txt = document.getElementById("hheeRespTxt");
+    if (bar) bar.style.width = total ? `${Math.round((backedCount / total) * 100)}%` : "0%";
+    if (txt) txt.textContent = `${backedCount} de ${total}`;
+
+    if (!total) {
+        host.innerHTML = `<div class="hh-rec-empty">Sin registros de HHEE en este mes.</div>`;
+        return;
+    }
+
+    const rows = all.filter((r) => !hheeOnlyMissing || !r.backed);
+
+    if (!rows.length) {
+        host.innerHTML = `<div class="hh-rec-empty">Todos los registros del mes tienen respaldo.</div>`;
+        return;
+    }
+
+    host.innerHTML = `<div class="hh-rec-list">${rows.map((r) => {
+        const chips = [
+            r.d ? `<span class="hh-hchip hh-hchip-d">${fmtHheeHours(r.d)} h diurnas</span>` : "",
+            r.n ? `<span class="hh-hchip hh-hchip-n">${fmtHheeHours(r.n)} h nocturnas</span>` : ""
+        ].join("");
+        const resp = r.backed
+            ? `<span class="hh-resp ok">${HHEE_RESP_OK_ICON} Con respaldo</span>`
+            : `<span class="hh-resp missing">${HHEE_RESP_MISSING_ICON} Sin respaldo</span>`;
+
+        return `
+            <div class="hh-rec${r.backed ? "" : " is-missing"}">
+                <div class="hh-rec__date"><strong>${escapeHTML(r.day)}</strong><small>${escapeHTML(r.monthShort)}</small></div>
+                <span class="hh-turno ${r.badgeClass}">${escapeHTML(r.label)}</span>
+                <div class="hh-rec__hours">${chips}</div>
+                <span class="hh-rec__spacer"></span>
+                ${resp}
+                <small class="hh-rec__detail">${escapeHTML(r.detail)}</small>
+            </div>`;
+    }).join("")}</div>`;
 }
 
 function renderProfileDocs(data, editing) {
@@ -4304,6 +4460,7 @@ function renderDashboardState() {
 
     if (activeView !== "profile") {
         if (activeView === "hours") {
+            renderHheeSelectedHeader(profile);
             renderProfileHoursSummary(profile);
             renderHheeProfiles();
             syncHoursMonthControls(true);
@@ -5111,6 +5268,47 @@ function renderProfiles(options = {}) {
     }
 }
 
+function hheeInitials(name) {
+    const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function renderHheeSelectedHeader(profile) {
+    const host = document.getElementById("hheeSelected");
+    if (!host) return;
+
+    const lupa = `<button class="profile-name-search" type="button" data-action="open-hhee-search" aria-label="Buscar trabajador" title="Buscar / cambiar trabajador"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg></button>`;
+
+    if (!profile) {
+        host.innerHTML = `
+            <span class="hh-av">?</span>
+            <div class="hh-who__text">
+                <strong>Selecciona un trabajador ${lupa}</strong>
+                <p></p>
+            </div>
+        `;
+        return;
+    }
+
+    const subtitleParts = [
+        profile.estamento,
+        formatProfession(profile.profession),
+        getShiftAssigned(profile.name)
+            ? "4.º turno con asignación"
+            : "Sin asignación de turno"
+    ].filter(Boolean);
+
+    host.innerHTML = `
+        <span class="hh-av">${escapeHTML(hheeInitials(profile.name))}</span>
+        <div class="hh-who__text">
+            <strong>${escapeHTML(profile.name)} ${lupa}</strong>
+            <p>${escapeHTML(subtitleParts.join(" · "))}</p>
+        </div>
+    `;
+}
+
 function renderHheeProfiles() {
     if (!DOM.hheeProfiles) return;
 
@@ -5187,6 +5385,7 @@ function renderHheeProfiles() {
 
         item.onclick = () => {
             void selectProfileByName(profile.name);
+            document.getElementById("hheeSearchModal")?.setAttribute("hidden", "");
         };
 
         DOM.hheeProfiles.appendChild(item);
@@ -10556,6 +10755,14 @@ function bindProfileForm() {
             handleHheeReturnTransferToggle;
     }
 
+    const hheeOnlyMissingToggle = document.getElementById("hheeOnlyMissing");
+    if (hheeOnlyMissingToggle) {
+        hheeOnlyMissingToggle.onchange = () => {
+            hheeOnlyMissing = hheeOnlyMissingToggle.checked;
+            renderHheeRecordsList();
+        };
+    }
+
     if (DOM.clockMarksPrevMonthBtn) {
         DOM.clockMarksPrevMonthBtn.onclick = () =>
             changeClockMarksMonth(-1);
@@ -11070,6 +11277,31 @@ function bindShellInteractions() {
 
     if (DOM.hheeShowInactiveProfiles) {
         DOM.hheeShowInactiveProfiles.onchange = renderHheeProfiles;
+    }
+
+    // HHEE: buscar/cambiar trabajador en modal (lupa junto al nombre).
+    const hheeSearchModal = document.getElementById("hheeSearchModal");
+    if (hheeSearchModal) {
+        document.addEventListener("click", event => {
+            if (event.target.closest('[data-action="open-hhee-search"]')) {
+                hheeSearchModal.hidden = false;
+                renderHheeProfiles();
+                DOM.hheeProfileSearch?.focus();
+            }
+        });
+        hheeSearchModal.addEventListener("click", event => {
+            if (
+                event.target === hheeSearchModal ||
+                event.target.closest('[data-action="close-hhee-search"]')
+            ) {
+                hheeSearchModal.hidden = true;
+            }
+        });
+        document.addEventListener("keydown", event => {
+            if (event.key === "Escape" && !hheeSearchModal.hidden) {
+                hheeSearchModal.hidden = true;
+            }
+        });
     }
 
     if (DOM.reportsFilterRole) {

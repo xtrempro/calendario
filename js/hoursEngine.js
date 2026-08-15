@@ -1932,7 +1932,7 @@ export function calculateWorkerMonthTotals(
     );
 }
 
-export function renderSummaryHTML(stats) {
+export function renderSummaryHTML(stats, extra = {}) {
     const valorHora =
         getValorHora();
     const dayAlertClass =
@@ -1958,45 +1958,71 @@ export function renderSummaryHTML(stats) {
             maximumFractionDigits: 0
         }
     );
-    const dayAmount = stats.returnTransferEnabled
-        ? `A devoluci\u00f3n: ${formatTransferHours(
+
+    const enabled = stats.returnTransferEnabled;
+    const totalHours =
+        (Number(stats.hheeDiurnas) || 0) +
+        (Number(stats.hheeNocturnas) || 0);
+    const totalPago = pagoDiurno + pagoNocturno;
+    const returnHours =
+        Number.isFinite(Number(stats.returnTransferHours)) &&
+        Number(stats.returnTransferHours) > 0
+            ? Number(stats.returnTransferHours)
+            : Math.max(0, stats.hheeDiurnas || 0) * 1.25 +
+                Math.max(0, stats.hheeNocturnas || 0) * 1.5;
+
+    const bigValue = enabled
+        ? `${formatTransferHours(returnHours)} h`
+        : `$${currency.format(totalPago)}`;
+    const curLabel = enabled
+        ? "a devoluci\u00f3n"
+        : "total estimado";
+    const subText = enabled
+        ? `${formatExtra(totalHours)} h extraordinarias del mes`
+        : `${formatExtra(totalHours)} h extraordinarias \u00b7 valor hora $${currency.format(valorHora)}`;
+
+    const dayAmount = enabled
+        ? `${formatTransferHours(
             Math.max(0, stats.hheeDiurnas || 0) * 1.25
-        )}h`
+        )} h a devoluci\u00f3n`
         : `$${currency.format(pagoDiurno)}`;
-    const nightAmount = stats.returnTransferEnabled
-        ? `A devoluci\u00f3n: ${formatTransferHours(
+    const nightAmount = enabled
+        ? `${formatTransferHours(
             Math.max(0, stats.hheeNocturnas || 0) * 1.5
-        )}h`
+        )} h a devoluci\u00f3n`
         : `$${currency.format(pagoNocturno)}`;
-    const transferNote = stats.returnTransferEnabled
-        ? `
-            <span>
-                Mes traspasado a devoluci&oacute;n:
-                ${formatTransferHours(stats.returnTransferHours)}h
-                disponibles desde el mes siguiente.
-            </span>
-        `
-        : "";
+
+    const delta = Number(extra.deltaHours);
+    const deltaHTML =
+        Number.isFinite(delta) && Math.abs(delta) >= 0.05
+            ? `<div class="hh-delta ${delta < 0 ? "down" : ""}">${delta < 0 ? "\u25bc" : "\u25b2"} ${formatExtra(Math.abs(delta))} h vs. ${extra.prevLabel || "mes anterior"}</div>`
+            : "";
 
     return `
-        <div class="summary-grid">
-            <article class="summary-card">
-                <span class="summary-label">Diurnas</span>
-                <strong class="summary-value ${dayAlertClass}">${formatExtra(stats.hheeDiurnas)}h</strong>
-                <span class="summary-amount">${dayAmount}</span>
-            </article>
+        <div class="hh-total">
+            <span class="big${enabled ? " is-return" : ""}">${bigValue}</span>
+            <span class="cur">${curLabel}</span>
+        </div>
+        <div class="hh-total-sub">${subText}</div>
+        ${deltaHTML}
 
-            <article class="summary-card">
-                <span class="summary-label">Nocturnas</span>
-                <strong class="summary-value">${formatExtra(stats.hheeNocturnas)}h</strong>
-                <span class="summary-amount">${nightAmount}</span>
-            </article>
+        <div class="hh-split">
+            <div class="hh-split-cell">
+                <span class="lbl"><span class="hh-dot hh-dot-d"></span> Diurnas &times;1,25</span>
+                <div class="h ${dayAlertClass}">${formatExtra(stats.hheeDiurnas)} h</div>
+                <div class="money">${dayAmount}</div>
+            </div>
+            <div class="hh-split-cell">
+                <span class="lbl"><span class="hh-dot hh-dot-n"></span> Nocturnas &times;1,5</span>
+                <div class="h">${formatExtra(stats.hheeNocturnas)} h</div>
+                <div class="money">${nightAmount}</div>
+            </div>
         </div>
 
-        <div class="summary-footnote">
-            <span>Total trabajado: ${formatHour(stats.totalD)}h diurnas / ${formatHour(stats.totalN)}h nocturnas</span>
-            <span>Base del mes: ${formatHour(stats.horasHabiles)}h</span>
-            ${transferNote}
+        <div class="hh-meta">
+            <span>Base del mes: <b>${formatHour(stats.horasHabiles)} h</b></span>
+            <span>Trabajado: <b>${formatHour(stats.totalD)} h</b> D / <b>${formatHour(stats.totalN)} h</b> N</span>
+            <span>Valor hora: <b>$${currency.format(valorHora)}</b></span>
         </div>
     `;
 }

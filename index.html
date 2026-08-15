@@ -784,57 +784,37 @@
                     </section>
 
                     <section id="hoursView" class="hours-view">
-                        <aside class="panel sidebar hhee-sidebar">
-                            <label class="field-shell field-shell--icon">
-                                <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                    <circle cx="11" cy="11" r="7"></circle>
-                                    <line x1="16.5" y1="16.5" x2="21" y2="21"></line>
-                                </svg>
-                                <input id="hheeProfileSearch" type="text" placeholder="Buscar...">
-                            </label>
+                        <div class="hhee-content hh-v2">
+                            <div class="hh-head">
+                                <div id="hheeSelected" class="hhee-selected hh-who"></div>
 
-                            <label class="field-shell field-shell--icon">
-                                <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                    <line x1="4" y1="6" x2="20" y2="6"></line>
-                                    <line x1="7" y1="12" x2="17" y2="12"></line>
-                                    <line x1="10" y1="18" x2="14" y2="18"></line>
-                                </svg>
-                                <select id="hheeFilterRole">
-                                    <option value="Todos">Todos</option>
-                                    <option value="Profesional">Profesional</option>
-                                    <option value="T&#233;cnico">T&#233;cnico</option>
-                                    <option value="Administrativo">Administrativo</option>
-                                    <option value="Auxiliar">Auxiliar</option>
-                                </select>
-                            </label>
+                                <div class="hh-spacer"></div>
 
-                            <label class="inline-toggle sidebar-toggle">
-                                <span>Mostrar desactivados</span>
-                                <span class="toggle-check">
-                                    <input id="hheeShowInactiveProfiles" type="checkbox">
-                                </span>
-                            </label>
+                                <div class="hh-month">
+                                    <button id="hheePrevMonth" class="hh-month-nav" type="button" aria-label="Mes anterior HH.EE">
+                                        &lt;
+                                    </button>
+                                    <strong id="hheeMonthLabel">Mes HH.EE</strong>
+                                    <button id="hheeNextMonth" class="hh-month-nav" type="button" aria-label="Mes siguiente HH.EE">
+                                        &gt;
+                                    </button>
+                                </div>
 
-                            <div id="hheeProfiles" class="profile-list"></div>
-                            <p id="hheeEmptyProfiles" class="empty-state empty-state--compact hidden"></p>
-                        </aside>
+                                <button id="printHoursReportBtn" class="hh-export" type="button">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>
+                                    Exportar
+                                </button>
+                            </div>
 
-                        <div class="hhee-content">
-                            <div class="hhee-overview-grid">
-                                <section class="panel hours-panel" id="hoursPanel">
-                                    <div class="hhee-monthbar">
-                                        <button id="hheePrevMonth" class="swap-month-button" type="button" aria-label="Mes anterior HH.EE">
-                                            &lt;
-                                        </button>
-
-                                        <strong id="hheeMonthLabel">Mes HH.EE</strong>
-
-                                        <button id="hheeNextMonth" class="swap-month-button" type="button" aria-label="Mes siguiente HH.EE">
-                                            &gt;
-                                        </button>
+                            <section class="hh-top">
+                                <section class="panel hh-card" id="hoursPanel">
+                                    <div class="hh-card__head">
+                                        <h2>Resumen del mes</h2>
                                     </div>
 
-                                    <label class="inline-toggle hhee-return-transfer">
+                                    <div id="summary" class="summary"></div>
+
+                                    <label class="inline-toggle hhee-return-transfer hh-return">
                                         <span>
                                             <strong>Enviar HH.EE a devoluci&oacute;n</strong>
                                             <small id="hheeReturnTransferInfo">Las horas del mes se enviar&aacute;n a pago.</small>
@@ -843,22 +823,35 @@
                                             <input id="hheeReturnTransferToggle" type="checkbox">
                                         </span>
                                     </label>
-
-                                    <div id="summary" class="summary"></div>
                                 </section>
 
-                                <section class="panel hours-charts-panel" id="hoursChartsPanel">
+                                <section class="panel hh-card" id="hoursChartsPanel">
+                                    <div class="hh-card__head">
+                                        <h2>Tendencia (12 meses)</h2>
+                                    </div>
+
                                     <input id="hheeChartMonth" class="hidden" type="month" aria-hidden="true" tabindex="-1">
 
                                     <article class="hhee-chart-card hhee-chart-card--profile">
                                         <div id="hheeProfileHistoryChart"></div>
                                     </article>
                                 </section>
-                            </div>
+                            </section>
+
+                            <section class="hh-kpis" id="hheeKpis"></section>
 
                             <section class="panel hhee-records-panel" id="hheeRecordsPanel">
-                                <div class="section-head">
-                                    <h3>Registros HH.EE del mes</h3>
+                                <div class="hh-rec-head">
+                                    <h2>Registros HH.EE del mes</h2>
+                                    <div class="hh-rec-tools">
+                                        <span class="hh-progress">Respaldos
+                                            <span class="hh-progress-bar"><i id="hheeRespBar"></i></span>
+                                            <b id="hheeRespTxt">0 de 0</b>
+                                        </span>
+                                        <label class="hh-toggle">
+                                            <input type="checkbox" id="hheeOnlyMissing"> Solo sin respaldo
+                                        </label>
+                                    </div>
                                 </div>
                                 <div id="hheeMonthlyRecords"></div>
                             </section>
@@ -1092,6 +1085,54 @@
 
         <div id="clockMarksProfiles" class="profile-list"></div>
         <p id="clockMarksEmptyProfiles" class="muted hidden"></p>
+    </div>
+</div>
+
+<div id="hheeSearchModal" class="profile-search-modal" hidden>
+    <div class="profile-search-dialog" role="dialog" aria-modal="true" aria-label="Buscar trabajador">
+        <div class="profile-search-dialog__head">
+            <strong>Buscar trabajador</strong>
+            <button class="profile-search-dialog__close" type="button" data-action="close-hhee-search" aria-label="Cerrar">&times;</button>
+        </div>
+
+        <div class="profile-search-dialog__controls">
+            <label class="field-shell field-shell--icon">
+                <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M21 21l-4.35-4.35"></path>
+                    </svg>
+                </span>
+                <input id="hheeProfileSearch" type="text" placeholder="Buscar por nombre, RUT, correo...">
+            </label>
+
+            <label class="field-shell field-shell--icon">
+                <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="4" y1="6" x2="20" y2="6"></line>
+                        <line x1="7" y1="12" x2="17" y2="12"></line>
+                        <line x1="10" y1="18" x2="14" y2="18"></line>
+                    </svg>
+                </span>
+                <select id="hheeFilterRole">
+                    <option value="Todos">Todos</option>
+                    <option value="Profesional">Profesional</option>
+                    <option value="T&#233;cnico">T&#233;cnico</option>
+                    <option value="Administrativo">Administrativo</option>
+                    <option value="Auxiliar">Auxiliar</option>
+                </select>
+            </label>
+
+            <label class="inline-toggle sidebar-toggle">
+                <span>Mostrar desactivados</span>
+                <span class="toggle-check">
+                    <input id="hheeShowInactiveProfiles" type="checkbox">
+                </span>
+            </label>
+        </div>
+
+        <div id="hheeProfiles" class="profile-list"></div>
+        <p id="hheeEmptyProfiles" class="empty-state empty-state--compact hidden"></p>
     </div>
 </div>
 
