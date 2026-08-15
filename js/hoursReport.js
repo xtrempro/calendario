@@ -2743,6 +2743,8 @@ export async function buildWorkerHheeMonthSummary(
         const parsed = Number(String(value).replace(",", "."));
         return Number.isFinite(parsed) ? parsed : 0;
     };
+    const roundSummaryHour = value =>
+        Math.round((Number(value) || 0) * 100) / 100;
 
     // Detalle por turno para la PWA (seccion "Detalle de turnos"). Reemplazo
     // muestra TODOS sus turnos; el resto, solo los turnos extra (los que se
@@ -2775,6 +2777,26 @@ export async function buildWorkerHheeMonthSummary(
             backing: String(row.respaldo || "")
         }))
         .filter(item => item.d + item.n > 0.001);
+    const extraShiftTotals = extraShifts.reduce((totals, item) => ({
+        d: totals.d + num(item.d),
+        n: totals.n + num(item.n)
+    }), { d: 0, n: 0 });
+    const reportHheeDiurnas = detailKind === "extra-only"
+        ? roundSummaryHour(extraShiftTotals.d)
+        : num(stats.hheeDiurnas);
+    const reportHheeNocturnas = detailKind === "extra-only"
+        ? roundSummaryHour(extraShiftTotals.n)
+        : num(stats.hheeNocturnas);
+    const reportNetDiurnas = detailKind === "extra-only"
+        ? roundSummaryHour(
+            reportHheeDiurnas + num(model.carryIn?.d) - num(model.carryOut?.d)
+        )
+        : num(model.totalD);
+    const reportNetNocturnas = detailKind === "extra-only"
+        ? roundSummaryHour(
+            reportHheeNocturnas + num(model.carryIn?.n) - num(model.carryOut?.n)
+        )
+        : num(model.totalN);
 
     return {
         year,
@@ -2792,14 +2814,14 @@ export async function buildWorkerHheeMonthSummary(
         carryInN: num(model.carryIn?.n),
         carryOutD: num(model.carryOut?.d),
         carryOutN: num(model.carryOut?.n),
-        netDiurnas: num(model.totalD),
-        netNocturnas: num(model.totalN),
-        // HH.EE autoritativas del motor: las mismas que muestra el panel HH.EE
-        // del supervisor (`calcularHorasMesPerfil` -> stats.hhee*). Incluyen los
-        // turnos extra y las extensiones horarias netas agregados a mano en el
-        // calendario, sin depender de que se haya escrito el motivo/respaldo.
-        hheeDiurnas: num(stats.hheeDiurnas),
-        hheeNocturnas: num(stats.hheeNocturnas),
+        netDiurnas: reportNetDiurnas,
+        netNocturnas: reportNetNocturnas,
+        // HH.EE autoritativas publicadas a la PWA. En perfiles con asignacion
+        // de turno, el detalle extraShifts ya descuenta reducciones de marcaje
+        // sobre turnos extra programados; usar stats.hhee* o rawDiurnas podia
+        // dejar la tarjeta mensual distinta del detalle visible.
+        hheeDiurnas: reportHheeDiurnas,
+        hheeNocturnas: reportHheeNocturnas,
         returnTransfer: Boolean(model.stats?.returnTransferEnabled)
     };
 }

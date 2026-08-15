@@ -139,3 +139,22 @@ test("las horas del detalle se suman en numerico y descuentan reducciones de mar
   // El parseo de vuelta normaliza la coma decimal (si no, "10,8" -> NaN -> 0).
   assert.match(src, /Number\(String\(value\)\.replace\(",", "\."\)\)/);
 });
+
+test("el resumen mensual PWA usa los totales ajustados del reporte extra-only", () => {
+  // La tarjeta superior de la PWA lee overtimeSummaries[*].hheeDiurnas/
+  // hheeNocturnas. Si estos campos salen de stats.hhee* en perfiles con
+  // asignacion, un turno extra acortado por marcaje queda bien en el detalle
+  // pero el resumen conserva el turno completo.
+  const summary = grab("buildWorkerHheeMonthSummary");
+  assert.match(summary, /const extraShiftTotals = extraShifts\.reduce/);
+  assert.match(summary, /const reportHheeDiurnas = detailKind === "extra-only"[\s\S]*?\? roundSummaryHour\(extraShiftTotals\.d\)[\s\S]*?: num\(stats\.hheeDiurnas\)/);
+  assert.match(summary, /const reportHheeNocturnas = detailKind === "extra-only"[\s\S]*?\? roundSummaryHour\(extraShiftTotals\.n\)[\s\S]*?: num\(stats\.hheeNocturnas\)/);
+  assert.match(summary, /netDiurnas: reportNetDiurnas/);
+  assert.match(summary, /netNocturnas: reportNetNocturnas/);
+  assert.match(summary, /hheeDiurnas: reportHheeDiurnas/);
+  assert.match(summary, /hheeNocturnas: reportHheeNocturnas/);
+  assert.doesNotMatch(summary, /hheeDiurnas: num\(model\.rawDiurnas\)/);
+  assert.doesNotMatch(summary, /hheeNocturnas: num\(model\.rawNocturnas\)/);
+  assert.doesNotMatch(summary, /hheeDiurnas: num\(stats\.hheeDiurnas\)/);
+  assert.doesNotMatch(summary, /hheeNocturnas: num\(stats\.hheeNocturnas\)/);
+});
