@@ -651,6 +651,279 @@ function maskedEmail(value) {
   return `${local.slice(0, 2)}***@${domain}`;
 }
 
+function normalizeWorkerIdentityName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function timestampToMillis(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value.toDate === "function") return value.toDate().getTime();
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function workerLinkMatchesInviteIdentity(link = {}, invite = {}) {
+  const inviteRut = normalizeRutForBackup(invite.profileRut);
+  const linkRut = normalizeRutForBackup(link.profileRut);
+
+  if (inviteRut && linkRut) return inviteRut === linkRut;
+
+  const inviteName = normalizeWorkerIdentityName(invite.profileName);
+  const linkName = normalizeWorkerIdentityName(link.profileName);
+  const inviteEmail = normalizeEmail(invite.email);
+  const linkEmail = normalizeEmail(link.workerEmail);
+
+  return Boolean(inviteName) &&
+    inviteName === linkName &&
+    (!inviteEmail || inviteEmail === linkEmail);
+}
+
+async function acceptWorkerAppInviteImpl({
+  uid,
+  authToken = {},
+  workspaceId,
+  inviteId
+}) {
+  const workspaceRef = db.collection("workspaces").doc(workspaceId);
+  const inviteRef = workspaceRef.collection("workerAppInvites").doc(inviteId);
+  const userLinkRef = db
+    .collection("users")
+    .doc(uid)
+    .collection("workerLinks")
+    .doc(workspaceId);
+  const workspaceLinkRef = workspaceRef.collection("workerLinks").doc(uid);
+  let result = null;
+
+  await db.runTransaction(async (transaction) => {
+    const [workspaceSnap, inviteSnap, linksSnap] = await Promise.all([
+      transaction.get(workspaceRef),
+      transaction.get(inviteRef),
+      transaction.get(workspaceRef.collection("workerLinks"))
+    ]);
+
+    if (!workspaceSnap.exists) {
+      throw new HttpsError(
+        "not-found",
+        "La unidad de la invitacion no existe."
+      );
+    }
+
+    if (!inviteSnap.exists) {
+      throw new HttpsError(
+        "not-found",
+        "La invitacion ya no esta disponible."
+      );
+    }
+
+    const workspace = workspaceSnap.data() || {};
+    const invite = inviteSnap.data() || {};
+
+    if (invite.workspaceId !== workspaceId || invite.token !== inviteId) {
+      throw new HttpsError(
+        "permission-denied",
+        "La invitacion no corresponde a esta unidad."
+      );
+    }
+
+    if (String(invite.status || "") !== "pending") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Esta invitacion ya fue utilizada. Solicita una nueva al supervisor."
+      );
+    }
+
+    const expiresAtMs = timestampToMillis(invite.expiresAt);
+    if (expiresAtMs && expiresAtMs <= Date.now()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "La invitacion expiro. Solicita una nueva al supervisor."
+      );
+    }
+
+    if (WORKER_PASSWORDLESS_INVITE_EMAIL_ENABLED) {
+      const authEmail = normalizeEmail(authToken.email);
+      const inviteEmail = normalizeEmail(invite.email);
+
+      if (!authEmail || authEmail !== inviteEmail) {
+        throw new HttpsError(
+          "permission-denied",
+          "Debes iniciar sesion con el correo de la invitacion."
+        );
+      }
+    }
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const workerEmail = WORKER_PASSWORDLESS_INVITE_EMAIL_ENABLED
+      ? normalizeEmail(authToken.email)
+      : normalizeEmail(invite.email) || normalizeEmail(authToken.email);
+    const workerDisplayName =
+      cleanCallableText(authToken.name || invite.profileName, 160);
+    const workspaceName =
+      cleanCallableText(invite.workspaceName || workspace.name, 160);
+    const linkPayload = {
+      uid,
+      workspaceId,
+      workspaceName,
+      inviteId,
+      profileName: cleanCallableText(invite.profileName, 180),
+      profileRut: cleanCallableText(invite.profileRut, 32),
+      workerEmail,
+      workerDisplayName,
+      status: "active",
+      linkedAt: now,
+      updatedAt: now
+    };
+    const duplicateDocs = linksSnap.docs.filter((docSnap) => {
+      if (docSnap.id === uid) return false;
+
+      const link = docSnap.data() || {};
+      const status = String(link.status || "active");
+
+      return status === "active" &&
+        workerLinkMatchesInviteIdentity(link, invite);
+    });
+
+    duplicateDocs.forEach((docSnap) => {
+      const link = docSnap.data() || {};
+      const duplicateUid = cleanCallableText(link.uid || docSnap.id, 160);
+      if (!duplicateUid || duplicateUid === uid) return;
+
+      transaction.delete(docSnap.ref);
+      transaction.set(
+        db
+          .collection("users")
+          .doc(duplicateUid)
+          .collection("workerLinks")
+          .doc(workspaceId),
+        {
+          workspaceId,
+          status: "unlinked",
+          unlinkedAt: now,
+          unlinkedBy: "duplicate_worker_invite",
+          workspaceName,
+          profileName: link.profileName || invite.profileName || ""
+        },
+        { merge: true }
+      );
+      transaction.set(
+        workspaceRef.collection("workerMessageDirectory").doc(duplicateUid),
+        {
+          uid: duplicateUid,
+          workspaceId,
+          profileName: link.profileName || invite.profileName || "",
+          status: "unlinked",
+          unlinkedAt: now,
+          updatedAt: now,
+          updatedAtISO: new Date().toISOString()
+        },
+        { merge: true }
+      );
+      transaction.delete(
+        workspaceRef.collection("workerSwapCandidates").doc(duplicateUid)
+      );
+    });
+
+    transaction.update(inviteRef, {
+      status: "accepted",
+      workerUid: uid,
+      workerEmail,
+      workerDisplayName,
+      acceptedAt: now,
+      consumedAt: now,
+      consumedByUid: uid,
+      updatedAt: now
+    });
+
+    const emailKey = normalizeEmail(invite.email);
+    if (emailKey) {
+      transaction.set(
+        db
+          .collection("workerAppEmailInvites")
+          .doc(emailKey)
+          .collection("items")
+          .doc(inviteId),
+        {
+          status: "accepted",
+          workerUid: uid,
+          workerEmail,
+          workerDisplayName,
+          acceptedAt: now,
+          consumedAt: now,
+          consumedByUid: uid,
+          updatedAt: now
+        },
+        { merge: true }
+      );
+    }
+
+    transaction.set(userLinkRef, linkPayload, { merge: true });
+    transaction.set(workspaceLinkRef, linkPayload, { merge: true });
+
+    result = {
+      ok: true,
+      workspaceId,
+      workspaceName,
+      profileName: linkPayload.profileName,
+      revokedLinks: duplicateDocs.length
+    };
+  });
+
+  await workspaceRef.collection("projectionRequests").add({
+    profiles: [result.profileName],
+    requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+    source: "worker_invite_accepted"
+  }).catch((error) => {
+    logger.warn("No se pudo encolar proyeccion tras aceptar invitacion.", {
+      workspaceId,
+      inviteId,
+      error: error?.message || String(error)
+    });
+  });
+
+  return result;
+}
+
+exports.acceptWorkerAppInvite = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 30
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para aceptar la invitacion."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+    const inviteId = cleanCallableText(request.data?.inviteId, 160);
+
+    if (!workspaceId || !inviteId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Falta identificar la invitacion."
+      );
+    }
+
+    return acceptWorkerAppInviteImpl({
+      uid,
+      authToken: request.auth.token || {},
+      workspaceId,
+      inviteId
+    });
+  }
+);
+
 function safeMailFrom() {
   const value = String(MAIL_FROM.value() || DEFAULT_MAIL_FROM).trim();
 

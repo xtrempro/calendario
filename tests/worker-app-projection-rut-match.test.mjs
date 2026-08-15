@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 const require = createRequire(import.meta.url);
 const {
   findWorkerLinkForProfile,
+  findWorkerLinksForProfile,
   normalizeProjectionRut,
   profilesFromState
 } = require("../functions/lib/engineHarness.js");
@@ -76,6 +77,43 @@ test("el harness encuentra workerLink por RUT aunque el nombre del link sea dist
   );
 
   assert.equal(link.uid, "uid-francisca");
+});
+
+test("el harness devuelve todos los workerLinks que calzan por RUT", () => {
+  const profiles = [
+    {
+      name: "Fernanda Romero Gonzalez",
+      rut: "16.758.666-K"
+    }
+  ];
+  const links = [
+    {
+      uid: "uid-original",
+      profileName: "FERNANDA ANDREA ROMERO GONZALEZ",
+      profileRut: "16758666K"
+    },
+    {
+      uid: "uid-duplicado",
+      profileName: "FERNANDA ANDREA ROMERO GONZALEZ",
+      profileRut: "16.758.666-K"
+    },
+    {
+      uid: "uid-otro",
+      profileName: "OTRA PERSONA",
+      profileRut: "11.111.111-1"
+    }
+  ];
+
+  const matches = findWorkerLinksForProfile(
+    "Fernanda Romero Gonzalez",
+    profiles,
+    links
+  );
+
+  assert.deepEqual(
+    matches.map(link => link.uid),
+    ["uid-original", "uid-duplicado"]
+  );
 });
 
 test("el motor resuelve el perfil real por RUT antes de caer en profile_not_found", () => {

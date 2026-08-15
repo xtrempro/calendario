@@ -1148,7 +1148,7 @@ test("reglas modulares de Firestore y Storage", async t => {
     );
 
     await t.test(
-        "la invitacion de trabajador aceptada puede reabrirse en marcha blanca",
+        "la invitacion de trabajador aceptada no se puede reutilizar desde cliente",
         async () => {
             const workerReopened = env.authenticatedContext("worker-reopened");
 
@@ -1186,8 +1186,8 @@ test("reglas modulares de Firestore y Storage", async t => {
                 "worker-reuse-accepted"
             );
 
-            await assertSucceeds(getDoc(ownAcceptedInvite));
-            await assertSucceeds(
+            await assertFails(getDoc(ownAcceptedInvite));
+            await assertFails(
                 updateDoc(ownAcceptedInvite, {
                     status: "accepted",
                     workerUid: "worker-reopened",
@@ -1197,7 +1197,7 @@ test("reglas modulares de Firestore y Storage", async t => {
                     updatedAt: new Date()
                 })
             );
-            await assertSucceeds(
+            await assertFails(
                 setDoc(
                     doc(
                         workerReopened.firestore(),
@@ -1217,7 +1217,7 @@ test("reglas modulares de Firestore y Storage", async t => {
                     }
                 )
             );
-            await assertSucceeds(
+            await assertFails(
                 getDoc(
                     doc(
                         workerB.firestore(),

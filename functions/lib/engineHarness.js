@@ -180,32 +180,50 @@ function findProfileForProjectionName(profileName, profiles = []) {
 }
 
 function findWorkerLinkForProfile(profileName, profiles = [], links = []) {
+    return findWorkerLinksForProfile(profileName, profiles, links)[0] || null;
+}
+
+function uniqueWorkerLinks(links = []) {
+    const seen = new Set();
+
+    return links.filter(link => {
+        const uid = String(link?.uid || link?.id || "").trim();
+
+        if (!uid || seen.has(uid)) return false;
+
+        seen.add(uid);
+        return true;
+    });
+}
+
+function findWorkerLinksForProfile(profileName, profiles = [], links = []) {
     const profile = findProfileForProjectionName(profileName, profiles);
     const profileRut = normalizeProjectionRut(profile?.rut);
+    const matches = [];
 
     if (profileRut) {
-        const rutMatch = links.find(link =>
+        matches.push(...links.filter(link =>
             normalizeProjectionRut(link.profileRut) === profileRut
-        );
-
-        if (rutMatch) return rutMatch;
+        ));
     }
 
     const normalizedProfileName = normalizeText(profile?.name);
 
     if (normalizedProfileName) {
-        const profileNameMatch = links.find(link =>
+        matches.push(...links.filter(link =>
             normalizeText(link.profileName) === normalizedProfileName
-        );
-
-        if (profileNameMatch) return profileNameMatch;
+        ));
     }
 
     const requestedName = normalizeText(profileName);
 
-    return requestedName
-        ? links.find(link => normalizeText(link.profileName) === requestedName) || null
-        : null;
+    if (requestedName) {
+        matches.push(...links.filter(link =>
+            normalizeText(link.profileName) === requestedName
+        ));
+    }
+
+    return uniqueWorkerLinks(matches);
 }
 
 let enginePromise = null;
@@ -248,19 +266,22 @@ async function computeProjectionsForProfiles(db, {
     const profiles = profilesFromState(state);
 
     for (const profileName of profileNames) {
-        const link = linksByProfile.get(profileName) ||
-            findWorkerLinkForProfile(profileName, profiles, links) ||
-            {};
+        const forcedLink = linksByProfile.get(profileName);
+        const profileLinks = forcedLink
+            ? [forcedLink]
+            : findWorkerLinksForProfile(profileName, profiles, links);
 
-        if (!link.uid) continue;
+        for (const link of profileLinks) {
+            if (!link?.uid) continue;
 
-        const payload = await engine.buildFullProjection(
-            profileName,
-            { link, workspace },
-            today
-        );
+            const payload = await engine.buildFullProjection(
+                profileName,
+                { link, workspace },
+                today
+            );
 
-        results.push({ profileName, link, payload });
+            results.push({ profileName, link, payload });
+        }
     }
 
     return results;
@@ -269,6 +290,7 @@ async function computeProjectionsForProfiles(db, {
 module.exports = {
     computeProjectionsForProfiles,
     findWorkerLinkForProfile,
+    findWorkerLinksForProfile,
     loadWorkspaceState,
     makeMemoryStorage,
     ensureEngineGlobals,

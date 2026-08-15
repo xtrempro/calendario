@@ -296,25 +296,8 @@ service cloud.firestore {
         resource.data.expiresAt > request.time;
     }
 
-    function workerInviteEmailAuthRequired() {
-      // Modo promocional: el token del enlace de invitacion permite vincular
-      // sin enviar un segundo correo de autenticacion. Cambiar a true para
-      // exigir que el trabajador confirme su email con Firebase Auth.
-      return false;
-    }
-
-    function workerInviteSingleUseDisabledForPilot() {
-      // TEMPORAL marcha blanca: permite reabrir una invitacion ya aceptada con
-      // su enlace directo. Volver a false al cerrar esta fase.
-      return true;
-    }
-
     function workerInviteCanBeOpened() {
-      return resource.data.status == "pending" ||
-        (
-          workerInviteSingleUseDisabledForPilot() &&
-          resource.data.status == "accepted"
-        );
+      return resource.data.status == "pending";
     }
 
     function canReadWorkerInvite(inviteId) {
@@ -322,53 +305,6 @@ service cloud.firestore {
         resource.data.token == inviteId &&
         workerInviteCanBeOpened() &&
         workerInviteNotExpired();
-    }
-
-    function canAcceptWorkerInvite(workspaceId, inviteId) {
-      return canReadWorkerInvite(inviteId) &&
-        request.resource.data.workspaceId == workspaceId &&
-        request.resource.data.token == inviteId &&
-        request.resource.data.status == "accepted" &&
-        request.resource.data.workerUid == request.auth.uid &&
-        (
-          (
-            workerInviteEmailAuthRequired() &&
-            request.auth.token.email != null &&
-            request.resource.data.workerEmail == request.auth.token.email
-          ) ||
-          (
-            !workerInviteEmailAuthRequired() &&
-            request.resource.data.workerEmail == resource.data.email
-          )
-        ) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          "status",
-          "workerUid",
-          "workerEmail",
-          "workerDisplayName",
-          "acceptedAt",
-          "updatedAt"
-        ]);
-    }
-
-    function acceptedWorkerInviteAfter(workspaceId, inviteId, userId) {
-      return existsAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/workerAppInvites/$(inviteId)) &&
-        getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/workerAppInvites/$(inviteId)).data.workspaceId == workspaceId &&
-        getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/workerAppInvites/$(inviteId)).data.token == inviteId &&
-        getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/workerAppInvites/$(inviteId)).data.status == "accepted" &&
-        getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/workerAppInvites/$(inviteId)).data.workerUid == userId &&
-        (
-          (
-            workerInviteEmailAuthRequired() &&
-            request.auth.token.email != null &&
-            getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/workerAppInvites/$(inviteId)).data.workerEmail == request.auth.token.email
-          ) ||
-          (
-            !workerInviteEmailAuthRequired() &&
-            getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/workerAppInvites/$(inviteId)).data.workerEmail ==
-              getAfter(/databases/$(database)/documents/workspaces/$(workspaceId)/workerAppInvites/$(inviteId)).data.email
-          )
-        );
     }
 
     function linkIdentityUnchanged() {
@@ -935,29 +871,15 @@ service cloud.firestore {
         allow get: if canManageProfiles(workspaceId) ||
           canReadWorkerInvite(inviteId);
         allow list: if canManageProfiles(workspaceId);
-        allow update: if canManageProfiles(workspaceId) ||
-          canAcceptWorkerInvite(workspaceId, inviteId);
+        allow update: if canManageProfiles(workspaceId);
         allow delete: if canManageProfiles(workspaceId);
       }
 
       match /workerLinks/{userId} {
         allow read: if canReadWorkerData(workspaceId) ||
           (signedIn() && request.auth.uid == userId);
-        allow create, update: if (
-          canManageProfiles(workspaceId) &&
-          request.resource.data.uid == userId
-        ) || (
-          signedIn() &&
-          request.auth.uid == userId &&
-          request.resource.data.uid == userId &&
-          request.resource.data.workspaceId == workspaceId &&
-          request.resource.data.inviteId is string &&
-          acceptedWorkerInviteAfter(
-            workspaceId,
-            request.resource.data.inviteId,
-            userId
-          )
-        );
+        allow create, update: if canManageProfiles(workspaceId) &&
+          request.resource.data.uid == userId;
         allow delete: if canManageProfiles(workspaceId) ||
           (signedIn() && request.auth.uid == userId);
       }

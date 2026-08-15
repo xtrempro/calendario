@@ -62,7 +62,8 @@ import {
     getClockNetExtraHours,
     getClockMarks,
     getClockScheduleState,
-    getScheduledSegmentsForProfile
+    getScheduledSegmentsForProfile,
+    getWorkedIntervalsForState
 } from "./clockMarks.js";
 import {
     classifyClockMarkSegment,
@@ -309,6 +310,118 @@ function numberHours(date, turno, holidays) {
     return {
         d: Number(hours.d) || 0,
         n: Number(hours.n) || 0
+    };
+}
+
+function localDateAt(base, hour, minute = 0) {
+    return new Date(
+        base.getFullYear(),
+        base.getMonth(),
+        base.getDate(),
+        hour,
+        minute,
+        0,
+        0
+    );
+}
+
+function nextClockClassificationBoundary(cursor, end) {
+    const nextDay = localDateAt(cursor, 24);
+    const candidates = [nextDay, end];
+
+    [7, 21].forEach(hour => {
+        const boundary = localDateAt(cursor, hour);
+
+        if (boundary > cursor) {
+            candidates.push(boundary);
+        }
+    });
+
+    return candidates
+        .filter(candidate => candidate > cursor)
+        .sort((a, b) => a - b)[0] || end;
+}
+
+function isClockNocturnalSegment(cursor, holidays) {
+    const day = new Date(
+        cursor.getFullYear(),
+        cursor.getMonth(),
+        cursor.getDate()
+    );
+
+    if (!isBusinessDay(day, holidays)) {
+        return true;
+    }
+
+    const hour = cursor.getHours() + cursor.getMinutes() / 60;
+    return hour < 7 || hour >= 21;
+}
+
+function addClassifiedClockInterval(target, interval, holidays) {
+    let cursor = new Date(interval.start);
+    const end = new Date(interval.end);
+
+    while (cursor < end) {
+        const boundary = nextClockClassificationBoundary(cursor, end);
+        const amount = (boundary - cursor) / 36e5;
+
+        if (isClockNocturnalSegment(cursor, holidays)) {
+            target.n += amount;
+        } else {
+            target.d += amount;
+        }
+
+        cursor = boundary;
+    }
+}
+
+function intersectIntervals(a, b) {
+    const start = new Date(Math.max(a.start.getTime(), b.start.getTime()));
+    const end = new Date(Math.min(a.end.getTime(), b.end.getTime()));
+
+    return end > start ? { start, end } : null;
+}
+
+function workedScheduledExtraHours(
+    profileName,
+    keyDay,
+    date,
+    actual,
+    extraState,
+    holidays
+) {
+    const workedIntervals = getWorkedIntervalsForState(
+        profileName,
+        keyDay,
+        date,
+        actual,
+        holidays
+    );
+    const extraIntervals = getScheduledSegmentsForProfile(
+        profileName,
+        keyDay,
+        date,
+        extraState,
+        holidays
+    ).map(segment => ({
+        start: segment.start,
+        end: segment.end
+    }));
+    const total = { d: 0, n: 0 };
+
+    workedIntervals.forEach(worked => {
+        extraIntervals.forEach(extra => {
+            const overlap = intersectIntervals(worked, extra);
+
+            if (overlap) {
+                addClassifiedClockInterval(total, overlap, holidays);
+            }
+        });
+    });
+
+    return {
+        d: Math.round(total.d * 2) / 2,
+        n: Math.round(total.n * 2) / 2
     };
 }
 
@@ -1062,19 +1175,41 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
         // sin esto quedaba contada en el total pero invisible en el detalle
         // "Turnos extra y extensiones horarias". Solo en el detalle de excedente
         // ("extra-only"): en "all"/"replacement" las horas ya son las realizadas.
+        const isExtra = Number(extraState) > TURNO.LIBRE;
+        const scheduledExtraWorkedHours =
+            kind === "extra-only" && isExtra
+                ? workedScheduledExtraHours(
+                    profileName,
+                    keyDay,
+                    date,
+                    actual,
+                    extraState,
+                    holidays
+                )
+                : scheduleExtraHoursNum;
         const clockExtraHours = kind === "extra-only"
             ? getClockNetExtraHours(profileName, keyDay, date, actual, holidays)
             : { d: 0, n: 0 };
+        const scheduledExtraTotal =
+            (Number(scheduleExtraHoursNum.d) || 0) +
+            (Number(scheduleExtraHoursNum.n) || 0);
+        const scheduledExtraWorkedTotal =
+            (Number(scheduledExtraWorkedHours.d) || 0) +
+            (Number(scheduledExtraWorkedHours.n) || 0);
+        const isPartialExtra =
+            kind === "extra-only" &&
+            isExtra &&
+            scheduledExtraTotal > 0.001 &&
+            scheduledExtraWorkedTotal + 0.001 < scheduledExtraTotal;
         const actualHours = {
             d: formatHour(actualHoursNum.d),
             n: formatHour(actualHoursNum.n)
         };
         const extraHours = {
-            d: formatHour(scheduleExtraHoursNum.d + clockExtraHours.d),
-            n: formatHour(scheduleExtraHoursNum.n + clockExtraHours.n)
+            d: formatHour(scheduledExtraWorkedHours.d + clockExtraHours.d),
+            n: formatHour(scheduledExtraWorkedHours.n + clockExtraHours.n)
         };
         const hasClockExtension = clockExtraHours.d + clockExtraHours.n > 0.001;
-        const isExtra = Number(extraState) > TURNO.LIBRE;
         const hasReplacement =
             getReplacementsForWorkerShift(profileName, keyDay).length > 0;
         const shiftMove = shiftMoveDetail(profileName, keyDay);
@@ -1091,7 +1226,8 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             iso,
             // Turno extra "completo" cuando la base (con cambios) del dia era
             // LIBRE: todo el turno es extra. Si no, es una extension horaria.
-            esCompleto: Number(baseWithSwaps) === TURNO.LIBRE,
+            esCompleto: Number(baseWithSwaps) === TURNO.LIBRE && !isPartialExtra,
+            esParcial: isPartialExtra,
             fecha: formatDate(iso),
             diaHabil: isBusinessDay(date, holidays) ? "S\u00ed" : "No",
             tipo: kind === "extra-only"
@@ -2635,6 +2771,7 @@ export async function buildWorkerHheeMonthSummary(
             d: num(row.horasDiurnas),
             n: num(row.horasNocturnas),
             full: Boolean(row.esCompleto),
+            partial: Boolean(row.esParcial),
             backing: String(row.respaldo || "")
         }))
         .filter(item => item.d + item.n > 0.001);
