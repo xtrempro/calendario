@@ -214,6 +214,13 @@ import { renderTaskAssignmentsPanel } from "./taskAssignments.js";
 import { renderKanbanBoard } from "./kanban.js";
 import { renderAgendaPanel } from "./agenda.js";
 import { renderDashboardPanel } from "./dashboard.js";
+import { renderHomePanel, refreshHomeTasks } from "./home.js";
+import {
+    startHomeTasksSync,
+    stopHomeTasksSync,
+    startTaskAlertScheduler,
+    stopTaskAlertScheduler
+} from "./homeTasks.js";
 import { initSystemSettings } from "./systemSettings.js";
 import { initPlansUI } from "./plansUI.js";
 import {
@@ -4876,6 +4883,10 @@ async function setActiveShortcut(targetId, options = {}) {
 
         setDashboardView(nextView);
 
+        if (nextView === "home") {
+            renderHomePanel();
+        }
+
         if (nextView === "hours") {
             renderDashboardState();
         }
@@ -5579,6 +5590,28 @@ async function printSpecificReportPdf(profile, date) {
     }
 }
 
+// Inyecta la lupa (buscar/cambiar trabajador) y negrita al final del nombre en
+// la tabla "Datos del trabajador" del preview. La lupa se oculta al imprimir.
+function decorateReportWorkerName() {
+    const preview = DOM.report4TurnoNoAssignmentPreview;
+    if (!preview) return;
+
+    const rows = preview.querySelectorAll(
+        ".report-section--worker-data tbody tr"
+    );
+    for (const row of rows) {
+        const cells = row.querySelectorAll("td");
+        if (cells.length >= 2 && cells[0].textContent.trim() === "Nombre") {
+            cells[1].classList.add("report-name-value");
+            cells[1].insertAdjacentHTML(
+                "beforeend",
+                ` <button class="profile-name-search report-name-search" type="button" data-action="open-reports-search" aria-label="Buscar trabajador" title="Buscar / cambiar trabajador"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg></button>`
+            );
+            break;
+        }
+    }
+}
+
 async function renderReportsDetail() {
     if (!DOM.reportsSelectedInfo) return;
 
@@ -5586,10 +5619,21 @@ async function renderReportsDetail() {
     const profile = getPerfilActual();
     const reportDate = getReportsMonthDate();
 
+    const reportsSearchLupa =
+        `<button class="profile-name-search" type="button" data-action="open-reports-search" aria-label="Buscar trabajador" title="Buscar / cambiar trabajador"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg></button>`;
+
     if (!profile) {
         closeReportsMonthPicker();
-        DOM.reportsSelectedInfo.textContent =
-            "Selecciona un colaborador para ver sus reportes disponibles.";
+        DOM.reportsSelectedInfo.classList.remove("hidden");
+        DOM.reportsSelectedInfo.innerHTML = `
+            <div class="reports-selected">
+                <div class="reports-selected__name">
+                    <strong>Selecciona un trabajador</strong>
+                    ${reportsSearchLupa}
+                </div>
+                <small>Usa la lupa para buscar y ver sus reportes.</small>
+            </div>
+        `;
         DOM.report4TurnoNoAssignmentCard?.classList.add("hidden");
         if (DOM.report4TurnoNoAssignmentTitle) {
             DOM.report4TurnoNoAssignmentTitle.textContent = "";
@@ -5630,11 +5674,11 @@ async function renderReportsDetail() {
         canShowReplacementReport ||
         canShowDiurnoReport;
 
-    DOM.reportsSelectedInfo.innerHTML = `
-        <span>Trabajador seleccionado</span>
-        <strong>${escapeHTML(profile.name)}</strong>
-        <small>${escapeHTML(getProfileMetaLabel(profile))} | ${escapeHTML(rotationStatus)}</small>
-    `;
+    // Con trabajador seleccionado, la lupa va junto al nombre en la tabla
+    // "Datos del trabajador" (se inyecta tras render). El encabezado auxiliar
+    // solo se usa como fallback cuando no hay trabajador.
+    DOM.reportsSelectedInfo.classList.add("hidden");
+    DOM.reportsSelectedInfo.innerHTML = "";
 
     DOM.report4TurnoNoAssignmentCard?.classList.toggle(
         "hidden",
@@ -5701,6 +5745,7 @@ async function renderReportsDetail() {
 
         DOM.report4TurnoNoAssignmentPreview.innerHTML =
             html || `<div class="empty-state empty-state--compact">No fue posible generar el detalle para este mes.</div>`;
+        decorateReportWorkerName();
     } catch (error) {
         if (requestId !== reportsDetailRequest) return;
 
@@ -10951,12 +10996,42 @@ function bindShellInteractions() {
         DOM.showInactiveProfiles.onchange = syncProfileFilters;
     }
 
+    // Búsqueda de trabajador en modal (lupa junto al nombre en Perfiles).
+    const profileSearchModal =
+        document.getElementById("profileSearchModal");
+    const profileSearchBtn =
+        document.getElementById("profileSearchBtn");
+    const closeProfileSearch = () => {
+        if (profileSearchModal) profileSearchModal.hidden = true;
+    };
+    if (profileSearchModal && profileSearchBtn) {
+        profileSearchBtn.onclick = () => {
+            profileSearchModal.hidden = false;
+            renderProfiles();
+            DOM.profileSearch?.focus();
+        };
+        profileSearchModal.addEventListener("click", event => {
+            if (
+                event.target === profileSearchModal ||
+                event.target.closest('[data-action="close-profile-search"]')
+            ) {
+                closeProfileSearch();
+            }
+        });
+        document.addEventListener("keydown", event => {
+            if (event.key === "Escape" && !profileSearchModal.hidden) {
+                closeProfileSearch();
+            }
+        });
+    }
+
     DOM.profiles.onclick = event => {
         const action = event.target.closest("[data-action]");
         if (!action || !DOM.profiles.contains(action)) return;
 
         if (action.dataset.action === "select-profile") {
             void selectProfileByName(action.dataset.profileName);
+            closeProfileSearch();
             return;
         }
 
@@ -10989,6 +11064,41 @@ function bindShellInteractions() {
     if (DOM.reportsShowInactiveProfiles) {
         DOM.reportsShowInactiveProfiles.onchange =
             renderReportsProfiles;
+    }
+
+    // Reportes: buscar/cambiar trabajador en modal (lupa junto al nombre).
+    const reportsSearchModal =
+        document.getElementById("reportsSearchModal");
+    const closeReportsSearch = () => {
+        if (reportsSearchModal) reportsSearchModal.hidden = true;
+    };
+    if (reportsSearchModal) {
+        // La lupa se rerenderiza con el detalle (tabla o fallback): delegación.
+        document.addEventListener("click", event => {
+            if (event.target.closest('[data-action="open-reports-search"]')) {
+                reportsSearchModal.hidden = false;
+                void renderReportsProfiles();
+                DOM.reportsProfileSearch?.focus();
+            }
+        });
+        reportsSearchModal.addEventListener("click", event => {
+            if (
+                event.target === reportsSearchModal ||
+                event.target.closest('[data-action="close-reports-search"]')
+            ) {
+                closeReportsSearch();
+            }
+        });
+        document.addEventListener("keydown", event => {
+            if (event.key === "Escape" && !reportsSearchModal.hidden) {
+                closeReportsSearch();
+            }
+        });
+    }
+    if (DOM.reportsProfiles) {
+        DOM.reportsProfiles.addEventListener("click", event => {
+            if (event.target.closest(".profile-item")) closeReportsSearch();
+        });
     }
 
     if (DOM.clockMarksFilterRole) {
@@ -11024,8 +11134,16 @@ function bindShellInteractions() {
         DOM.topProfileSearchInput.onchange = () => {
             void handleTopProfileSearch();
         };
-        DOM.topProfileSearchInput.onfocus = () =>
-            DOM.topProfileSearchInput.select();
+        // Al enfocar se limpia para escribir directo; si se abandona sin elegir,
+        // se restaura el trabajador actual.
+        DOM.topProfileSearchInput.onfocus = () => {
+            DOM.topProfileSearchInput.value = "";
+        };
+        DOM.topProfileSearchInput.onblur = () => {
+            if (!DOM.topProfileSearchInput.value.trim()) {
+                syncTopProfileSearch();
+            }
+        };
     }
 
     document
@@ -11898,6 +12016,12 @@ initFirebaseShell({
             );
             // Publica en segundo plano el resumen RRHH del mes para el Dashboard.
             startRrhhSummaryBackgroundPublisher();
+
+            // Tareas del home (por usuario) + alertas sonoras.
+            startHomeTasksSync(workspace, () => {
+                refreshHomeTasks();
+            });
+            startTaskAlertScheduler();
         } else {
             stopFirebaseReplacementRequestSync();
             stopFirebaseWorkerRequestSync();
@@ -11908,6 +12032,8 @@ initFirebaseShell({
             stopFirebaseAppStateSync();
             stopSupervisorInviteRequestsListener();
             stopWorkspacePermissionListener();
+            stopHomeTasksSync();
+            stopTaskAlertScheduler();
             await loadWorkspacePermissions(workspace);
             syncWorkspacePermissionUI();
             syncCalendarDirectEditToggle();
@@ -11947,7 +12073,7 @@ bindAppNavigationHistory();
 
 const hasProfilesAtStartup = getProfiles().length > 0;
 const startupTarget = hasProfilesAtStartup
-    ? targetFromHash() || "calendarPanel"
+    ? targetFromHash() || "homePanel"
     : "profileSection";
 
 void setActiveShortcut(startupTarget, { historyMode: "replace" });

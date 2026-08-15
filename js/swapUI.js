@@ -431,7 +431,12 @@ function bindSwapFromSearch() {
     };
 
     input.onchange = handleSwapFromSearch;
-    input.onfocus = () => input.select();
+    // Al enfocar se limpia para escribir directo; si se abandona sin elegir,
+    // se restaura el trabajador actual.
+    input.onfocus = () => { input.value = ""; };
+    input.onblur = () => {
+        if (!input.value.trim()) syncSwapFromSearch();
+    };
 }
 
 function renderSwapSelectorEmpty(box, selectedFrom, message) {

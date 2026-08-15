@@ -8,6 +8,10 @@
  * @returns {string}
  */
 export function getViewForTarget(targetId) {
+    if (targetId === "homePanel") {
+        return "home";
+    }
+
     if (
         targetId === "profileSection" ||
         targetId === "availabilitySummary"

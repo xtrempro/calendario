@@ -21,13 +21,13 @@ export const MENU_PERMISSION_DEFS = [
         target: "taskAssignmentsPanel"
     },
     { key: "kanban", label: "Kanban", target: "kanbanPanel" },
-    { key: "agenda", label: "Agenda", target: "agendaPanel" },
+    { key: "agenda", label: "Contactos", target: "agendaPanel" },
     { key: "profile", label: "Perfiles", target: "profileSection" },
     { key: "clockmarks", label: "Marcajes", target: "clockMarksPanel" },
     { key: "requests", label: "Solicitudes", target: "workerRequestsPanel" },
     { key: "memos", label: "Memorándum", target: "memosPanel" },
     { key: "swap", label: "Cambios de Turno", target: "turnChangesView" },
-    { key: "hours", label: "HH.EE", target: "hoursPanel" },
+    { key: "hours", label: "HHEE", target: "hoursPanel" },
     { key: "reports", label: "Reportes", target: "reportsPanel" },
     { key: "dashboard", label: "Dashboard", target: "dashboardPanel" },
     { key: "log", label: "LOG", target: "auditLogPanel" }
