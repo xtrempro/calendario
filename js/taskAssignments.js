@@ -669,7 +669,56 @@ function publishTaskAssignmentChanges(workerNames = null) {
 }
 
 async function publishScheduleAttachmentChanges() {
-    await publishWorkerScheduleAttachmentNow(getScheduleAttachment());
+    const attachment = getScheduleAttachment();
+    const publication = await publishWorkerScheduleAttachmentNow(attachment);
+
+    await notifyScheduleAttachmentPublication(attachment, publication);
+}
+
+async function notifyScheduleAttachmentPublication(attachment, publication) {
+    const workspace = getActiveWorkspace();
+    const publishedCount = Number(publication?.count ?? publication ?? 0);
+    const recipientUids = Array.isArray(publication?.uids)
+        ? publication.uids
+        : [];
+
+    if (!workspace?.id || !publishedCount) return;
+
+    try {
+        const { functions, functionsModule } = await getFirebaseServices();
+        const notify = functionsModule.httpsCallable(
+            functions,
+            "notifyScheduleAttachmentUpdated"
+        );
+        const eventId = [
+            "schedule_attachment",
+            attachment?.id || (attachment ? "published" : "removed"),
+            Date.now().toString(36)
+        ].join("_");
+
+        await notify({
+            workspaceId: workspace.id,
+            eventId,
+            action: attachment ? "published" : "removed",
+            attachment: attachment
+                ? {
+                    id: attachment.id || "",
+                    name: attachment.name || "",
+                    storagePath: attachment.storagePath || "",
+                    updatedAtISO: attachment.updatedAtISO || attachment.addedAt || "",
+                    mode: attachment.mode || "",
+                    ocrStatus: attachment.ocr?.status || ""
+                }
+                : null,
+            publishedCount,
+            recipientUids
+        });
+    } catch (error) {
+        console.warn(
+            "La programacion se publico, pero no se pudo notificar a la PWA.",
+            error
+        );
+    }
 }
 
 function scheduleOcrStatusLabel(ocr) {

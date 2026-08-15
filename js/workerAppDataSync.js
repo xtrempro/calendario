@@ -2801,14 +2801,18 @@ export async function publishWorkerAppDataNow(profileTargets = []) {
 }
 
 export async function publishWorkerScheduleAttachmentNow(attachment) {
-    if (!activeWorkspace?.id || !workerLinks.length) return 0;
+    if (!activeWorkspace?.id || !workerLinks.length) {
+        return { count: 0, uids: [] };
+    }
 
     const workspace = currentWorkspace();
     const profiles = getProfiles();
     const linked = linkedProfilePairs(profiles)
         .filter(item => item.link?.uid && item.profile);
 
-    if (!linked.length) return 0;
+    if (!linked.length) {
+        return { count: 0, uids: [] };
+    }
 
     await flushPendingFirebaseAppStateEntries({
         keys: ["weekly_task_schedule_attachment"],
@@ -2854,7 +2858,10 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
         hasAttachment: Boolean(payload)
     });
 
-    return linked.length;
+    return {
+        count: linked.length,
+        uids: linked.map(item => item.link.uid)
+    };
 }
 
 export async function startWorkerAppDataSync(workspace) {

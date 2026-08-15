@@ -608,6 +608,233 @@ exports.uploadScheduleAttachment = onCall(
   }
 );
 
+function scheduleNotificationEventId(value) {
+  const clean = cleanCallableText(value, 160)
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return clean || `schedule_attachment_${Date.now()}_${randomBytes(4).toString("hex")}`;
+}
+
+function scheduleNotificationAttachment(data = {}) {
+  if (!data || typeof data !== "object") return null;
+
+  return {
+    id: cleanCallableText(data.id, 160),
+    name: cleanCallableText(data.name || "programacion", 180),
+    storagePath: cleanCallableText(data.storagePath, 500),
+    updatedAtISO: cleanCallableText(data.updatedAtISO, 40),
+    mode: cleanCallableText(data.mode, 40),
+    ocrStatus: cleanCallableText(data.ocrStatus, 40)
+  };
+}
+
+exports.notifyScheduleAttachmentUpdated = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 120,
+    memory: "512MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para notificar la programacion."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+
+    if (!workspaceId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Selecciona una unidad antes de notificar la programacion."
+      );
+    }
+
+    const member = await requireWorkspaceMember(
+      workspaceId,
+      uid,
+      request.auth.token || {}
+    );
+    const workspaceRef = db.collection("workspaces").doc(workspaceId);
+    const [workspaceSnap, linksSnap] = await Promise.all([
+      workspaceRef.get(),
+      workspaceRef.collection("workerLinks").get()
+    ]);
+    const workspace = workspaceSnap.data() || {};
+    const eventId = scheduleNotificationEventId(request.data?.eventId);
+    const action = cleanCallableText(request.data?.action, 40) === "removed"
+      ? "removed"
+      : "published";
+    const attachment = scheduleNotificationAttachment(request.data?.attachment);
+    const title = action === "removed"
+      ? "Programacion retirada"
+      : "Programacion actualizada";
+    const attachmentName = cleanCallableText(attachment?.name, 120);
+    const workspaceName = cleanCallableText(
+      workspace.name || workspace.displayName || request.data?.workspaceName,
+      160
+    );
+    const requestedRecipientUids = new Set(
+      Array.isArray(request.data?.recipientUids)
+        ? request.data.recipientUids
+            .map((value) => cleanCallableText(value, 160))
+            .filter(Boolean)
+        : []
+    );
+    const body = action === "removed"
+      ? "La programacion semanal ya no esta disponible."
+      : attachmentName
+        ? `La programacion semanal fue actualizada: ${attachmentName}.`
+        : "La programacion semanal fue actualizada.";
+    const deepLink = `${WORKER_APP_BASE_URL}?screen=turnos`;
+    const activeLinks = linksSnap.docs
+      .map((docSnap) => {
+        const link = docSnap.data() || {};
+        const workerUid = cleanCallableText(link.uid || docSnap.id, 160);
+
+        return workerUid && String(link.status || "active") === "active"
+          && (!requestedRecipientUids.size || requestedRecipientUids.has(workerUid))
+          ? {
+              uid: workerUid,
+              profileName: cleanCallableText(link.profileName, 180),
+              profileRut: cleanCallableText(link.profileRut, 32),
+              workerEmail: cleanCallableText(link.workerEmail, 254)
+            }
+          : null;
+      })
+      .filter(Boolean);
+    const uniqueLinks = Array.from(
+      new Map(activeLinks.map((link) => [link.uid, link])).values()
+    );
+    const notificationRefs = uniqueLinks.map((link) => ({
+      link,
+      ref: workspaceRef
+        .collection("workerNotifications")
+        .doc(link.uid)
+        .collection("items")
+        .doc(eventId)
+    }));
+    const existingSnaps = notificationRefs.length
+      ? await db.getAll(...notificationRefs.map((item) => item.ref))
+      : [];
+    const missing = notificationRefs.filter((item, index) =>
+      !existingSnaps[index]?.exists
+    );
+    const createdAt = admin.firestore.FieldValue.serverTimestamp();
+
+    for (let index = 0; index < missing.length; index += 400) {
+      const batch = db.batch();
+
+      missing.slice(index, index + 400).forEach(({ link, ref }) => {
+        batch.set(ref, {
+          type: "schedule_attachment_updated",
+          category: "calendar_changes",
+          title,
+          message: body,
+          workspaceId,
+          workspaceName,
+          workerId: link.profileName,
+          profileName: link.profileName,
+          profileRut: link.profileRut,
+          workerEmail: link.workerEmail,
+          affectedDates: [],
+          changeType: "schedule_attachment",
+          source: "schedule_attachment_publish",
+          attachment,
+          action,
+          publishedCount: Number(request.data?.publishedCount) || 0,
+          createdAt,
+          clientCreatedAtISO: cleanCallableText(
+            request.data?.clientCreatedAtISO,
+            40
+          ),
+          readAt: null,
+          isRead: false,
+          eventId,
+          entityId: cleanCallableText(attachment?.id || attachment?.storagePath, 500),
+          batchId: eventId,
+          operationId: eventId,
+          createdByUid: uid,
+          createdByName: cleanCallableText(
+            request.auth.token?.name || member.displayName || member.name,
+            160
+          ),
+          deepLink,
+          tag: `schedule-attachment-${eventId}`,
+          pushStatus: "pending"
+        }, { merge: false });
+      });
+
+      await batch.commit();
+    }
+
+    const results = await Promise.all(missing.map(({ link }) =>
+      sendWorkerPush({
+        workspaceId,
+        uid: link.uid,
+        category: "calendar_changes",
+        title,
+        body,
+        data: {
+          type: "worker_schedule_attachment_updated",
+          category: "calendar_changes",
+          eventId,
+          workspaceId,
+          workspaceName,
+          workerId: link.profileName,
+          profileName: link.profileName,
+          changeType: "schedule_attachment",
+          screen: "turnos",
+          url: deepLink,
+          tag: `schedule-attachment-${eventId}`,
+          requireInteraction: "false",
+          vibrate: "true"
+        }
+      })
+    ));
+    const sentByUid = new Map(
+      missing.map((item, index) => [item.link.uid, results[index] || {}])
+    );
+
+    for (let index = 0; index < missing.length; index += 400) {
+      const batch = db.batch();
+
+      missing.slice(index, index + 400).forEach(({ link, ref }) => {
+        const result = sentByUid.get(link.uid) || {};
+        batch.set(ref, {
+          pushStatus: Number(result.sent) > 0 ? "push_sent" : "push_not_sent",
+          pushSentAt: admin.firestore.FieldValue.serverTimestamp(),
+          pushSentCount: Number(result.sent) || 0,
+          pushError: cleanCallableText(result.error, 240)
+        }, { merge: true });
+      });
+
+      await batch.commit();
+    }
+
+    logger.info("Notificacion de programacion semanal procesada.", {
+      workspaceId,
+      eventId,
+      action,
+      recipients: uniqueLinks.length,
+      created: missing.length,
+      sent: results.reduce((total, result) => total + (Number(result.sent) || 0), 0)
+    });
+
+    return {
+      ok: true,
+      eventId,
+      recipients: uniqueLinks.length,
+      notified: missing.length,
+      sent: results.reduce((total, result) => total + (Number(result.sent) || 0), 0)
+    };
+  }
+);
+
 async function requireAcceptedWorkspaceLink(
   linkId,
   sourceWorkspaceId,
