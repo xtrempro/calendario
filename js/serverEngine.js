@@ -55,7 +55,41 @@ const EXCEPTIONS_MONTHS_BACK = 2;
 const EXCEPTIONS_MONTHS_FORWARD = 12;
 const HOT_CALENDAR_FUTURE_MONTH_COUNT = 6;
 
-function normalizePublishedScheduleAttachment(value) {
+function addDays(date, amount) {
+    const next = new Date(date);
+
+    next.setDate(date.getDate() + amount);
+    return next;
+}
+
+function schedulePublicationWeekStart(date = new Date()) {
+    const base = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate()
+    );
+    const day = base.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+
+    base.setDate(base.getDate() + diff);
+    return base;
+}
+
+function schedulePublicationWeekStartISO(date = new Date()) {
+    return toISODate(schedulePublicationWeekStart(date));
+}
+
+function schedulePublicationWeekEndISO(date = new Date()) {
+    return toISODate(addDays(schedulePublicationWeekStart(date), 6));
+}
+
+function schedulePublicationWeekDate(weekStartISO) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(weekStartISO || ""))
+        ? new Date(`${weekStartISO}T00:00:00`)
+        : null;
+}
+
+function normalizePublishedScheduleAttachment(value, fallbackWeekStart = null) {
     if (!value || typeof value !== "object") return null;
 
     const storagePath = String(value.storagePath || "").trim();
@@ -65,6 +99,17 @@ function normalizePublishedScheduleAttachment(value) {
     const ocrText = ocr?.status === "completed"
         ? String(ocr.text || "").trim()
         : "";
+    const weekStart = fallbackWeekStart
+        ? schedulePublicationWeekStart(fallbackWeekStart)
+        : null;
+    const weekStartISO = String(
+        value.weekStartISO ||
+        (weekStart ? schedulePublicationWeekStartISO(weekStart) : "")
+    ).trim();
+    const weekEndISO = String(
+        value.weekEndISO ||
+        (weekStart ? schedulePublicationWeekEndISO(weekStart) : "")
+    ).trim();
 
     if (!storagePath && !dataUrl && !downloadURL) return null;
 
@@ -81,6 +126,9 @@ function normalizePublishedScheduleAttachment(value) {
         uploadedByUid: String(value.uploadedByUid || "").trim(),
         mode: ocrText ? "ocr_text" : "image",
         source: "supervisor_image",
+        weekStartISO,
+        weekEndISO,
+        weekLabel: String(value.weekLabel || "").trim(),
         ocr,
         ocrText,
         text: ocrText
@@ -110,10 +158,47 @@ function normalizePublishedScheduleOcr(value) {
     };
 }
 
-function getPublishedScheduleAttachment() {
-    return normalizePublishedScheduleAttachment(
-        getJSON("weekly_task_schedule_attachment", null)
+function normalizePublishedScheduleAttachmentMap(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+    return Object.fromEntries(
+        Object.entries(value)
+            .map(([weekStartISO, attachment]) => {
+                const start = schedulePublicationWeekDate(weekStartISO);
+                const normalized = normalizePublishedScheduleAttachment(
+                    attachment,
+                    start
+                );
+                const key = normalized?.weekStartISO || weekStartISO;
+
+                return normalized && key ? [key, normalized] : null;
+            })
+            .filter(Boolean)
+            .sort(([a], [b]) => a.localeCompare(b))
     );
+}
+
+function getPublishedScheduleAttachments() {
+    const attachments = normalizePublishedScheduleAttachmentMap(
+        getJSON("weekly_task_schedule_attachments", {})
+    );
+    const legacy = normalizePublishedScheduleAttachment(
+        getJSON("weekly_task_schedule_attachment", null),
+        schedulePublicationWeekStart(new Date())
+    );
+
+    if (legacy && !attachments[legacy.weekStartISO]) {
+        attachments[legacy.weekStartISO] = legacy;
+    }
+
+    return attachments;
+}
+
+function getPublishedScheduleAttachment(
+    start = new Date(),
+    attachments = getPublishedScheduleAttachments()
+) {
+    return attachments[schedulePublicationWeekStartISO(start)] || null;
 }
 
 // ───────── Rango y meses ─────────
@@ -747,6 +832,8 @@ function buildContractTimeline(profile = {}) {
 }
 
 function buildMissingProfilePayload(link = {}, workspace = {}, profileName = "") {
+    const weeklyScheduleAttachments = getPublishedScheduleAttachments();
+
     return {
         uid: link.uid || "",
         workspaceId: workspace.id || "",
@@ -767,6 +854,11 @@ function buildMissingProfilePayload(link = {}, workspace = {}, profileName = "")
         scheduleStart: "",
         scheduleEnd: "",
         days: {},
+        weeklyScheduleAttachment: getPublishedScheduleAttachment(
+            new Date(),
+            weeklyScheduleAttachments
+        ),
+        weeklyScheduleAttachments,
         updatedAtISO: new Date().toISOString()
     };
 }
@@ -859,6 +951,7 @@ export async function buildFullProjection(
     );
     const contractTimeline =
         buildContractTimeline(profile);
+    const weeklyScheduleAttachments = getPublishedScheduleAttachments();
 
     return {
         uid: link.uid || "",
@@ -920,7 +1013,11 @@ export async function buildFullProjection(
         scheduleStart: schedule.start,
         scheduleEnd: schedule.end,
         days: schedule.days,
-        weeklyScheduleAttachment: getPublishedScheduleAttachment(),
+        weeklyScheduleAttachment: getPublishedScheduleAttachment(
+            today,
+            weeklyScheduleAttachments
+        ),
+        weeklyScheduleAttachments,
         supervisorReminders: buildSupervisorReminders(profile),
         birthdays: buildBirthdayReminders(profile.name),
         overtimeSummaries,

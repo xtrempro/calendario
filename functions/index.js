@@ -625,7 +625,10 @@ function scheduleNotificationAttachment(data = {}) {
     storagePath: cleanCallableText(data.storagePath, 500),
     updatedAtISO: cleanCallableText(data.updatedAtISO, 40),
     mode: cleanCallableText(data.mode, 40),
-    ocrStatus: cleanCallableText(data.ocrStatus, 40)
+    ocrStatus: cleanCallableText(data.ocrStatus, 40),
+    weekStartISO: cleanCallableText(data.weekStartISO, 40),
+    weekEndISO: cleanCallableText(data.weekEndISO, 40),
+    weekLabel: cleanCallableText(data.weekLabel, 120)
   };
 }
 
@@ -686,10 +689,14 @@ exports.notifyScheduleAttachmentUpdated = onCall(
         : []
     );
     const body = action === "removed"
-      ? "La programacion semanal ya no esta disponible."
+      ? attachment?.weekLabel
+        ? `La programacion de ${attachment.weekLabel} ya no esta disponible.`
+        : "La programacion semanal ya no esta disponible."
       : attachmentName
-        ? `La programacion semanal fue actualizada: ${attachmentName}.`
-        : "La programacion semanal fue actualizada.";
+        ? `La programacion de ${attachment?.weekLabel || "la semana"} fue actualizada: ${attachmentName}.`
+        : attachment?.weekLabel
+          ? `La programacion de ${attachment.weekLabel} fue actualizada.`
+          : "La programacion semanal fue actualizada.";
     const deepLink = `${WORKER_APP_BASE_URL}?screen=turnos`;
     const activeLinks = linksSnap.docs
       .map((docSnap) => {
@@ -788,6 +795,9 @@ exports.notifyScheduleAttachmentUpdated = onCall(
           workerId: link.profileName,
           profileName: link.profileName,
           changeType: "schedule_attachment",
+          weekStartISO: attachment?.weekStartISO || "",
+          weekEndISO: attachment?.weekEndISO || "",
+          weekLabel: attachment?.weekLabel || "",
           screen: "turnos",
           url: deepLink,
           tag: `schedule-attachment-${eventId}`,

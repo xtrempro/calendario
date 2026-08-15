@@ -37,6 +37,7 @@ import {
 const TASKS_KEY = "weekly_task_assignment_tasks";
 const ASSIGNMENTS_KEY = "weekly_task_assignment_entries";
 const SCHEDULE_ATTACHMENT_KEY = "weekly_task_schedule_attachment";
+const SCHEDULE_ATTACHMENTS_KEY = "weekly_task_schedule_attachments";
 const TASK_ASSIGNMENT_PUBLISH_DELAY_MS = 3000;
 const SCHEDULE_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp,.bmp,.heic,.heif";
 const SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS = 1400 * 1024;
@@ -113,13 +114,39 @@ function normalizeScheduleOcr(value) {
     };
 }
 
-function normalizeScheduleAttachment(value) {
+function scheduleWeekStartISO(start = currentWeekStart) {
+    return isoFromDate(weekStartMonday(start));
+}
+
+function scheduleWeekEndISO(start = currentWeekStart) {
+    return isoFromDate(addDays(weekStartMonday(start), 6));
+}
+
+function scheduleWeekLabel(start = currentWeekStart) {
+    const weekStart = weekStartMonday(start);
+    const weekEnd = addDays(weekStart, 6);
+
+    return `Semana ${formatShortDate(weekStart)} al ${formatShortDate(weekEnd)}`;
+}
+
+function normalizeScheduleAttachment(value, weekStart = null) {
     if (!value || typeof value !== "object") return null;
 
     const storagePath = String(value.storagePath || "").trim();
     const dataUrl = String(value.dataUrl || "").trim();
     const downloadURL = String(value.downloadURL || value.downloadUrl || "").trim();
     const type = String(value.type || "").toLowerCase();
+    const normalizedWeekStart = weekStart
+        ? weekStartMonday(weekStart)
+        : null;
+    const weekStartISO = String(
+        value.weekStartISO ||
+        (normalizedWeekStart ? scheduleWeekStartISO(normalizedWeekStart) : "")
+    ).trim();
+    const weekEndISO = String(
+        value.weekEndISO ||
+        (normalizedWeekStart ? scheduleWeekEndISO(normalizedWeekStart) : "")
+    ).trim();
 
     if (!storagePath && !dataUrl && !downloadURL) return null;
 
@@ -136,20 +163,83 @@ function normalizeScheduleAttachment(value) {
         uploadedByUid: String(value.uploadedByUid || "").trim(),
         mode: "image",
         source: "supervisor_image",
+        weekStartISO,
+        weekEndISO,
+        weekLabel: String(
+            value.weekLabel ||
+            (normalizedWeekStart ? scheduleWeekLabel(normalizedWeekStart) : "")
+        ).trim(),
         ocr: normalizeScheduleOcr(value.ocr)
     };
 }
 
-function getScheduleAttachment() {
-    return normalizeScheduleAttachment(getJSON(SCHEDULE_ATTACHMENT_KEY, null));
+function normalizeScheduleAttachmentMap(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+    return Object.fromEntries(
+        Object.entries(value)
+            .map(([weekStartISO, attachment]) => {
+                const start = /^\d{4}-\d{2}-\d{2}$/.test(weekStartISO)
+                    ? new Date(`${weekStartISO}T00:00:00`)
+                    : null;
+                const normalized = normalizeScheduleAttachment(attachment, start);
+                const key = normalized?.weekStartISO || weekStartISO;
+
+                return normalized && key ? [key, normalized] : null;
+            })
+            .filter(Boolean)
+            .sort(([a], [b]) => a.localeCompare(b))
+    );
 }
 
-function saveScheduleAttachment(attachment) {
-    setJSON(SCHEDULE_ATTACHMENT_KEY, normalizeScheduleAttachment(attachment));
+function getScheduleAttachments() {
+    const attachments = normalizeScheduleAttachmentMap(
+        getJSON(SCHEDULE_ATTACHMENTS_KEY, {})
+    );
+    const legacy = normalizeScheduleAttachment(
+        getJSON(SCHEDULE_ATTACHMENT_KEY, null),
+        weekStartMonday(new Date())
+    );
+
+    if (legacy && !attachments[legacy.weekStartISO]) {
+        attachments[legacy.weekStartISO] = legacy;
+    }
+
+    return attachments;
 }
 
-function clearScheduleAttachment() {
-    setJSON(SCHEDULE_ATTACHMENT_KEY, null);
+function syncLegacyScheduleAttachment(attachments) {
+    const currentWeek = scheduleWeekStartISO(new Date());
+
+    setJSON(SCHEDULE_ATTACHMENT_KEY, attachments[currentWeek] || null);
+}
+
+function saveScheduleAttachments(attachments) {
+    const normalized = normalizeScheduleAttachmentMap(attachments);
+
+    setJSON(SCHEDULE_ATTACHMENTS_KEY, normalized);
+    syncLegacyScheduleAttachment(normalized);
+}
+
+function getScheduleAttachment(start = currentWeekStart) {
+    return getScheduleAttachments()[scheduleWeekStartISO(start)] || null;
+}
+
+function saveScheduleAttachment(attachment, start = currentWeekStart) {
+    const attachments = getScheduleAttachments();
+    const normalized = normalizeScheduleAttachment(attachment, start);
+
+    if (!normalized) return;
+
+    attachments[normalized.weekStartISO] = normalized;
+    saveScheduleAttachments(attachments);
+}
+
+function clearScheduleAttachment(start = currentWeekStart) {
+    const attachments = getScheduleAttachments();
+
+    delete attachments[scheduleWeekStartISO(start)];
+    saveScheduleAttachments(attachments);
 }
 
 function validateScheduleImage(file) {
@@ -668,14 +758,26 @@ function publishTaskAssignmentChanges(workerNames = null) {
     );
 }
 
-async function publishScheduleAttachmentChanges() {
-    const attachment = getScheduleAttachment();
-    const publication = await publishWorkerScheduleAttachmentNow(attachment);
+async function publishScheduleAttachmentChanges(start = currentWeekStart) {
+    const weekStart = weekStartMonday(start);
+    const weekStartISO = scheduleWeekStartISO(weekStart);
+    const attachment = getScheduleAttachment(weekStart);
+    const publication = await publishWorkerScheduleAttachmentNow(
+        getScheduleAttachments()
+    );
 
-    await notifyScheduleAttachmentPublication(attachment, publication);
+    await notifyScheduleAttachmentPublication(attachment, publication, {
+        weekStartISO,
+        weekEndISO: scheduleWeekEndISO(weekStart),
+        weekLabel: scheduleWeekLabel(weekStart)
+    });
 }
 
-async function notifyScheduleAttachmentPublication(attachment, publication) {
+async function notifyScheduleAttachmentPublication(
+    attachment,
+    publication,
+    week = {}
+) {
     const workspace = getActiveWorkspace();
     const publishedCount = Number(publication?.count ?? publication ?? 0);
     const recipientUids = Array.isArray(publication?.uids)
@@ -707,9 +809,16 @@ async function notifyScheduleAttachmentPublication(attachment, publication) {
                     storagePath: attachment.storagePath || "",
                     updatedAtISO: attachment.updatedAtISO || attachment.addedAt || "",
                     mode: attachment.mode || "",
-                    ocrStatus: attachment.ocr?.status || ""
+                    ocrStatus: attachment.ocr?.status || "",
+                    weekStartISO: attachment.weekStartISO || week.weekStartISO || "",
+                    weekEndISO: attachment.weekEndISO || week.weekEndISO || "",
+                    weekLabel: attachment.weekLabel || week.weekLabel || ""
                 }
-                : null,
+                : {
+                    weekStartISO: week.weekStartISO || "",
+                    weekEndISO: week.weekEndISO || "",
+                    weekLabel: week.weekLabel || ""
+                },
             publishedCount,
             recipientUids
         });
@@ -1584,6 +1693,7 @@ function renderTaskAddForm() {
 
 function renderScheduleAttachmentStatus() {
     const attachment = getScheduleAttachment();
+    const label = scheduleWeekLabel();
 
     if (!attachment) return "";
 
@@ -1600,7 +1710,7 @@ function renderScheduleAttachmentStatus() {
 
     return `
         <span class="task-schedule-attachment-status" title="${escapeHTML(attachment.name)}">
-            Programaci&oacute;n: ${escapeHTML(attachment.name)} | ${escapeHTML(detail)} | ${escapeHTML(ocrLabel)}
+            Programaci&oacute;n ${escapeHTML(label)}: ${escapeHTML(attachment.name)} | ${escapeHTML(detail)} | ${escapeHTML(ocrLabel)}
         </span>
     `;
 }
@@ -2167,7 +2277,9 @@ function openWorkerDefaultDialog({ taskId, workerName, shift, keyDay }) {
 }
 
 function openScheduleAttachmentDialog() {
-    const current = getScheduleAttachment();
+    const dialogWeekStart = new Date(currentWeekStart);
+    const current = getScheduleAttachment(dialogWeekStart);
+    const weekLabel = scheduleWeekLabel(dialogWeekStart);
     const linkedCount = getWorkerAppLinks()
         .filter(item => item.uid && item.profile)
         .length;
@@ -2185,7 +2297,7 @@ function openScheduleAttachmentDialog() {
             <div class="task-assignment-dialog__head">
                 <div>
                     <h3>Adjuntar Programaci&oacute;n</h3>
-                    <span>${linkedCount || 0} trabajador(es) enlazado(s)</span>
+                    <span>${escapeHTML(weekLabel)} | ${linkedCount || 0} trabajador(es) enlazado(s)</span>
                 </div>
                 <button class="ghost-button" type="button" data-close-schedule-attachment aria-label="Cerrar">&times;</button>
             </div>
@@ -2197,12 +2309,12 @@ function openScheduleAttachmentDialog() {
                 </label>
                 ${current ? `
                     <div class="task-schedule-current">
-                        <strong>Publicada actualmente</strong>
+                        <strong>Publicada para esta semana</strong>
                         <span>${escapeHTML(current.name)}</span>
                     </div>
                 ` : ""}
                 <div class="task-assignment-dialog__actions">
-                    ${current ? `<button class="ghost-button" type="button" data-remove-schedule-attachment>Quitar actual</button>` : ""}
+                    ${current ? `<button class="ghost-button" type="button" data-remove-schedule-attachment>Quitar semana</button>` : ""}
                     <button class="secondary-button" type="button" data-close-schedule-attachment>Cancelar</button>
                     <button class="primary-button" type="submit">Publicar imagen</button>
                 </div>
@@ -2219,11 +2331,11 @@ function openScheduleAttachmentDialog() {
     backdrop
         .querySelector("[data-remove-schedule-attachment]")
         ?.addEventListener("click", async () => {
-            const previous = getScheduleAttachment();
+            const previous = getScheduleAttachment(dialogWeekStart);
 
             if (
                 !await showConfirm(
-                    "La programacion dejara de mostrarse en la PWA del trabajador.",
+                    `La programacion de ${weekLabel} dejara de mostrarse en la PWA del trabajador.`,
                     {
                         title: "Quitar programacion",
                         tone: "danger",
@@ -2235,8 +2347,8 @@ function openScheduleAttachmentDialog() {
                 return;
             }
 
-            clearScheduleAttachment();
-            await publishScheduleAttachmentChanges();
+            clearScheduleAttachment(dialogWeekStart);
+            await publishScheduleAttachmentChanges(dialogWeekStart);
             if (previous?.storagePath) {
                 deleteStoredAttachment(previous).catch(error => {
                     console.warn(
@@ -2257,7 +2369,7 @@ function openScheduleAttachmentDialog() {
             const form = event.currentTarget;
             const submit = form.querySelector("button[type='submit']");
             const file = form.elements.scheduleImage?.files?.[0];
-            const previous = getScheduleAttachment();
+            const previous = getScheduleAttachment(dialogWeekStart);
 
             try {
                 validateScheduleImage(file);
@@ -2271,8 +2383,8 @@ function openScheduleAttachmentDialog() {
                 saveScheduleAttachment({
                     ...attachment,
                     updatedAtISO: new Date().toISOString()
-                });
-                await publishScheduleAttachmentChanges();
+                }, dialogWeekStart);
+                await publishScheduleAttachmentChanges(dialogWeekStart);
 
                 if (
                     previous?.storagePath &&

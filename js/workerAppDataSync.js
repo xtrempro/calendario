@@ -112,7 +112,8 @@ const WORKER_APP_PROJECTION_GLOBAL_STATE_KEYS = [
     "turnChangeConfig",
     "weekly_task_assignment_tasks",
     "weekly_task_assignment_entries",
-    "weekly_task_schedule_attachment"
+    "weekly_task_schedule_attachment",
+    "weekly_task_schedule_attachments"
 ];
 
 // Claves de localStorage por-perfil que afectan lo que ve el trabajador. El
@@ -149,6 +150,7 @@ const GLOBAL_RELEVANT_KEYS = new Set([
     "weekly_task_assignment_tasks",
     "weekly_task_assignment_entries",
     "weekly_task_schedule_attachment",
+    "weekly_task_schedule_attachments",
     "gradeHourConfig",
     "profiles"
 ]);
@@ -1269,7 +1271,34 @@ function buildContractTimeline(profile = {}) {
         .sort((a, b) => a.start.localeCompare(b.start));
 }
 
-function normalizePublishedScheduleAttachment(value) {
+function schedulePublicationWeekStart(date = new Date()) {
+    const base = new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate()
+    );
+    const day = base.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+
+    base.setDate(base.getDate() + diff);
+    return base;
+}
+
+function schedulePublicationWeekStartISO(date = new Date()) {
+    return toISODate(schedulePublicationWeekStart(date));
+}
+
+function schedulePublicationWeekEndISO(date = new Date()) {
+    return toISODate(addDays(schedulePublicationWeekStart(date), 6));
+}
+
+function schedulePublicationWeekDate(weekStartISO) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(weekStartISO || ""))
+        ? new Date(`${weekStartISO}T00:00:00`)
+        : null;
+}
+
+function normalizePublishedScheduleAttachment(value, fallbackWeekStart = null) {
     if (!value || typeof value !== "object") return null;
 
     const storagePath = String(value.storagePath || "").trim();
@@ -1279,6 +1308,17 @@ function normalizePublishedScheduleAttachment(value) {
     const ocrText = ocr?.status === "completed"
         ? String(ocr.text || "").trim()
         : "";
+    const weekStart = fallbackWeekStart
+        ? schedulePublicationWeekStart(fallbackWeekStart)
+        : null;
+    const weekStartISO = String(
+        value.weekStartISO ||
+        (weekStart ? schedulePublicationWeekStartISO(weekStart) : "")
+    ).trim();
+    const weekEndISO = String(
+        value.weekEndISO ||
+        (weekStart ? schedulePublicationWeekEndISO(weekStart) : "")
+    ).trim();
 
     if (!storagePath && !dataUrl && !downloadURL) return null;
 
@@ -1295,6 +1335,9 @@ function normalizePublishedScheduleAttachment(value) {
         uploadedByUid: String(value.uploadedByUid || "").trim(),
         mode: ocrText ? "ocr_text" : "image",
         source: "supervisor_image",
+        weekStartISO,
+        weekEndISO,
+        weekLabel: String(value.weekLabel || "").trim(),
         ocr,
         ocrText,
         text: ocrText
@@ -1324,10 +1367,47 @@ function normalizePublishedScheduleOcr(value) {
     };
 }
 
-function getPublishedScheduleAttachment() {
-    return normalizePublishedScheduleAttachment(
-        getJSON("weekly_task_schedule_attachment", null)
+function normalizePublishedScheduleAttachmentMap(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+    return Object.fromEntries(
+        Object.entries(value)
+            .map(([weekStartISO, attachment]) => {
+                const start = schedulePublicationWeekDate(weekStartISO);
+                const normalized = normalizePublishedScheduleAttachment(
+                    attachment,
+                    start
+                );
+                const key = normalized?.weekStartISO || weekStartISO;
+
+                return normalized && key ? [key, normalized] : null;
+            })
+            .filter(Boolean)
+            .sort(([a], [b]) => a.localeCompare(b))
     );
+}
+
+function getPublishedScheduleAttachments() {
+    const attachments = normalizePublishedScheduleAttachmentMap(
+        getJSON("weekly_task_schedule_attachments", {})
+    );
+    const legacy = normalizePublishedScheduleAttachment(
+        getJSON("weekly_task_schedule_attachment", null),
+        schedulePublicationWeekStart(new Date())
+    );
+
+    if (legacy && !attachments[legacy.weekStartISO]) {
+        attachments[legacy.weekStartISO] = legacy;
+    }
+
+    return attachments;
+}
+
+function getPublishedScheduleAttachment(
+    start = new Date(),
+    attachments = getPublishedScheduleAttachments()
+) {
+    return attachments[schedulePublicationWeekStartISO(start)] || null;
 }
 
 async function buildWorkerAppPayload(
@@ -1386,6 +1466,13 @@ async function buildWorkerAppPayload(
             const effectiveEstamento =
                 profileEstamentoValue(effectiveProfile) ||
                 profileEstamentoValue(profile);
+            const weeklyScheduleAttachments =
+                getPublishedScheduleAttachments();
+            const weeklyScheduleAttachment =
+                getPublishedScheduleAttachment(
+                    new Date(),
+                    weeklyScheduleAttachments
+                );
             const profession = profileText(
                 profile.profession,
                 profile.profesion,
@@ -1489,7 +1576,8 @@ async function buildWorkerAppPayload(
                 scheduleStart: schedule.start,
                 scheduleEnd: schedule.end,
                 days: schedule.days,
-                weeklyScheduleAttachment: getPublishedScheduleAttachment(),
+                weeklyScheduleAttachment,
+                weeklyScheduleAttachments,
                 supervisorReminders: buildSupervisorReminders(profile),
                 overtimeSummaries: overtimePayload.summaries,
                 overtimeSummariesSignature: overtimePayload.signature,
@@ -1517,6 +1605,8 @@ async function buildWorkerAppPayload(
 }
 
 function buildMissingProfilePayload(link, workspace) {
+    const weeklyScheduleAttachments = getPublishedScheduleAttachments();
+
     return {
         uid: link.uid,
         workspaceId: workspace.id,
@@ -1537,7 +1627,11 @@ function buildMissingProfilePayload(link, workspace) {
         scheduleStart: "",
         scheduleEnd: "",
         days: {},
-        weeklyScheduleAttachment: getPublishedScheduleAttachment(),
+        weeklyScheduleAttachment: getPublishedScheduleAttachment(
+            new Date(),
+            weeklyScheduleAttachments
+        ),
+        weeklyScheduleAttachments,
         updatedAtISO: new Date().toISOString()
     };
 }
@@ -2815,11 +2909,29 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
     }
 
     await flushPendingFirebaseAppStateEntries({
-        keys: ["weekly_task_schedule_attachment"],
+        keys: [
+            "weekly_task_schedule_attachment",
+            "weekly_task_schedule_attachments"
+        ],
         reason: "worker-schedule-attachment"
     });
 
-    const payload = normalizePublishedScheduleAttachment(attachment);
+    const mappedPayload = normalizePublishedScheduleAttachmentMap(attachment);
+    const singlePayload = Object.keys(mappedPayload).length
+        ? null
+        : normalizePublishedScheduleAttachment(
+            attachment,
+            schedulePublicationWeekStart(new Date())
+        );
+    const weeklyScheduleAttachments = {
+        ...mappedPayload,
+        ...(singlePayload ? { [singlePayload.weekStartISO]: singlePayload } : {})
+    };
+    const currentWeekPayload = getPublishedScheduleAttachment(
+        new Date(),
+        weeklyScheduleAttachments
+    );
+    const hasWeeklyPayload = Boolean(Object.keys(weeklyScheduleAttachments).length);
     const { db, firestoreModule } = await getFirebaseServices();
     const updatedAt = new Date().toISOString();
     const serverUpdatedAt = firestoreModule.serverTimestamp();
@@ -2834,14 +2946,16 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
                 "workerAppData",
                 item.link.uid
             );
-            const next = payload
+            const next = hasWeeklyPayload
                 ? {
-                    weeklyScheduleAttachment: payload,
+                    weeklyScheduleAttachment: currentWeekPayload,
+                    weeklyScheduleAttachments,
                     updatedAtISO: updatedAt,
                     updatedAt: serverUpdatedAt
                 }
                 : {
                     weeklyScheduleAttachment: firestoreModule.deleteField(),
+                    weeklyScheduleAttachments: firestoreModule.deleteField(),
                     updatedAtISO: updatedAt,
                     updatedAt: serverUpdatedAt
                 };
@@ -2855,7 +2969,7 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
         type: "worker-app",
         workspaceId: workspace.id,
         linkedCount: linked.length,
-        hasAttachment: Boolean(payload)
+        hasAttachment: hasWeeklyPayload
     });
 
     return {

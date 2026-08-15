@@ -75,6 +75,9 @@ test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
     const rules = readFileSync("storage.rules", "utf8");
 
     assert.match(source, /SCHEDULE_ATTACHMENT_KEY = "weekly_task_schedule_attachment"/);
+    assert.match(source, /SCHEDULE_ATTACHMENTS_KEY = "weekly_task_schedule_attachments"/);
+    assert.match(source, /function scheduleWeekStartISO/);
+    assert.match(source, /function getScheduleAttachments/);
     assert.match(source, /data-task-schedule-attach>Adjuntar Programaci&oacute;n/);
     assert.match(source, /Formatos aceptados: PNG, JPG, JPEG, GIF, WEBP, BMP, HEIC o HEIF\. M&aacute;ximo 10 MB\./);
     assert.match(source, /createScheduleAttachment\(file\)/);
@@ -84,8 +87,9 @@ test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
     assert.match(source, /Publicando y leyendo OCR/);
     assert.doesNotMatch(source, /storageFallbackReason/);
     assert.doesNotMatch(source, /inlineScheduleAttachment/);
-    assert.match(source, /const attachment = getScheduleAttachment\(\);[\s\S]*publishWorkerScheduleAttachmentNow\(attachment\)[\s\S]*notifyScheduleAttachmentPublication\(attachment, publication\)/);
+    assert.match(source, /const attachment = getScheduleAttachment\(weekStart\);[\s\S]*publishWorkerScheduleAttachmentNow\([\s\S]*getScheduleAttachments\(\)[\s\S]*notifyScheduleAttachmentPublication\(attachment, publication/);
     assert.match(source, /recipientUids/);
+    assert.match(source, /weekStartISO/);
     assert.match(source, /httpsCallable\([\s\S]*"notifyScheduleAttachmentUpdated"/);
     assert.match(source, /action: attachment \? "published" : "removed"/);
     assert.match(functionsSource, /exports\.uploadScheduleAttachment = onCall/);
@@ -98,6 +102,7 @@ test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
     assert.match(functionsSource, /category: "calendar_changes"/);
     assert.match(functionsSource, /type: "worker_schedule_attachment_updated"/);
     assert.match(functionsSource, /requestedRecipientUids/);
+    assert.match(functionsSource, /weekLabel/);
     assert.match(functionsSource, /sendWorkerPush\(/);
     assert.match(functionsSource, /ocr/);
     assert.match(functionsSource, /enforceAppCheck: ENFORCE_APP_CHECK/);
@@ -108,14 +113,18 @@ test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
     assert.match(functionsSource, /downloadURL: storageDownloadURL/);
     assert.match(syncSource, /export async function publishWorkerScheduleAttachmentNow\(attachment\)/);
     assert.match(syncSource, /uids: linked\.map\(item => item\.link\.uid\)/);
-    assert.match(syncSource, /weeklyScheduleAttachment: payload/);
+    assert.match(syncSource, /weekly_task_schedule_attachments/);
+    assert.match(syncSource, /weeklyScheduleAttachment: currentWeekPayload/);
+    assert.match(syncSource, /weeklyScheduleAttachments/);
     assert.match(syncSource, /weeklyScheduleAttachment: firestoreModule\.deleteField\(\)/);
+    assert.match(syncSource, /weeklyScheduleAttachments: firestoreModule\.deleteField\(\)/);
     assert.match(syncSource, /downloadURL/);
     assert.match(syncSource, /normalizePublishedScheduleOcr\(value\.ocr\)/);
     assert.match(syncSource, /mode: ocrText \? "ocr_text" : "image"/);
     assert.match(syncSource, /ocrText/);
     assert.match(syncSource, /writeBatch\(db\)/);
-    assert.match(engineSource, /weeklyScheduleAttachment: getPublishedScheduleAttachment\(\)/);
+    assert.match(engineSource, /weeklyScheduleAttachment: getPublishedScheduleAttachment\(/);
+    assert.match(engineSource, /weeklyScheduleAttachments/);
     assert.match(engineSource, /downloadURL/);
     assert.match(engineSource, /normalizePublishedScheduleOcr\(value\.ocr\)/);
     assert.match(engineSource, /mode: ocrText \? "ocr_text" : "image"/);

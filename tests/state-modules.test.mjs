@@ -28,6 +28,7 @@ test("clasifica las claves persistidas por modulo de seguridad", () => {
         staffing_applicants: "weekly",
         weekly_task_assignment_entries: "tasks",
         weekly_task_schedule_attachment: "tasks",
+        weekly_task_schedule_attachments: "tasks",
         agenda_contacts: "agenda",
         reportSignatureConfig: "reports",
         auditLog: "log",
