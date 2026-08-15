@@ -5274,6 +5274,13 @@ function renderClockMarksProfiles() {
 
             if (!selected) return;
 
+            // Al elegir desde la lupa, mostrar ese trabajador (no "ver todos")
+            // y cerrar el modal de búsqueda.
+            if (DOM.clockMarksAllWorkersToggle) {
+                DOM.clockMarksAllWorkersToggle.checked = false;
+            }
+            document.getElementById("clockMarksSearchModal")?.setAttribute("hidden", "");
+
             await setActiveShortcut("clockMarksPanel");
         };
 
@@ -6058,6 +6065,18 @@ async function renderClockMarksPanel() {
         DOM.clockMarksAllWorkersToggle?.checked
     );
     const currentProfile = getCurrentProfile();
+
+    const clockMarksSelectedHost =
+        document.getElementById("clockMarksSelected");
+    if (clockMarksSelectedHost) {
+        const selectedLabel = showAll
+            ? "Todos los colaboradores"
+            : (currentProfile || "Selecciona un trabajador");
+        clockMarksSelectedHost.innerHTML = `
+            <strong>${escapeHTML(selectedLabel)}</strong>
+            <button class="profile-name-search" type="button" data-action="open-clockmarks-search" aria-label="Buscar trabajador" title="Buscar / cambiar trabajador"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg></button>
+        `;
+    }
     const profiles = getProfiles()
         .filter(profile =>
             showAll || profile.name === currentProfile
@@ -11121,6 +11140,32 @@ function bindShellInteractions() {
     if (DOM.clockMarksAllWorkersToggle) {
         DOM.clockMarksAllWorkersToggle.onchange =
             renderClockMarksPanel;
+    }
+
+    // Marcajes: buscar/cambiar trabajador en modal (lupa junto al mes).
+    const clockMarksSearchModal =
+        document.getElementById("clockMarksSearchModal");
+    if (clockMarksSearchModal) {
+        document.addEventListener("click", event => {
+            if (event.target.closest('[data-action="open-clockmarks-search"]')) {
+                clockMarksSearchModal.hidden = false;
+                renderClockMarksProfiles();
+                DOM.clockMarksProfileSearch?.focus();
+            }
+        });
+        clockMarksSearchModal.addEventListener("click", event => {
+            if (
+                event.target === clockMarksSearchModal ||
+                event.target.closest('[data-action="close-clockmarks-search"]')
+            ) {
+                clockMarksSearchModal.hidden = true;
+            }
+        });
+        document.addEventListener("keydown", event => {
+            if (event.key === "Escape" && !clockMarksSearchModal.hidden) {
+                clockMarksSearchModal.hidden = true;
+            }
+        });
     }
 
     if (DOM.topProfileSearchForm) {

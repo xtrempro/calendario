@@ -16,10 +16,11 @@ const SEED_FLAG_KEY = "agenda_seeded_v1";
 // descartando cualquier seed anterior (incluida la version de prueba con
 // llamada movil) y conservando solo los contactos creados por el usuario.
 const SEED_VERSION = 3;
-const NEW_CONTACT_ID = "__new_contact__";
+const NEW_CONTACT = "__new_contact__";
 
-let selectedContactId = NEW_CONTACT_ID;
+let selectedContactId = null;
 let agendaSearch = "";
+let agendaUnit = "Todas";
 let seedChecked = false;
 
 // Carga inicial (una sola vez por version) del directorio institucional. Agrega
@@ -34,8 +35,6 @@ function ensureSeeded() {
 
     const existing = getJSON(STORAGE_KEY, []);
     const current = (Array.isArray(existing) ? existing : []).map(normalizeContact);
-    // Conserva solo los contactos creados por el usuario; el directorio sembrado
-    // (de cualquier version anterior) se reemplaza por el nuevo.
     const userContacts = current.filter(contact =>
         !contact.id.startsWith("agenda_seed") &&
         contact.id !== "agenda_clave_azul"
@@ -113,8 +112,8 @@ function getContacts() {
         .map(normalizeContact)
         .filter(hasContactData)
         .sort((a, b) =>
-            a.unidad.localeCompare(b.unidad) ||
             a.name.localeCompare(b.name) ||
+            a.unidad.localeCompare(b.unidad) ||
             a.cargo.localeCompare(b.cargo)
         );
 }
@@ -134,28 +133,20 @@ function getInitials(name) {
         .split(/\s+/)
         .filter(Boolean);
 
-    return (parts[0]?.[0] || "?") + (parts[1]?.[0] || "");
+    return ((parts[0]?.[0] || "?") + (parts[1]?.[0] || "")).toUpperCase();
 }
 
-function filterContacts(contacts) {
-    const query = normalizeSearch(agendaSearch);
-
-    if (!query) return contacts;
-
-    return contacts.filter(contact =>
-        [contact.name, contact.cargo, contact.unidad].some(value =>
-            normalizeSearch(value).includes(query)
-        )
-    );
+function avatarClass(contact) {
+    const source = contact.id || contact.name || "";
+    let hash = 0;
+    for (let i = 0; i < source.length; i++) {
+        hash = (hash * 31 + source.charCodeAt(i)) >>> 0;
+    }
+    return `ag-av-${(hash % 6) + 1}`;
 }
 
-function getSelectedContact(contacts) {
-    if (selectedContactId === NEW_CONTACT_ID) return null;
-
-    return (
-        contacts.find(contact => contact.id === selectedContactId) ||
-        null
-    );
+function displayName(contact) {
+    return contact.name || contact.cargo || contact.unidad || "Contacto";
 }
 
 async function openAttachment(attachment) {
@@ -166,392 +157,620 @@ async function openAttachment(attachment) {
     }
 }
 
-function renderContactItem(contact) {
-    const active = contact.id === selectedContactId;
-    const displayName = contact.name || contact.cargo || contact.unidad || "Contacto";
-    const subtitleParts = [];
-
-    if (contact.name && contact.cargo) subtitleParts.push(contact.cargo);
-    if (contact.unidad) subtitleParts.push(contact.unidad);
-
-    const subtitle = subtitleParts.join(" · ") || contact.email || "Sin datos";
-
-    return `
-        <button class="profile-item agenda-contact-item${active ? " active" : ""}" type="button" data-agenda-contact="${escapeHTML(contact.id)}">
-            <span class="profile-item__avatar">${escapeHTML(getInitials(displayName).toUpperCase())}</span>
-            <span class="profile-item__content">
-                <strong>${escapeHTML(displayName)}</strong>
-                <span>${escapeHTML(subtitle)}</span>
-            </span>
-        </button>
-    `;
+function matchesSearch(contact, query) {
+    if (!query) return true;
+    return [
+        contact.name,
+        contact.cargo,
+        contact.unidad,
+        contact.email,
+        contact.extension,
+        contact.mobile
+    ].some(value => {
+        const raw = String(value || "");
+        return normalizeSearch(raw).includes(query) ||
+            raw.replace(/\s+/g, "").includes(query.replace(/\s+/g, ""));
+    });
 }
 
-function renderContactListMarkup(contacts) {
-    const visible = filterContacts(contacts);
-
-    if (!contacts.length) {
-        return `
-            <div class="empty-state empty-state--compact">
-                Sin contactos registrados.
-            </div>
-        `;
-    }
-
-    if (!visible.length) {
-        return `
-            <div class="empty-state empty-state--compact">
-                Sin resultados para la busqueda.
-            </div>
-        `;
-    }
-
-    return visible.map(renderContactItem).join("");
+function filterContacts(contacts) {
+    const query = normalizeSearch(agendaSearch);
+    return contacts.filter(contact =>
+        (agendaUnit === "Todas" || contact.unidad === agendaUnit) &&
+        matchesSearch(contact, query)
+    );
 }
 
-function renderAttachment(attachment) {
-    if (!attachment) {
-        return `
-            <div class="attachment-empty">
-                Sin archivo adjunto.
-            </div>
-        `;
-    }
+function getUnits(contacts) {
+    const counts = new Map();
+    contacts.forEach(contact => {
+        const unit = contact.unidad || "Sin unidad";
+        counts.set(unit, (counts.get(unit) || 0) + 1);
+    });
+    return [...counts.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function getSelectedContact(contacts) {
+    return (
+        contacts.find(contact => contact.id === selectedContactId) ||
+        filterContacts(contacts)[0] ||
+        contacts[0] ||
+        null
+    );
+}
+
+/* ---------- Iconos ---------- */
+function svg(paths) {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+}
+const IC = {
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3-8.6A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6A2 2 0 0 1 22 16.9z"/>',
+    mail: '<path d="M4 4h16v16H4z"/><path d="m4 6 8 6 8-6"/>',
+    anexo: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 8v8M11 8v8M15 12h2"/>',
+    unit: '<path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/>',
+    copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+    edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+    trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>'
+};
+
+/* ---------- Render ---------- */
+function renderChips(contacts) {
+    const total = contacts.length;
+    const unitList = getUnits(contacts); // alfabetico [ [unit, count] ]
+    const countMap = new Map(unitList.map(([u, c]) => [u, c]));
+    const byCount = [...unitList].sort(
+        (a, b) => b[1] - a[1] || a[0].localeCompare(b[0])
+    );
+    // La unidad activa siempre visible (primera despues de "Todas").
+    const activeUnit =
+        agendaUnit !== "Todas" && countMap.has(agendaUnit) ? agendaUnit : null;
+    const ordered = activeUnit
+        ? [[activeUnit, countMap.get(activeUnit)], ...byCount.filter(([u]) => u !== activeUnit)]
+        : byCount;
+
+    const chip = (unit, count, label) =>
+        `<button class="ag-chip ${agendaUnit === unit ? "is-active" : ""}" type="button" data-ag-unit="${escapeHTML(unit)}"><span class="ag-chip-dot"></span>${escapeHTML(label || unit)}<span class="ag-chip-count">${count}</span></button>`;
+
+    const barChips = [
+        chip("Todas", total, "Todas"),
+        ...ordered.map(([u, c]) => chip(u, c))
+    ].join("");
+
+    const moreBtn = `<button class="ag-chip ag-chip--more" type="button" data-ag-more hidden>Más unidades <span class="ag-chip-count" data-ag-more-count></span></button>`;
+
+    const popItems = unitList.map(([u, c]) =>
+        `<button class="ag-more-item ${agendaUnit === u ? "is-active" : ""}" type="button" data-ag-unit="${escapeHTML(u)}"><span>${escapeHTML(u)}</span><span class="ag-chip-count">${c}</span></button>`
+    ).join("");
 
     return `
-        <div class="attachment-item">
-            <span>
-                <strong>${escapeHTML(attachment.name)}</strong>
-                <small>${escapeHTML(attachment.type || "Archivo")}</small>
-            </span>
-            <span class="attachment-actions">
-                <button class="secondary-button attachment-view" type="button" data-agenda-view-attachment>
-                    Ver
-                </button>
-                <button class="ghost-button attachment-remove" type="button" data-agenda-remove-attachment>
-                    Quitar
-                </button>
-            </span>
+        <div class="ag-chips-wrap" data-ag-chips-wrap>
+            <div class="ag-chips" data-ag-chips>${barChips}${moreBtn}</div>
+            <div class="ag-more-pop" data-ag-more-pop hidden>
+                <label class="ag-more-search">${svg(IC.search)}<input data-ag-more-search type="search" placeholder="Buscar unidad..."></label>
+                <div class="ag-more-list" data-ag-more-list>${popItems}</div>
+            </div>
         </div>
     `;
 }
 
-function renderForm(contact) {
-    const isEditing = Boolean(contact);
+// Deja en la barra solo los chips que caben en una fila; el resto pasa al
+// botón "Más unidades" (se recalcula al renderizar y al cambiar el ancho).
+function collapseChips(root) {
+    const bar = root.querySelector("[data-ag-chips]");
+    if (!bar) return;
+    const more = bar.querySelector("[data-ag-more]");
+    const chips = [...bar.querySelectorAll(".ag-chip:not(.ag-chip--more)")];
+    chips.forEach(c => { c.style.display = ""; });
+    if (more) more.hidden = true;
 
+    const barWidth = bar.clientWidth;
+    if (!barWidth || !chips.length) return;
+
+    const gap = 8;
+    const widths = chips.map(c => c.offsetWidth);
+    const fitCount = budget => {
+        let used = 0;
+        let n = 0;
+        for (let i = 0; i < chips.length; i++) {
+            const w = widths[i] + (i > 0 ? gap : 0);
+            if (used + w <= budget) { used += w; n++; } else break;
+        }
+        return n;
+    };
+
+    if (fitCount(barWidth) >= chips.length) return; // caben todos
+
+    if (more) more.hidden = false;
+    const reserve = (more ? more.offsetWidth : 0) + gap;
+    const n = Math.max(1, fitCount(barWidth - reserve));
+    chips.slice(n).forEach(c => { c.style.display = "none"; });
+    if (more) {
+        more.hidden = false;
+        const countEl = more.querySelector("[data-ag-more-count]");
+        if (countEl) countEl.textContent = chips.length - n;
+    }
+}
+
+function renderContactItem(contact) {
+    const active = contact.id === selectedContactId;
+    const meta = [contact.cargo, contact.unidad].filter(Boolean).join(" · ")
+        || contact.email || "Sin datos";
     return `
-        <form class="agenda-form" data-agenda-form autocomplete="off">
-            <div class="section-head section-head--with-action">
-                <span class="section-head__title">
-                    <span class="section-icon tone-green">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M7 3h10a3 3 0 0 1 3 3v15H7a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Z"></path>
-                            <path d="M8 8h8"></path>
-                            <path d="M8 12h5"></path>
-                        </svg>
-                    </span>
-                    <h3>${isEditing ? "Contacto" : "Nuevo contacto"}</h3>
-                </span>
+        <div class="ag-item ${active ? "is-active" : ""}" data-ag-contact="${escapeHTML(contact.id)}">
+            <span class="ag-avatar ${avatarClass(contact)}">${escapeHTML(getInitials(displayName(contact)))}</span>
+            <div class="ag-item__body">
+                <div class="ag-item__name">${escapeHTML(displayName(contact))}</div>
+                <div class="ag-item__meta">${escapeHTML(meta)}</div>
             </div>
-
-            <div class="agenda-form-grid">
-                <label class="metric-row metric-row--field">
-                    <span class="metric-label">Unidad:</span>
-                    <input name="unidad" type="text" maxlength="160" placeholder="Unidad" value="${escapeHTML(contact?.unidad || "")}">
-                </label>
-
-                <label class="metric-row metric-row--field">
-                    <span class="metric-label">Nombre:</span>
-                    <input name="name" type="text" maxlength="120" placeholder="Nombre del contacto" value="${escapeHTML(contact?.name || "")}">
-                </label>
-
-                <label class="metric-row metric-row--field">
-                    <span class="metric-label">Cargo:</span>
-                    <input name="cargo" type="text" maxlength="160" placeholder="Cargo" value="${escapeHTML(contact?.cargo || "")}">
-                </label>
-
-                <label class="metric-row metric-row--field">
-                    <span class="metric-label">Correo:</span>
-                    <input name="email" type="email" maxlength="160" placeholder="correo@ejemplo.cl" value="${escapeHTML(contact?.email || "")}">
-                </label>
-
-                <label class="metric-row metric-row--field">
-                    <span class="metric-label">Anexo:</span>
-                    <input name="extension" type="text" maxlength="40" placeholder="Anexo" value="${escapeHTML(contact?.extension || "")}">
-                </label>
-
-                <label class="metric-row metric-row--field">
-                    <span class="metric-label">Celular:</span>
-                    <input name="mobile" type="tel" maxlength="40" placeholder="+569..." value="${escapeHTML(contact?.mobile || "")}">
-                </label>
-
-                <label class="metric-row metric-row--field">
-                    <span class="metric-label">Archivo Adjunto:</span>
-                    <span>
-                        <input name="attachment" type="file" accept="${ATTACHMENT_ACCEPT}">
-                        <small class="field-help">Al guardar reemplaza el archivo adjunto actual.</small>
-                    </span>
-                </label>
-
-                <label class="metric-row metric-row--field agenda-field--wide">
-                    <span class="metric-label">Notas:</span>
-                    <textarea name="notes" class="agenda-notes" rows="5" maxlength="900" placeholder="Notas del contacto">${escapeHTML(contact?.notes || "")}</textarea>
-                </label>
+            <div class="ag-item__actions">
+                ${contact.mobile
+                    ? `<a class="ag-mini call" href="tel:${escapeHTML(contact.mobile)}" title="Llamar" data-ag-stop>${svg(IC.phone)}</a>`
+                    : ""}
+                ${contact.email
+                    ? `<a class="ag-mini mail" href="mailto:${escapeHTML(contact.email)}" title="Correo" data-ag-stop>${svg(IC.mail)}</a>`
+                    : ""}
             </div>
-
-            <div class="attachment-list agenda-attachment-list">
-                ${renderAttachment(contact?.attachment)}
-            </div>
-
-            <div class="agenda-actions">
-                <button class="primary-button" type="submit">
-                    Guardar contacto
-                </button>
-                <button class="secondary-button" type="button" data-agenda-new>
-                    Nuevo
-                </button>
-                ${
-                    isEditing
-                        ? `
-                            <button class="ghost-button agenda-delete-button" type="button" data-agenda-delete>
-                                Eliminar
-                            </button>
-                        `
-                        : ""
-                }
-            </div>
-        </form>
+        </div>
     `;
 }
 
-function renderShell() {
-    const contacts = getContacts();
-    const selectedContact = getSelectedContact(contacts);
+function renderListMarkup(contacts) {
+    const visible = filterContacts(contacts);
+    if (!contacts.length) {
+        return `<div class="ag-empty">Sin contactos registrados.</div>`;
+    }
+    if (!visible.length) {
+        return `<div class="ag-empty">Sin contactos que coincidan con la búsqueda.</div>`;
+    }
+    return visible.map(renderContactItem).join("");
+}
 
+function detailField(icoClass, icon, label, value, opts = {}) {
+    if (!value) return "";
+    const link = opts.href
+        ? `href="${escapeHTML(opts.href)}"`
+        : "";
+    const valueTag = opts.href
+        ? `<a class="ag-field__value ${opts.num ? "num" : ""}" ${link}>${escapeHTML(value)}</a>`
+        : `<div class="ag-field__value ${opts.num ? "num" : ""}">${escapeHTML(value)}</div>`;
     return `
-        <aside class="panel sidebar agenda-sidebar">
-            <h2 class="panel-title">Contactos</h2>
-
-            <label class="field-shell field-shell--icon">
-                <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="11" cy="11" r="7"></circle>
-                    <line x1="16.5" y1="16.5" x2="21" y2="21"></line>
-                </svg>
-                <input data-agenda-search type="search" placeholder="Buscar por nombre, cargo o unidad" value="${escapeHTML(agendaSearch)}">
-            </label>
-
-            <div class="profile-list agenda-contact-list" data-agenda-list>
-                ${renderContactListMarkup(contacts)}
+        <div class="ag-field">
+            <span class="ag-field__ico ${icoClass}">${svg(icon)}</span>
+            <div class="ag-field__body">
+                <div class="ag-field__label">${escapeHTML(label)}</div>
+                ${valueTag}
             </div>
-        </aside>
-
-        <section class="panel agenda-panel">
-            ${renderForm(selectedContact)}
-        </section>
+            <button class="ag-copy" type="button" title="Copiar" data-ag-copy="${escapeHTML(value)}">${svg(IC.copy)}</button>
+        </div>
     `;
 }
 
-function bindContactListEvents(root) {
-    root.querySelectorAll("[data-agenda-contact]").forEach(button => {
-        button.onclick = () => {
-            selectedContactId = button.dataset.agendaContact;
-            renderAgendaPanel();
-        };
-    });
+function renderDetailMarkup(contact) {
+    if (!contact) {
+        return `
+            <div class="ag-detail-empty">
+                <span class="ag-avatar ag-av-1">${svg(IC.users)}</span>
+                <p>Selecciona un contacto o crea uno nuevo.</p>
+            </div>
+        `;
+    }
+
+    const attachment = contact.attachment
+        ? `
+            <div class="ag-attach">
+                ${svg(IC.download)}
+                <span>${escapeHTML(contact.attachment.name)}</span>
+                <button class="ag-attach-btn" type="button" data-ag-view-attachment>Ver</button>
+                <button class="ag-attach-btn ghost" type="button" data-ag-remove-attachment>Quitar</button>
+            </div>
+        `
+        : `<div class="ag-attach ag-attach--empty">${svg(IC.download)} Sin archivo adjunto.</div>`;
+
+    return `
+        <div class="ag-detail__top">
+            <span class="ag-avatar ${avatarClass(contact)}">${escapeHTML(getInitials(displayName(contact)))}</span>
+            <div class="ag-detail__id">
+                <h2>${escapeHTML(displayName(contact))}</h2>
+                ${contact.cargo ? `<span class="ag-tag">${escapeHTML(contact.cargo)}</span>` : ""}
+                ${contact.unidad ? `<div class="ag-detail__unit">${svg(IC.unit)} ${escapeHTML(contact.unidad)}</div>` : ""}
+            </div>
+        </div>
+
+        <div class="ag-actions">
+            ${contact.mobile ? `<a class="ag-btn ag-btn--call" href="tel:${escapeHTML(contact.mobile)}">${svg(IC.phone)} Llamar</a>` : ""}
+            ${contact.email ? `<a class="ag-btn ag-btn--mail" href="mailto:${escapeHTML(contact.email)}">${svg(IC.mail)} Enviar correo</a>` : ""}
+            <button class="ag-btn ag-btn--ghost" type="button" data-ag-edit>${svg(IC.edit)} Editar</button>
+            <button class="ag-btn ag-btn--ghost" type="button" data-ag-delete>${svg(IC.trash)} Eliminar</button>
+        </div>
+
+        <div class="ag-fields">
+            ${detailField("ico-mail", IC.mail, "Correo", contact.email, { href: `mailto:${contact.email}` })}
+            ${detailField("ico-phone", IC.phone, "Celular", contact.mobile, { href: `tel:${contact.mobile}`, num: true })}
+            ${detailField("ico-anexo", IC.anexo, "Anexo", contact.extension, { num: true })}
+            ${detailField("ico-unit", IC.unit, "Unidad", contact.unidad)}
+        </div>
+
+        <div class="ag-notes">
+            <div class="ag-notes__label">Notas</div>
+            <div class="ag-notes__box">${contact.notes ? escapeHTML(contact.notes) : "Sin notas."}</div>
+        </div>
+
+        ${attachment}
+    `;
 }
 
-function refreshContactList(root) {
-    const contacts = getContacts();
-    const list = root.querySelector("[data-agenda-list]");
+function renderModal() {
+    return `
+        <div class="ag-modal-backdrop" data-ag-modal hidden>
+            <div class="ag-modal" role="dialog" aria-modal="true" aria-label="Contacto">
+                <div class="ag-modal__head">
+                    <span class="ag-modal__ico">${svg(IC.users)}</span>
+                    <h3 data-ag-modal-title>Nuevo contacto</h3>
+                    <button class="ag-modal__close" type="button" data-ag-modal-close aria-label="Cerrar">&times;</button>
+                </div>
+                <form class="ag-modal__body" data-ag-form autocomplete="off">
+                    <div class="ag-form-grid">
+                        <label class="ag-full">Nombre
+                            <input name="name" type="text" maxlength="120" placeholder="Nombre del contacto">
+                        </label>
+                        <label>Unidad
+                            <input name="unidad" type="text" maxlength="160" placeholder="Unidad" list="agUnitOptions">
+                        </label>
+                        <label>Cargo
+                            <input name="cargo" type="text" maxlength="160" placeholder="Cargo">
+                        </label>
+                        <label>Correo
+                            <input name="email" type="email" maxlength="160" placeholder="correo@ejemplo.cl">
+                        </label>
+                        <label>Celular
+                            <input name="mobile" type="tel" maxlength="40" placeholder="+569...">
+                        </label>
+                        <label>Anexo
+                            <input name="extension" type="text" maxlength="40" placeholder="Anexo">
+                        </label>
+                        <label>Archivo adjunto
+                            <input name="attachment" type="file" accept="${ATTACHMENT_ACCEPT}">
+                        </label>
+                        <label class="ag-full">Notas
+                            <textarea name="notes" rows="4" maxlength="900" placeholder="Notas del contacto"></textarea>
+                        </label>
+                    </div>
+                    <datalist id="agUnitOptions"></datalist>
+                    <div class="ag-modal__foot">
+                        <button class="ag-btn ag-btn--ghost" type="button" data-ag-modal-close>Cancelar</button>
+                        <button class="ag-btn ag-btn--primary" type="submit">Guardar contacto</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+}
 
+function renderView() {
+    const contacts = getContacts();
+    const selected = getSelectedContact(contacts);
+    if (selected) selectedContactId = selected.id;
+    const visibleCount = filterContacts(contacts).length;
+
+    return `
+        <div class="ag-root">
+            <div class="ag-head">
+                <div class="ag-title">
+                    <span class="ag-mk">${svg(IC.users)}</span>
+                    <div>
+                        <h1>Contactos</h1>
+                        <p>Agenda de la unidad · ${contacts.length} contactos</p>
+                    </div>
+                </div>
+                <label class="ag-search">
+                    ${svg(IC.search)}
+                    <input data-ag-search type="search" placeholder="Buscar por nombre, cargo o número..." value="${escapeHTML(agendaSearch)}">
+                </label>
+                <button class="ag-new" type="button" data-ag-new>${svg(IC.plus)} Nuevo contacto</button>
+            </div>
+
+            ${renderChips(contacts)}
+
+            <div class="ag-grid">
+                <section class="panel ag-list-panel">
+                    <div class="ag-list-head">
+                        <h2>Directorio</h2>
+                        <span data-ag-count>${visibleCount} de ${contacts.length}</span>
+                    </div>
+                    <div class="ag-list" data-ag-list>${renderListMarkup(contacts)}</div>
+                </section>
+
+                <section class="panel ag-detail" data-ag-detail>${renderDetailMarkup(selected)}</section>
+            </div>
+        </div>
+        ${renderModal()}
+    `;
+}
+
+/* ---------- Modal open/close ---------- */
+function fillUnitOptions(root) {
+    const list = root.querySelector("#agUnitOptions");
     if (!list) return;
+    const units = getUnits(getContacts()).map(([unit]) => unit);
+    list.innerHTML = units
+        .map(unit => `<option value="${escapeHTML(unit)}"></option>`)
+        .join("");
+}
 
-    list.innerHTML = renderContactListMarkup(contacts);
-    bindContactListEvents(root);
+function openContactModal(root, contact) {
+    const modal = root.querySelector("[data-ag-modal]");
+    const form = root.querySelector("[data-ag-form]");
+    if (!modal || !form) return;
+
+    form.dataset.editId = contact ? contact.id : NEW_CONTACT;
+    root.querySelector("[data-ag-modal-title]").textContent =
+        contact ? "Editar contacto" : "Nuevo contacto";
+
+    form.elements.name.value = contact?.name || "";
+    form.elements.unidad.value =
+        contact?.unidad || (agendaUnit !== "Todas" ? agendaUnit : "");
+    form.elements.cargo.value = contact?.cargo || "";
+    form.elements.email.value = contact?.email || "";
+    form.elements.mobile.value = contact?.mobile || "";
+    form.elements.extension.value = contact?.extension || "";
+    form.elements.notes.value = contact?.notes || "";
+    if (form.elements.attachment) form.elements.attachment.value = "";
+
+    fillUnitOptions(root);
+    modal.hidden = false;
+    form.elements.name.focus();
+}
+
+function closeContactModal(root) {
+    const modal = root.querySelector("[data-ag-modal]");
+    if (modal) modal.hidden = true;
+}
+
+/* ---------- Eventos ---------- */
+function refreshList(root) {
+    const contacts = getContacts();
+    const list = root.querySelector("[data-ag-list]");
+    const count = root.querySelector("[data-ag-count]");
+    if (list) list.innerHTML = renderListMarkup(contacts);
+    if (count) {
+        count.textContent = `${filterContacts(contacts).length} de ${contacts.length}`;
+    }
+}
+
+async function handleSave(root, form) {
+    const data = new FormData(form);
+    const name = String(data.get("name") || "").trim();
+    const cargo = String(data.get("cargo") || "").trim();
+    const unidad = String(data.get("unidad") || "").trim();
+
+    if (!name && !cargo && !unidad) {
+        alert("Ingresa al menos nombre, cargo o unidad.");
+        return;
+    }
+
+    const editId = form.dataset.editId;
+    const contacts = getContacts();
+    const current = editId && editId !== NEW_CONTACT
+        ? contacts.find(contact => contact.id === editId)
+        : null;
+    const now = new Date().toISOString();
+    const file = form.elements.attachment?.files?.[0];
+    const previousAttachment = current?.attachment || null;
+    let attachment = current?.attachment || null;
+
+    try {
+        if (file) {
+            attachment = await readAttachmentFile(file, {
+                moduleId: "agenda",
+                ownerId: current?.id || "new-contact",
+                recordId: "contact-attachment"
+            });
+        }
+    } catch (error) {
+        alert(error?.planBlocked
+            ? error.message
+            : "No se pudo leer el archivo adjunto. Intenta nuevamente con otro documento.");
+        return;
+    }
+
+    const nextContact = normalizeContact({
+        ...(current || {}),
+        id: current?.id ||
+            `agenda_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name,
+        unidad,
+        cargo,
+        email: data.get("email"),
+        extension: data.get("extension"),
+        mobile: data.get("mobile"),
+        notes: data.get("notes"),
+        attachment,
+        createdAt: current?.createdAt || now,
+        updatedAt: now
+    });
+
+    const nextContacts = current
+        ? contacts.map(contact => contact.id === current.id ? nextContact : contact)
+        : [...contacts, nextContact];
+
+    saveContacts(nextContacts);
+
+    if (
+        file &&
+        previousAttachment?.storagePath &&
+        previousAttachment.storagePath !== attachment?.storagePath
+    ) {
+        await deleteStoredAttachment(previousAttachment).catch(error => {
+            console.warn("No se pudo eliminar el adjunto reemplazado.", error);
+        });
+    }
+
+    selectedContactId = nextContact.id;
+    renderAgendaPanel();
 }
 
 function bindAgendaEvents(root) {
-    const searchInput = root.querySelector("[data-agenda-search]");
-    const form = root.querySelector("[data-agenda-form]");
-
-    if (searchInput) {
-        searchInput.oninput = () => {
-            agendaSearch = searchInput.value;
-            refreshContactList(root);
+    const search = root.querySelector("[data-ag-search]");
+    if (search) {
+        search.oninput = () => {
+            agendaSearch = search.value;
+            refreshList(root);
         };
     }
 
-    root.querySelectorAll("[data-agenda-new]").forEach(button => {
-        button.onclick = () => {
-            selectedContactId = NEW_CONTACT_ID;
-            renderAgendaPanel();
-            document
-                .querySelector("[data-agenda-form] input[name='name']")
-                ?.focus();
-        };
+    const chipsWrap = root.querySelector("[data-ag-chips-wrap]");
+    const morePop = root.querySelector("[data-ag-more-pop]");
+    chipsWrap?.addEventListener("click", event => {
+        if (event.target.closest("[data-ag-more]")) {
+            if (morePop) {
+                morePop.hidden = !morePop.hidden;
+                if (!morePop.hidden) {
+                    morePop.querySelector("[data-ag-more-search]")?.focus();
+                }
+            }
+            return;
+        }
+        const chip = event.target.closest("[data-ag-unit]");
+        if (!chip) return;
+        agendaUnit = chip.dataset.agUnit;
+        renderAgendaPanel();
     });
 
-    bindContactListEvents(root);
-
-    if (!form) return;
-
-    form.onsubmit = async event => {
-        event.preventDefault();
-
-        const data = new FormData(form);
-        const name = String(data.get("name") || "").trim();
-        const cargo = String(data.get("cargo") || "").trim();
-        const unidad = String(data.get("unidad") || "").trim();
-
-        if (!name && !cargo && !unidad) {
-            alert("Ingresa al menos nombre, cargo o unidad.");
-            return;
-        }
-
-        const contacts = getContacts();
-        const current = getSelectedContact(contacts);
-        const now = new Date().toISOString();
-        const file = form.elements.attachment?.files?.[0];
-        const previousAttachment = current?.attachment || null;
-        let attachment = current?.attachment || null;
-
-        try {
-            if (file) {
-                attachment = await readAttachmentFile(file, {
-                    moduleId: "agenda",
-                    ownerId:
-                        current?.id ||
-                        selectedContactId ||
-                        "new-contact",
-                    recordId: "contact-attachment"
+    const moreSearch = root.querySelector("[data-ag-more-search]");
+    if (moreSearch) {
+        moreSearch.oninput = () => {
+            const query = normalizeSearch(moreSearch.value);
+            root.querySelectorAll("[data-ag-more-list] .ag-more-item")
+                .forEach(item => {
+                    const text = normalizeSearch(item.textContent);
+                    item.style.display = !query || text.includes(query) ? "" : "none";
                 });
-            }
-        } catch (error) {
-            alert(error?.planBlocked
-                ? error.message
-                : "No se pudo leer el archivo adjunto. Intenta nuevamente con otro documento.");
-            return;
-        }
+        };
+    }
 
-        const nextContact = normalizeContact({
-            ...(current || {}),
-            id:
-                current?.id ||
-                `agenda_${Date.now()}_${Math.random()
-                    .toString(36)
-                    .slice(2, 8)}`,
-            name,
-            unidad,
-            cargo,
-            email: data.get("email"),
-            extension: data.get("extension"),
-            mobile: data.get("mobile"),
-            notes: data.get("notes"),
-            attachment,
-            createdAt: current?.createdAt || now,
-            updatedAt: now
-        });
-
-        const nextContacts = current
-            ? contacts.map(contact =>
-                contact.id === current.id ? nextContact : contact
-            )
-            : [...contacts, nextContact];
-
-        saveContacts(nextContacts);
-        if (
-            file &&
-            previousAttachment?.storagePath &&
-            previousAttachment.storagePath !== attachment?.storagePath
-        ) {
-            await deleteStoredAttachment(previousAttachment)
-                .catch(error => {
-                    console.warn(
-                        "No se pudo eliminar el adjunto reemplazado.",
-                        error
-                    );
-                });
-        }
-        selectedContactId = nextContact.id;
-        agendaSearch = "";
+    root.querySelector("[data-ag-list]")?.addEventListener("click", event => {
+        if (event.target.closest("[data-ag-stop]")) return; // llamar/correo directo
+        const item = event.target.closest("[data-ag-contact]");
+        if (!item) return;
+        selectedContactId = item.dataset.agContact;
         renderAgendaPanel();
-    };
+    });
 
-    const selectedContact = getSelectedContact(getContacts());
+    root.querySelector("[data-ag-new]")?.addEventListener("click", () => {
+        openContactModal(root, null);
+    });
 
-    root.querySelector("[data-agenda-delete]")?.addEventListener(
-        "click",
-        async () => {
-            if (!selectedContact) return;
-            if (
-                !await showConfirm(
-                    "Se eliminará el contacto y sus datos asociados.",
-                    {
-                        title: "Eliminar contacto",
-                        tone: "danger",
-                        confirmText: "Eliminar",
-                        destructive: true
-                    }
-                )
-            ) {
-                return;
-            }
+    // Detalle: editar / eliminar / adjuntos / copiar.
+    const detail = root.querySelector("[data-ag-detail]");
+    detail?.addEventListener("click", async event => {
+        const contacts = getContacts();
+        const selected = getSelectedContact(contacts);
 
-            saveContacts(
-                getContacts().filter(
-                    contact => contact.id !== selectedContact.id
-                )
+        if (event.target.closest("[data-ag-edit]")) {
+            if (selected) openContactModal(root, selected);
+            return;
+        }
+        if (event.target.closest("[data-ag-view-attachment]")) {
+            openAttachment(selected?.attachment);
+            return;
+        }
+        const copyBtn = event.target.closest("[data-ag-copy]");
+        if (copyBtn) {
+            navigator.clipboard?.writeText(copyBtn.dataset.agCopy).catch(() => {});
+            return;
+        }
+        if (event.target.closest("[data-ag-remove-attachment]")) {
+            if (!selected) return;
+            saveContacts(getContacts().map(contact =>
+                contact.id === selected.id
+                    ? { ...contact, attachment: null, updatedAt: new Date().toISOString() }
+                    : contact
+            ));
+            await deleteStoredAttachment(selected.attachment).catch(() => {});
+            renderAgendaPanel();
+            return;
+        }
+        if (event.target.closest("[data-ag-delete]")) {
+            if (!selected) return;
+            const ok = await showConfirm(
+                "Se eliminará el contacto y sus datos asociados.",
+                {
+                    title: "Eliminar contacto",
+                    tone: "danger",
+                    confirmText: "Eliminar",
+                    destructive: true
+                }
             );
-            await deleteStoredAttachment(selectedContact.attachment)
-                .catch(error => {
-                    console.warn(
-                        "No se pudo eliminar el adjunto remoto.",
-                        error
-                    );
-                });
-            selectedContactId = NEW_CONTACT_ID;
+            if (!ok) return;
+            saveContacts(getContacts().filter(contact => contact.id !== selected.id));
+            await deleteStoredAttachment(selected.attachment).catch(() => {});
+            selectedContactId = null;
             renderAgendaPanel();
         }
-    );
+    });
 
-    root.querySelector("[data-agenda-view-attachment]")?.addEventListener(
-        "click",
-        () => openAttachment(selectedContact?.attachment)
-    );
-
-    root.querySelector("[data-agenda-remove-attachment]")?.addEventListener(
-        "click",
-        async () => {
-            if (!selectedContact) return;
-
-            saveContacts(
-                getContacts().map(contact =>
-                    contact.id === selectedContact.id
-                        ? {
-                            ...contact,
-                            attachment: null,
-                            updatedAt: new Date().toISOString()
-                        }
-                        : contact
-                )
-            );
-            await deleteStoredAttachment(selectedContact.attachment)
-                .catch(error => {
-                    console.warn(
-                        "No se pudo eliminar el adjunto remoto.",
-                        error
-                    );
-                });
-            renderAgendaPanel();
+    // Modal.
+    const modal = root.querySelector("[data-ag-modal]");
+    const form = root.querySelector("[data-ag-form]");
+    modal?.addEventListener("click", event => {
+        if (event.target === modal || event.target.closest("[data-ag-modal-close]")) {
+            closeContactModal(root);
         }
-    );
+    });
+    if (form) {
+        form.onsubmit = event => {
+            event.preventDefault();
+            void handleSave(root, form);
+        };
+    }
+}
+
+// Listeners a nivel documento/ventana: se atan una sola vez (bindAgendaEvents
+// corre en cada render, así que aquí evitamos acumularlos).
+let agendaGlobalBound = false;
+function bindAgendaGlobalListeners() {
+    if (agendaGlobalBound) return;
+    agendaGlobalBound = true;
+
+    document.addEventListener("keydown", event => {
+        if (event.key !== "Escape") return;
+        const root = document.getElementById("agendaPanel");
+        if (!root) return;
+        const modal = root.querySelector("[data-ag-modal]");
+        if (modal && !modal.hidden) { modal.hidden = true; return; }
+        const pop = root.querySelector("[data-ag-more-pop]");
+        if (pop && !pop.hidden) pop.hidden = true;
+    });
+
+    document.addEventListener("click", event => {
+        const root = document.getElementById("agendaPanel");
+        if (!root) return;
+        const pop = root.querySelector("[data-ag-more-pop]");
+        if (pop && !pop.hidden && !event.target.closest("[data-ag-chips-wrap]")) {
+            pop.hidden = true;
+        }
+    });
+
+    window.addEventListener("resize", () => {
+        const root = document.getElementById("agendaPanel");
+        if (root && document.body.dataset.activeView === "agenda") {
+            collapseChips(root);
+        }
+    });
 }
 
 export function renderAgendaPanel() {
     const root = document.getElementById("agendaPanel");
-
     if (!root) return;
 
-    root.innerHTML = renderShell();
+    root.innerHTML = renderView();
     bindAgendaEvents(root);
+    bindAgendaGlobalListeners();
+    requestAnimationFrame(() => collapseChips(root));
 }

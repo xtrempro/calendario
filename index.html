@@ -917,41 +917,6 @@
                 <section id="memosPanel" class="panel memos-panel"></section>
 
                 <section id="clockMarksPanel" class="clockmarks-view">
-                    <aside class="panel sidebar clockmarks-sidebar">
-                        <label class="field-shell field-shell--icon">
-                            <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="11" cy="11" r="7"></circle>
-                                <line x1="16.5" y1="16.5" x2="21" y2="21"></line>
-                            </svg>
-                            <input id="clockMarksProfileSearch" type="text" placeholder="Buscar...">
-                        </label>
-
-                        <label class="field-shell field-shell--icon">
-                            <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                                <line x1="4" y1="6" x2="20" y2="6"></line>
-                                <line x1="7" y1="12" x2="17" y2="12"></line>
-                                <line x1="10" y1="18" x2="14" y2="18"></line>
-                            </svg>
-                            <select id="clockMarksFilterRole">
-                                <option>Todos</option>
-                                <option>Profesional</option>
-                                <option>T&#233;cnico</option>
-                                <option>Administrativo</option>
-                                <option>Auxiliar</option>
-                            </select>
-                        </label>
-
-                        <label class="inline-toggle sidebar-toggle">
-                            <span>Mostrar desactivados</span>
-                            <span class="toggle-check">
-                                <input id="clockMarksShowInactiveProfiles" type="checkbox">
-                            </span>
-                        </label>
-
-                        <div id="clockMarksProfiles" class="profile-list"></div>
-                        <p id="clockMarksEmptyProfiles" class="muted hidden"></p>
-                    </aside>
-
                     <section class="panel clockmarks-panel">
                         <div class="clockmarks-topbar">
                             <div class="clockmarks-monthbar">
@@ -973,6 +938,8 @@
                                 <input id="clockMarksAllWorkersToggle" type="checkbox">
                             </label>
                         </div>
+
+                        <div id="clockMarksSelected" class="clockmarks-selected"></div>
 
                         <div id="clockMarksList" class="clockmarks-list"></div>
                     </section>
@@ -1077,6 +1044,54 @@
 
         <div id="reportsProfiles" class="profile-list"></div>
         <p id="reportsEmptyProfiles" class="muted hidden"></p>
+    </div>
+</div>
+
+<div id="clockMarksSearchModal" class="profile-search-modal" hidden>
+    <div class="profile-search-dialog" role="dialog" aria-modal="true" aria-label="Buscar trabajador">
+        <div class="profile-search-dialog__head">
+            <strong>Buscar trabajador</strong>
+            <button class="profile-search-dialog__close" type="button" data-action="close-clockmarks-search" aria-label="Cerrar">&times;</button>
+        </div>
+
+        <div class="profile-search-dialog__controls">
+            <label class="field-shell field-shell--icon">
+                <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="7"></circle>
+                        <path d="M21 21l-4.35-4.35"></path>
+                    </svg>
+                </span>
+                <input id="clockMarksProfileSearch" type="text" placeholder="Buscar por nombre, RUT, correo...">
+            </label>
+
+            <label class="field-shell field-shell--icon">
+                <span class="field-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="4" y1="6" x2="20" y2="6"></line>
+                        <line x1="7" y1="12" x2="17" y2="12"></line>
+                        <line x1="10" y1="18" x2="14" y2="18"></line>
+                    </svg>
+                </span>
+                <select id="clockMarksFilterRole">
+                    <option>Todos</option>
+                    <option>Profesional</option>
+                    <option>T&#233;cnico</option>
+                    <option>Administrativo</option>
+                    <option>Auxiliar</option>
+                </select>
+            </label>
+
+            <label class="inline-toggle sidebar-toggle">
+                <span>Mostrar desactivados</span>
+                <span class="toggle-check">
+                    <input id="clockMarksShowInactiveProfiles" type="checkbox">
+                </span>
+            </label>
+        </div>
+
+        <div id="clockMarksProfiles" class="profile-list"></div>
+        <p id="clockMarksEmptyProfiles" class="muted hidden"></p>
     </div>
 </div>
 
