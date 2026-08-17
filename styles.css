@@ -1710,6 +1710,17 @@ body[data-active-view="home"] .secondary-grid {
 .hm-modal-close:hover { color: var(--hm-red); }
 .hm-modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; }
 .hm-modal-sub { font-size: 0.76rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.hm-modal--dotacion { width: min(680px, 100%); }
+.hm-dot-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.hm-dot-colhead { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; font-weight: 800; color: var(--text); padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--border); }
+.hm-dot-colhead svg { width: 17px; height: 17px; color: var(--text-soft); }
+.hm-dot-colhead b { margin-left: auto; font-size: 0.78rem; font-weight: 800; color: var(--text-soft); background: var(--panel-alt); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
+.hm-dot-list { display: flex; flex-direction: column; gap: 6px; }
+.hm-dot-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; border-radius: 11px; background: var(--panel-alt); border: 1px solid var(--border); }
+.hm-dot-name { font-size: 0.86rem; font-weight: 700; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-dot-time { flex: none; font-size: 0.78rem; font-weight: 700; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.hm-dot-empty { padding: 14px; text-align: center; color: var(--text-muted); font-size: 0.8rem; border: 1px dashed var(--border-strong); border-radius: 11px; }
+@media (max-width: 560px) { .hm-dot-cols { grid-template-columns: 1fr; } }
 .hm-modal-tasks { display: flex; flex-direction: column; gap: 8px; }
 .hm-mt-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--panel-alt); border: 1px solid var(--border); }
 .hm-mt-name { font-weight: 600; font-size: 0.89rem; color: var(--text); }

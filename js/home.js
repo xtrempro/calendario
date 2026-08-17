@@ -12,7 +12,8 @@ import {
     getReportSignatureConfig,
     getProfiles,
     isProfileActive,
-    isNoCoverageDay
+    isNoCoverageDay,
+    getShiftAssigned
 } from "./storage.js";
 import { getJSON } from "./persistence.js";
 import { keyFromDate } from "./dateUtils.js";
@@ -28,7 +29,7 @@ import {
     getPreassignments
 } from "./preassignments.js";
 import { cambiosDelMes, cambioEstaAnulado } from "./swaps.js";
-import { TURNO_LABEL, ESTAMENTO } from "./constants.js";
+import { TURNO_LABEL, ESTAMENTO, TURNO } from "./constants.js";
 import { getHomeTasks, saveHomeTasks } from "./homeTasks.js";
 import { getActiveWorkspace } from "./workspaces.js";
 
@@ -193,27 +194,91 @@ function getMonthSwaps() {
 // ---- Dotación en servicio hoy, por estamento (datos reales) ----
 // Un perfil está "en servicio hoy" si tiene turno real (> Libre) y no está de
 // ausencia/permiso hoy. Los reemplazos ya vienen incluidos en getTurnoReal.
-// Un trabajador puede contar en ambos grupos: los turnos que cubren día y noche
-// (24h=3, D+N=5, 18h=8) suman en día Y en noche. "Noche" (2) solo cuenta de
-// noche; el resto de turnos en servicio cuentan solo de día.
-const NIGHT_TURNO_CODES = new Set([2, 3, 5, 8]); // Noche, 24h, D+N, 18h
+// ---- Horario (entrada/salida) por trabajador en servicio hoy ----
+function pad2(n) { return String(n).padStart(2, "0"); }
+function hm(h, m = 0) { return `${pad2(h)}:${pad2(m)}`; }
 
-function getDotacionHoy() {
-    const keyDay = keyFromDate(new Date());
+// Horario estándar según el turno del día. El fin del Diurno depende del día
+// (viernes 16:00, resto 17:00). Devuelve { dia, noche } con etiquetas o null.
+function standardSchedule(base, date) {
+    const diurnoEnd = date.getDay() === 5 ? 16 : 17;
+    switch (base) {
+        case TURNO.LARGA:        return { dia: "08:00 a 20:00", noche: null };
+        case TURNO.NOCHE:        return { dia: null, noche: "20:00 a 08:00" };
+        case TURNO.TURNO24:      return { dia: "08:00 a 20:00", noche: "20:00 a 08:00" };
+        case TURNO.DIURNO:       return { dia: `08:00 a ${hm(diurnoEnd)}`, noche: null };
+        case TURNO.DIURNO_NOCHE: return { dia: `08:00 a ${hm(diurnoEnd)}`, noche: "20:00 a 08:00" };
+        case TURNO.MEDIA_MANANA: return { dia: "08:00 a 14:00", noche: null };
+        case TURNO.MEDIA_TARDE:  return { dia: "14:00 a 20:00", noche: null };
+        case TURNO.TURNO18:      return { dia: "14:00 a 20:00", noche: "20:00 a 08:00" };
+        default:                 return { dia: null, noche: null };
+    }
+}
+
+// Horario con 1/2 ADM (permiso parcial administrativo), según reglas de RRHH:
+// - 1/2 ADM Mañana (0.5M): el trabajador entra más tarde y trabaja la tarde.
+//     · con asignación de turno: 14:00 a 20:00.
+//     · sin asignación: entra 12:30 (viernes 12:00); sale 20:00 si es Larga,
+//       o 17:00 (viernes 16:00) si es Diurno.
+// - 1/2 ADM Tarde (0.5T): trabaja la mañana y se retira antes.
+//     · con asignación de turno: 08:00 a 14:00.
+//     · sin asignación: 08:00 a 12:30.
+function halfAdminSchedule(base, half, date, assigned) {
+    const friday = date.getDay() === 5;
+
+    if (half === "0.5M") {
+        if (assigned) return { dia: "14:00 a 20:00", noche: null };
+        const entry = friday ? "12:00" : "12:30";
+        const exit = base === TURNO.LARGA
+            ? "20:00"
+            : (friday ? "16:00" : "17:00");
+        return { dia: `${entry} a ${exit}`, noche: null };
+    }
+
+    // 0.5T
+    if (assigned) return { dia: "08:00 a 14:00", noche: null };
+    return { dia: "08:00 a 12:30", noche: null };
+}
+
+// Horario real de un trabajador hoy, o null si no está en servicio (libre o con
+// ausencia/permiso completo). El 1/2 ADM se considera media jornada trabajada.
+function serviceScheduleToday(profile, keyDay, date) {
+    const name = profile.name;
+
+    if (profileMap("legal", name)[keyDay]) return null;
+    if (profileMap("comp", name)[keyDay]) return null;
+    if (profileMap("absences", name)[keyDay]) return null;
+
+    const adminVal = profileMap("admin", name)[keyDay];
+    const half = (adminVal === "0.5M" || adminVal === "0.5T") ? adminVal : null;
+    if (adminVal && !half) return null; // administrativo completo → libre
+
+    const base = Number(getTurnoReal(name, keyDay));
+    if (base <= 0) return null;
+
+    const sched = half
+        ? halfAdminSchedule(base, half, date, getShiftAssigned(name))
+        : standardSchedule(base, date);
+
+    return (sched.dia || sched.noche) ? sched : null;
+}
+
+// Detalle de dotación por estamento: listas de trabajadores de día y de noche
+// (con su horario). Un mismo trabajador puede aparecer en ambos (24h/D+N/18h).
+function getDotacionDetalleHoy() {
+    const now = new Date();
+    const keyDay = keyFromDate(now);
     const byEstamento = {};
-    let total = 0;
 
     getProfiles().forEach(profile => {
         if (!isProfileActive(profile)) return;
-        const code = Number(getTurnoReal(profile.name, keyDay));
-        if (code <= 0) return;
-        if (classifyAbsence(profile.name, keyDay)) return;
+        const sched = serviceScheduleToday(profile, keyDay, now);
+        if (!sched) return;
 
         const est = profile.estamento || "Otros";
-        if (!byEstamento[est]) byEstamento[est] = { dia: 0, noche: 0 };
-        if (code !== 2) byEstamento[est].dia += 1;          // todo menos Noche
-        if (NIGHT_TURNO_CODES.has(code)) byEstamento[est].noche += 1;
-        total += 1;
+        if (!byEstamento[est]) byEstamento[est] = { dia: [], noche: [] };
+        if (sched.dia) byEstamento[est].dia.push({ name: profile.name, time: sched.dia });
+        if (sched.noche) byEstamento[est].noche.push({ name: profile.name, time: sched.noche });
     });
 
     const canonicalOrder = est => {
@@ -223,7 +288,31 @@ function getDotacionHoy() {
     const estamentos = Object.keys(byEstamento)
         .sort((a, b) => canonicalOrder(a) - canonicalOrder(b) || a.localeCompare(b));
 
-    return { byEstamento, estamentos, total };
+    estamentos.forEach(est => {
+        byEstamento[est].dia.sort((a, b) => a.name.localeCompare(b.name));
+        byEstamento[est].noche.sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    return { byEstamento, estamentos };
+}
+
+// Conteos por estamento (día/noche) derivados del detalle, para las stat cards.
+function getDotacionHoy() {
+    const det = getDotacionDetalleHoy();
+    const byEstamento = {};
+    let total = 0;
+
+    det.estamentos.forEach(est => {
+        const e = det.byEstamento[est];
+        byEstamento[est] = { dia: e.dia.length, noche: e.noche.length };
+        const unique = new Set([
+            ...e.dia.map(x => x.name),
+            ...e.noche.map(x => x.name)
+        ]);
+        total += unique.size;
+    });
+
+    return { byEstamento, estamentos: det.estamentos, total };
 }
 
 // ---- Cobertura de turnos (datos reales) ----
@@ -391,7 +480,7 @@ function statCard(tone, icon, label, value, sub) {
 // (sin total). Los turnos que cubren ambos periodos suman en los dos.
 function dotacionCard(tone, label, dia, noche) {
     return `
-        <article class="hm-stat hm-stat--${tone}">
+        <article class="hm-stat hm-stat--${tone}" data-hm="dotacion" data-est="${esc(label)}" role="button" tabindex="0" title="Ver trabajadores en servicio">
             <span class="hm-stat-icon">${svg(IC.users)}</span>
             <div class="hm-stat-label">${esc(label)}</div>
             <div class="hm-dn2">
@@ -667,6 +756,56 @@ function taskEditModal() {
         </div>`;
 }
 
+// ---- Modal de dotación (trabajadores en servicio: día / noche + horario) ----
+function dotRowHTML(x) {
+    return `<div class="hm-dot-row"><span class="hm-dot-name">${esc(x.name)}</span><span class="hm-dot-time">${esc(x.time)}</span></div>`;
+}
+
+function dotColumnHTML(icon, title, list) {
+    return `
+        <div class="hm-dot-col">
+            <div class="hm-dot-colhead">${icon}<span>${title}</span><b>${list.length}</b></div>
+            <div class="hm-dot-list">
+                ${list.length ? list.map(dotRowHTML).join("") : `<div class="hm-dot-empty">Sin trabajadores.</div>`}
+            </div>
+        </div>`;
+}
+
+function dotBodyHTML(e) {
+    return `
+        <div class="hm-dot-cols">
+            ${dotColumnHTML(DN_SUN, "De día", e.dia)}
+            ${dotColumnHTML(DN_MOON, "De noche", e.noche)}
+        </div>`;
+}
+
+function dotacionModal() {
+    return `
+        <div class="hm-modal-backdrop" data-hm="dotacion-modal" hidden>
+            <div class="hm-modal hm-modal--dotacion" role="dialog" aria-modal="true" aria-label="Trabajadores en servicio">
+                <div class="hm-modal-head">
+                    <span class="hm-modal-ico">${svg(IC.users)}</span>
+                    <h3 data-hm="dot-title">En servicio hoy</h3>
+                    <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="hm-modal-body" data-hm="dot-body"></div>
+            </div>
+        </div>`;
+}
+
+function openDotacion(panel, est) {
+    const det = getDotacionDetalleHoy();
+    const e = det.byEstamento[est];
+    const modal = panel.querySelector('[data-hm="dotacion-modal"]');
+    if (!modal) return;
+
+    modal.querySelector('[data-hm="dot-title"]').textContent = `${est} · en servicio hoy`;
+    modal.querySelector('[data-hm="dot-body"]').innerHTML = e
+        ? dotBodyHTML(e)
+        : `<div class="hm-dot-empty">Sin trabajadores en servicio.</div>`;
+    modal.hidden = false;
+}
+
 function homeHTML() {
     const supervisor = esc(getSupervisorName());
     const unit = esc(getUnitName());
@@ -708,7 +847,8 @@ function homeHTML() {
             </div>
         </div>
         ${tasksModal()}
-        ${taskEditModal()}`;
+        ${taskEditModal()}
+        ${dotacionModal()}`;
 }
 
 // ---- Interactividad ----
@@ -829,6 +969,30 @@ function wire(panel) {
                 saveHomeTasks(tasks);
                 refreshTasks();
                 modal.hidden = true;
+            }
+        });
+    }
+
+    // --- Dotación: click en una stat card -> modal con día/noche + horario ---
+    const stats = panel.querySelector(".hm-stats");
+    const dotModal = panel.querySelector('[data-hm="dotacion-modal"]');
+    if (stats) {
+        stats.addEventListener("click", event => {
+            const card = event.target.closest('[data-hm="dotacion"]');
+            if (card) openDotacion(panel, card.dataset.est);
+        });
+        stats.addEventListener("keydown", event => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            const card = event.target.closest('[data-hm="dotacion"]');
+            if (!card) return;
+            event.preventDefault();
+            openDotacion(panel, card.dataset.est);
+        });
+    }
+    if (dotModal) {
+        dotModal.addEventListener("click", event => {
+            if (event.target === dotModal || event.target.closest('[data-hm="close"]')) {
+                dotModal.hidden = true;
             }
         });
     }
