@@ -697,7 +697,15 @@ exports.notifyScheduleAttachmentUpdated = onCall(
         : attachment?.weekLabel
           ? `La programacion de ${attachment.weekLabel} fue actualizada.`
           : "La programacion semanal fue actualizada.";
-    const deepLink = `${WORKER_APP_BASE_URL}?screen=turnos`;
+    // Al tocar la notificación de "Programacion actualizada", la PWA abre la
+    // programación publicada directamente (openSchedule=1) en la semana notificada.
+    // Para "retirada" no se abre (ya no hay nada que mostrar): solo lleva a Turnos.
+    const scheduleWeekParam = attachment?.weekStartISO
+      ? `&scheduleWeek=${encodeURIComponent(attachment.weekStartISO)}`
+      : "";
+    const deepLink = action === "removed"
+      ? `${WORKER_APP_BASE_URL}?screen=turnos`
+      : `${WORKER_APP_BASE_URL}?screen=turnos&openSchedule=1${scheduleWeekParam}`;
     const activeLinks = linksSnap.docs
       .map((docSnap) => {
         const link = docSnap.data() || {};
