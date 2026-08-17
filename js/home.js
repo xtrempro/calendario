@@ -193,6 +193,11 @@ function getMonthSwaps() {
 // ---- Dotación en servicio hoy, por estamento (datos reales) ----
 // Un perfil está "en servicio hoy" si tiene turno real (> Libre) y no está de
 // ausencia/permiso hoy. Los reemplazos ya vienen incluidos en getTurnoReal.
+// Un trabajador puede contar en ambos grupos: los turnos que cubren día y noche
+// (24h=3, D+N=5, 18h=8) suman en día Y en noche. "Noche" (2) solo cuenta de
+// noche; el resto de turnos en servicio cuentan solo de día.
+const NIGHT_TURNO_CODES = new Set([2, 3, 5, 8]); // Noche, 24h, D+N, 18h
+
 function getDotacionHoy() {
     const keyDay = keyFromDate(new Date());
     const byEstamento = {};
@@ -200,11 +205,14 @@ function getDotacionHoy() {
 
     getProfiles().forEach(profile => {
         if (!isProfileActive(profile)) return;
-        if (Number(getTurnoReal(profile.name, keyDay)) <= 0) return;
+        const code = Number(getTurnoReal(profile.name, keyDay));
+        if (code <= 0) return;
         if (classifyAbsence(profile.name, keyDay)) return;
 
         const est = profile.estamento || "Otros";
-        byEstamento[est] = (byEstamento[est] || 0) + 1;
+        if (!byEstamento[est]) byEstamento[est] = { dia: 0, noche: 0 };
+        if (code !== 2) byEstamento[est].dia += 1;          // todo menos Noche
+        if (NIGHT_TURNO_CODES.has(code)) byEstamento[est].noche += 1;
         total += 1;
     });
 
@@ -365,6 +373,9 @@ function svg(paths, extra = "") {
     return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" ${extra}>${paths}</svg>`;
 }
 
+const DN_SUN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>`;
+const DN_MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>`;
+
 function statCard(tone, icon, label, value, sub) {
     return `
         <article class="hm-stat hm-stat--${tone}">
@@ -376,6 +387,27 @@ function statCard(tone, icon, label, value, sub) {
         </article>`;
 }
 
+// Tarjeta de dotación por estamento: muestra cuántos hay de día y de noche
+// (sin total). Los turnos que cubren ambos periodos suman en los dos.
+function dotacionCard(tone, label, dia, noche) {
+    return `
+        <article class="hm-stat hm-stat--${tone}">
+            <span class="hm-stat-icon">${svg(IC.users)}</span>
+            <div class="hm-stat-label">${esc(label)}</div>
+            <div class="hm-dn2">
+                <div class="hm-dn2-item">
+                    <span class="hm-dn2-ico">${DN_SUN}</span>
+                    <div class="hm-dn2-txt"><b>${dia}</b><small>de día</small></div>
+                </div>
+                <div class="hm-dn2-item">
+                    <span class="hm-dn2-ico">${DN_MOON}</span>
+                    <div class="hm-dn2-txt"><b>${noche}</b><small>de noche</small></div>
+                </div>
+            </div>
+            <span class="hm-stat-go">${svg(IC.arrowRight, 'stroke-width="2.4"')}</span>
+        </article>`;
+}
+
 // Stat cards: una tarjeta por estamento en servicio hoy (colores en ciclo),
 // luego "Plan del día" (total del día) y "Pendientes".
 function statsSection() {
@@ -383,9 +415,10 @@ function statsSection() {
     const tones = ["violet", "blue", "green", "amber"];
 
     const estCards = dot.estamentos.length
-        ? dot.estamentos.map((est, i) =>
-            statCard(tones[i % tones.length], IC.users, est, dot.byEstamento[est], "en servicio hoy")
-        ).join("")
+        ? dot.estamentos.map((est, i) => {
+            const e = dot.byEstamento[est];
+            return dotacionCard(tones[i % tones.length], est, e.dia, e.noche);
+        }).join("")
         : statCard("violet", IC.users, "En servicio hoy", 0, "sin dotación hoy");
 
     return `

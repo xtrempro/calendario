@@ -1510,6 +1510,12 @@ body[data-active-view="home"] .secondary-grid {
 .hm-stat-sub { font-size: 0.8rem; opacity: 0.9; }
 .hm-stat-go { position: absolute; right: 14px; bottom: 14px; width: 30px; height: 30px; border-radius: 50%; background: rgba(255, 255, 255, 0.22); display: grid; place-items: center; }
 .hm-stat-go svg { width: 16px; height: 16px; }
+.hm-dn2 { display: flex; gap: 18px; margin-top: 12px; flex-wrap: wrap; padding-right: 30px; }
+.hm-dn2-item { display: flex; align-items: center; gap: 9px; }
+.hm-dn2-ico svg { width: 24px; height: 24px; opacity: 0.9; }
+.hm-dn2-txt { display: flex; flex-direction: column; line-height: 1.05; }
+.hm-dn2-txt b { font-size: 1.9rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.hm-dn2-txt small { font-size: 0.72rem; opacity: 0.9; }
 
 /* Grid + cards */
 .hm-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
