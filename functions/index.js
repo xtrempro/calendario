@@ -608,6 +608,86 @@ exports.uploadScheduleAttachment = onCall(
   }
 );
 
+// Reintenta el OCR de una programacion YA subida (sin re-subir la imagen):
+// lee el archivo desde Storage y ejecuta Vision otra vez. Devuelve solo el
+// objeto ocr; el cliente actualiza el adjunto y re-publica la proyeccion.
+exports.reprocessScheduleOcr = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 120,
+    memory: "512MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para reprocesar la programacion."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+
+    if (!workspaceId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Selecciona una unidad antes de reprocesar la programacion."
+      );
+    }
+
+    await requireWorkspaceMember(workspaceId, uid, request.auth.token || {});
+
+    const storagePath = cleanCallableText(request.data?.storagePath, 500);
+
+    if (!storagePath) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Falta la ruta de la programacion a reprocesar."
+      );
+    }
+
+    const expectedPrefix = [
+      "workspaces",
+      safeStoragePathSegment(workspaceId, "workspace"),
+      "attachments",
+      SCHEDULE_ATTACHMENT_MODULE_ID
+    ].join("/");
+
+    if (!storagePath.startsWith(`${expectedPrefix}/`)) {
+      throw new HttpsError(
+        "permission-denied",
+        "La programacion indicada no pertenece a esta unidad."
+      );
+    }
+
+    const bucket = admin.storage().bucket();
+    let buffer;
+
+    try {
+      const [contents] = await bucket.file(storagePath).download();
+      buffer = contents;
+    } catch (error) {
+      logger.warn("No se pudo leer la programacion para reprocesar OCR.", {
+        workspaceId,
+        storagePath,
+        errorMessage: cleanCallableText(error?.message || error?.code, 240)
+      });
+      throw new HttpsError(
+        "not-found",
+        "No se encontro la imagen de la programacion en el almacenamiento."
+      );
+    }
+
+    const ocr = await automaticScheduleImageOcr(
+      { buffer },
+      { workspaceId, storagePath }
+    );
+
+    return { ocr };
+  }
+);
+
 function scheduleNotificationEventId(value) {
   const clean = cleanCallableText(value, 160)
     .replace(/[^a-zA-Z0-9._-]+/g, "_")

@@ -363,6 +363,40 @@ async function createScheduleAttachment(file) {
     return attachment;
 }
 
+// Reintenta el OCR de una programacion ya publicada (sin re-subir la imagen):
+// el servidor la lee desde Storage y corre Vision otra vez; aqui actualizamos
+// el adjunto con el resultado y re-publicamos para que la PWA quede en modo texto.
+async function reprocessScheduleAttachmentOcr(start = currentWeekStart) {
+    const weekStart = weekStartMonday(start);
+    const attachment = getScheduleAttachment(weekStart);
+    const workspace = getActiveWorkspace();
+
+    if (!attachment?.storagePath || !workspace?.id) {
+        throw new Error(
+            "No hay una programacion publicada para reintentar el OCR."
+        );
+    }
+
+    const { functions, functionsModule } = await getFirebaseServices();
+    const reprocess = functionsModule.httpsCallable(
+        functions,
+        "reprocessScheduleOcr"
+    );
+    const result = await reprocess({
+        workspaceId: workspace.id,
+        storagePath: attachment.storagePath
+    });
+    const ocr = normalizeScheduleOcr(result?.data?.ocr);
+
+    saveScheduleAttachment(
+        { ...attachment, ocr, updatedAtISO: new Date().toISOString() },
+        weekStart
+    );
+    await publishScheduleAttachmentChanges(weekStart);
+
+    return ocr;
+}
+
 function scheduleUploadPermissionMessage(error) {
     const code = scheduleUploadErrorCode(error);
     const context = scheduleUploadDebugContext();
@@ -2311,6 +2345,8 @@ function openScheduleAttachmentDialog() {
                     <div class="task-schedule-current">
                         <strong>Publicada para esta semana</strong>
                         <span>${escapeHTML(current.name)}</span>
+                        <span class="task-schedule-current__ocr">Estado OCR: ${escapeHTML(scheduleOcrStatusLabel(current.ocr))}</span>
+                        <button class="secondary-button task-schedule-retry-ocr" type="button" data-retry-schedule-ocr>Reintentar OCR</button>
                     </div>
                 ` : ""}
                 <div class="task-assignment-dialog__actions">
@@ -2359,6 +2395,47 @@ function openScheduleAttachmentDialog() {
             }
             close();
             renderTaskAssignmentsPanel();
+        });
+
+    backdrop
+        .querySelector("[data-retry-schedule-ocr]")
+        ?.addEventListener("click", async event => {
+            const button = event.currentTarget;
+            const original = button.textContent;
+
+            button.disabled = true;
+            button.textContent = "Leyendo OCR...";
+
+            try {
+                const ocr = await reprocessScheduleAttachmentOcr(dialogWeekStart);
+                const status = String(ocr?.status || "");
+
+                if (status === "completed") {
+                    alert(
+                        "OCR completado. La programacion se reenvio a la PWA en modo texto."
+                    );
+                } else if (status === "empty") {
+                    alert(
+                        "El OCR se ejecuto pero no detecto texto en la imagen."
+                    );
+                } else {
+                    alert(
+                        `No se pudo completar el OCR (${status || "error"}).` +
+                        (ocr?.error ? `\n\n${ocr.error}` : "")
+                    );
+                }
+
+                close();
+                renderTaskAssignmentsPanel();
+            } catch (error) {
+                console.warn(
+                    "No se pudo reintentar el OCR de la programacion.",
+                    error
+                );
+                alert(error?.message || "No se pudo reintentar el OCR.");
+                button.disabled = false;
+                button.textContent = original;
+            }
         });
 
     backdrop
