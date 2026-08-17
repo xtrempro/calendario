@@ -326,6 +326,7 @@ import { getRaw, setRaw, getJSON, setJSON, listKeys } from "./persistence.js";
 import {
     getProfileData,
     saveProfileData,
+    getValorHora,
     getBaseProfileData,
     saveBaseProfileData,
     getBlockedDays,
@@ -1393,92 +1394,72 @@ function renderContractHistory(profile) {
     const gradeHistory = getGradeHistory(profile.name);
     const contractHistory = getContractHistory(profile.name);
     const replacementContracts = getContractsForProfile(profile.name);
-    const gradeItems = gradeHistory
-        .slice()
-        .sort((a, b) => b.start.localeCompare(a.start))
-        .map(entry => `
-            <li>
-                <strong>Desde ${escapeHTML(formatDisplayDate(entry.start))}</strong>
-                <span>
-                    ${escapeHTML(entry.estamento || "Sin estamento")} |
-                    ${escapeHTML(entry.contractType || "Sin contrato")} |
-                    Grado ${escapeHTML(entry.grade || "sin registro")}
-                </span>
-            </li>
-        `)
-        .join("");
-    const changeItems = contractHistory
-        .map(entry => `
-            <li>
-                <strong>${escapeHTML(formatHistoryDateTime(entry.createdAt))}</strong>
-                ${entry.effectiveDate ? `
-                    <small>Rige desde ${escapeHTML(formatDisplayDate(entry.effectiveDate))}</small>
-                ` : ""}
-                <span>
-                    ${entry.changes.map(change => `
-                        ${escapeHTML(change.label)}:
-                        ${escapeHTML(change.from || "Sin dato")}
-                        -> ${escapeHTML(change.to || "Sin dato")}
-                    `).join("<br>")}
-                </span>
-            </li>
-        `)
-        .join("");
-    const contractItems = replacementContracts
-        .map(contract => `
-            <li>
-                <strong>
-                    ${escapeHTML(formatContractDate(contract.start))}
-                    -
-                    ${escapeHTML(formatContractDate(contract.end))}
-                </strong>
-                ${contract.reason ? `
-                    <span>Motivo: ${escapeHTML(contract.reason)}</span>
-                ` : ""}
-                <span>Reemplaza a: ${escapeHTML(contract.replaces)}</span>
-            </li>
-        `)
-        .join("");
+
+    const timeline = [];
+    gradeHistory.forEach(entry => {
+        timeline.push({
+            sort: String(entry.start || ""),
+            date: formatDisplayDate(entry.start),
+            title: `Grado ${entry.grade || "sin registro"}`,
+            badge: "Grado",
+            dot: "g",
+            sub: [entry.estamento, entry.contractType].filter(Boolean).join(" · ")
+        });
+    });
+    contractHistory.forEach(entry => {
+        timeline.push({
+            sort: String(entry.effectiveDate || entry.createdAt || ""),
+            date: entry.effectiveDate
+                ? formatDisplayDate(entry.effectiveDate)
+                : formatHistoryDateTime(entry.createdAt),
+            title: "Cambio contractual",
+            badge: "Cambio",
+            dot: "a",
+            sub: (entry.changes || [])
+                .map(change => `${change.label}: ${change.from || "—"} → ${change.to || "—"}`)
+                .join(" · ")
+        });
+    });
+    replacementContracts.forEach(contract => {
+        timeline.push({
+            sort: String(contract.start || ""),
+            date: `${formatContractDate(contract.start)} - ${formatContractDate(contract.end)}`,
+            title: "Contrato de reemplazo",
+            badge: "Reemplazo",
+            dot: "p",
+            sub: [
+                `Reemplaza a ${contract.replaces || "—"}`,
+                contract.reason || ""
+            ].filter(Boolean).join(" · ")
+        });
+    });
+
+    timeline.sort((a, b) => b.sort.localeCompare(a.sort));
+
+    if (!timeline.length) {
+        DOM.profileContractHistory.innerHTML = `
+            <div class="contract-history-empty">
+                Sin historial registrado todavía.
+            </div>
+        `;
+        return;
+    }
 
     DOM.profileContractHistory.innerHTML = `
-        <div class="contract-history-head">
-            <strong>Historial contractual</strong>
-            <span>Vigencias y cambios anteriores del perfil.</span>
-        </div>
-
-        <div class="contract-history-grid">
-            <section class="contract-history-section">
-                <h4>Grados, contrato y estamento</h4>
-                <ul>
-                    ${gradeItems || `
-                        <li class="contract-history-muted">
-                            Sin vigencias anteriores registradas.
-                        </li>
-                    `}
-                </ul>
-            </section>
-
-            <section class="contract-history-section">
-                <h4>Cambios registrados</h4>
-                <ul>
-                    ${changeItems || `
-                        <li class="contract-history-muted">
-                            Aun no hay cambios contractuales historicos.
-                        </li>
-                    `}
-                </ul>
-            </section>
-
-            <section class="contract-history-section">
-                <h4>Contratos de reemplazo</h4>
-                <ul>
-                    ${contractItems || `
-                        <li class="contract-history-muted">
-                            Sin contratos de reemplazo registrados.
-                        </li>
-                    `}
-                </ul>
-            </section>
+        <div class="pf-tl">
+            ${timeline.map(item => `
+                <div class="pf-tl-item">
+                    <span class="pf-tl-dot ${item.dot}"></span>
+                    <div class="pf-tl-body">
+                        <div class="pf-tl-top">
+                            <b>${escapeHTML(item.title)}</b>
+                            <span class="pf-tl-badge">${escapeHTML(item.badge)}</span>
+                            <time>${escapeHTML(item.date)}</time>
+                        </div>
+                        ${item.sub ? `<p>${escapeHTML(item.sub)}</p>` : ""}
+                    </div>
+                </div>
+            `).join("")}
         </div>
     `;
 }
@@ -3809,6 +3790,28 @@ function renderProfileDocs(data, editing) {
         });
 }
 
+const HR_LOG_ICON_SVG = {
+    academic: `<path d="M22 10 12 5 2 10l10 5 10-5z"></path><path d="M6 12v5c0 1 2.7 2.5 6 2.5s6-1.5 6-2.5v-5"></path>`,
+    training: `<path d="M12 2 2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5M2 12l10 5 10-5"></path>`,
+    diplomas: `<circle cx="12" cy="8" r="6"></circle><path d="M8.5 13 7 22l5-3 5 3-1.5-9"></path>`,
+    experience: `<rect x="2" y="7" width="20" height="14" rx="2"></rect><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"></path>`,
+    events: `<rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path>`,
+    merit: `<path d="M12 2 15 9l7 .5-5.3 4.7L18.5 22 12 18l-6.5 4 1.8-7.8L2 9.5 9 9z"></path>`,
+    demerit: `<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4M12 17h.01"></path>`,
+    performance: `<path d="M9 11l3 3 8-8"></path><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"></path>`
+};
+const HR_LOG_ICON_CLASS = {
+    academic: "blue",
+    training: "green",
+    diplomas: "purple",
+    experience: "amber",
+    events: "blue",
+    merit: "green",
+    demerit: "amber",
+    performance: "teal"
+};
+const PF_REC_EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>`;
+
 function renderRecordCard(config, logs, editing) {
     const entries = logs[config.key] || [];
     const years = Array.from(
@@ -3846,11 +3849,29 @@ function renderRecordCard(config, logs, editing) {
         `
         : "";
 
+    const iconSvg = HR_LOG_ICON_SVG[config.key] || "";
+    const iconClass = HR_LOG_ICON_CLASS[config.key] || "blue";
+    const pencil = editing
+        ? ""
+        : `<button class="pf-rec-edit" type="button" data-record-editmode aria-label="Editar ${escapeHTML(config.title)}" title="Editar / agregar">${PF_REC_EDIT_ICON}</button>`;
+    const balanceHTML = config.key === "merit"
+        ? `
+            <div class="pf-rec-bal">
+                <span class="pos"><b>${(logs.merit || []).length}</b> Mérito</span>
+                <span class="neg"><b>${(logs.demerit || []).length}</b> Demérito</span>
+            </div>
+        `
+        : "";
+
     return `
         <section class="record-card" data-record="${config.key}">
-            <div class="record-card__head">
-                <h4>${config.title}</h4>
+            <div class="pf-rec-head">
+                <span class="pf-rec-ico ${iconClass}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${iconSvg}</svg></span>
+                <h4>${escapeHTML(config.title)}</h4>
+                <span class="pf-rec-spacer"></span>
                 ${filterHTML}
+                <span class="pf-rec-count${entries.length ? "" : " zero"}">${entries.length}</span>
+                ${pencil}
             </div>
 
             ${editing ? `
@@ -3865,6 +3886,8 @@ function renderRecordCard(config, logs, editing) {
                 </div>
             ` : ""}
 
+            ${balanceHTML}
+
             <div class="record-list">
                 ${filteredEntries.length
                     ? filteredEntries
@@ -3873,7 +3896,7 @@ function renderRecordCard(config, logs, editing) {
                         .map(entry => renderRecordEntry(config, entry))
                         .join("")
                     : `
-                        <div class="empty-state empty-state--compact">
+                        <div class="pf-rec-empty">
                             Sin registros.
                         </div>
                     `}
@@ -3956,6 +3979,15 @@ function renderProfileRecords(profile, editing) {
 
     const logs = getProfileLogs(profile.name);
 
+    const totalRecords = HR_LOG_CONFIG.reduce(
+        (sum, config) => sum + (logs[config.key] || []).length,
+        0
+    );
+    const totalEl = document.getElementById("profileRecordsTotal");
+    if (totalEl) {
+        totalEl.textContent = `${totalRecords} ${totalRecords === 1 ? "registro" : "registros"}`;
+    }
+
     DOM.profileRecordsPanel.innerHTML = HR_LOG_CONFIG
         .map(config => renderRecordCard(config, logs, editing))
         .join("");
@@ -3983,6 +4015,12 @@ function renderProfileRecords(profile, editing) {
                 }
             };
         });
+
+    DOM.profileRecordsPanel
+        .querySelectorAll("[data-record-editmode]")
+        .forEach(button => {
+            button.onclick = () => startEditMode();
+        });
 }
 
 function formatAvailabilityHistoryDate(key) {
@@ -3997,6 +4035,17 @@ function formatAvailabilityHistoryDate(key) {
         String(month + 1).padStart(2, "0"),
         year
     ].join("-");
+}
+
+function pfLeaveColor(label) {
+    const l = String(label || "").toLowerCase();
+    if (l.includes("legal")) return "var(--green)";
+    if (l.includes("administrativo")) return "var(--accent)";
+    if (l.includes("licencia")) return "var(--red)";
+    if (l.includes("compensatorio")) return "var(--yellow)";
+    if (l.includes("goce")) return "var(--purple)";
+    if (l.includes("devoluci")) return "var(--teal)";
+    return "var(--muted)";
 }
 
 function availabilityHistoryHTML(profileName) {
@@ -4025,51 +4074,66 @@ function availabilityHistoryHTML(profileName) {
             ${year}
         </option>
     `).join("");
-    const recordsHTML = records.length
-        ? records.map(record => {
-            const start = formatAvailabilityHistoryDate(record.startKey);
-            const end = formatAvailabilityHistoryDate(record.endKey);
-            const period = start === end
-                ? start
-                : `${start} al ${end}`;
-            const amount = record.amount === null
-                ? ""
-                : `
-                    <span class="availability-history__amount">
-                        ${formatSaldo(record.amount)} ${record.amount === 1 ? "d\u00eda" : "d\u00edas"}
-                    </span>
-                `;
+    const totalsByLabel = new Map();
+    records.forEach(record => {
+        if (record.amount === null) return;
+        totalsByLabel.set(
+            record.label,
+            (totalsByLabel.get(record.label) || 0) + (Number(record.amount) || 0)
+        );
+    });
+    const summaryHTML = totalsByLabel.size
+        ? `
+            <div class="pf-leave-sum">
+                ${Array.from(totalsByLabel.entries()).map(([label, total]) => `
+                    <span><span class="d" style="background:${pfLeaveColor(label)}"></span> ${escapeHTML(label)} <b>${formatSaldo(total)} ${total === 1 ? "d\u00eda" : "d\u00edas"}</b></span>
+                `).join("")}
+            </div>
+        `
+        : "";
 
-            return `
-                <article class="availability-history__item">
-                    <div>
-                        <strong>${escapeHTML(record.label)}</strong>
-                        <span>${escapeHTML(period)}</span>
-                    </div>
-                    ${amount}
-                </article>
-            `;
-        }).join("")
+    const rowsHTML = records.length
+        ? `
+            <div class="pf-leave-grid">
+                ${records.map(record => {
+                    const start = formatAvailabilityHistoryDate(record.startKey);
+                    const end = formatAvailabilityHistoryDate(record.endKey);
+                    const period = start === end ? start : `${start} al ${end}`;
+                    const days = record.amount === null
+                        ? ""
+                        : `<span class="ldays">${formatSaldo(record.amount)} ${record.amount === 1 ? "d\u00eda" : "d\u00edas"}</span>`;
+
+                    return `
+                        <div class="pf-leave-item" style="border-left-color:${pfLeaveColor(record.label)}">
+                            <div class="lx">
+                                <b>${escapeHTML(record.label)}</b>
+                                <small>${escapeHTML(period)}</small>
+                            </div>
+                            ${days}
+                        </div>
+                    `;
+                }).join("")}
+            </div>
+        `
         : `
-            <div class="availability-history__empty">
+            <div class="pf-leave-empty">
                 Sin vacaciones o ausencias registradas en ${availabilityHistoryYear}.
             </div>
         `;
 
     return `
-        <section class="availability-history" aria-label="Registro de vacaciones y ausencias">
-            <div class="availability-history__head">
+        <section class="pf-leave" aria-label="Registro de vacaciones y ausencias">
+            <div class="pf-leave-head">
                 <strong>Registro de vacaciones / ausencias</strong>
-                <label>
+                <label class="pf-leave-year">
                     <span>A&ntilde;o</span>
                     <select id="availabilityHistoryYear" aria-label="A&ntilde;o del registro">
                         ${yearOptions}
                     </select>
                 </label>
             </div>
-            <div class="availability-history__list">
-                ${recordsHTML}
-            </div>
+            ${summaryHTML}
+            ${rowsHTML}
         </section>
     `;
 }
@@ -4087,6 +4151,17 @@ function bindAvailabilityHistoryYear() {
         availabilityHistoryYear = year;
         renderDisponibilidadVacaciones();
     };
+}
+
+// El registro de vacaciones/ausencias vive en su propia tarjeta full-width
+// (separada del recuadro de Vacaciones), como el mockup.
+function setLeaveHistoryHTML(html) {
+    const card = document.getElementById("profileLeaveCard");
+    const host = document.getElementById("profileLeaveHistory");
+
+    if (card) card.classList.toggle("hidden", !html);
+    if (host) host.innerHTML = html || "";
+    if (html) bindAvailabilityHistoryYear();
 }
 
 function renderDisponibilidadVacaciones() {
@@ -4109,12 +4184,14 @@ function renderDisponibilidadVacaciones() {
 
     if (blocksLeaveBenefits) {
         availabilityEditMode = false;
+        setLeaveHistoryHTML("");
         return;
     }
 
     if (!profile && !creating) {
         availabilityEditMode = false;
         availabilityHistoryProfile = "";
+        setLeaveHistoryHTML("");
 
         DOM.availabilitySummary.innerHTML = `
             <div class="availability-empty">
@@ -4197,8 +4274,6 @@ function renderDisponibilidadVacaciones() {
                     : `Editando saldos vigentes del a\u00f1o ${year}.`}
                 FL solo admite d&iacute;as completos. FC anual puede ser 0, 10 o 20 d&iacute;as.
             </div>
-
-            ${historyHTML}
         `;
 
         if (creating) {
@@ -4228,44 +4303,71 @@ function renderDisponibilidadVacaciones() {
             input.onchange = input.oninput;
         });
 
-        bindAvailabilityHistoryYear();
+        setLeaveHistoryHTML(historyHTML);
 
         return;
     }
 
+    // Donut de vacaciones en DIAS: disponibles (todos los tipos agrupados) vs
+    // usados (dias tomados este anio). No considera horas de devolucion.
+    const legalDays = Number(saldos.legal) || 0;
+    const compDays = showCompBalance ? (Number(saldos.comp) || 0) : 0;
+    const adminDays = Number(saldos.admin) || 0;
+    const disponibles = legalDays + compDays + adminDays;
+
+    const leaveYear = creating
+        ? []
+        : getProfileLeaveHistory(profile.name, year);
+    let usedAdmin = 0;
+    let usedTotal = 0;
+    leaveYear.forEach(record => {
+        if (record.amount == null) return;
+        const label = String(record.label || "").toLowerCase();
+        const amount = Number(record.amount) || 0;
+        if (
+            label.includes("legal") ||
+            label.includes("compensatorio") ||
+            label.includes("administrativo")
+        ) {
+            usedTotal += amount;
+            if (label.includes("administrativo")) usedAdmin += amount;
+        }
+    });
+    const totalDays = disponibles + usedTotal;
+    const adminEntitlement = adminDays + usedAdmin;
+
+    const DONUT_C = 97.389;
+    const dispLen = totalDays > 0 ? (disponibles / totalDays) * DONUT_C : 0;
+    const donutArcs = totalDays > 0
+        ? `<circle cx="21" cy="21" r="15.5" fill="none" stroke="var(--green)" stroke-width="6" stroke-linecap="round" stroke-dasharray="${dispLen.toFixed(2)} ${(DONUT_C - dispLen).toFixed(2)}" stroke-dashoffset="0" transform="rotate(-90 21 21)"></circle>`
+        : "";
+
+    const legendRow = (color, label, value) => `
+        <div class="row"><span class="d" style="background:${color}"></span> ${label} <b>${value}</b></div>
+    `;
+
     DOM.availabilitySummary.innerHTML = `
-        <div class="availability-list" style="--availability-columns: ${showCompBalance ? 4 : 3};">
-            <div class="availability-item">
-                <span>FL</span>
-                <strong>${formatSaldo(saldos.legal)} d&iacute;as</strong>
+        <div class="pf-vac">
+            <div class="pf-donut">
+                <svg viewBox="0 0 42 42" width="122" height="122">
+                    <circle cx="21" cy="21" r="15.5" fill="none" stroke="var(--panel-hover)" stroke-width="6"></circle>
+                    ${donutArcs}
+                </svg>
+                <div class="pf-donut-center"><b>${formatSaldo(disponibles)}</b><small>de ${formatSaldo(totalDays)} d\u00edas</small></div>
             </div>
-
-            ${showCompBalance ? `
-                <div class="availability-item">
-                    <span>FC</span>
-                    <strong>${formatSaldo(saldos.comp)} d&iacute;as</strong>
-                </div>
-            ` : ""}
-
-            <div class="availability-item">
-                <span>ADM</span>
-                <strong>${formatSaldo(saldos.admin)} d&iacute;as</strong>
-            </div>
-
-            <div class="availability-item availability-item--wide">
-                <span>Horas para devoluci\u00f3n</span>
-                <strong>${formatSaldo(saldos.hoursReturn)} hrs.</strong>
+            <div class="pf-vac-legend">
+                ${legendRow("var(--green)", "Disponibles", `${formatSaldo(disponibles)} d`)}
+                ${legendRow("var(--panel-hover)", "Usados", `${formatSaldo(usedTotal)} d`)}
+                ${legendRow("var(--blue)", "Administrativos", `${formatSaldo(usedAdmin)} / ${formatSaldo(adminEntitlement)} d`)}
             </div>
         </div>
 
         <div class="availability-note">
             Saldos vigentes del a\u00f1o ${year}.
         </div>
-
-        ${historyHTML}
     `;
 
-    bindAvailabilityHistoryYear();
+    setLeaveHistoryHTML(historyHTML);
 }
 
 function renderLeaveActionLabels() {
@@ -4435,11 +4537,372 @@ function scheduleProfileSecondarySections(profile, data, editing) {
         renderContractHistory(profile);
         renderProfileRecords(profile, editing);
         renderDisponibilidadVacaciones();
+        renderProfileKpis(profile, dataSnapshot);
+        renderProfileHheeCard(profile);
+        renderProfileTurnosCard(profile);
 
         containers.forEach(container => {
             container.removeAttribute("aria-busy");
         });
     }, { timeout: 500 });
+}
+
+// ===== Perfil: hero, KPIs y mini-graficos (rediseno) =====
+const PF_MESES_SHORT = [
+    "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+    "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"
+];
+const PF_ROTATION_LABEL = {
+    "3turno": "3.er turno",
+    "4turno": "4.º turno",
+    "diurno": "Diurno",
+    "libre": "Libre"
+};
+const PF_ICON_CLOCK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>`;
+const PF_ICON_PALM = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 22s4-8 10-8 10 8 10 8"></path><path d="M12 14V6"></path><path d="M12 6c1.5-3 5-3 6-1-2 2-6 1-6 1z"></path></svg>`;
+const PF_ICON_MONEY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>`;
+const PF_ICON_DOC = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>`;
+const PF_ICON_TREND = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M7 14l4-4 3 3 5-6"></path></svg>`;
+const PF_ICON_MOON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>`;
+const PF_BTN_PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>`;
+const PF_BTN_PENCIL = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>`;
+const PF_BTN_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>`;
+const PF_BTN_LINK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"></path><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"></path></svg>`;
+
+function pfInitials(name) {
+    const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "–";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function pfMonthYear(date) {
+    if (!date || Number.isNaN(date.getTime())) return "";
+    return `${String(date.getMonth() + 1).padStart(2, "0")}-${date.getFullYear()}`;
+}
+
+function pfSeniority(unitEntryDate) {
+    if (!unitEntryDate) return null;
+    const start = parseInputDate(unitEntryDate);
+    if (!start || Number.isNaN(start.getTime())) return null;
+    const now = new Date();
+    let months =
+        (now.getFullYear() - start.getFullYear()) * 12 +
+        (now.getMonth() - start.getMonth());
+    if (now.getDate() < start.getDate()) months -= 1;
+    if (months < 0) months = 0;
+    return { years: Math.floor(months / 12), months: months % 12, start };
+}
+
+function pfAge(birthDate) {
+    if (!birthDate) return null;
+    const b = parseInputDate(birthDate);
+    if (!b || Number.isNaN(b.getTime())) return null;
+    const now = new Date();
+    let age = now.getFullYear() - b.getFullYear();
+    const md = now.getMonth() - b.getMonth();
+    if (md < 0 || (md === 0 && now.getDate() < b.getDate())) age -= 1;
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let next = new Date(now.getFullYear(), b.getMonth(), b.getDate());
+    if (next < today) next = new Date(now.getFullYear() + 1, b.getMonth(), b.getDate());
+    const daysToBirthday = Math.round((next - today) / 86400000);
+    return { age: Math.max(0, age), daysToBirthday };
+}
+
+function renderProfileHero(profile, data) {
+    const avatar = document.getElementById("profileHeroAvatar");
+    const nameEl = document.getElementById("profileHeroName");
+    const subEl = document.getElementById("profileHeroSub");
+    const pillsEl = document.getElementById("profileHeroPills");
+    if (!avatar || !nameEl || !subEl || !pillsEl) return;
+
+    const creating = profileDraft.mode === PROFILE_MODE.CREATE;
+
+    if (!profile && !creating) {
+        avatar.textContent = "–";
+        nameEl.textContent = "Selecciona un trabajador";
+        subEl.textContent = "";
+        pillsEl.innerHTML = "";
+        return;
+    }
+
+    avatar.textContent = pfInitials(data.name);
+    nameEl.textContent = data.name || (creating ? "Nuevo perfil" : "Sin nombre");
+
+    const age = pfAge(data.birthDate);
+    const subParts = [
+        data.rut ? `RUT ${data.rut}` : "",
+        data.estamento,
+        formatProfession(data.profession),
+        data.grade ? `Grado ${data.grade}` : "",
+        age ? `${age.age} años` : ""
+    ].filter(Boolean);
+    subEl.textContent = subParts.join(" · ");
+
+    const active = creating ? true : isProfileActive(profile);
+    const assigned = creating
+        ? Boolean(profileDraft.shiftAssigned)
+        : getShiftAssigned(data.name, currentDate);
+    const rotationLabel = data.rotation
+        ? (PF_ROTATION_LABEL[data.rotation] || data.rotation)
+        : "";
+
+    const pills = [];
+    pills.push(active
+        ? `<span class="pf-pill ok"><span class="d"></span> Activo</span>`
+        : `<span class="pf-pill off"><span class="d"></span> Inactivo</span>`);
+    const rotChip = [rotationLabel, assigned ? "con asignación" : ""]
+        .filter(Boolean).join(" · ");
+    if (rotChip) {
+        pills.push(`<span class="pf-pill accent">${escapeHTML(rotChip)}</span>`);
+    }
+    if (data.contractType) {
+        pills.push(`<span class="pf-pill purple">${escapeHTML(data.contractType)}</span>`);
+    }
+    const sen = pfSeniority(data.unitEntryDate);
+    if (sen) {
+        pills.push(`<span class="pf-pill">Ingreso ${escapeHTML(pfMonthYear(sen.start))}</span>`);
+    }
+    if (age && age.daysToBirthday <= 30) {
+        pills.push(`<span class="pf-pill amber">🎂 cumpleaños en ${age.daysToBirthday} días</span>`);
+    }
+    pillsEl.innerHTML = pills.join("");
+}
+
+function renderProfileKpis(profile, data) {
+    const host = document.getElementById("profileKpis");
+    if (!host) return;
+
+    const creating = profileDraft.mode === PROFILE_MODE.CREATE;
+    if (!profile && !creating) {
+        host.innerHTML = "";
+        return;
+    }
+
+    const currency = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 });
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const holidays = getCachedHolidays(year);
+
+    const sen = pfSeniority(data.unitEntryDate);
+    const antiVal = sen ? `${sen.years} a ${sen.months} m` : "—";
+    const antiSub = sen ? `desde ${pfMonthYear(sen.start)}` : "sin fecha de ingreso";
+
+    const blocksLeave = creating
+        ? contractBlocksLeaveBenefits(profileDraft)
+        : contractBlocksLeaveBenefits(profile || {});
+    let vacVal;
+    let vacSub;
+    if (blocksLeave) {
+        vacVal = "N/A";
+        vacSub = "honorarios sin feriado";
+    } else {
+        const saldos = creating
+            ? (createAvailabilityBalances || defaultCreateAvailabilityBalances())
+            : getLeaveBalances(year, holidays, { month, profileName: data.name });
+        const legal = Number(saldos.legal) || 0;
+        const admin = Number(saldos.admin) || 0;
+        const comp = Number(saldos.comp) || 0;
+        vacVal = `${formatSaldo(legal + admin + comp)} d`;
+        vacSub = `FL ${formatSaldo(legal)} · ADM ${formatSaldo(admin)}`;
+    }
+
+    let hheeVal = "—";
+    let hheeSub = "sin datos del mes";
+    if (!creating && data.name) {
+        const stats = getHheeMonthStats(data.name, year, month, holidays);
+        const hh = (Number(stats.hheeDiurnas) || 0) + (Number(stats.hheeNocturnas) || 0);
+        const pago = (Number(stats.paymentDiurno) || 0) + (Number(stats.paymentNocturno) || 0);
+        hheeVal = `${fmtHheeHours(hh)} h`;
+        hheeSub = `$${currency.format(pago)} estimado`;
+    }
+
+    const docs = Array.isArray(data.docs) ? data.docs.length : 0;
+    const docSub = docs === 1 ? "1 adjunto" : `${docs} adjuntos`;
+
+    host.innerHTML = `
+        <div class="pf-kpi pf-kpi--anti">
+            <span class="k-ico">${PF_ICON_CLOCK}</span>
+            <div class="k-lbl">Antigüedad en la unidad</div>
+            <div class="k-val">${antiVal}</div>
+            <div class="k-sub">${escapeHTML(antiSub)}</div>
+        </div>
+        <div class="pf-kpi pf-kpi--vac">
+            <span class="k-ico">${PF_ICON_PALM}</span>
+            <div class="k-lbl">Vacaciones disponibles</div>
+            <div class="k-val">${escapeHTML(vacVal)}</div>
+            <div class="k-sub">${escapeHTML(vacSub)}</div>
+        </div>
+        <div class="pf-kpi pf-kpi--hhee">
+            <span class="k-ico">${PF_ICON_MONEY}</span>
+            <div class="k-lbl">HH.EE del mes</div>
+            <div class="k-val">${escapeHTML(hheeVal)}</div>
+            <div class="k-sub">${escapeHTML(hheeSub)}</div>
+        </div>
+        <div class="pf-kpi pf-kpi--doc">
+            <span class="k-ico">${PF_ICON_DOC}</span>
+            <div class="k-lbl">Documentos</div>
+            <div class="k-val">${docs}</div>
+            <div class="k-sub">${escapeHTML(docSub)}</div>
+        </div>
+    `;
+}
+
+function renderProfileHheeCard(profile) {
+    const host = document.getElementById("profileHheeCard");
+    if (!host) return;
+
+    const creating = profileDraft.mode === PROFILE_MODE.CREATE;
+    if (!profile || creating) {
+        host.innerHTML = `
+            <div class="pf-mini-head"><span class="ci amber">${PF_ICON_TREND}</span><h3>HH.EE &mdash; 6 meses</h3></div>
+            <div class="pf-empty">Guarda el perfil para ver la tendencia.</div>
+        `;
+        return;
+    }
+
+    const base = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+    const rows = [];
+    for (let i = 5; i >= 0; i--) {
+        const d = new Date(base.getFullYear(), base.getMonth() - i, 1);
+        const stats = getHheeMonthStats(
+            profile.name,
+            d.getFullYear(),
+            d.getMonth(),
+            getCachedHolidays(d.getFullYear())
+        );
+        rows.push({
+            label: PF_MESES_SHORT[d.getMonth()],
+            value: (Number(stats.hheeDiurnas) || 0) + (Number(stats.hheeNocturnas) || 0)
+        });
+    }
+
+    const values = rows.map((r) => r.value);
+    const max = Math.max(1, ...values);
+    const min = Math.min(0, ...values);
+    const span = Math.max(1, max - min);
+    const W = 300;
+    const H = 80;
+    const pad = 6;
+    const stepX = (W - pad * 2) / (rows.length - 1);
+    const pts = values.map((v, i) => [
+        pad + i * stepX,
+        pad + (H - pad * 2) * (1 - (v - min) / span)
+    ]);
+    const line = pts
+        .map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1))
+        .join(" ");
+    const area = `${line} L ${W - pad} ${H - pad} L ${pad} ${H - pad} Z`;
+    const last = pts[pts.length - 1];
+
+    host.innerHTML = `
+        <div class="pf-mini-head">
+            <span class="ci amber">${PF_ICON_TREND}</span>
+            <h3>HH.EE &mdash; 6 meses</h3>
+            <span class="pf-mini-badge">${fmtHheeHours(values[values.length - 1])} h este mes</span>
+        </div>
+        <svg class="pf-spark" viewBox="0 0 300 80" preserveAspectRatio="none">
+            <defs><linearGradient id="pfSparkGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--yellow)" stop-opacity="0.35"></stop><stop offset="1" stop-color="var(--yellow)" stop-opacity="0"></stop></linearGradient></defs>
+            <path d="${area}" fill="url(#pfSparkGrad)"></path>
+            <path d="${line}" fill="none" stroke="var(--yellow)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+            <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3.4" fill="var(--yellow)"></circle>
+        </svg>
+        <div class="pf-spark-x">${rows.map((r) => `<span>${r.label}</span>`).join("")}</div>
+    `;
+}
+
+function renderProfileTurnosCard(profile) {
+    const host = document.getElementById("profileTurnosCard");
+    if (!host) return;
+
+    const creating = profileDraft.mode === PROFILE_MODE.CREATE;
+    if (!profile || creating) {
+        host.innerHTML = `
+            <div class="pf-mini-head"><span class="ci teal">${PF_ICON_MOON}</span><h3>Turnos del mes</h3></div>
+            <div class="pf-empty">Guarda el perfil para ver los turnos.</div>
+        `;
+        return;
+    }
+
+    const y = currentDate.getFullYear();
+    const m = currentDate.getMonth();
+    const days = new Date(y, m + 1, 0).getDate();
+    let diurnos = 0;
+    let noches = 0;
+    let libres = 0;
+    for (let day = 1; day <= days; day++) {
+        const code = Number(getProfileRotationState(profile.name, `${y}-${m}-${day}`)) || 0;
+        if (code === 0) libres += 1;
+        else if (code === 2) noches += 1;
+        else diurnos += 1;
+    }
+    const max = Math.max(1, diurnos, noches, libres);
+    const bar = (value, color) =>
+        `<div class="bar"><i style="width:${Math.round((value / max) * 100)}%;background:${color}"></i></div>`;
+
+    host.innerHTML = `
+        <div class="pf-mini-head"><span class="ci teal">${PF_ICON_MOON}</span><h3>Turnos del mes</h3></div>
+        <div class="pf-tdist">
+            <div class="seg">${bar(diurnos, "var(--pf-diurna)")}<div class="n" style="color:var(--pf-diurna)">${diurnos}</div><div class="t">Diurnos</div></div>
+            <div class="seg">${bar(noches, "var(--pf-nocturna)")}<div class="n" style="color:var(--pf-nocturna)">${noches}</div><div class="t">Noches</div></div>
+            <div class="seg">${bar(libres, "var(--pf-libre)")}<div class="n" style="color:var(--pf-libre)">${libres}</div><div class="t">Libres</div></div>
+        </div>
+    `;
+}
+
+function exportProfileFichaPdf() {
+    const profile = getPerfilActual();
+    const data = getDisplayedProfileData();
+    if (!profile || !data.name) return;
+
+    const age = pfAge(data.birthDate);
+    const sen = pfSeniority(data.unitEntryDate);
+    const rotationLabel = data.rotation
+        ? (PF_ROTATION_LABEL[data.rotation] || data.rotation)
+        : "—";
+    const row = (label, value) =>
+        `<tr><th>${escapeHTML(label)}</th><td>${escapeHTML(value || "—")}</td></tr>`;
+
+    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
+        <title>Ficha ${escapeHTML(data.name)}</title>
+        <style>
+            body{font-family:"Segoe UI",system-ui,sans-serif;color:#1b2536;margin:28px;}
+            h1{font-size:20px;margin:0 0 2px;}
+            .sub{color:#66738a;font-size:12px;margin:0 0 18px;}
+            h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#1f63c7;margin:18px 0 6px;border-bottom:1px solid #e6ebf4;padding-bottom:4px;}
+            table{width:100%;border-collapse:collapse;font-size:12.5px;}
+            th{text-align:left;width:190px;color:#66738a;font-weight:600;padding:4px 8px 4px 0;vertical-align:top;}
+            td{padding:4px 0;}
+            @media print{body{margin:12mm;}}
+        </style></head><body>
+        <h1>${escapeHTML(data.name)}</h1>
+        <p class="sub">Ficha del trabajador &middot; generada ${new Date().toLocaleDateString("es-CL")}</p>
+        <h2>Datos personales</h2>
+        <table>
+            ${row("RUT", data.rut)}
+            ${row("Correo", data.email)}
+            ${row("Celular", data.phone ? `+569 ${data.phone}` : "")}
+            ${row("Fecha de nacimiento", data.birthDate)}
+            ${row("Edad", age ? `${age.age} años` : "")}
+        </table>
+        <h2>Datos contractuales</h2>
+        <table>
+            ${row("Tipo de contrato", data.contractType)}
+            ${row("Estamento", data.estamento)}
+            ${row("Profesión", formatProfession(data.profession))}
+            ${row("Grado", data.grade)}
+            ${row("Rotativa", rotationLabel)}
+            ${row("Ingreso a la unidad", data.unitEntryDate)}
+            ${row("Antigüedad", sen ? `${sen.years} años ${sen.months} meses` : "")}
+        </table>
+        </body></html>`;
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 250);
 }
 
 function renderDashboardState() {
@@ -4554,6 +5017,11 @@ function renderDashboardState() {
     DOM.checkbox.disabled = !editing;
     DOM.profileActiveToggle.disabled = !editing;
 
+    const profileActiveRow = document.getElementById("profileActiveRow");
+    if (profileActiveRow) {
+        profileActiveRow.classList.toggle("hidden", !editing);
+    }
+
     if (DOM.profileRotationRow) {
         DOM.profileRotationRow.classList.toggle(
             "hidden",
@@ -4602,6 +5070,54 @@ function renderDashboardState() {
         if (editing) {
             profileDraft.shiftAssigned = false;
         }
+    }
+
+    // Rotativa: mostrar "· desde MM-YYYY" junto al campo y ocultar la nota de
+    // estado en modo ver (salvo honorarios/reemplazo, que llevan info util ahi).
+    const rotationSince = document.getElementById("profileRotationSince");
+    if (rotationSince) {
+        rotationSince.textContent =
+            (!editing && data.rotationStart && data.rotationType && data.rotationType !== "libre")
+                ? `· desde ${pfMonthYear(parseInputDate(data.rotationStart))}`
+                : "";
+    }
+    if (DOM.profileRotationStatus) {
+        DOM.profileRotationStatus.classList.toggle(
+            "hidden",
+            !editing && !isHonorariaContract && !isReplacementContract
+        );
+    }
+
+    // Condiciones como chips (modo ver): se ocultan los toggles y se muestran
+    // los chips; en edicion, al reves (los toggles vuelven segun su logica).
+    const conditionsRow = document.getElementById("profileConditionsRow");
+    const conditionsView = document.getElementById("profileConditionsView");
+    const showConditionChips =
+        !editing &&
+        Boolean(profile) &&
+        profileDraft.mode === PROFILE_MODE.VIEW &&
+        !isHonorariaContract &&
+        !isReplacementContract;
+    if (showConditionChips && conditionsRow && conditionsView) {
+        if (DOM.shiftAssignedRow) DOM.shiftAssignedRow.classList.add("hidden");
+        if (DOM.profileUnionLeaveRow) DOM.profileUnionLeaveRow.classList.add("hidden");
+
+        const chips = [];
+        const assigned = canUseShiftAssignment && Boolean(data.shiftAssigned);
+        chips.push(assigned
+            ? `<span class="pf-cond on">${PF_BTN_CHECK} Asignación de turno</span>`
+            : `<span class="pf-cond off">Sin asignación de turno</span>`);
+        if (!unionLeaveBlocked) {
+            chips.push(`<span class="pf-cond">Permiso gremial: ${data.unionLeaveEnabled ? "sí" : "no"}</span>`);
+        }
+        const valorHora = getValorHora(profile.name);
+        if (valorHora) {
+            chips.push(`<span class="pf-cond">Valor hora <b>$${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(valorHora)}</b></span>`);
+        }
+        conditionsView.innerHTML = chips.join("");
+        conditionsRow.classList.remove("hidden");
+    } else if (conditionsRow) {
+        conditionsRow.classList.add("hidden");
     }
 
     if (DOM.replacementContractEditor) {
@@ -4694,6 +5210,7 @@ function renderDashboardState() {
     }
 
     if (activeView === "profile") {
+        renderProfileHero(profile, data);
         renderProfileDocs(data, editing);
         scheduleProfileSecondarySections(profile, data, editing);
     }
@@ -4708,15 +5225,15 @@ function renderDashboardState() {
             buildEditorHint(profile);
     }
 
-    DOM.openCreateProfileBtn.textContent =
+    DOM.openCreateProfileBtn.innerHTML =
         profileDraft.mode === PROFILE_MODE.CREATE
-            ? "GUARDAR"
-            : "CREAR NUEVO";
+            ? `${PF_BTN_CHECK} Guardar`
+            : `${PF_BTN_PLUS} Nuevo perfil`;
 
-    DOM.openEditProfileBtn.textContent =
+    DOM.openEditProfileBtn.innerHTML =
         profileDraft.mode === PROFILE_MODE.EDIT
-            ? "GUARDAR"
-            : "EDITAR";
+            ? `${PF_BTN_CHECK} Guardar`
+            : `${PF_BTN_PENCIL} Editar`;
 
     DOM.openCreateProfileBtn.disabled =
         !profileCanEdit ||
@@ -4736,9 +5253,9 @@ function renderDashboardState() {
             Boolean(profile) && Boolean(getWorkerAppLinkForProfile(profile));
 
         DOM.workerAppInviteBtn.disabled = !canInviteWorker;
-        DOM.workerAppInviteBtn.textContent = isWorkerLinked
-            ? "ENLAZADO"
-            : "ENLACE APP";
+        DOM.workerAppInviteBtn.innerHTML = isWorkerLinked
+            ? `${PF_BTN_LINK} Enlazado`
+            : `${PF_BTN_LINK} Enlace app`;
         DOM.workerAppInviteBtn.classList.toggle("is-linked", isWorkerLinked);
         DOM.workerAppInviteBtn.title = isWorkerLinked
             ? "El trabajador ya enlazo su app TurnoPlus. Puedes reenviar el enlace."
@@ -10724,6 +11241,15 @@ function bindProfileForm() {
         DOM.workerAppInviteBtn.onclick = () =>
             openWorkerAppInviteDialog(getPerfilActual());
     }
+
+    const profileExportPdfBtn = document.getElementById("profileExportPdfBtn");
+    if (profileExportPdfBtn) {
+        profileExportPdfBtn.onclick = exportProfileFichaPdf;
+    }
+
+    document.querySelectorAll("[data-profile-edit]").forEach(btn => {
+        btn.onclick = () => startEditMode();
+    });
 
     if (DOM.availabilityEditBtn) {
         DOM.availabilityEditBtn.onclick = handleAvailabilityEdit;

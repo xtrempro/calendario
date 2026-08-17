@@ -36,7 +36,7 @@ export const PROFILE_MODE = {
 };
 
 export const PROFILE_BIRTH_DATE_DEFAULT = "2000-01-01";
-export const PROFILE_UNIT_ENTRY_DATE_ENABLED = false;
+export const PROFILE_UNIT_ENTRY_DATE_ENABLED = true;
 
 export function isUnitEntryDateEnabled() {
     return PROFILE_UNIT_ENTRY_DATE_ENABLED;

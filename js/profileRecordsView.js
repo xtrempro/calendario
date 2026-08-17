@@ -53,36 +53,88 @@ export function renderRecordField(field, recordKey) {
     `;
 }
 
+// Campo "principal" (titulo) y campos "secundarios" (subtexto) por tipo de
+// registro, para mostrar cada entrada como fila limpia (fecha | titulo | sub).
+const PF_PRIMARY_FIELD = {
+    academic: "degree",
+    training: "name",
+    diplomas: "name",
+    experience: "institution",
+    events: "detail",
+    merit: "title",
+    demerit: "title",
+    performance: "detail"
+};
+const PF_SECONDARY_FIELDS = {
+    academic: ["institution", "level"],
+    training: ["hours", "grade"],
+    diplomas: ["hours", "grade"],
+    experience: ["role", "functions"],
+    events: [],
+    merit: [],
+    demerit: [],
+    performance: []
+};
+
 /**
- * Tarjeta de una entrada de registro (valores de cada campo + adjunto).
- * @param {{fields: Array<{name: string, label: string, type?: string}>}} config
+ * Fila de una entrada de registro (estilo mockup: fecha + titulo + subtexto).
+ * @param {{key: string, fields: Array<{name: string, label: string, type?: string}>}} config
  * @param {Object} entry
  * @returns {string}
  */
 export function renderRecordEntry(config, entry) {
-    const values = config.fields
-        .map(field => {
-            const value = entry[field.name];
-            const displayValue =
-                field.type === "date" && value
-                    ? formatDisplayDate(value)
-                    : value;
+    const typeByName = {};
+    config.fields.forEach(field => {
+        typeByName[field.name] = field.type;
+    });
 
-            return `
-                <span>
-                    <strong>${field.label}:</strong>
-                    ${escapeHTML(displayValue || "Sin dato")}
-                </span>
-            `;
-        })
-        .join("");
+    const fmt = name => {
+        let value = entry[name];
+        if (!value) return "";
+        if (typeByName[name] === "date") value = formatDisplayDate(value);
+        if (name === "hours") value = `${value} h`;
+        return String(value);
+    };
+
+    const primaryName =
+        PF_PRIMARY_FIELD[config.key] ||
+        config.fields.find(field => field.type !== "date")?.name ||
+        config.fields[0]?.name;
+    const primary = fmt(primaryName) || "Sin dato";
+    const secondary = (PF_SECONDARY_FIELDS[config.key] || [])
+        .map(fmt)
+        .filter(Boolean)
+        .join(" · ");
+
+    const startYear = String(entry.start || entry.date || "").slice(0, 4);
+    let dateHTML;
+    if (config.key === "experience" && entry.start && entry.end) {
+        dateHTML =
+            `${escapeHTML(startYear)}<br>${escapeHTML(String(entry.end).slice(0, 4))}`;
+    } else {
+        dateHTML = escapeHTML(startYear || "—");
+    }
+
+    const tag = config.key === "merit"
+        ? `<span class="pf-tag g">+ Mérito</span>`
+        : config.key === "demerit"
+            ? `<span class="pf-tag r">− Demérito</span>`
+            : "";
+    const rowClass = config.key === "merit"
+        ? " merit"
+        : config.key === "demerit"
+            ? " demerit"
+            : "";
 
     return `
-        <article class="record-item">
-            <div class="record-item__values">
-                ${values}
+        <article class="pf-rec-item${rowClass}">
+            <span class="pf-rec-date">${dateHTML}</span>
+            <div class="pf-rec-body">
+                <b>${escapeHTML(primary)}</b>
+                ${secondary ? `<small>${escapeHTML(secondary)}</small>` : ""}
+                ${renderAttachmentName(entry)}
             </div>
-            ${renderAttachmentName(entry)}
+            ${tag}
         </article>
     `;
 }

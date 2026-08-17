@@ -275,12 +275,45 @@
             </section>
 
         <main class="dashboard">
-            <div class="profile-view-layout">
+            <div class="profile-view-layout pf-v2">
+                <section id="profileHero" class="panel pf-hero">
+                    <div class="pf-av" id="profileHeroAvatar">&ndash;</div>
+                    <div class="pf-hero-main">
+                        <h1 class="pf-hero-name">
+                            <span id="profileHeroName">Selecciona un trabajador</span>
+                            <button id="profileSearchBtn" class="profile-name-search" type="button" aria-label="Buscar trabajador" title="Buscar trabajador">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+                            </button>
+                        </h1>
+                        <p class="pf-hero-sub" id="profileHeroSub"></p>
+                        <div class="pf-pills" id="profileHeroPills"></div>
+                    </div>
+                    <div class="pf-hero-actions">
+                        <div class="pf-hero-btns">
+                            <button id="openCreateProfile" class="primary-button pf-btn" type="button">CREAR NUEVO</button>
+                            <button id="openEditProfile" class="secondary-button pf-btn" type="button">EDITAR</button>
+                            <button id="workerAppInviteBtn" class="secondary-button pf-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"></path><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"></path></svg> Enlace app</button>
+                            <button id="profileExportPdfBtn" class="secondary-button pf-btn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg> Ficha PDF</button>
+                        </div>
+                        <label class="inline-toggle profile-active-toggle pf-active hidden" id="profileActiveRow">
+                            <span>Perfil activo</span>
+                            <span class="toggle-check">
+                                <input id="profileActiveToggle" type="checkbox" checked>
+                            </span>
+                        </label>
+                    </div>
+                </section>
+
+                <section id="profileKpis" class="pf-kpis"></section>
+
                 <section class="panel overview-card" id="profileSection">
                 <div class="profile-layout">
                     <section class="profile-area profile-area--personal">
-                        <div class="section-head">
-                            <h3>Datos Personales</h3>
+                        <div class="section-head pf-card-head">
+                            <span class="pf-card-ico blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path></svg></span>
+                            <h3>Datos personales</h3>
+                            <span class="pf-card-spacer"></span>
+                            <button type="button" class="pf-edit-link" data-profile-edit>Editar</button>
                         </div>
 
                         <div class="profile-form-grid">
@@ -288,12 +321,6 @@
                                 <span class="metric-label">Nombre:</span>
                                 <span class="profile-name-cell">
                                     <input id="profileNameField" type="text" placeholder="Nombre del trabajador">
-                                    <button id="profileSearchBtn" class="profile-name-search" type="button" aria-label="Buscar trabajador" title="Buscar trabajador">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                                            <circle cx="11" cy="11" r="7"></circle>
-                                            <path d="M21 21l-4.35-4.35"></path>
-                                        </svg>
-                                    </button>
                                 </span>
                             </label>
 
@@ -337,44 +364,31 @@
                         <div id="profileDocsList" class="attachment-list"></div>
                     </section>
 
-                    <div class="profile-side-column">
-                        <section class="profile-area profile-actions-card">
-                            <div class="overview-actions">
-                                <button id="openCreateProfile" class="primary-button" type="button">CREAR NUEVO</button>
-                                <button id="openEditProfile" class="secondary-button" type="button">EDITAR</button>
-                                <button id="workerAppInviteBtn" class="secondary-button" type="button">ENLACE APP</button>
-                            </div>
-
-                            <label class="inline-toggle profile-active-toggle">
-                                <span>
-                                    Perfil activo
-                                </span>
-                                <span class="toggle-check">
-                                    <input id="profileActiveToggle" type="checkbox" checked>
-                                </span>
-                            </label>
-                        </section>
-                    </div>
-
+                    <div class="pf-col-right">
                     <section id="profileAvailabilityCard" class="profile-area availability-panel profile-availability-card">
-                        <div class="section-head">
-                            <span class="section-icon tone-blue">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <div class="section-head pf-card-head">
+                            <span class="pf-card-ico green">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
                                     <rect x="3" y="4" width="18" height="18" rx="3"></rect>
-                                    <line x1="16" y1="2.5" x2="16" y2="6"></line>
-                                    <line x1="8" y1="2.5" x2="8" y2="6"></line>
-                                    <line x1="3" y1="10" x2="21" y2="10"></line>
+                                    <path d="M16 2v4M8 2v4M3 10h18"></path>
                                 </svg>
                             </span>
-                            <h3>Vacaciones Disponibles</h3>
+                            <h3>Vacaciones</h3>
                         </div>
 
                         <div id="availabilitySummary"></div>
                     </section>
 
+                    <section id="profileHheeCard" class="profile-area pf-mini-card"></section>
+                    <section id="profileTurnosCard" class="profile-area pf-mini-card"></section>
+                    </div>
+
                     <section class="profile-area profile-area--contract">
-                        <div class="section-head">
-                            <h3>Datos Contractuales</h3>
+                        <div class="section-head pf-card-head">
+                            <span class="pf-card-ico purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M9 12h6M9 16h4"></path></svg></span>
+                            <h3>Datos contractuales</h3>
+                            <span class="pf-card-spacer"></span>
+                            <button type="button" class="pf-edit-link" data-profile-edit>Editar</button>
                         </div>
 
                         <div class="profile-form-grid">
@@ -459,14 +473,22 @@
                             <span id="profileRotationAnchor" hidden></span>
                             <label id="profileRotationRow" class="metric-row metric-row--field">
                                 <span class="metric-label">Rotativa:</span>
-                                <select id="profileRotationField">
-                                    <option value="">Seleccionar</option>
-                                    <option value="3turno">3er Turno</option>
-                                    <option value="4turno">4&#176; Turno</option>
-                                    <option value="diurno">Diurno</option>
-                                    <option value="libre" hidden disabled>Libre</option>
-                                </select>
+                                <span class="pf-rotativa-value">
+                                    <select id="profileRotationField">
+                                        <option value="">Seleccionar</option>
+                                        <option value="3turno">3er Turno</option>
+                                        <option value="4turno">4&#176; Turno</option>
+                                        <option value="diurno">Diurno</option>
+                                        <option value="libre" hidden disabled>Libre</option>
+                                    </select>
+                                    <span id="profileRotationSince" class="pf-since"></span>
+                                </span>
                             </label>
+
+                            <div id="profileConditionsRow" class="metric-row metric-row--field pf-full hidden">
+                                <span class="metric-label">Condiciones:</span>
+                                <div id="profileConditionsView" class="pf-conditions"></div>
+                            </div>
 
                         </div>
 
@@ -508,16 +530,29 @@
                                 La rotativa se aplicar&aacute; &uacute;nicamente dentro de la vigencia de un contrato.
                             </div>
                         </div>
+                    </section>
 
-                        <div id="profileContractHistory" class="contract-history-panel"></div>
+                    <section class="profile-area profile-area--leave" id="profileLeaveCard">
+                        <div id="profileLeaveHistory"></div>
                     </section>
 
                     <section class="profile-area profile-area--records">
-                        <div class="section-head">
+                        <div class="section-head pf-card-head">
+                            <span class="pf-card-ico teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></span>
                             <h3>Registros RRHH</h3>
+                            <span class="pf-card-spacer"></span>
+                            <span class="pf-rec-total" id="profileRecordsTotal"></span>
                         </div>
 
                         <div id="profileRecordsPanel" class="profile-records-grid"></div>
+                    </section>
+
+                    <section class="profile-area profile-area--history">
+                        <div class="section-head pf-card-head">
+                            <span class="pf-card-ico purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"></path><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"></path><path d="M12 7v5l3 2"></path></svg></span>
+                            <h3>Historial RRHH</h3>
+                        </div>
+                        <div id="profileContractHistory" class="contract-history-panel"></div>
                     </section>
 
                     <div id="staffingMedicalChart" class="profile-medical-chart"></div>
