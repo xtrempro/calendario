@@ -534,6 +534,13 @@ service cloud.firestore {
         allow update, delete: if isOwner(workspaceId);
       }
 
+      // Tablero Kanban privado por usuario (respaldo del tablero local). Solo el
+      // propio usuario, miembro del entorno, lee/escribe su documento.
+      match /kanbanBoards/{userId} {
+        allow read, write: if isMember(workspaceId) &&
+          request.auth.uid == userId;
+      }
+
       match /supervisorInvites/{inviteId} {
         allow get: if isOwner(workspaceId) ||
           (

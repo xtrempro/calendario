@@ -1,7 +1,7 @@
 import { stripAccents } from "./stringUtils.js";
 import { escapeHTML } from "./htmlUtils.js";
-import { getJSON, setJSON } from "./persistence.js";
-import { getCurrentFirebaseUser } from "./firebaseClient.js";
+import { getJSON, setJSON, getRaw } from "./persistence.js";
+import { getCurrentFirebaseUser, getFirebaseServices } from "./firebaseClient.js";
 import { getActiveWorkspace } from "./workspaces.js";
 import { showConfirm } from "./dialogs.js";
 
@@ -88,7 +88,110 @@ function getCards() {
 }
 
 function saveCards(cards) {
-    setJSON(getKanbanStorageKey(), cards.map(normalizeCard));
+    const normalized = cards.map(normalizeCard);
+
+    setJSON(getKanbanStorageKey(), normalized);
+    persistKanbanToFirebase(normalized);
+}
+
+// --- Respaldo por usuario en Firebase --------------------------------------
+// El tablero es privado por usuario (la clave local incluye el uid), por eso NO
+// viaja en el sync de estado del entorno (que es compartido). Se respalda en un
+// documento propio: workspaces/{id}/kanbanBoards/{uid}, que solo ese usuario
+// puede leer/escribir (ver firebase.rules).
+
+let kanbanHydratedKey = "";
+let kanbanHydrateInFlight = "";
+
+async function kanbanBoardRef() {
+    const user = getCurrentFirebaseUser();
+    const workspace = getActiveWorkspace();
+
+    if (!user?.uid || !workspace?.id) return null;
+
+    const { db, firestoreModule } = await getFirebaseServices();
+
+    return {
+        firestoreModule,
+        ref: firestoreModule.doc(
+            db,
+            "workspaces",
+            workspace.id,
+            "kanbanBoards",
+            user.uid
+        )
+    };
+}
+
+async function persistKanbanToFirebase(cards) {
+    try {
+        const board = await kanbanBoardRef();
+        if (!board) return;
+
+        await board.firestoreModule.setDoc(board.ref, {
+            cards: cards.map(normalizeCard),
+            updatedAt: board.firestoreModule.serverTimestamp(),
+            updatedAtISO: new Date().toISOString()
+        });
+    } catch (error) {
+        // Best-effort: el cambio ya quedo en localStorage; se re-subira en el
+        // proximo guardado o al re-montar el tablero.
+    }
+}
+
+async function hydrateKanbanFromFirebase() {
+    const user = getCurrentFirebaseUser();
+    const workspace = getActiveWorkspace();
+
+    if (!user?.uid || !workspace?.id) return false;
+
+    const storageKey = getKanbanStorageKey();
+
+    // Se hidrata una sola vez por entorno/usuario; luego manda el cache local
+    // (que ya se respalda en cada guardado). Se rehidrata al cambiar de
+    // entorno/usuario (cambia la storageKey).
+    if (kanbanHydratedKey === storageKey || kanbanHydrateInFlight === storageKey) {
+        return false;
+    }
+
+    kanbanHydrateInFlight = storageKey;
+
+    try {
+        const board = await kanbanBoardRef();
+        if (!board) return false;
+
+        const snap = await board.firestoreModule.getDoc(board.ref);
+        kanbanHydratedKey = storageKey;
+
+        if (snap.exists()) {
+            const remote = Array.isArray(snap.data()?.cards)
+                ? snap.data().cards.map(normalizeCard)
+                : [];
+            const nextRaw = JSON.stringify(remote);
+
+            if (getRaw(storageKey, "") !== nextRaw) {
+                setJSON(storageKey, remote);
+                return true;
+            }
+
+            return false;
+        }
+
+        // Aun no hay respaldo: subir el tablero local actual (respaldo inicial /
+        // migracion desde localStorage).
+        const local = getCards();
+        if (local.length) {
+            await persistKanbanToFirebase(local);
+        }
+
+        return false;
+    } catch (error) {
+        // Sin conexion / permisos: se usa el cache local y se reintenta al
+        // re-montar el tablero.
+        return false;
+    } finally {
+        kanbanHydrateInFlight = "";
+    }
 }
 
 function migrateLocalKanbanIfNeeded(storageKey) {
@@ -462,4 +565,16 @@ export function renderKanbanBoard() {
 
     root.innerHTML = renderShell(getCards());
     bindKanbanEvents(root);
+
+    // Traer el respaldo del usuario desde Firebase (una vez por entorno/usuario)
+    // y re-render si el remoto difiere del cache local.
+    hydrateKanbanFromFirebase().then((changed) => {
+        if (!changed) return;
+
+        const node = document.getElementById("kanbanPanel");
+        if (!node) return;
+
+        node.innerHTML = renderShell(getCards());
+        bindKanbanEvents(node);
+    });
 }
