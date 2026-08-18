@@ -890,8 +890,12 @@ function scheduleOcrStatusLabel(ocr) {
 
     if (status === "completed") {
         const count = Number(ocr?.textLength || ocr?.text?.length || 0);
+        const words = Array.isArray(ocr?.words) ? ocr.words.length : 0;
+        const wordsPart = words ? ` · ${words} palabras` : " · sin coordenadas";
 
-        return count ? `OCR listo (${count})` : "OCR listo";
+        return count
+            ? `OCR listo (${count}${wordsPart})`
+            : `OCR listo${wordsPart}`;
     }
 
     if (status === "empty") return "OCR sin texto";
