@@ -17023,3 +17023,7 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 .pf-v2 .pf-cond.off { background: var(--panel-alt); color: var(--text-muted); }
 .pf-v2 .pf-cond b { color: var(--text); }
 .pf-v2 .pf-cond svg { width: 14px; height: 14px; }
+
+/* Boton "Actualizar" (topbar): icono girando mientras recarga */
+.icon-button.is-spinning svg { animation: app-reload-spin 0.8s linear infinite; }
+@keyframes app-reload-spin { to { transform: rotate(360deg); } }

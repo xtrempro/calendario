@@ -12612,6 +12612,36 @@ initSelfTestButton();
 
 registerSupervisorServiceWorker();
 
+// Boton "Actualizar": desregistra el service worker, limpia las caches y recarga
+// para traer la ultima version desplegada (evita el cache viejo del SW).
+const appReloadBtn = document.getElementById("appReloadBtn");
+if (appReloadBtn) {
+    appReloadBtn.onclick = async () => {
+        appReloadBtn.disabled = true;
+        appReloadBtn.classList.add("is-spinning");
+
+        try {
+            if (navigator.serviceWorker?.getRegistrations) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(
+                    regs.map(reg => reg.unregister().catch(() => {}))
+                );
+            }
+        } catch (error) { /* sin SW: se ignora */ }
+
+        try {
+            if (window.caches?.keys) {
+                const keys = await caches.keys();
+                await Promise.all(
+                    keys.map(key => caches.delete(key).catch(() => {}))
+                );
+            }
+        } catch (error) { /* sin Cache API: se ignora */ }
+
+        window.location.reload();
+    };
+}
+
 initTurnosSidePanelSync();
 initSystemSettings({
     button: DOM.systemSettingsBtn,
