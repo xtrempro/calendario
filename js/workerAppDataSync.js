@@ -2960,10 +2960,13 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
     const updatedAt = new Date().toISOString();
     const serverUpdatedAt = firestoreModule.serverTimestamp();
 
-    // El adjunto lleva la geometria del OCR (words), asi que el doc por
-    // trabajador puede pesar decenas de KB. Como el mismo payload se escribe en
-    // TODOS los docs, se ajusta el tamano de lote para no superar el limite de
-    // ~10 MB por commit de Firestore.
+    // El adjunto lleva la geometria del OCR (words = cientos de numeros), y el
+    // MISMO payload se escribe en TODOS los docs de trabajador. Firestore cuenta
+    // el commit MUCHO mas grande que el JSON (cada x/y/w/h se codifica como
+    // double de 8 bytes, mas nombres de campo y ruta por documento; observado
+    // ~2.6x). El limite real de commit es 11.534.336 bytes, asi que limitamos
+    // cada lote a ~1.5 MB de JSON: deja margen para un overhead de hasta ~7x.
+    const COMMIT_JSON_BUDGET = 1.5 * 1024 * 1024;
     const approxDocBytes = hasWeeklyPayload
         ? JSON.stringify({
             weeklyScheduleAttachment: currentWeekPayload,
@@ -2972,7 +2975,7 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
         : 200;
     const batchSize = Math.max(
         1,
-        Math.min(400, Math.floor((8 * 1024 * 1024) / Math.max(1, approxDocBytes)))
+        Math.min(200, Math.floor(COMMIT_JSON_BUDGET / Math.max(1, approxDocBytes)))
     );
 
     for (let index = 0; index < linked.length; index += batchSize) {
@@ -3001,7 +3004,19 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
 
             batch.set(docRef, next, { merge: true });
         });
-        await batch.commit();
+        try {
+            await batch.commit();
+        } catch (error) {
+            if (/payload size exceeds/i.test(String(error?.message || ""))) {
+                const perDocKb = Math.round(approxDocBytes / 1024);
+                const err = new Error(
+                    `${error.message} [proyeccion: ${perDocKb}KB/doc x ${batchSize} docs]`
+                );
+                err.code = error.code;
+                throw err;
+            }
+            throw error;
+        }
     }
 
     recordPerformanceEvent("worker-app:publish-schedule-attachment", {

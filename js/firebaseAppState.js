@@ -653,20 +653,50 @@ async function commitPartialStateDocumentsNow(
         );
     });
 
-    await measurePerformance(
-        "firebase-app-state:commit-entries-now",
-        () => batch.commit(),
-        {
-            reason,
-            documentCount: documents.length,
-            moduleIds: Array.from(
-                new Set(documents.map(entry => entry.moduleId))
-            ).join(",")
-        },
-        {
-            asyncThreshold: 120
+    try {
+        await measurePerformance(
+            "firebase-app-state:commit-entries-now",
+            () => batch.commit(),
+            {
+                reason,
+                documentCount: documents.length,
+                moduleIds: Array.from(
+                    new Set(documents.map(entry => entry.moduleId))
+                ).join(",")
+            },
+            {
+                asyncThreshold: 120
+            }
+        );
+    } catch (error) {
+        // Diagnostico: si Firestore rechaza por tamano de payload, adjuntamos
+        // que claves/modulos son los mas pesados para ubicar el origen.
+        if (/payload size exceeds/i.test(String(error?.message || ""))) {
+            const sizes = documents
+                .map(entry => {
+                    let bytes = 0;
+                    try {
+                        bytes = JSON.stringify(
+                            entry.value !== undefined ? entry.value : entry.items || {}
+                        ).length;
+                    } catch (_) {
+                        bytes = -1;
+                    }
+                    return {
+                        key: `${entry.moduleId}/${entry.storageKey}`,
+                        kb: Math.round(bytes / 1024)
+                    };
+                })
+                .sort((a, b) => b.kb - a.kb)
+                .slice(0, 4)
+                .map(item => `${item.key}=${item.kb}KB`)
+                .join(", ");
+            const err = new Error(`${error.message} [top: ${sizes}]`);
+            err.code = error.code;
+            throw err;
         }
-    );
+        throw error;
+    }
 }
 
 export async function flushPendingFirebaseAppStateEntries({
