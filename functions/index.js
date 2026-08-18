@@ -575,6 +575,166 @@ async function automaticScheduleImageOcr(decoded, context = {}) {
   }
 }
 
+const SCHEDULE_MONTHS_ES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+];
+
+const SCHEDULE_TEXT_NORM = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+
+// Modelo de hoja para el parser (celdas por dirección + rangos combinados).
+// cell.text da el texto ya formateado (no el objeto crudo de valor).
+function worksheetToScheduleSheetModel(ws) {
+  const cells = {};
+
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const text = cell.text;
+      if (text != null && String(text).trim() !== "") {
+        cells[cell.address] = String(text);
+      }
+    });
+  });
+
+  return {
+    cells,
+    merges: (ws.model && ws.model.merges) || [],
+    maxRow: ws.rowCount || 0,
+    maxCol: ws.columnCount || 0
+  };
+}
+
+// Elige la hoja de la semana pedida (por día + mes en el título, p. ej.
+// "17 AL 23 DE AGOSTO"). Si el libro trae una sola hoja, la usa; si no hay
+// coincidencia, cae a la última con datos (la más reciente).
+function pickScheduleWorksheet(workbook, weekStartISO) {
+  const sheets = (workbook.worksheets || []).filter(
+    (ws) => ws && (ws.rowCount || 0) > 1
+  );
+
+  if (!sheets.length) return null;
+  if (sheets.length === 1) return sheets[0];
+
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(weekStartISO || ""));
+  if (m) {
+    const day = Number(m[3]);
+    const monthName = SCHEDULE_MONTHS_ES[Number(m[2]) - 1] || "";
+    const dayRe = new RegExp(`(^|\\D)0*${day}(\\D|$)`);
+    const match = sheets.find((ws) => {
+      const t = SCHEDULE_TEXT_NORM(ws.name);
+      return dayRe.test(t) && (!monthName || t.includes(monthName));
+    });
+    if (match) return match;
+  }
+
+  return sheets[sheets.length - 1];
+}
+
+// Publica la programación desde un EXCEL (.xlsx). Reemplazo determinista del OCR
+// de imagen: la hoja de la semana se convierte a la grilla estructurada
+// (scheduleGridFromSheet) que la PWA renderiza tal cual, sin reconstrucción por
+// coordenadas. No usa Storage ni Vision: el grid es autocontenido y viaja en el
+// adjunto publicado.
+exports.uploadScheduleWorkbook = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 120,
+    memory: "512MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para publicar la programacion."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+
+    if (!workspaceId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Selecciona una unidad antes de publicar la programacion."
+      );
+    }
+
+    await requireWorkspaceMember(workspaceId, uid, request.auth.token || {});
+
+    const name = cleanCallableText(request.data?.name || "programacion.xlsx", 180);
+    const dataUrl = String(request.data?.dataUrl || "");
+    const match = dataUrl.match(/^data:([^;,]+)?;base64,(.*)$/s);
+    const base64 = (match ? match[2] : String(request.data?.base64 || ""))
+      .replace(/\s/g, "");
+
+    if (!base64 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64) || base64.length % 4 === 1) {
+      throw new HttpsError("invalid-argument", "No se pudo leer el archivo Excel.");
+    }
+
+    const buffer = Buffer.from(base64, "base64");
+
+    if (!buffer.length || buffer.length > SCHEDULE_ATTACHMENT_MAX_SIZE) {
+      throw new HttpsError("invalid-argument", "El Excel debe pesar hasta 10 MB.");
+    }
+
+    // Firma ZIP ("PK\x03\x04"): un .xlsx es un zip.
+    if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
+      throw new HttpsError(
+        "invalid-argument",
+        "El archivo no es un Excel (.xlsx) valido."
+      );
+    }
+
+    const weekStartISO = cleanCallableText(request.data?.weekStartISO, 32);
+    let grid;
+
+    try {
+      const ExcelJS = require("exceljs");
+      const { scheduleGridFromSheet } = require("./engine/scheduleGridFromSheet.cjs");
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      const ws = pickScheduleWorksheet(workbook, weekStartISO);
+
+      if (!ws) {
+        throw new Error("El Excel no tiene hojas con datos.");
+      }
+
+      grid = scheduleGridFromSheet(worksheetToScheduleSheetModel(ws));
+    } catch (error) {
+      logger.error("uploadScheduleWorkbook: no se pudo parsear el Excel", {
+        message: error?.message,
+        workspaceId
+      });
+      throw new HttpsError(
+        "invalid-argument",
+        "No se pudo leer la programacion del Excel. Revisa el formato de la planilla."
+      );
+    }
+
+    if (!grid || !Array.isArray(grid.rows) || !grid.rows.length) {
+      throw new HttpsError(
+        "invalid-argument",
+        "No se encontraron filas de programacion en el Excel."
+      );
+    }
+
+    return {
+      id: `schedule_${Date.now()}_${randomBytes(6).toString("hex")}`,
+      name,
+      type: "xlsx",
+      mode: "grid",
+      weekStartISO,
+      addedAtISO: new Date().toISOString(),
+      grid
+    };
+  }
+);
+
 exports.uploadScheduleAttachment = onCall(
   {
     enforceAppCheck: ENFORCE_APP_CHECK,
