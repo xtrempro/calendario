@@ -137,7 +137,9 @@ function normalizeScheduleOcr(value) {
         textLength: Number(value.textLength || text.length || 0),
         truncated: value.truncated === true,
         error,
-        words: normalizeScheduleOcrWords(value.words)
+        // OCR obsoleto: el grid del Excel reemplaza la geometría por coordenadas.
+        // No persistir words evita inflar el estado y exceder el límite de commit.
+        words: []
     };
 }
 

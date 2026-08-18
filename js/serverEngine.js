@@ -212,7 +212,11 @@ function normalizePublishedScheduleOcr(value) {
     const status = String(value.status || "").trim();
     const text = String(value.text || "").trim();
     const error = String(value.error || "").trim();
-    const words = normalizePublishedScheduleOcrWords(value.words);
+    // La geometría del OCR (words) quedó obsoleta: el grid del Excel reemplaza la
+    // reconstrucción por coordenadas, y publicar cientos de números por semana en
+    // cada doc excedía el límite de commit de Firestore ("Transaction too big").
+    const words = [];
+    void normalizePublishedScheduleOcrWords;
 
     if (!status && !text && !error && !words.length) return null;
 
