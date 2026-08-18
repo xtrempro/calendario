@@ -130,6 +130,7 @@ const MENU_PERMISSION_KEYS = [
 const SCHEDULE_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
 const SCHEDULE_OCR_MAX_TEXT_LENGTH = 30000;
 const SCHEDULE_OCR_TIMEOUT_MS = 20000;
+const SCHEDULE_OCR_MAX_WORDS = 1200;
 const VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate";
 const SCHEDULE_ATTACHMENT_MODULE_ID = "tasks";
 const SCHEDULE_ATTACHMENT_OWNER_ID = "weekly-schedule";
@@ -397,8 +398,62 @@ function scheduleOcrBaseStatus(status, requestedAtISO) {
     text: "",
     textLength: 0,
     truncated: false,
-    error: ""
+    error: "",
+    // Geometria del OCR: cada palabra con su caja normalizada (0..1000 por eje)
+    // para reconstruir la grilla fila x dia en la PWA. Vacio si no hay layout.
+    words: []
   };
+}
+
+// Extrae las palabras del OCR con su posicion (bounding box) normalizada a
+// 0..1000 en cada eje, a partir de fullTextAnnotation de Vision.
+function extractScheduleOcrWords(annotation) {
+  const page = annotation?.fullTextAnnotation?.pages?.[0];
+  if (!page) return [];
+
+  const pw = Number(page.width) || 0;
+  const ph = Number(page.height) || 0;
+  if (!pw || !ph) return [];
+
+  const norm = (v, size) => {
+    const n = Math.round((Number(v) / size) * 1000);
+    return n < 0 ? 0 : (n > 1000 ? 1000 : n);
+  };
+
+  const words = [];
+  for (const block of page.blocks || []) {
+    for (const para of block.paragraphs || []) {
+      for (const word of para.words || []) {
+        const text = (word.symbols || [])
+          .map((s) => s.text || "")
+          .join("")
+          .trim();
+        if (!text) continue;
+
+        const verts = word.boundingBox?.vertices || [];
+        if (verts.length < 2) continue;
+
+        const xs = verts.map((v) => Number(v.x) || 0);
+        const ys = verts.map((v) => Number(v.y) || 0);
+        const minX = Math.min(...xs);
+        const minY = Math.min(...ys);
+        const maxX = Math.max(...xs);
+        const maxY = Math.max(...ys);
+
+        words.push({
+          t: text.slice(0, 60),
+          x: norm(minX, pw),
+          y: norm(minY, ph),
+          w: norm(maxX - minX, pw),
+          h: norm(maxY - minY, ph)
+        });
+
+        if (words.length >= SCHEDULE_OCR_MAX_WORDS) return words;
+      }
+    }
+  }
+
+  return words;
 }
 
 async function getVisionAuthClient() {
@@ -499,7 +554,8 @@ async function automaticScheduleImageOcr(decoded, context = {}) {
       extractedAtISO: new Date().toISOString(),
       text,
       textLength,
-      truncated: textLength > text.length
+      truncated: textLength > text.length,
+      words: extractScheduleOcrWords(annotation)
     };
   } catch (error) {
     logger.warn("No se pudo ejecutar OCR automatico de programacion.", {

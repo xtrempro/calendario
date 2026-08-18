@@ -93,6 +93,26 @@ function fileExtension(name) {
     return String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
 }
 
+function normalizeScheduleOcrWords(value) {
+    if (!Array.isArray(value)) return [];
+
+    const out = [];
+    for (const word of value) {
+        if (!word || typeof word !== "object") continue;
+        const t = String(word.t || "").slice(0, 60);
+        if (!t) continue;
+        out.push({
+            t,
+            x: Number(word.x) || 0,
+            y: Number(word.y) || 0,
+            w: Number(word.w) || 0,
+            h: Number(word.h) || 0
+        });
+        if (out.length >= 1500) break;
+    }
+    return out;
+}
+
 function normalizeScheduleOcr(value) {
     if (!value || typeof value !== "object") return null;
 
@@ -110,7 +130,8 @@ function normalizeScheduleOcr(value) {
         text,
         textLength: Number(value.textLength || text.length || 0),
         truncated: value.truncated === true,
-        error
+        error,
+        words: normalizeScheduleOcrWords(value.words)
     };
 }
 

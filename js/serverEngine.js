@@ -135,14 +135,35 @@ function normalizePublishedScheduleAttachment(value, fallbackWeekStart = null) {
     };
 }
 
+function normalizePublishedScheduleOcrWords(value) {
+    if (!Array.isArray(value)) return [];
+
+    const out = [];
+    for (const word of value) {
+        if (!word || typeof word !== "object") continue;
+        const t = String(word.t || "").slice(0, 60);
+        if (!t) continue;
+        out.push({
+            t,
+            x: Number(word.x) || 0,
+            y: Number(word.y) || 0,
+            w: Number(word.w) || 0,
+            h: Number(word.h) || 0
+        });
+        if (out.length >= 1500) break;
+    }
+    return out;
+}
+
 function normalizePublishedScheduleOcr(value) {
     if (!value || typeof value !== "object") return null;
 
     const status = String(value.status || "").trim();
     const text = String(value.text || "").trim();
     const error = String(value.error || "").trim();
+    const words = normalizePublishedScheduleOcrWords(value.words);
 
-    if (!status && !text && !error) return null;
+    if (!status && !text && !error && !words.length) return null;
 
     return {
         status: status || (text ? "completed" : "failed"),
@@ -154,7 +175,8 @@ function normalizePublishedScheduleOcr(value) {
         text,
         textLength: Number(value.textLength || text.length || 0),
         truncated: value.truncated === true,
-        error
+        error,
+        words
     };
 }
 
