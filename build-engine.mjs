@@ -24,3 +24,21 @@ await esbuild.build({
 });
 
 console.log("OK: functions/engine/engine.mjs");
+
+// El importador de programación (Excel -> grid) es un módulo puro compartido con
+// el cliente y los tests. Se empaqueta a CJS para que la Cloud Function lo use
+// (require) sin duplicar la lógica. Queda en functions/engine (gitignored) como
+// artefacto de build, igual que engine.mjs.
+await esbuild.build({
+    entryPoints: ["js/scheduleGridFromSheet.js"],
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    target: ["node22"],
+    charset: "utf8",
+    legalComments: "none",
+    outfile: "functions/engine/scheduleGridFromSheet.cjs",
+    logLevel: "info"
+});
+
+console.log("OK: functions/engine/scheduleGridFromSheet.cjs");
