@@ -1330,7 +1330,9 @@ function normalizePublishedScheduleAttachment(value, fallbackWeekStart = null) {
         addedAt: String(value.addedAt || "").trim(),
         updatedAtISO: String(value.updatedAtISO || value.addedAt || "").trim(),
         storagePath,
-        dataUrl,
+        dataUrl: (storagePath || downloadURL || dataUrl.length > 800 * 1024)
+            ? ""
+            : dataUrl,
         downloadURL,
         uploadedByUid: String(value.uploadedByUid || "").trim(),
         mode: ocrText ? "ocr_text" : "image",

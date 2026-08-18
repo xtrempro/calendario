@@ -179,7 +179,12 @@ function normalizeScheduleAttachment(value, weekStart = null) {
         addedAt: String(value.addedAt || "").trim(),
         updatedAtISO: String(value.updatedAtISO || value.addedAt || "").trim(),
         storagePath,
-        dataUrl,
+        // La imagen vive en Storage (storagePath/downloadURL); no persistimos el
+        // base64 porque infla el estado y hace exceder el limite de escritura de
+        // Firestore (~11 MB). Solo se conserva para adjuntos legacy sin Storage.
+        dataUrl: (storagePath || downloadURL || dataUrl.length > 800 * 1024)
+            ? ""
+            : dataUrl,
         downloadURL,
         uploadedByUid: String(value.uploadedByUid || "").trim(),
         mode: "image",
