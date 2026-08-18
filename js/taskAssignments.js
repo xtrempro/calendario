@@ -40,6 +40,12 @@ const SCHEDULE_ATTACHMENT_KEY = "weekly_task_schedule_attachment";
 const SCHEDULE_ATTACHMENTS_KEY = "weekly_task_schedule_attachments";
 const TASK_ASSIGNMENT_PUBLISH_DELAY_MS = 3000;
 const SCHEDULE_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp,.bmp,.heic,.heif";
+const SCHEDULE_WORKBOOK_ACCEPT = ".xlsx";
+const SCHEDULE_WORKBOOK_EXTENSIONS = new Set(["xlsx"]);
+const SCHEDULE_WORKBOOK_TYPES = new Set([
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/octet-stream"
+]);
 const SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS = 1400 * 1024;
 const SCHEDULE_UPLOAD_MAX_WIDTHS = [1800, 1600, 1400, 1200, 1000];
 const SCHEDULE_UPLOAD_JPEG_QUALITIES = [0.9, 0.82, 0.72, 0.62];
@@ -150,6 +156,55 @@ function scheduleWeekLabel(start = currentWeekStart) {
     return `Semana ${formatShortDate(weekStart)} al ${formatShortDate(weekEnd)}`;
 }
 
+// Sanea una celda del grid: string simple o { text, rowSpan } (bloques de fin
+// de semana combinados verticalmente).
+function normalizeScheduleGridCell(cell) {
+    if (cell && typeof cell === "object") {
+        const text = String(cell.text || "").slice(0, 600);
+        const rowSpan = Math.max(1, Math.min(80, Math.round(Number(cell.rowSpan) || 1)));
+        return rowSpan > 1 ? { text, rowSpan } : text;
+    }
+    return String(cell == null ? "" : cell).slice(0, 600);
+}
+
+function normalizeScheduleGridRow(row) {
+    if (!row || typeof row !== "object") return null;
+    const title = String(row.title || "").trim().slice(0, 200);
+    const detail = String(row.detail || "").trim().slice(0, 200);
+
+    if (row.fullWidth) {
+        const fullText = String(row.fullText || "").slice(0, 3000);
+        if (!title && !fullText) return null;
+        return { title, detail, fullWidth: true, fullText };
+    }
+
+    const cells = Array.isArray(row.cells)
+        ? row.cells.map(normalizeScheduleGridCell).slice(0, 12)
+        : [];
+    const hasText = cells.some((c) => (typeof c === "string" ? c : c.text));
+    if (!title && !hasText) return null;
+    return { title, detail, cells };
+}
+
+// Grilla estructurada de la programación (Excel -> grid). Es el reemplazo
+// determinista del OCR: title/días/filas listas para renderizar.
+function normalizeScheduleGrid(value) {
+    if (!value || typeof value !== "object") return null;
+    const days = Array.isArray(value.days)
+        ? value.days.map((d) => String(d || "").trim()).slice(0, 12)
+        : [];
+    const rows = Array.isArray(value.rows)
+        ? value.rows.map(normalizeScheduleGridRow).filter(Boolean).slice(0, 80)
+        : [];
+    if (!rows.length) return null;
+    return {
+        title: String(value.title || "").trim().slice(0, 240),
+        weekLabel: String(value.weekLabel || "").trim().slice(0, 160),
+        days,
+        rows
+    };
+}
+
 function normalizeScheduleAttachment(value, weekStart = null) {
     if (!value || typeof value !== "object") return null;
 
@@ -169,7 +224,9 @@ function normalizeScheduleAttachment(value, weekStart = null) {
         (normalizedWeekStart ? scheduleWeekEndISO(normalizedWeekStart) : "")
     ).trim();
 
-    if (!storagePath && !dataUrl && !downloadURL) return null;
+    const grid = normalizeScheduleGrid(value.grid);
+
+    if (!storagePath && !dataUrl && !downloadURL && !grid) return null;
 
     return {
         id: String(value.id || "").trim(),
@@ -187,15 +244,17 @@ function normalizeScheduleAttachment(value, weekStart = null) {
             : dataUrl,
         downloadURL,
         uploadedByUid: String(value.uploadedByUid || "").trim(),
-        mode: "image",
-        source: "supervisor_image",
+        mode: grid ? "grid" : "image",
+        source: grid ? "supervisor_xlsx" : "supervisor_image",
         weekStartISO,
         weekEndISO,
         weekLabel: String(
             value.weekLabel ||
+            grid?.weekLabel ||
             (normalizedWeekStart ? scheduleWeekLabel(normalizedWeekStart) : "")
         ).trim(),
-        ocr: normalizeScheduleOcr(value.ocr)
+        ocr: normalizeScheduleOcr(value.ocr),
+        grid
     };
 }
 
@@ -281,6 +340,24 @@ function validateScheduleImage(file) {
         !SCHEDULE_IMAGE_EXTENSIONS.has(extension)
     ) {
         throw new Error("La programacion debe adjuntarse como imagen.");
+    }
+
+    return file;
+}
+
+function validateScheduleWorkbook(file) {
+    if (!(file instanceof File)) {
+        throw new Error("Selecciona un archivo Excel (.xlsx).");
+    }
+
+    const type = String(file.type || "").toLowerCase();
+    const extension = fileExtension(file.name);
+
+    if (
+        !SCHEDULE_WORKBOOK_TYPES.has(type) &&
+        !SCHEDULE_WORKBOOK_EXTENSIONS.has(extension)
+    ) {
+        throw new Error("La programacion debe adjuntarse como Excel (.xlsx).");
     }
 
     return file;
@@ -384,6 +461,36 @@ async function createScheduleAttachment(file) {
 
     if (!attachment) {
         throw new Error("No se recibio la URL de la programacion publicada.");
+    }
+
+    return attachment;
+}
+
+// Publica la programación desde un EXCEL: manda el .xlsx a la Cloud Function
+// uploadScheduleWorkbook, que lo convierte al grid estructurado (sin OCR). El
+// attachment resultante lleva `grid` embebido; la PWA lo renderiza tal cual.
+async function createScheduleWorkbookAttachment(file, weekStart = currentWeekStart) {
+    const workspace = getActiveWorkspace();
+    const dataUrl = await readFileAsDataURL(file);
+    const normalizedWeekStart = weekStartMonday(weekStart);
+    const { functions, functionsModule } = await getFirebaseServices();
+    const upload = functionsModule.httpsCallable(
+        functions,
+        "uploadScheduleWorkbook"
+    );
+    const result = await upload({
+        workspaceId: workspace?.id || "",
+        name: file.name || "programacion.xlsx",
+        type: file.type || "",
+        weekStartISO: normalizedWeekStart
+            ? scheduleWeekStartISO(normalizedWeekStart)
+            : "",
+        dataUrl
+    });
+    const attachment = normalizeScheduleAttachment(result.data, weekStart);
+
+    if (!attachment || !attachment.grid) {
+        throw new Error("No se pudo leer la programacion del Excel.");
     }
 
     return attachment;
@@ -2367,22 +2474,26 @@ function openScheduleAttachmentDialog() {
             </div>
             <form data-schedule-attachment-form class="task-schedule-attachment-form">
                 <label class="task-schedule-attachment-field">
-                    <span>Imagen de programaci&oacute;n</span>
-                    <input type="file" name="scheduleImage" accept="${SCHEDULE_IMAGE_ACCEPT}" required>
-                    <small>Formatos aceptados: PNG, JPG, JPEG, GIF, WEBP, BMP, HEIC o HEIF. M&aacute;ximo 10 MB.</small>
+                    <span>Programaci&oacute;n (Excel)</span>
+                    <input type="file" name="scheduleImage" accept="${SCHEDULE_WORKBOOK_ACCEPT}" required>
+                    <small>Formato aceptado: Excel (.xlsx). La tabla se arma sola desde la planilla. M&aacute;ximo 10 MB.</small>
                 </label>
                 ${current ? `
                     <div class="task-schedule-current">
                         <strong>Publicada para esta semana</strong>
                         <span>${escapeHTML(current.name)}</span>
-                        <span class="task-schedule-current__ocr">Estado OCR: ${escapeHTML(scheduleOcrStatusLabel(current.ocr))}</span>
-                        <button class="secondary-button task-schedule-retry-ocr" type="button" data-retry-schedule-ocr>Reintentar OCR</button>
+                        ${current.grid ? `
+                            <span class="task-schedule-current__ocr">Tabla le&iacute;da del Excel &middot; ${current.grid.rows?.length || 0} filas</span>
+                        ` : `
+                            <span class="task-schedule-current__ocr">Estado OCR: ${escapeHTML(scheduleOcrStatusLabel(current.ocr))}</span>
+                            <button class="secondary-button task-schedule-retry-ocr" type="button" data-retry-schedule-ocr>Reintentar OCR</button>
+                        `}
                     </div>
                 ` : ""}
                 <div class="task-assignment-dialog__actions">
                     ${current ? `<button class="ghost-button" type="button" data-remove-schedule-attachment>Quitar semana</button>` : ""}
                     <button class="secondary-button" type="button" data-close-schedule-attachment>Cancelar</button>
-                    <button class="primary-button" type="submit">Publicar imagen</button>
+                    <button class="primary-button" type="submit">Publicar programaci&oacute;n</button>
                 </div>
             </form>
         </section>
@@ -2479,13 +2590,16 @@ function openScheduleAttachmentDialog() {
             const previous = getScheduleAttachment(dialogWeekStart);
 
             try {
-                validateScheduleImage(file);
+                validateScheduleWorkbook(file);
                 submit.disabled = true;
-                submit.textContent = "Publicando y leyendo OCR...";
+                submit.textContent = "Publicando programación...";
 
                 await assertScheduleAttachmentUploadAccess();
 
-                const attachment = await createScheduleAttachment(file);
+                const attachment = await createScheduleWorkbookAttachment(
+                    file,
+                    dialogWeekStart
+                );
 
                 saveScheduleAttachment({
                     ...attachment,

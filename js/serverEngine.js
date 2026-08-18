@@ -89,6 +89,52 @@ function schedulePublicationWeekDate(weekStartISO) {
         : null;
 }
 
+function normalizePublishedScheduleGridCell(cell) {
+    if (cell && typeof cell === "object") {
+        const text = String(cell.text || "").slice(0, 600);
+        const rowSpan = Math.max(1, Math.min(80, Math.round(Number(cell.rowSpan) || 1)));
+        return rowSpan > 1 ? { text, rowSpan } : text;
+    }
+    return String(cell == null ? "" : cell).slice(0, 600);
+}
+
+function normalizePublishedScheduleGridRow(row) {
+    if (!row || typeof row !== "object") return null;
+    const title = String(row.title || "").trim().slice(0, 200);
+    const detail = String(row.detail || "").trim().slice(0, 200);
+
+    if (row.fullWidth) {
+        const fullText = String(row.fullText || "").slice(0, 3000);
+        if (!title && !fullText) return null;
+        return { title, detail, fullWidth: true, fullText };
+    }
+
+    const cells = Array.isArray(row.cells)
+        ? row.cells.map(normalizePublishedScheduleGridCell).slice(0, 12)
+        : [];
+    const hasText = cells.some((c) => (typeof c === "string" ? c : c.text));
+    if (!title && !hasText) return null;
+    return { title, detail, cells };
+}
+
+// Grilla estructurada de la programación (Excel -> grid) que viaja al trabajador.
+function normalizePublishedScheduleGrid(value) {
+    if (!value || typeof value !== "object") return null;
+    const days = Array.isArray(value.days)
+        ? value.days.map((d) => String(d || "").trim()).slice(0, 12)
+        : [];
+    const rows = Array.isArray(value.rows)
+        ? value.rows.map(normalizePublishedScheduleGridRow).filter(Boolean).slice(0, 80)
+        : [];
+    if (!rows.length) return null;
+    return {
+        title: String(value.title || "").trim().slice(0, 240),
+        weekLabel: String(value.weekLabel || "").trim().slice(0, 160),
+        days,
+        rows
+    };
+}
+
 function normalizePublishedScheduleAttachment(value, fallbackWeekStart = null) {
     if (!value || typeof value !== "object") return null;
 
@@ -111,7 +157,9 @@ function normalizePublishedScheduleAttachment(value, fallbackWeekStart = null) {
         (weekStart ? schedulePublicationWeekEndISO(weekStart) : "")
     ).trim();
 
-    if (!storagePath && !dataUrl && !downloadURL) return null;
+    const grid = normalizePublishedScheduleGrid(value.grid);
+
+    if (!storagePath && !dataUrl && !downloadURL && !grid) return null;
 
     return {
         id: String(value.id || "").trim(),
@@ -126,14 +174,15 @@ function normalizePublishedScheduleAttachment(value, fallbackWeekStart = null) {
             : dataUrl,
         downloadURL,
         uploadedByUid: String(value.uploadedByUid || "").trim(),
-        mode: ocrText ? "ocr_text" : "image",
-        source: "supervisor_image",
+        mode: grid ? "grid" : (ocrText ? "ocr_text" : "image"),
+        source: grid ? "supervisor_xlsx" : "supervisor_image",
         weekStartISO,
         weekEndISO,
-        weekLabel: String(value.weekLabel || "").trim(),
+        weekLabel: String(value.weekLabel || grid?.weekLabel || "").trim(),
         ocr,
         ocrText,
-        text: ocrText
+        text: ocrText,
+        grid
     };
 }
 

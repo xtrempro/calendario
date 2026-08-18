@@ -58,7 +58,7 @@ test("Storage Rules conservan limite de 10 MB por objeto", () => {
     assert.doesNotMatch(rules, /request\.resource\.size <= 5 \* 1024 \* 1024/);
 });
 
-test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
+test("la programacion se publica desde Excel (grid) con respaldo de imagen/OCR", () => {
     const source = readFileSync(
         fileURLToPath(new URL("../js/taskAssignments.js", import.meta.url)),
         "utf8"
@@ -79,12 +79,14 @@ test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
     assert.match(source, /function scheduleWeekStartISO/);
     assert.match(source, /function getScheduleAttachments/);
     assert.match(source, /data-task-schedule-attach>Adjuntar Programaci&oacute;n/);
-    assert.match(source, /Formatos aceptados: PNG, JPG, JPEG, GIF, WEBP, BMP, HEIC o HEIF\. M&aacute;ximo 10 MB\./);
-    assert.match(source, /createScheduleAttachment\(file\)/);
-    assert.match(source, /compressedScheduleDataUrl\(file\)/);
-    assert.match(source, /httpsCallable\([\s\S]*"uploadScheduleAttachment"/);
-    assert.match(source, /normalizeScheduleOcr\(value\.ocr\)/);
-    assert.match(source, /Publicando y leyendo OCR/);
+    // La programación se publica desde un EXCEL (.xlsx): la CF lo convierte al
+    // grid estructurado (reemplazo determinista del OCR de imagen).
+    assert.match(source, /Formato aceptado: Excel \(\.xlsx\)/);
+    assert.match(source, /function validateScheduleWorkbook/);
+    assert.match(source, /createScheduleWorkbookAttachment\(\s*file/);
+    assert.match(source, /httpsCallable\([\s\S]*"uploadScheduleWorkbook"/);
+    assert.match(source, /normalizeScheduleGrid\(value\.grid\)/);
+    assert.match(source, /Publicando programación/);
     assert.doesNotMatch(source, /storageFallbackReason/);
     assert.doesNotMatch(source, /inlineScheduleAttachment/);
     assert.match(source, /const attachment = getScheduleAttachment\(weekStart\);[\s\S]*publishWorkerScheduleAttachmentNow\([\s\S]*getScheduleAttachments\(\)[\s\S]*notifyScheduleAttachmentPublication\(attachment, publication/);
@@ -93,6 +95,8 @@ test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
     assert.match(source, /httpsCallable\([\s\S]*"notifyScheduleAttachmentUpdated"/);
     assert.match(source, /action: attachment \? "published" : "removed"/);
     assert.match(functionsSource, /exports\.uploadScheduleAttachment = onCall/);
+    assert.match(functionsSource, /exports\.uploadScheduleWorkbook = onCall/);
+    assert.match(functionsSource, /scheduleGridFromSheet/);
     assert.match(functionsSource, /exports\.notifyScheduleAttachmentUpdated = onCall/);
     assert.match(functionsSource, /automaticScheduleImageOcr\(decoded/);
     assert.match(functionsSource, /DOCUMENT_TEXT_DETECTION/);
@@ -120,14 +124,16 @@ test("la programacion publicada usa Storage de tareas y solo imagenes", () => {
     assert.match(syncSource, /weeklyScheduleAttachments: firestoreModule\.deleteField\(\)/);
     assert.match(syncSource, /downloadURL/);
     assert.match(syncSource, /normalizePublishedScheduleOcr\(value\.ocr\)/);
-    assert.match(syncSource, /mode: ocrText \? "ocr_text" : "image"/);
+    assert.match(syncSource, /normalizePublishedScheduleGrid\(value\.grid\)/);
+    assert.match(syncSource, /mode: grid \? "grid" : \(ocrText \? "ocr_text" : "image"\)/);
     assert.match(syncSource, /ocrText/);
     assert.match(syncSource, /writeBatch\(db\)/);
     assert.match(engineSource, /weeklyScheduleAttachment: getPublishedScheduleAttachment\(/);
     assert.match(engineSource, /weeklyScheduleAttachments/);
     assert.match(engineSource, /downloadURL/);
     assert.match(engineSource, /normalizePublishedScheduleOcr\(value\.ocr\)/);
-    assert.match(engineSource, /mode: ocrText \? "ocr_text" : "image"/);
+    assert.match(engineSource, /normalizePublishedScheduleGrid\(value\.grid\)/);
+    assert.match(engineSource, /mode: grid \? "grid" : \(ocrText \? "ocr_text" : "image"\)/);
     assert.match(engineSource, /ocrText/);
     assert.match(rules, /function allowedScheduleImage\(\)/);
     assert.match(rules, /function isPublishedScheduleAttachment\(moduleId, ownerId, recordId\)/);
