@@ -2958,9 +2958,24 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
     const updatedAt = new Date().toISOString();
     const serverUpdatedAt = firestoreModule.serverTimestamp();
 
-    for (let index = 0; index < linked.length; index += 400) {
+    // El adjunto lleva la geometria del OCR (words), asi que el doc por
+    // trabajador puede pesar decenas de KB. Como el mismo payload se escribe en
+    // TODOS los docs, se ajusta el tamano de lote para no superar el limite de
+    // ~10 MB por commit de Firestore.
+    const approxDocBytes = hasWeeklyPayload
+        ? JSON.stringify({
+            weeklyScheduleAttachment: currentWeekPayload,
+            weeklyScheduleAttachments
+        }).length + 200
+        : 200;
+    const batchSize = Math.max(
+        1,
+        Math.min(400, Math.floor((8 * 1024 * 1024) / Math.max(1, approxDocBytes)))
+    );
+
+    for (let index = 0; index < linked.length; index += batchSize) {
         const batch = firestoreModule.writeBatch(db);
-        linked.slice(index, index + 400).forEach(item => {
+        linked.slice(index, index + batchSize).forEach(item => {
             const docRef = firestoreModule.doc(
                 db,
                 "workspaces",
