@@ -202,6 +202,37 @@ test("un turno 24 h que termina 1 h antes descuenta sobre el extra", async () =>
     );
 });
 
+test("un Diurno extra con salida 1 h antes vale 8,8 - 1 = 7,8", async () => {
+    const result = await surfaces({
+        [`baseData_${NAME}`]: { [dayKey(31)]: TURNO.LIBRE },
+        [`data_${NAME}`]: { [dayKey(31)]: TURNO.DIURNO },
+        ...withMark(31, "diurno", { exitTime: "16:00" })
+    });
+
+    // El panel lleva el detalle exacto: 8,8 del turno y -1 del descuento.
+    assert.deepEqual(result.panel, { d: 7.8, n: 0 });
+    // El motor redondea las HH.EE del mes al medio punto (7,8 -> 8). Lo que NO
+    // puede volver a pasar es el resultado anterior, 9 diurnas + 3 nocturnas:
+    // con marcaje se medía el Diurno contra su horario real (08:00-17:00 = 9 h)
+    // en vez de las 8,8, y ademas se arrastraba una Noche que el turno no tenia
+    // -getWorkedIntervalsForState con TURNO.NOCHE devuelve el horario completo
+    // si no hay marca de ese segmento-, sumando 20:00-24:00 inventadas.
+    assert.deepEqual(result.motor, { d: 8, n: 0 });
+    assert.deepEqual(result.pwa, { d: 8, n: 0 });
+});
+
+test("un Diurno+Noche extra si mide su parte nocturna", async () => {
+    // El caso que la rama con marcaje SI tenia que cubrir: aqui la Noche existe
+    // de verdad, asi que sus horas cuentan (20:00-24:00 dentro del mes).
+    const result = await surfaces({
+        [`baseData_${NAME}`]: { [dayKey(31)]: TURNO.LIBRE },
+        [`data_${NAME}`]: { [dayKey(31)]: TURNO.DIURNO_NOCHE },
+        ...withMark(31, "diurno", { exitTime: "16:00" })
+    });
+
+    assert.equal(result.motor.n > 0, true, "la parte nocturna real no se pierde");
+});
+
 test("un dia con permiso aprobado no genera descuento aunque haya marcaje", async () => {
     // Las horas no trabajadas ya estan justificadas por el feriado legal.
     assertAgree(

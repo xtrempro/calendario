@@ -25,6 +25,8 @@ import {
 import { getJSON } from "./persistence.js";
 import {
     getWorkedIntervalsForState,
+    getClockDeficitHours,
+    getClockExtraHours,
     getClockScheduleState,
     getScheduledSegmentsForProfile,
     hasClockMark
@@ -947,6 +949,70 @@ function calculateDiurnoExtras(
     return extras;
 }
 
+// Aporte de una jornada diurna EXTRA (un Diurno montado sobre un dia que la
+// rotativa base no cubre) y los intervalos nocturnos que quedan por medir.
+//
+// La jornada vale HORA_BASE_DIARIA con marcaje o sin el; el reloj solo suma lo
+// trabajado de mas y resta lo programado que no se trabajo, que es la misma
+// formula del reporte y del panel de registros.
+//
+// Antes, con marcaje, se tomaba el intervalo real del Diurno (08:00-17:00 = 9 h
+// en vez de 8,8) y ademas se arrastraba una Noche que el turno no tenia:
+// getWorkedIntervalsForState con TURNO.NOCHE devuelve el horario nocturno
+// COMPLETO cuando no hay marca de ese segmento, asi que un Diurno extra suelto
+// sumaba 20:00-24:00 de horas inventadas (1 diurna + 3 nocturnas).
+function diurnoExtraContribution(
+    nombre,
+    keyDay,
+    date,
+    actualState,
+    holidays
+) {
+    const hours = { d: HORA_BASE_DIARIA, n: 0 };
+    const nightIntervals = intervalsWithoutDiurnoComponent(
+        date,
+        actualState,
+        holidays
+    );
+
+    if (!hasClockMark(nombre, keyDay)) {
+        return { hours, nightIntervals };
+    }
+
+    const extra = getClockExtraHours(
+        nombre,
+        keyDay,
+        date,
+        TURNO.DIURNO,
+        holidays
+    );
+    const deficit = getClockDeficitHours(
+        nombre,
+        keyDay,
+        date,
+        TURNO.DIURNO,
+        holidays
+    );
+
+    hours.d += (Number(extra.d) || 0) - (Number(deficit.d) || 0);
+    hours.n += (Number(extra.n) || 0) - (Number(deficit.n) || 0);
+
+    return {
+        hours,
+        // La parte nocturna solo se mide contra el reloj si el turno realizado
+        // efectivamente la tiene (Diurno+Noche, Turno 18).
+        nightIntervals: nightIntervals.length
+            ? getWorkedIntervalsForState(
+                nombre,
+                keyDay,
+                date,
+                TURNO.NOCHE,
+                holidays
+            )
+            : []
+    };
+}
+
 function calculateAssignedExtras(
     nombre,
     y,
@@ -993,37 +1059,16 @@ function calculateAssignedExtras(
             !usesPartialDayCoverageState(actualState);
 
         if (hasExtraDiurno) {
-            if (hasClockMark(nombre, keyDay)) {
-                addHours(
-                    extras,
-                    classifyIntervals(
-                        getWorkedIntervalsForState(
-                            nombre,
-                            keyDay,
-                            date,
-                            TURNO.DIURNO,
-                            holidays
-                        ),
-                        holidays,
-                        rangeStart,
-                        rangeEnd
-                    )
-                );
-                actualIntervals = getWorkedIntervalsForState(
-                    nombre,
-                    keyDay,
-                    date,
-                    TURNO.NOCHE,
-                    holidays
-                );
-            } else {
-                extras.d += HORA_BASE_DIARIA;
-                actualIntervals = intervalsWithoutDiurnoComponent(
-                    date,
-                    actualState,
-                    holidays
-                );
-            }
+            const diurno = diurnoExtraContribution(
+                nombre,
+                keyDay,
+                date,
+                actualState,
+                holidays
+            );
+
+            addHours(extras, diurno.hours);
+            actualIntervals = diurno.nightIntervals;
         }
 
         const baseIntervals = intervalsForState(
@@ -1329,42 +1374,16 @@ function calculateAssignedExtraSegments(
             !usesPartialDayCoverageState(actualState);
 
         if (hasExtraDiurno) {
-            if (hasClockMark(nombre, keyDay)) {
-                pushPaymentSegment(
-                    segments,
-                    keyDay,
-                    classifyIntervals(
-                        getWorkedIntervalsForState(
-                            nombre,
-                            keyDay,
-                            date,
-                            TURNO.DIURNO,
-                            holidays
-                        ),
-                        holidays,
-                        rangeStart,
-                        rangeEnd
-                    )
-                );
-                actualIntervals = getWorkedIntervalsForState(
-                    nombre,
-                    keyDay,
-                    date,
-                    TURNO.NOCHE,
-                    holidays
-                );
-            } else {
-                pushPaymentSegment(
-                    segments,
-                    keyDay,
-                    { d: HORA_BASE_DIARIA, n: 0 }
-                );
-                actualIntervals = intervalsWithoutDiurnoComponent(
-                    date,
-                    actualState,
-                    holidays
-                );
-            }
+            const diurno = diurnoExtraContribution(
+                nombre,
+                keyDay,
+                date,
+                actualState,
+                holidays
+            );
+
+            pushPaymentSegment(segments, keyDay, diurno.hours);
+            actualIntervals = diurno.nightIntervals;
         }
 
         const baseIntervals = intervalsForState(
