@@ -7155,6 +7155,31 @@ body.auth-gate-active .app-shell {
     line-height: 1.25;
 }
 
+/* Cubrir una noche cuando al dia siguiente entra por la mañana: encadena la
+   jornada sin dormir. No se bloquea, se advierte. */
+.replacement-candidate-next-shift {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(180, 83, 9, 0.16);
+    color: #b45309;
+    font-weight: 800;
+}
+
+.replacement-candidate--next-day-shift {
+    background: rgba(250, 204, 21, 0.13);
+    border-color: rgba(180, 83, 9, 0.38);
+}
+
+.replacement-candidate--next-day-shift:hover:not(:disabled) {
+    background: rgba(250, 204, 21, 0.2);
+}
+
+body.theme-light .replacement-candidate--next-day-shift {
+    background: rgba(250, 204, 21, 0.22);
+}
+
 body.theme-light .replacement-candidate-warning {
     color: #64748b !important;
 }

@@ -3979,6 +3979,15 @@ function replacementCandidateWarning(candidate) {
         "El trabajador solicito no hacer reemplazos ni cambios de turno en esta fecha.";
 }
 
+// Aviso corto que va pegado al estado del candidato ("Segundo libre", "Diurno").
+function candidateNextDayShiftNote(candidate) {
+    const turn = Number(candidate?.nextDayMorningShift) || TURNO.LIBRE;
+
+    if (!turn) return "";
+
+    return `Al día siguiente tiene turno ${turnoReplacementLabel(turn)}.`;
+}
+
 function replacementCoverageFromDataset(dataset = {}) {
     const coverage = {};
     const hasCustomOvertime =
@@ -4048,6 +4057,46 @@ function replacementTurnIncludesNight(turn) {
         value === TURNO.DIURNO_NOCHE ||
         value === TURNO.TURNO18
     );
+}
+
+// Turnos que ENTRAN por la mañana (08:00). La media tarde queda fuera a
+// proposito: parte a las 14:00, asi que despues de una noche todavia queda la
+// mañana para dormir.
+function replacementTurnStartsInTheMorning(turn) {
+    const value = Number(turn) || TURNO.LIBRE;
+
+    return (
+        value === TURNO.LARGA ||
+        value === TURNO.TURNO24 ||
+        value === TURNO.DIURNO ||
+        value === TURNO.DIURNO_NOCHE ||
+        value === TURNO.MEDIA_MANANA
+    );
+}
+
+/**
+ * Turno que el candidato tiene al dia siguiente cuando lo que se va a cubrir es
+ * una noche, y ese turno empieza por la mañana. La noche termina a las 08:00 y
+ * el turno siguiente parte a las 08:00: encadena la jornada sin dormir (el "24
+ * invertido" o noche + diurno). No bloquea al candidato -a veces es la unica
+ * opcion disponible- pero la tarjeta tiene que decirlo antes de asignar.
+ *
+ * Se mira el estado COMPROMETIDO (real/proyectado mas preasignaciones), no la
+ * rotativa base: si al dia siguiente ya le movieron la Larga, no hay advertencia
+ * que dar.
+ */
+export function nextDayMorningShiftAfterNight(profileName, keyDay, neededTurn) {
+    if (!profileName || !keyDay) return TURNO.LIBRE;
+    if (!replacementTurnIncludesNight(neededTurn)) return TURNO.LIBRE;
+
+    const next = committedStateWithPreassign(
+        profileName,
+        offsetCalendarKey(keyDay, 1)
+    );
+
+    return replacementTurnStartsInTheMorning(next)
+        ? next
+        : TURNO.LIBRE;
 }
 
 function candidateFreePositionKind(positionLabel = "") {
@@ -4533,6 +4582,11 @@ async function getReplacementCandidates(
                 ),
                 isDiurnoLongCoverage,
                 overtimeHours,
+                nextDayMorningShift: nextDayMorningShiftAfterNight(
+                    profile.name,
+                    keyDay,
+                    neededTurn
+                ),
                 isForced:
                     !profileCanCoverProfile(profile, baseProfile),
                 blockedDay,
@@ -4645,6 +4699,7 @@ function replacementDialogHTML({
             const checked =
                 selectedWorkers.has(candidate.profile.name);
             const warning = replacementCandidateWarning(candidate);
+            const nextDayNote = candidateNextDayShiftNote(candidate);
             const candidateHours = candidate.isLinked
                 ? "<b>Disponible</b>"
                 : `
@@ -4656,7 +4711,7 @@ function replacementDialogHTML({
 
             if (isRequestMode) {
                 return `
-                <label class="replacement-candidate replacement-candidate--request ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${pendingRequest ? "is-disabled" : ""}">
+                <label class="replacement-candidate replacement-candidate--request ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${pendingRequest ? "is-disabled" : ""}">
                     <input
                         class="replacement-candidate-checkbox"
                         type="checkbox"
@@ -4669,7 +4724,10 @@ function replacementDialogHTML({
                         <strong>${escapeHTML(candidate.profile.name)}</strong>
                         <small>${escapeHTML(candidateMeta(candidate.profile))}</small>
                         ${candidate.isLinked ? `<small>Unidad: ${escapeHTML(candidate.workspaceName)}</small>` : ""}
-                        <small class="replacement-candidate-state">${escapeHTML(candidateStateLabel(candidate, pendingRequest))}</small>
+                        <small class="replacement-candidate-state">
+                            ${escapeHTML(candidateStateLabel(candidate, pendingRequest))}
+                            ${nextDayNote ? `<span class="replacement-candidate-next-shift">${escapeHTML(nextDayNote)}</span>` : ""}
+                        </small>
                         ${warning ? `<small class="replacement-candidate-warning">${escapeHTML(warning)}</small>` : ""}
                     </span>
                     <span>
@@ -4698,7 +4756,7 @@ function replacementDialogHTML({
             return `
             ${unitHeading}
             <button
-                class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.isLinked ? "replacement-candidate--linked" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${pendingRequest ? "is-disabled" : ""}"
+                class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.isLinked ? "replacement-candidate--linked" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${pendingRequest ? "is-disabled" : ""}"
                 type="button"
                 data-worker="${escapeHTML(candidate.profile.name)}"
                 data-worker-profile-id="${escapeHTML(candidate.profile.id || "")}"
@@ -4712,7 +4770,10 @@ function replacementDialogHTML({
                     <strong>${escapeHTML(candidate.profile.name)}</strong>
                     <small>${escapeHTML(candidateMeta(candidate.profile))}</small>
                     ${candidate.isLinked ? `<small>Unidad: ${escapeHTML(candidate.workspaceName)}</small>` : ""}
-                    <small class="replacement-candidate-state">${escapeHTML(candidateStateLabel(candidate, pendingRequest))}</small>
+                    <small class="replacement-candidate-state">
+                        ${escapeHTML(candidateStateLabel(candidate, pendingRequest))}
+                        ${nextDayNote ? `<span class="replacement-candidate-next-shift">${escapeHTML(nextDayNote)}</span>` : ""}
+                    </small>
                     ${warning ? `<small class="replacement-candidate-warning">${escapeHTML(warning)}</small>` : ""}
                 </span>
                 <span>
