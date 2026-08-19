@@ -3013,63 +3013,47 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
     const updatedAt = new Date().toISOString();
     const serverUpdatedAt = firestoreModule.serverTimestamp();
 
-    // El adjunto lleva la geometria del OCR (words = cientos de numeros), y el
-    // MISMO payload se escribe en TODOS los docs de trabajador. Firestore cuenta
-    // el commit MUCHO mas grande que el JSON (cada x/y/w/h se codifica como
-    // double de 8 bytes, mas nombres de campo y ruta por documento; observado
-    // ~2.6x). El limite real de commit es 11.534.336 bytes, asi que limitamos
-    // cada lote a ~1.5 MB de JSON: deja margen para un overhead de hasta ~7x.
-    const COMMIT_JSON_BUDGET = 1.5 * 1024 * 1024;
-    const approxDocBytes = hasWeeklyPayload
-        ? JSON.stringify({
-            weeklyScheduleAttachment: currentWeekPayload,
-            weeklyScheduleAttachments
-        }).length + 200
-        : 200;
-    const batchSize = Math.max(
-        1,
-        Math.min(200, Math.floor(COMMIT_JSON_BUDGET / Math.max(1, approxDocBytes)))
+    // La programacion es la MISMA para todo el workspace, asi que se publica en
+    // UN doc compartido (workspaces/{id}/published/schedule) en vez de duplicarla
+    // en el doc de cada trabajador. Antes escribir N docs en un batch excedia el
+    // limite de commit de Firestore con muchos trabajadores ("Transaction too
+    // big"); asi es O(1) y escala a cualquier cantidad. La PWA lo lee de este doc.
+    const scheduleRef = firestoreModule.doc(
+        db,
+        "workspaces",
+        workspace.id,
+        "published",
+        "schedule"
     );
-
-    for (let index = 0; index < linked.length; index += batchSize) {
-        const batch = firestoreModule.writeBatch(db);
-        linked.slice(index, index + batchSize).forEach(item => {
-            const docRef = firestoreModule.doc(
-                db,
-                "workspaces",
-                workspace.id,
-                "workerAppData",
-                item.link.uid
-            );
-            const next = hasWeeklyPayload
-                ? {
-                    weeklyScheduleAttachment: currentWeekPayload,
-                    weeklyScheduleAttachments,
-                    updatedAtISO: updatedAt,
-                    updatedAt: serverUpdatedAt
-                }
-                : {
-                    weeklyScheduleAttachment: firestoreModule.deleteField(),
-                    weeklyScheduleAttachments: firestoreModule.deleteField(),
-                    updatedAtISO: updatedAt,
-                    updatedAt: serverUpdatedAt
-                };
-
-            batch.set(docRef, next, { merge: true });
-        });
-        try {
-            await batch.commit();
-        } catch (error) {
-            if (/payload size exceeds|too big|maximum|exceeds the maximum/i.test(String(error?.message || ""))) {
-                const perDocKb = Math.round(approxDocBytes / 1024);
-                const err = new Error(
-                    `${error.message} [proyeccion: ${perDocKb}KB/doc x ${batchSize} docs]`
-                );
-                err.code = error.code;
-                throw err;
-            }
-            throw error;
+    const publishedPayload = hasWeeklyPayload
+        ? {
+            weeklyScheduleAttachment: currentWeekPayload,
+            weeklyScheduleAttachments,
+            updatedAtISO: updatedAt,
+            updatedAt: serverUpdatedAt
         }
+        : {
+            weeklyScheduleAttachment: firestoreModule.deleteField(),
+            weeklyScheduleAttachments: firestoreModule.deleteField(),
+            updatedAtISO: updatedAt,
+            updatedAt: serverUpdatedAt
+        };
+
+    try {
+        await firestoreModule.setDoc(scheduleRef, publishedPayload, { merge: true });
+    } catch (error) {
+        if (/payload size exceeds|too big|maximum|exceeds the maximum/i.test(String(error?.message || ""))) {
+            const kb = Math.round(
+                JSON.stringify({
+                    weeklyScheduleAttachment: currentWeekPayload,
+                    weeklyScheduleAttachments
+                }).length / 1024
+            );
+            const err = new Error(`${error.message} [programacion workspace: ${kb}KB]`);
+            err.code = error.code;
+            throw err;
+        }
+        throw error;
     }
 
     recordPerformanceEvent("worker-app:publish-schedule-attachment", {

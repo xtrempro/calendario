@@ -977,6 +977,15 @@ service cloud.firestore {
         }
       }
 
+      // Programacion semanal publicada: es la MISMA para todo el workspace, asi
+      // que vive en UN doc compartido (no duplicada por trabajador). La leen los
+      // trabajadores enlazados y los miembros; la publica quien administra.
+      match /published/{docId} {
+        allow read: if isCurrentLinkedWorker(workspaceId) ||
+          canReadWorkerData(workspaceId);
+        allow write: if canPublishWorkerData(workspaceId);
+      }
+
       match /workerAppData/{userId} {
         allow get: if canReadWorkerData(workspaceId) ||
           isLinkedWorker(workspaceId, userId);
