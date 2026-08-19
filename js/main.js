@@ -392,7 +392,11 @@ import {
 import { initNotificationsBell } from "./notificationsBell.js";
 import { initPendingLeaveBlinkSync } from "./pendingLeaveBlinkSync.js";
 import {
+    WORKER_LINK_STATE,
+    getWorkerLinkState,
+    listWorkerLinkStates,
     openWorkerAppInviteDialog,
+    refreshPendingWorkerInvites,
     sendWorkerAppInviteEmail,
     unlinkWorkerAppForProfile
 } from "./workerAppInvites.js";
@@ -5253,19 +5257,34 @@ function renderDashboardState() {
             profileCanEdit &&
             Boolean(profile) &&
             profileDraft.mode === PROFILE_MODE.VIEW;
-        const isWorkerLinked =
-            Boolean(profile) && Boolean(getWorkerAppLinkForProfile(profile));
+        // Tres estados: enlazado, invitado pendiente y sin invitar. Antes los dos
+        // ultimos se veian igual, asi que una invitacion que el trabajador nunca
+        // abrio pasaba por "no lo hemos invitado" y quedaba fuera de la
+        // mensajeria y de los cambios de turno sin que nadie lo notara.
+        const { state, invite } = profile
+            ? getWorkerLinkState(profile)
+            : { state: WORKER_LINK_STATE.NONE, invite: null };
+        const isWorkerLinked = state === WORKER_LINK_STATE.LINKED;
+        const isInvitePending = state === WORKER_LINK_STATE.PENDING;
 
         DOM.workerAppInviteBtn.disabled = !canInviteWorker;
         DOM.workerAppInviteBtn.innerHTML = isWorkerLinked
             ? `${PF_BTN_LINK} Enlazado`
-            : `${PF_BTN_LINK} Enlace app`;
+            : isInvitePending
+                ? `${PF_BTN_LINK} Invitado`
+                : `${PF_BTN_LINK} Enlace app`;
         DOM.workerAppInviteBtn.classList.toggle("is-linked", isWorkerLinked);
+        DOM.workerAppInviteBtn.classList.toggle(
+            "is-invite-pending",
+            isInvitePending
+        );
         DOM.workerAppInviteBtn.title = isWorkerLinked
             ? "El trabajador ya enlazo su app TurnoPlus. Puedes reenviar el enlace."
-            : canInviteWorker
-                ? "Enviar enlace para la app del trabajador"
-                : "Selecciona un trabajador guardado para enviar el enlace";
+            : isInvitePending
+                ? `Invitacion enviada el ${workerInviteDateLabel(invite)} y aun sin usar. El trabajador debe abrir el enlace e iniciar sesion con el correo invitado.`
+                : canInviteWorker
+                    ? "Enviar enlace para la app del trabajador"
+                    : "Selecciona un trabajador guardado para enviar el enlace";
     }
 
     syncHoursMonthControls(
@@ -8391,6 +8410,116 @@ function startReplacementContractEdit(profileName, keyDay, prefill = {}) {
 window.startReplacementContractEdit =
     startReplacementContractEdit;
 
+// ───────── Estado de enlace de la app del trabajador ─────────
+
+function workerInviteDateLabel(invite) {
+    const raw = invite?.createdAt;
+    const iso = typeof raw?.toDate === "function"
+        ? raw.toDate().toISOString()
+        : String(raw || invite?.createdAtISO || "");
+    const date = new Date(iso);
+
+    if (Number.isNaN(date.getTime())) return "fecha desconocida";
+
+    return date.toLocaleDateString("es-CL", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+    });
+}
+
+function workerInviteAgeLabel(invitedAtMs) {
+    if (!invitedAtMs) return "";
+
+    const days = Math.floor((Date.now() - invitedAtMs) / 86400000);
+
+    if (days <= 0) return "hoy";
+    if (days === 1) return "hace 1 día";
+
+    return `hace ${days} días`;
+}
+
+// Panel de pendientes: sin la app enlazada el trabajador no aparece en la
+// mensajeria ni como candidato de cambio de turno, y hasta ahora eso solo se
+// notaba cuando alguien lo echaba de menos. Aqui se ve de una vez quien quedo a
+// medias y hace cuanto.
+function openWorkerLinkStatusPanel() {
+    const rows = listWorkerLinkStates();
+    const pending = rows.filter(row => row.state === WORKER_LINK_STATE.PENDING);
+    const missing = rows.filter(row => row.state === WORKER_LINK_STATE.NONE);
+    const linked = rows.filter(row => row.state === WORKER_LINK_STATE.LINKED);
+
+    const badge = row => {
+        if (row.state === WORKER_LINK_STATE.LINKED) {
+            return `<span class="wl-badge wl-badge--linked">Enlazado</span>`;
+        }
+
+        if (row.state === WORKER_LINK_STATE.PENDING) {
+            const age = workerInviteAgeLabel(row.invitedAtMs);
+
+            return `<span class="wl-badge wl-badge--pending">Invitado ${escapeHTML(workerInviteDateLabel(row.invite))}${age ? ` · ${escapeHTML(age)}` : ""}</span>`;
+        }
+
+        return `<span class="wl-badge wl-badge--none">Sin invitar</span>`;
+    };
+
+    const rowHTML = row => `
+        <div class="wl-row wl-row--${escapeHTML(row.state)}">
+            <div class="wl-row__name">
+                <b>${escapeHTML(row.profile.name)}</b>
+                <small>${escapeHTML(row.profile.profession || row.profile.estamento || "")}</small>
+            </div>
+            ${badge(row)}
+        </div>
+    `;
+
+    const section = (title, items, empty) => `
+        <h4 class="wl-section">${escapeHTML(title)} <span>${items.length}</span></h4>
+        ${items.length
+            ? items.map(rowHTML).join("")
+            : `<p class="wl-empty">${escapeHTML(empty)}</p>`}
+    `;
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "turn-change-dialog-backdrop";
+    backdrop.innerHTML = `
+        <section class="turn-change-dialog worker-link-status-dialog" role="dialog" aria-modal="true" aria-labelledby="workerLinkStatusTitle">
+            <strong id="workerLinkStatusTitle">Enlaces de la app del trabajador</strong>
+            <p class="wl-intro">
+                Sin la app enlazada el trabajador no aparece en la mensajería ni
+                como opción para cambios de turno. Estos son los ${rows.length}
+                perfiles activos de la unidad.
+            </p>
+            <div class="wl-list">
+                ${section("Sin invitar", missing, "Todos los perfiles activos tienen invitación.")}
+                ${section("Invitados, pendientes de abrir el enlace", pending, "No hay invitaciones sin usar.")}
+                ${section("Enlazados", linked, "Aún no hay trabajadores enlazados.")}
+            </div>
+            <div class="turn-change-dialog__actions">
+                <button class="secondary-button" type="button" data-action="close">Cerrar</button>
+            </div>
+        </section>
+    `;
+
+    const close = () => {
+        document.removeEventListener("keydown", onKeydown);
+        backdrop.remove();
+    };
+    const onKeydown = event => {
+        if (event.key === "Escape") close();
+    };
+
+    backdrop.addEventListener("click", event => {
+        if (event.target === backdrop) close();
+    });
+    backdrop
+        .querySelector("[data-action='close']")
+        ?.addEventListener("click", close);
+
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(backdrop);
+}
+
 function exitProfileMode(selectedName = getCurrentProfile()) {
     clearSelectionMode(false);
     resetProfileDraft();
@@ -11246,6 +11375,10 @@ function bindProfileForm() {
             openWorkerAppInviteDialog(getPerfilActual());
     }
 
+    if (DOM.workerLinkStatusBtn) {
+        DOM.workerLinkStatusBtn.onclick = openWorkerLinkStatusPanel;
+    }
+
     const profileExportPdfBtn = document.getElementById("profileExportPdfBtn");
     if (profileExportPdfBtn) {
         profileExportPdfBtn.onclick = exportProfileFichaPdf;
@@ -12428,6 +12561,12 @@ window.addEventListener("proturnos:workerLinksChanged", () => {
     scheduleWorkspaceUiRefresh();
 });
 
+// El estado "Invitado" del boton de enlace sale de la cache de invitaciones
+// pendientes: cuando cambia hay que repintar la ficha.
+window.addEventListener("proturnos:workerInvitesChanged", () => {
+    scheduleWorkspaceUiRefresh();
+});
+
 // Atajos de teclado globales para modales: Escape cierra/cancela y Enter
 // (sin Shift) acciona el boton principal (aceptar/enviar). Cubre los modales
 // del programa, que usan estos backdrops.
@@ -12711,6 +12850,8 @@ initFirebaseShell({
             });
             // Refresca el uso/plan autoritativo para tener listo el gating.
             void refreshAccountUsage({ force: true });
+            // Y las invitaciones pendientes, que alimentan el estado "Invitado".
+            void refreshPendingWorkerInvites(workspace);
 
             await startWorkspacePermissionListener(workspace, () => {
                 syncWorkspacePermissionUI();

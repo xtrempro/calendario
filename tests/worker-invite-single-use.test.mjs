@@ -15,7 +15,11 @@ test("la aceptacion de invitacion de trabajador vive en callable transaccional",
   assert.match(functionsSrc, /exports\.acceptWorkerAppInvite = onCall/);
   assert.match(functionsSrc, /acceptWorkerAppInviteImpl/);
   assert.match(functionsSrc, /db\.runTransaction/);
-  assert.match(functionsSrc, /String\(invite\.status \|\| ""\) !== "pending"/);
+  // Solo una invitacion "pending" se puede reclamar. El estado se lee una vez y
+  // se ramifica: "superseded" (reemplazada al reenviar) tiene su propio aviso,
+  // y cualquier otro estado cae en el rechazo general.
+  assert.match(functionsSrc, /const inviteStatus = String\(invite\.status \|\| ""\);/);
+  assert.match(functionsSrc, /if \(inviteStatus !== "pending"\) \{/);
   assert.match(functionsSrc, /Esta invitacion ya fue utilizada/);
 });
 

@@ -1274,7 +1274,19 @@ async function acceptWorkerAppInviteImpl({
       );
     }
 
-    if (String(invite.status || "") !== "pending") {
+    const inviteStatus = String(invite.status || "");
+
+    // Al reenviar una invitacion, la anterior queda "superseded". Sin este
+    // mensaje el trabajador que abria el correo viejo leia "ya fue utilizada" y
+    // no tenia como saber que le habia llegado uno nuevo.
+    if (inviteStatus === "superseded") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Este enlace fue reemplazado por uno mas nuevo. Abre el ultimo correo de invitacion o pideselo a tu supervisor."
+      );
+    }
+
+    if (inviteStatus !== "pending") {
       throw new HttpsError(
         "failed-precondition",
         "Esta invitacion ya fue utilizada. Solicita una nueva al supervisor."

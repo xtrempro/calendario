@@ -6114,6 +6114,113 @@ body.auth-gate-active .app-shell {
     border-color: #1a7741;
 }
 
+/* Invitado pero sin abrir el enlace: ambar, para separarlo tanto del enlazado
+   (verde) como del que nunca fue invitado (neutro). */
+#workerAppInviteBtn.is-invite-pending {
+    background: #b45309;
+    border-color: #b45309;
+    color: #ffffff;
+}
+
+#workerAppInviteBtn.is-invite-pending:hover:not(:disabled) {
+    background: #92400e;
+    border-color: #92400e;
+}
+
+/* Panel de estado de enlaces */
+.worker-link-status-dialog {
+    width: min(560px, 100%);
+    max-height: min(80vh, 720px);
+    display: flex;
+    flex-direction: column;
+}
+
+.worker-link-status-dialog .wl-intro {
+    color: var(--text-muted);
+    margin: 4px 0 12px;
+}
+
+.worker-link-status-dialog .wl-list {
+    overflow-y: auto;
+    flex: 1;
+    padding-right: 4px;
+}
+
+.worker-link-status-dialog .wl-section {
+    margin: 14px 0 6px;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-soft);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.worker-link-status-dialog .wl-section span {
+    background: var(--panel-soft, rgba(148, 163, 184, 0.18));
+    border-radius: 999px;
+    padding: 1px 8px;
+    font-size: 0.78rem;
+}
+
+.worker-link-status-dialog .wl-empty {
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    margin: 2px 0 0;
+}
+
+.worker-link-status-dialog .wl-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 6px;
+}
+
+.worker-link-status-dialog .wl-row--none {
+    background: rgba(239, 68, 68, 0.06);
+}
+
+.worker-link-status-dialog .wl-row--pending {
+    background: rgba(180, 83, 9, 0.07);
+}
+
+.worker-link-status-dialog .wl-row__name {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.worker-link-status-dialog .wl-row__name small {
+    color: var(--text-muted);
+}
+
+.worker-link-status-dialog .wl-badge {
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.worker-link-status-dialog .wl-badge--linked {
+    background: rgba(31, 138, 76, 0.14);
+    color: #1f8a4c;
+}
+
+.worker-link-status-dialog .wl-badge--pending {
+    background: rgba(180, 83, 9, 0.14);
+    color: #b45309;
+}
+
+.worker-link-status-dialog .wl-badge--none {
+    background: rgba(239, 68, 68, 0.14);
+    color: #b91c1c;
+}
+
 .worker-app-invite-profile {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);

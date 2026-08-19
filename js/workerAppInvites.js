@@ -29,6 +29,224 @@ function normalizeEmail(value) {
     return String(value || "").trim().toLowerCase();
 }
 
+// ───────── Invitaciones pendientes ─────────
+//
+// Hasta ahora el perfil solo distinguia "enlazado" de "no enlazado", asi que un
+// trabajador invitado que nunca abrio el enlace se veia igual que uno al que
+// nadie invito. Eso dejaba gente fuera de la mensajeria y de los cambios de
+// turno -ambos exigen enlace- sin ninguna señal para el supervisor.
+//
+// Se cachean las invitaciones pendientes del entorno activo para poder pintar el
+// tercer estado sin consultar Firestore en cada repintado.
+
+let pendingInvites = [];
+let pendingInvitesWorkspaceId = "";
+
+function normalizeInviteRut(value) {
+    return String(value || "").replace(/[^0-9kK]/g, "").toUpperCase();
+}
+
+function normalizeInviteName(value) {
+    return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toUpperCase();
+}
+
+function inviteCreatedAtMs(invite) {
+    const raw = invite?.createdAt;
+    const iso = typeof raw?.toDate === "function"
+        ? raw.toDate().toISOString()
+        : String(raw || invite?.createdAtISO || "");
+    const parsed = Date.parse(iso);
+
+    return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function inviteMatchesProfile(invite, profile) {
+    const inviteRut = normalizeInviteRut(invite?.profileRut);
+    const profileRut = normalizeInviteRut(profile?.rut);
+
+    if (inviteRut && profileRut) return inviteRut === profileRut;
+
+    return normalizeInviteName(invite?.profileName) ===
+        normalizeInviteName(profile?.name);
+}
+
+function dispatchWorkerInvitesChanged() {
+    if (typeof window === "undefined") return;
+
+    window.dispatchEvent(
+        new CustomEvent("proturnos:workerInvitesChanged", {
+            detail: { count: pendingInvites.length }
+        })
+    );
+}
+
+export function clearPendingWorkerInvites() {
+    pendingInvites = [];
+    pendingInvitesWorkspaceId = "";
+    dispatchWorkerInvitesChanged();
+}
+
+/**
+ * Relee las invitaciones pendientes del entorno activo. Se llama al cambiar de
+ * unidad y despues de crear, reemplazar o desenlazar, que son los unicos momentos
+ * en que el supervisor las modifica (no necesita tiempo real).
+ */
+export async function refreshPendingWorkerInvites(
+    workspace = getActiveWorkspace()
+) {
+    if (!workspace?.id || !getCurrentFirebaseUser()) {
+        clearPendingWorkerInvites();
+        return [];
+    }
+
+    try {
+        const { db, firestoreModule } = await getFirebaseServices();
+        const snap = await firestoreModule.getDocs(
+            firestoreModule.query(
+                firestoreModule.collection(
+                    db,
+                    "workspaces",
+                    workspace.id,
+                    "workerAppInvites"
+                ),
+                firestoreModule.where("status", "==", "pending")
+            )
+        );
+
+        pendingInvites = snap.docs.map(doc => ({
+            id: doc.id,
+            ...(doc.data() || {})
+        }));
+        pendingInvitesWorkspaceId = workspace.id;
+    } catch (error) {
+        console.warn(
+            "No se pudieron leer las invitaciones pendientes.",
+            error
+        );
+        pendingInvites = [];
+        pendingInvitesWorkspaceId = "";
+    }
+
+    dispatchWorkerInvitesChanged();
+    return pendingInvites;
+}
+
+/**
+ * Invitacion pendiente mas reciente de un perfil, o null. Empareja por RUT
+ * -el ancla de identidad- y cae al nombre solo si falta en alguno de los dos.
+ */
+export function getPendingWorkerInviteForProfile(profileOrName) {
+    const profile = typeof profileOrName === "string"
+        ? getProfiles().find(item => item.name === profileOrName)
+        : profileOrName;
+
+    if (!profile?.name) return null;
+
+    return pendingInvites
+        .filter(invite => inviteMatchesProfile(invite, profile))
+        .sort((a, b) => inviteCreatedAtMs(b) - inviteCreatedAtMs(a))[0] || null;
+}
+
+export const WORKER_LINK_STATE = {
+    LINKED: "linked",
+    PENDING: "pending",
+    NONE: "none"
+};
+
+export function getWorkerLinkState(profileOrName) {
+    const profile = typeof profileOrName === "string"
+        ? getProfiles().find(item => item.name === profileOrName)
+        : profileOrName;
+
+    if (!profile?.name) return { state: WORKER_LINK_STATE.NONE, invite: null };
+
+    if (getWorkerAppLinkForProfile(profile)) {
+        return { state: WORKER_LINK_STATE.LINKED, invite: null };
+    }
+
+    const invite = getPendingWorkerInviteForProfile(profile);
+
+    return invite
+        ? { state: WORKER_LINK_STATE.PENDING, invite }
+        : { state: WORKER_LINK_STATE.NONE, invite: null };
+}
+
+/**
+ * Estado de enlace de todos los perfiles activos, para el panel de pendientes.
+ * Ordena primero lo que necesita accion: sin invitar, luego pendientes por
+ * antiguedad (lo mas viejo arriba) y al final los enlazados.
+ */
+export function listWorkerLinkStates() {
+    const order = {
+        [WORKER_LINK_STATE.NONE]: 0,
+        [WORKER_LINK_STATE.PENDING]: 1,
+        [WORKER_LINK_STATE.LINKED]: 2
+    };
+
+    return getProfiles()
+        .filter(profile => profile?.active !== false)
+        .map(profile => {
+            const { state, invite } = getWorkerLinkState(profile);
+
+            return {
+                profile,
+                state,
+                invite,
+                invitedAtMs: invite ? inviteCreatedAtMs(invite) : 0
+            };
+        })
+        .sort((a, b) =>
+            order[a.state] - order[b.state] ||
+            a.invitedAtMs - b.invitedAtMs ||
+            a.profile.name.localeCompare(b.profile.name, "es")
+        );
+}
+
+export function pendingWorkerInvitesWorkspaceId() {
+    return pendingInvitesWorkspaceId;
+}
+
+// Invitaciones pendientes del perfil, leidas frescas de Firestore (la cache
+// puede venir de otro repintado). `exceptToken` excluye la que se esta creando.
+async function findPendingInvitesForProfile(
+    firestoreModule,
+    db,
+    workspaceId,
+    profile,
+    exceptToken = ""
+) {
+    try {
+        const snap = await firestoreModule.getDocs(
+            firestoreModule.query(
+                firestoreModule.collection(
+                    db,
+                    "workspaces",
+                    workspaceId,
+                    "workerAppInvites"
+                ),
+                firestoreModule.where("status", "==", "pending")
+            )
+        );
+
+        return snap.docs
+            .map(doc => ({ id: doc.id, ...(doc.data() || {}) }))
+            .filter(invite =>
+                invite.id !== exceptToken &&
+                inviteMatchesProfile(invite, profile)
+            );
+    } catch (error) {
+        console.warn(
+            "No se pudieron revisar las invitaciones anteriores.",
+            error
+        );
+        return [];
+    }
+}
+
 async function workspaceMemberEmailKeys(workspace, user) {
     const keys = new Set();
     const userEmail = normalizeEmail(user?.email);
@@ -346,6 +564,7 @@ async function unlinkWorkerApp(workspaceId, link) {
         emailInviteCleanup.email,
         emailInviteCleanup.inviteId
     );
+    await refreshPendingWorkerInvites();
 }
 
 /**
@@ -552,6 +771,37 @@ async function createWorkerAppInvite(
     const batch = firestoreModule.writeBatch(db);
     let previousEmailInviteCleanup = null;
 
+    // Deja sin efecto las invitaciones pendientes anteriores del mismo perfil.
+    // Acumularlas dejaba varias vivas a la vez: el trabajador podia abrir una
+    // antigua -o una ya vencida- sin enterarse de que existia otra, y el
+    // supervisor no tenia como saber cual estaba en pie. El backend solo acepta
+    // status "pending", asi que marcarlas "superseded" las inutiliza.
+    const supersededInvites = await findPendingInvitesForProfile(
+        firestoreModule,
+        db,
+        workspace.id,
+        profile,
+        token
+    );
+
+    supersededInvites.forEach(invite => {
+        batch.update(
+            firestoreModule.doc(
+                db,
+                "workspaces",
+                workspace.id,
+                "workerAppInvites",
+                invite.id
+            ),
+            {
+                status: "superseded",
+                supersededAt: now,
+                supersededByToken: token,
+                updatedAt: now
+            }
+        );
+    });
+
     if (replaceLink?.uid) {
         batch.delete(
             firestoreModule.doc(
@@ -624,13 +874,31 @@ async function createWorkerAppInvite(
         );
     }
 
+    // El espejo por correo es lo que consulta la PWA al abrir el enlace: si
+    // queda vivo el de una invitacion anulada, la muestra como valida.
+    for (const invite of supersededInvites) {
+        const inviteEmail = normalizeEmail(invite.email || invite.emailKey);
+
+        if (!inviteEmail) continue;
+
+        await deleteWorkerEmailInviteMirror(
+            firestoreModule,
+            db,
+            inviteEmail,
+            invite.id
+        );
+    }
+
+    await refreshPendingWorkerInvites(workspace);
+
     return {
         status: "created",
         profile,
         workspace,
         inviteUrl,
         email,
-        phoneE164
+        phoneE164,
+        supersededCount: supersededInvites.length
     };
 }
 
