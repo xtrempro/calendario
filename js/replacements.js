@@ -561,6 +561,45 @@ export function getReplacementOvertimeHours(
     return savedHours || calcHours(date, turno, holidays);
 }
 
+/**
+ * Horas de un respaldo de HH.EE ya registrado.
+ *
+ * Un respaldo de marcaje ("clock_extra") vale por el marcaje que lo origino: si
+ * ese marcaje se borro o se corrigio, las horas que guardo en su momento dejaron
+ * de existir en el calendario. Antes se usaba esa foto guardada
+ * (record.clockHours) y solo se recalculaba cuando venia vacia, asi que un
+ * respaldo huerfano seguia sumando horas fantasma; con una extension horaria
+ * registrada el mismo dia, las mismas horas se veian dos veces.
+ *
+ * Se recalculan siempre contra el marcaje vigente y el turno realmente
+ * realizado, que es la misma fuente que usan el motor de horas y el reporte.
+ */
+export function getReplacementRecordHours(
+    record,
+    keyDay,
+    date,
+    turno,
+    holidays = {}
+) {
+    if (record?.source !== "clock_extra") {
+        return getReplacementOvertimeHours(record, date, turno, holidays);
+    }
+
+    const state = aplicarCambiosTurno(
+        record.worker,
+        keyDay,
+        getTurnoProgramado(record.worker, keyDay)
+    );
+
+    return getClockExtraHours(
+        record.worker,
+        keyDay,
+        date,
+        state,
+        holidays
+    );
+}
+
 export function getAbsenceLabelForProfileDate(profile, keyDay) {
     const admin = getJSON(`admin_${profile}`, {});
     const legal = getJSON(`legal_${profile}`, {});
@@ -1334,34 +1373,13 @@ function renderBackedReplacementLogHTML(profile, year, month, holidays = {}) {
                 const isClockExtra =
                     record.source === "clock_extra";
                 const turno = codeToTurno(record.turno);
-                const savedClockHours = record.clockHours || null;
-                const needsClockRecalculation =
-                    isClockExtra &&
-                    (
-                        !savedClockHours ||
-                        (
-                            !Number(savedClockHours.d) &&
-                            !Number(savedClockHours.n)
-                        )
-                    );
-                const hours = isClockExtra
-                    ? (
-                        needsClockRecalculation
-                            ? getClockExtraHours(
-                                record.worker,
-                                key,
-                                date,
-                                turno,
-                                holidays
-                            )
-                            : savedClockHours
-                    )
-                    : getReplacementOvertimeHours(
-                        record,
-                        date,
-                        turno,
-                        holidays
-                    );
+                const hours = getReplacementRecordHours(
+                    record,
+                    key,
+                    date,
+                    turno,
+                    holidays
+                );
                 const label = isClockExtra
                     ? (record.clockLabel || "Marcaje reloj control")
                     : turnoReplacementLabel(turno);
@@ -1397,34 +1415,13 @@ function renderBackedOvertimeLogItem(record, profiles, holidays) {
     const isClockExtra =
         record.source === "clock_extra";
     const turno = codeToTurno(record.turno);
-    const savedClockHours = record.clockHours || null;
-    const needsClockRecalculation =
-        isClockExtra &&
-        (
-            !savedClockHours ||
-            (
-                !Number(savedClockHours.d) &&
-                !Number(savedClockHours.n)
-            )
-        );
-    const hours = isClockExtra
-        ? (
-            needsClockRecalculation
-                ? getClockExtraHours(
-                    record.worker,
-                    key,
-                    date,
-                    turno,
-                    holidays
-                )
-                : savedClockHours
-        )
-        : getReplacementOvertimeHours(
-            record,
-            date,
-            turno,
-            holidays
-        );
+    const hours = getReplacementRecordHours(
+        record,
+        key,
+        date,
+        turno,
+        holidays
+    );
     const label = isClockExtra
         ? (record.clockLabel || "Marcaje reloj control")
         : turnoReplacementLabel(turno);
@@ -1563,34 +1560,13 @@ export function getHheeMonthRecords(profile, year, month, holidays = {}) {
         const date = parseKey(key);
         const isClockExtra = record.source === "clock_extra";
         const turno = codeToTurno(record.turno);
-        const savedClockHours = record.clockHours || null;
-        const needsClockRecalculation =
-            isClockExtra &&
-            (
-                !savedClockHours ||
-                (
-                    !Number(savedClockHours.d) &&
-                    !Number(savedClockHours.n)
-                )
-            );
-        const hours = isClockExtra
-            ? (
-                needsClockRecalculation
-                    ? getClockExtraHours(
-                        record.worker,
-                        key,
-                        date,
-                        turno,
-                        holidays
-                    )
-                    : savedClockHours
-            )
-            : getReplacementOvertimeHours(
-                record,
-                date,
-                turno,
-                holidays
-            );
+        const hours = getReplacementRecordHours(
+            record,
+            key,
+            date,
+            turno,
+            holidays
+        );
         const label = isClockExtra
             ? (record.clockLabel || "Marcaje reloj control")
             : turnoReplacementLabel(turno);
@@ -1618,9 +1594,16 @@ export function getHheeMonthRecords(profile, year, month, holidays = {}) {
             d: Number(hours?.d) || 0,
             n: Number(hours?.n) || 0,
             detail,
-            backed: true
+            backed: true,
+            isClockExtra
         };
-    });
+    }).filter((item) =>
+        // Respaldo de marcaje sin marcaje vigente: el motivo quedo huerfano
+        // porque el marcaje se borro o se corrigio, y ya no representa horas.
+        // Listarlo con sus horas antiguas las duplicaba contra la extension
+        // horaria del mismo dia, que si es real.
+        !item.isClockExtra || item.d || item.n
+    );
 
     const unbackedItems = pendingEntries.map((entry) => {
         const isClockExtra = entry.label === "Marcaje reloj control";

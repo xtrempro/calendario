@@ -35,6 +35,7 @@
     "test:plan-heredado": "node --test functions/test/billingAccount.test.js",
     "test:hhee-superficies": "node --test tests/hhee-superficies-coinciden.test.mjs",
     "test:enlace-app": "node --test tests/enlace-app-estado-invitacion.test.mjs",
+    "test:respaldo-marcaje": "node --test tests/respaldo-marcaje-huerfano.test.mjs",
     "test:swap-receivers": "node --test tests/swap-receiver-filter.test.mjs",
     "test:swap-marker": "node --test tests/cambio-turno-marcador-proyeccion.test.mjs",
     "test:worker-app-unlink": "node --test tests/worker-app-unlink.test.mjs",

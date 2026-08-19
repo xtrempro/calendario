@@ -37,6 +37,7 @@ import {
     codeToTurno,
     getReplacementLogForWorkerMonth,
     getReplacementOvertimeHours,
+    getReplacementRecordHours,
     getReplacementsForWorkerShift,
     turnoReplacementLabel
 } from "./replacements.js";
@@ -1274,8 +1275,14 @@ function buildReplacementLogRows(profileName, year, month, holidays) {
             const keyDay = keyFromISO(record.date);
             const date = parseKey(keyDay);
             const turno = codeToTurno(record.turno);
-            const hours = getReplacementOvertimeHours(
+            // Mismo calculo que el panel de registros: un respaldo de marcaje
+            // vale por el marcaje vigente. Con getReplacementOvertimeHours se
+            // le atribuia la jornada completa del turno del respaldo (un
+            // "Diurno" de 8,8 h para un excedente de 3 h) y, si el marcaje ya
+            // no existia, horas que no estaban en ninguna parte.
+            const hours = getReplacementRecordHours(
                 record,
+                keyDay,
                 date,
                 turno,
                 holidays
