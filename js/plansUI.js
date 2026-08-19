@@ -20,6 +20,7 @@ import {
     getCachedAccountUsage,
     getEffectivePlanId,
     getPendingDiscount,
+    isAccountOwner,
     isAdminUser,
     listCoupons,
     redeemCoupon,
@@ -54,7 +55,7 @@ function formatDateMs(ms) {
     });
 }
 
-function usageSummaryHTML(usage, effectivePlanId) {
+function usageSummaryHTML(usage, effectivePlanId, canManage) {
     const plan = getPlan(effectivePlanId);
 
     if (!usage) {
@@ -72,10 +73,19 @@ function usageSummaryHTML(usage, effectivePlanId) {
             ? `<span class="plans-usage-flag">Vigente hasta ${escapeHTML(periodEnd)}</span>`
             : "";
 
+    const ownerNote = canManage
+        ? ""
+        : `
+            <p class="plans-coupon-note">
+                Este plan lo contrata el propietario de la unidad y cubre a todo
+                su equipo. Para cambiarlo, habla con él.
+            </p>
+        `;
+
     return `
         <div class="plans-usage">
             <div class="plans-usage-plan">
-                <span>Tu plan</span>
+                <span>${canManage ? "Tu plan" : "Plan de la unidad"}</span>
                 <strong>${escapeHTML(plan.name)}</strong>
                 ${expiryNote}
             </div>
@@ -89,11 +99,12 @@ function usageSummaryHTML(usage, effectivePlanId) {
                     <span>Unidades</span>
                 </div>
             </div>
+            ${ownerNote}
         </div>
     `;
 }
 
-function planCardHTML(plan, effectivePlanId) {
+function planCardHTML(plan, effectivePlanId, canManage) {
     const isCurrent = plan.id === effectivePlanId;
     const isFree = plan.id === "free";
     const features = [
@@ -118,8 +129,8 @@ function planCardHTML(plan, effectivePlanId) {
         `;
 
     const action = isCurrent
-        ? `<div class="plan-card-current">Tu plan actual</div>`
-        : isFree
+        ? `<div class="plan-card-current">Plan actual</div>`
+        : isFree || !canManage
             ? ""
             : `
                 <div class="plan-card-cta-row">
@@ -262,6 +273,7 @@ function adminSectionHTML() {
 
 function renderModalContent(usage) {
     const effectivePlanId = getEffectivePlanId();
+    const canManage = isAccountOwner();
 
     return `
         <div class="plans-dialog" role="dialog" aria-modal="true" aria-labelledby="plansDialogTitle">
@@ -275,15 +287,17 @@ function renderModalContent(usage) {
                 </button>
             </header>
 
-            ${usageSummaryHTML(usage, effectivePlanId)}
+            ${usageSummaryHTML(usage, effectivePlanId, canManage)}
 
             <div class="plans-grid">
-                ${PLAN_CATALOG.map(plan => planCardHTML(plan, effectivePlanId)).join("")}
+                ${PLAN_CATALOG.map(plan =>
+                    planCardHTML(plan, effectivePlanId, canManage)
+                ).join("")}
             </div>
 
-            ${redeemRowHTML(usage)}
+            ${canManage ? redeemRowHTML(usage) : ""}
 
-            ${quoteRowHTML()}
+            ${canManage ? quoteRowHTML() : ""}
 
             ${isAdminUser() ? adminSectionHTML() : ""}
 

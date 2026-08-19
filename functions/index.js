@@ -30,6 +30,7 @@ const {
   memberCanReadWorkerCalendar,
   memberHasExplicitAccess
 } = require("./authorization");
+const { resolveBillingAccountUid } = require("./billingAccount");
 const {
   WebpayPlus,
   Options: TbkOptions,
@@ -5090,8 +5091,16 @@ exports.getAccountUsage = onCall(
       );
     }
 
+    // El entorno activo decide la cuenta: dentro de un entorno ajeno manda el
+    // plan de su dueño, no el del miembro invitado.
+    const billingUid = await resolveBillingAccountUid(
+      db,
+      uid,
+      request.data?.workspaceId
+    );
+
     // Suscripcion almacenada. Si no hay documento, la cuenta es gratis.
-    const accountSnap = await db.collection("accounts").doc(uid).get();
+    const accountSnap = await db.collection("accounts").doc(billingUid).get();
     const account = accountSnap.exists ? accountSnap.data() || {} : {};
     const plan = typeof account.plan === "string" ? account.plan : "free";
     const period =
@@ -5106,7 +5115,7 @@ exports.getAccountUsage = onCall(
     // Entornos del dueño que no estan marcados para eliminacion.
     const workspacesSnap = await db
       .collection("workspaces")
-      .where("ownerUid", "==", uid)
+      .where("ownerUid", "==", billingUid)
       .get();
     const ownedWorkspaces = workspacesSnap.docs.filter(
       (doc) =>
@@ -5139,6 +5148,9 @@ exports.getAccountUsage = onCall(
     return {
       plan,
       effectivePlan,
+      // false = el plan lo paga el dueño del entorno, no quien consulta: la UI
+      // muestra el plan pero esconde pagar / canjear cupon.
+      isAccountOwner: billingUid === uid,
       period,
       currentPeriodEnd: periodEndMs || null,
       source: typeof account.source === "string" ? account.source : null,

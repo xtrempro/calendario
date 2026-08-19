@@ -12,6 +12,7 @@ import {
     getCurrentFirebaseUser,
     getFirebaseServices
 } from "./firebaseClient.js";
+import { getActiveWorkspace } from "./workspaces.js";
 import {
     getPlan,
     isWithinUnitLimit,
@@ -29,6 +30,10 @@ const ADMIN_EMAILS = ["tm.alanplaza@gmail.com"];
 let cachedUsage = null;
 let usageFetchedAt = 0;
 let inFlight = null;
+// Entorno con el que se pidio el uso cacheado: el plan depende de el (dentro de
+// un entorno ajeno rige el del dueño), asi que cambiar de unidad invalida la
+// cache aunque no haya vencido el TTL.
+let usageWorkspaceId = "";
 
 function normalizeEmailForAdmin(email) {
     const clean = String(email || "").trim().toLowerCase();
@@ -58,6 +63,9 @@ async function callFunction(name, payload = {}) {
 function normalizeUsage(data = {}) {
     return {
         plan: typeof data.plan === "string" ? data.plan : "free",
+        // El servidor lo marca false cuando el plan es del dueño del entorno y
+        // no de quien consulta (supervisor invitado).
+        isAccountOwner: data.isAccountOwner !== false,
         effectivePlan:
             typeof data.effectivePlan === "string"
                 ? data.effectivePlan
@@ -92,7 +100,17 @@ export async function refreshAccountUsage({ force = false } = {}) {
     if (!getCurrentFirebaseUser()) {
         cachedUsage = null;
         usageFetchedAt = 0;
+        usageWorkspaceId = "";
         return null;
+    }
+
+    const workspaceId = String(getActiveWorkspace()?.id || "");
+
+    // Cambiar de entorno puede cambiar el plan: se descarta la cache en vez de
+    // servir el del entorno anterior.
+    if (workspaceId !== usageWorkspaceId) {
+        cachedUsage = null;
+        usageFetchedAt = 0;
     }
 
     if (
@@ -112,10 +130,11 @@ export async function refreshAccountUsage({ force = false } = {}) {
                 functions,
                 "getAccountUsage"
             );
-            const result = await callable({});
+            const result = await callable({ workspaceId });
 
             cachedUsage = normalizeUsage(result?.data || {});
             usageFetchedAt = Date.now();
+            usageWorkspaceId = workspaceId;
             return cachedUsage;
         } catch (error) {
             console.warn("No se pudo obtener el uso de la cuenta.", error);
@@ -131,6 +150,7 @@ export async function refreshAccountUsage({ force = false } = {}) {
 export function clearAccountUsageCache() {
     cachedUsage = null;
     usageFetchedAt = 0;
+    usageWorkspaceId = "";
     inFlight = null;
 }
 
@@ -147,6 +167,12 @@ export function getEffectivePlan() {
 
 export function planIsExpired() {
     return Boolean(cachedUsage?.expired);
+}
+
+// false cuando el plan vigente lo paga el dueño del entorno activo y no quien
+// esta conectado (supervisor invitado): usa el plan, pero no lo administra.
+export function isAccountOwner() {
+    return cachedUsage?.isAccountOwner !== false;
 }
 
 // Flag global de activacion del gating. Si esta apagado (o aun no hay datos),
