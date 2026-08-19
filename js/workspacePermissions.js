@@ -153,6 +153,22 @@ export function canEditTarget(targetId) {
     return canEditMenu(menuKeyForTarget(targetId));
 }
 
+// Guard de las acciones de escritura que se disparan desde la UI (celdas del
+// timeline, badges del calendario, alertas de dotacion). Devuelve false y avisa
+// cuando el usuario solo tiene permiso de lectura en ese menu, para que el
+// cuadro no llegue a abrirse: aguas abajo la escritura ya no se revisa (solo la
+// rechaza la sincronizacion, dejando el cambio aplicado en local).
+export function ensureCanEditTarget(targetId) {
+    if (canEditTarget(targetId)) return true;
+
+    const label = MENU_PERMISSION_DEFS.find(menu =>
+        menu.key === menuKeyForTarget(targetId)
+    )?.label || "este menu";
+
+    alert(`Tu usuario tiene permiso solo de lectura en ${label}.`);
+    return false;
+}
+
 export function canEditAnyMenu() {
     if (permissionState.isOwner) return true;
 

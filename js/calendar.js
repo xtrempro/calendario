@@ -204,6 +204,10 @@ import {
     rejectWorkerRequestById
 } from "./workerRequests.js";
 import { runCooperativeRange } from "./mainThreadScheduler.js";
+import {
+    canEditTarget,
+    ensureCanEditTarget
+} from "./workspacePermissions.js";
 import { searchReplacementsInWorker } from "./workerService.js";
 import {
     measurePerformance,
@@ -2935,6 +2939,10 @@ async function openReplacementDetailDialog(
 
     if (!replacement) return false;
 
+    // Solo lectura en Turnos: el detalle sigue siendo consultable (es
+    // informacion del turno), pero pierde la accion de anular.
+    const canEdit = canEditTarget("calendarPanel");
+
     const backdrop = document.createElement("div");
     const title = replacement.replaced
         ? (
@@ -2974,9 +2982,11 @@ async function openReplacementDetailDialog(
     backdrop.innerHTML = `
         <section class="turn-change-dialog replacement-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="replacementDetailTitle">
             <strong id="replacementDetailTitle">${escapeHTML(title)}</strong>
+            ${canEdit ? `
             <p>
                 Para modificar este turno extra debes anular el reemplazo aplicado.
             </p>
+            ` : ""}
             <div class="leave-detail-rows replacement-detail-rows">
                 ${details.map(([label, value]) => `
                     <div>
@@ -2985,16 +2995,20 @@ async function openReplacementDetailDialog(
                     </div>
                 `).join("")}
             </div>
+            ${canEdit ? `
             <p class="leave-detail-note">
                 Al anularlo, se quitara este turno extra del calendario del trabajador que cubre y se actualizara la cobertura del trabajador reemplazado.
             </p>
+            ` : ""}
             <div class="turn-change-dialog__actions">
                 <button class="secondary-button" type="button" data-action="cancel">
-                    Cancelar
+                    ${canEdit ? "Cancelar" : "Cerrar"}
                 </button>
+                ${canEdit ? `
                 <button class="leave-detail-undo" type="button" data-action="undo">
                     Anular reemplazo
                 </button>
+                ` : ""}
             </div>
         </section>
     `;
@@ -3020,76 +3034,76 @@ async function openReplacementDetailDialog(
         .querySelector("[data-action='cancel']")
         .onclick = close;
 
-    backdrop
-        .querySelector("[data-action='undo']")
-        .onclick = async () => {
-            const confirmed = await showConfirm(
-                `Se anulara el reemplazo de ${replacement.worker} para el ${replacementDetailDateLabel(replacement.date)}.`,
+    const undoButton = backdrop.querySelector("[data-action='undo']");
+
+    if (undoButton) undoButton.onclick = async () => {
+        const confirmed = await showConfirm(
+            `Se anulara el reemplazo de ${replacement.worker} para el ${replacementDetailDateLabel(replacement.date)}.`,
+            {
+                title: "Anular reemplazo",
+                tone: "danger",
+                confirmText: "Anular reemplazo",
+                cancelText: "Volver",
+                destructive: true
+            }
+        );
+
+        if (!confirmed) return;
+
+        await withBusyState(async () => {
+            if (typeof window.pushUndoState === "function") {
+                window.pushUndoState("Anular reemplazo");
+            }
+
+            if (replacement.isLoan && replacement.interUnitLoanId) {
+                await cancelInterUnitLoan(
+                    replacement.interUnitLoanId,
+                    replacement.hostWorkspaceId || ""
+                );
+            }
+
+            const canceled = cancelReplacementById(
+                replacement.id,
                 {
-                    title: "Anular reemplazo",
-                    tone: "danger",
-                    confirmText: "Anular reemplazo",
-                    cancelText: "Volver",
-                    destructive: true
+                    reason: "supervisor_canceled",
+                    details: "Reemplazo anulado desde el calendario."
                 }
             );
 
-            if (!confirmed) return;
+            if (!canceled) {
+                alert("No se pudo anular el reemplazo. Es posible que ya haya cambiado.");
+                return;
+            }
 
-            await withBusyState(async () => {
-                if (typeof window.pushUndoState === "function") {
-                    window.pushUndoState("Anular reemplazo");
-                }
+            close();
 
-                if (replacement.isLoan && replacement.interUnitLoanId) {
-                    await cancelInterUnitLoan(
-                        replacement.interUnitLoanId,
-                        replacement.hostWorkspaceId || ""
-                    );
-                }
+            await updateDayCell(
+                canceled.worker || profileName,
+                canceled.date || keyDay
+            );
 
-                const canceled = cancelReplacementById(
-                    replacement.id,
-                    {
-                        reason: "supervisor_canceled",
-                        details: "Reemplazo anulado desde el calendario."
-                    }
-                );
-
-                if (!canceled) {
-                    alert("No se pudo anular el reemplazo. Es posible que ya haya cambiado.");
-                    return;
-                }
-
-                close();
-
+            if (canceled.replaced) {
                 await updateDayCell(
-                    canceled.worker || profileName,
+                    canceled.replaced,
                     canceled.date || keyDay
                 );
+            }
 
-                if (canceled.replaced) {
-                    await updateDayCell(
-                        canceled.replaced,
-                        canceled.date || keyDay
-                    );
-                }
+            updateTimelineCells(
+                canceled.worker || profileName,
+                [keyDay]
+            );
 
+            if (canceled.replaced) {
                 updateTimelineCells(
-                    canceled.worker || profileName,
+                    canceled.replaced,
                     [keyDay]
                 );
-
-                if (canceled.replaced) {
-                    updateTimelineCells(
-                        canceled.replaced,
-                        [keyDay]
-                    );
-                }
-            }, {
-                label: "Anulando reemplazo..."
-            });
-        };
+            }
+        }, {
+            label: "Anulando reemplazo..."
+        });
+    };
 
     document.addEventListener("keydown", onKeydown);
     document.body.appendChild(backdrop);
@@ -5056,6 +5070,10 @@ async function openReplacementDialog(profileName, keyDay) {
         return;
     }
 
+    if (!ensureCanEditTarget("calendarPanel")) {
+        return;
+    }
+
     const absenceType =
         getAbsenceLabelForProfileDate(profileName, keyDay);
     let scope = "compatible";
@@ -6198,6 +6216,10 @@ async function openExtraReasonDialog(
         return;
     }
 
+    if (!ensureCanEditTarget("calendarPanel")) {
+        return;
+    }
+
     const matchesByTurn = new Map();
     const manualSections = pendingTurn
         ? getManualBackupSections(pendingTurn, matchesByTurn)
@@ -6612,6 +6634,10 @@ function openPreassignmentDialog({ profile, keyDay }) {
 
     if (!preassignment) return;
 
+    // Solo lectura en Turnos: la reserva se puede consultar, pero no
+    // confirmarse ni cancelarse.
+    const canEdit = canEditTarget("calendarPanel");
+
     const { id, worker, replaced, turno, absenceType } = preassignment;
     const audit = getPreassignmentAuditInfo(replaced, keyDay);
     const preassignedLabel = audit?.createdAtLabel ||
@@ -6639,8 +6665,10 @@ function openPreassignmentDialog({ profile, keyDay }) {
                 cobertura ("!").
             </p>
             <div class="turn-change-dialog__actions leave-detail-actions--stacked">
+                ${canEdit ? `
                 <button class="primary-button" type="button" data-action="confirm">Confirmar (el trabajador aceptó)</button>
                 <button class="leave-detail-undo" type="button" data-action="cancel-preassign">Cancelar preasignación</button>
+                ` : ""}
                 <button class="ghost-button" type="button" data-action="close">Cerrar</button>
             </div>
         </section>

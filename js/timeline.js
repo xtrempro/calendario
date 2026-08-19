@@ -95,6 +95,7 @@ import {
     measurePerformance,
     startPerformanceSpan
 } from "./performanceMonitor.js";
+import { ensureCanEditTarget } from "./workspacePermissions.js";
 
 const timelineFilterState = {
     anchorProfile: "",
@@ -1339,6 +1340,12 @@ function ensureTimelineCellDelegation(container) {
             event.preventDefault();
             event.stopPropagation();
 
+            // Las casillas que abren un cuadro de pura escritura (asignar
+            // reemplazo, motivo de la HH.EE) exigen permiso de edicion en
+            // Turnos: el timeline es su unico control de acceso. El contrato ya
+            // valida el permiso de Perfiles, y la preasignacion, el detalle del
+            // reemplazo y el tope de honorarios se abren en modo consulta
+            // ocultando sus botones de accion.
             if (cell.dataset.contractErrorProfile) {
                 // La cruz de "sin contrato" tiene prioridad visual y de accion:
                 // el dia puede tener tambien un reemplazo, pero lo primero es
@@ -1353,6 +1360,8 @@ function ensureTimelineCellDelegation(container) {
                     keyDay: cell.dataset.preassignKey
                 });
             } else if (cell.dataset.replacementProfile) {
+                if (!ensureCanEditTarget("calendarPanel")) return;
+
                 window.openReplacementDialog?.(
                     cell.dataset.replacementProfile,
                     cell.dataset.replacementKey
@@ -1364,12 +1373,16 @@ function ensureTimelineCellDelegation(container) {
                     cell.dataset.workerReplacementId || ""
                 );
             } else if (cell.dataset.extraProfile) {
+                if (!ensureCanEditTarget("calendarPanel")) return;
+
                 window.openExtraReasonDialog?.(
                     cell.dataset.extraProfile,
                     cell.dataset.extraKey,
                     Number(cell.dataset.extraTurn) || 0
                 );
             } else if (cell.dataset.clockExtraProfile) {
+                if (!ensureCanEditTarget("calendarPanel")) return;
+
                 window.openClockExtraReasonDialog?.(
                     cell.dataset.clockExtraProfile,
                     cell.dataset.clockExtraKey,
