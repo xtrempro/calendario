@@ -1434,8 +1434,10 @@ function normalizePublishedScheduleOcr(value) {
         reviewRequired: value.reviewRequired === true,
         requestedAtISO: String(value.requestedAtISO || "").trim(),
         extractedAtISO: String(value.extractedAtISO || "").trim(),
-        text,
-        textLength: Number(value.textLength || text.length || 0),
+        // No publicar el texto OCR completo (hasta 30 KB/semana): con el grid del
+        // Excel ya no se usa, y acumulado por semana inflaba el commit.
+        text: "",
+        textLength: 0,
         truncated: value.truncated === true,
         error,
         words
@@ -3058,7 +3060,7 @@ export async function publishWorkerScheduleAttachmentNow(attachment) {
         try {
             await batch.commit();
         } catch (error) {
-            if (/payload size exceeds/i.test(String(error?.message || ""))) {
+            if (/payload size exceeds|too big|maximum|exceeds the maximum/i.test(String(error?.message || ""))) {
                 const perDocKb = Math.round(approxDocBytes / 1024);
                 const err = new Error(
                     `${error.message} [proyeccion: ${perDocKb}KB/doc x ${batchSize} docs]`

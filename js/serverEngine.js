@@ -227,8 +227,10 @@ function normalizePublishedScheduleOcr(value) {
         reviewRequired: value.reviewRequired === true,
         requestedAtISO: String(value.requestedAtISO || "").trim(),
         extractedAtISO: String(value.extractedAtISO || "").trim(),
-        text,
-        textLength: Number(value.textLength || text.length || 0),
+        // No publicar el texto OCR completo (hasta 30 KB/semana): con el grid del
+        // Excel ya no se usa, y acumulado por semana inflaba el commit.
+        text: "",
+        textLength: 0,
         truncated: value.truncated === true,
         error,
         words

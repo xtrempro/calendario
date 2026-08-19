@@ -669,9 +669,10 @@ async function commitPartialStateDocumentsNow(
             }
         );
     } catch (error) {
-        // Diagnostico: si Firestore rechaza por tamano de payload, adjuntamos
-        // que claves/modulos son los mas pesados para ubicar el origen.
-        if (/payload size exceeds/i.test(String(error?.message || ""))) {
+        // Diagnostico: si Firestore rechaza por tamano de payload (o "Transaction
+        // too big"), adjuntamos que claves/modulos son los mas pesados para
+        // ubicar el origen.
+        if (/payload size exceeds|too big|maximum|exceeds the maximum/i.test(String(error?.message || ""))) {
             const sizes = documents
                 .map(entry => {
                     let bytes = 0;

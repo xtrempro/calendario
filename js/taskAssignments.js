@@ -133,12 +133,13 @@ function normalizeScheduleOcr(value) {
         reviewRequired: value.reviewRequired === true,
         requestedAtISO: String(value.requestedAtISO || "").trim(),
         extractedAtISO: String(value.extractedAtISO || "").trim(),
-        text,
-        textLength: Number(value.textLength || text.length || 0),
+        // OCR obsoleto: el grid del Excel reemplaza la reconstrucción. No persistir
+        // el texto (hasta 30 KB/semana) ni la geometría evita inflar el estado y
+        // exceder el límite de commit de Firestore.
+        text: "",
+        textLength: 0,
         truncated: value.truncated === true,
         error,
-        // OCR obsoleto: el grid del Excel reemplaza la geometría por coordenadas.
-        // No persistir words evita inflar el estado y exceder el límite de commit.
         words: []
     };
 }
@@ -2630,7 +2631,7 @@ function openScheduleAttachmentDialog() {
                 );
                 alert(scheduleUploadPermissionMessage(error));
                 submit.disabled = false;
-                submit.textContent = "Publicar imagen";
+                submit.textContent = "Publicar programación";
             }
         });
 
