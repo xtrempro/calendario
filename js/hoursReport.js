@@ -1085,9 +1085,17 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
             shiftExtraHours,
             clockExtraHours
         );
+        // SIN recorte a 0 por dia: el deficit de marcaje que un dia no alcanza
+        // a absorber tiene que bajar el TOTAL del mes, igual que hace el motor
+        // del timeline. Con el Math.max(0, ...) anterior, un turno base no
+        // trabajado se perdia cuando ese dia no habia horas extra contra las
+        // cuales restarlo (p. ej. una Noche completa no trabajada: solo se
+        // descontaba lo que cabia en el excedente de ese dia y las horas
+        // restantes desaparecian del reporte, dejandolo por encima del
+        // timeline).
         const extraHours = {
-            d: Math.max(0, grossExtraHours.d - clockDeficitHours.d),
-            n: Math.max(0, grossExtraHours.n - clockDeficitHours.n)
+            d: grossExtraHours.d - clockDeficitHours.d,
+            n: grossExtraHours.n - clockDeficitHours.n
         };
         const swap = getSwapDetail(profileName, keyDay, swaps);
         const replacement = replacementDetail(profileName, keyDay);
@@ -2743,8 +2751,6 @@ export async function buildWorkerHheeMonthSummary(
         const parsed = Number(String(value).replace(",", "."));
         return Number.isFinite(parsed) ? parsed : 0;
     };
-    const roundSummaryHour = value =>
-        Math.round((Number(value) || 0) * 100) / 100;
 
     // Detalle por turno para la PWA (seccion "Detalle de turnos"). Reemplazo
     // muestra TODOS sus turnos; el resto, solo los turnos extra (los que se
@@ -2777,26 +2783,14 @@ export async function buildWorkerHheeMonthSummary(
             backing: String(row.respaldo || "")
         }))
         .filter(item => item.d + item.n > 0.001);
-    const extraShiftTotals = extraShifts.reduce((totals, item) => ({
-        d: totals.d + num(item.d),
-        n: totals.n + num(item.n)
-    }), { d: 0, n: 0 });
-    const reportHheeDiurnas = detailKind === "extra-only"
-        ? roundSummaryHour(extraShiftTotals.d)
-        : num(stats.hheeDiurnas);
-    const reportHheeNocturnas = detailKind === "extra-only"
-        ? roundSummaryHour(extraShiftTotals.n)
-        : num(stats.hheeNocturnas);
-    const reportNetDiurnas = detailKind === "extra-only"
-        ? roundSummaryHour(
-            reportHheeDiurnas + num(model.carryIn?.d) - num(model.carryOut?.d)
-        )
-        : num(model.totalD);
-    const reportNetNocturnas = detailKind === "extra-only"
-        ? roundSummaryHour(
-            reportHheeNocturnas + num(model.carryIn?.n) - num(model.carryOut?.n)
-        )
-        : num(model.totalN);
+    // Una sola fuente para el total del mes: el motor de horas. Antes, en los
+    // perfiles "extra-only" se recalculaba sumando el detalle de turnos, que no
+    // arrastra los descuentos por marcaje que no caben en el dia; la tarjeta de
+    // la PWA quedaba por encima del timeline y del reporte.
+    const reportHheeDiurnas = num(stats.hheeDiurnas);
+    const reportHheeNocturnas = num(stats.hheeNocturnas);
+    const reportNetDiurnas = num(model.totalD);
+    const reportNetNocturnas = num(model.totalN);
 
     return {
         year,

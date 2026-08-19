@@ -3689,15 +3689,16 @@ function renderHheeRecordsList() {
     if (!host) return;
 
     const all = hheeRecordsCache;
-    const total = all.length;
-    const backedCount = all.filter((r) => r.backed).length;
+    const events = all.filter((r) => !r.adjustment);
+    const total = events.length;
+    const backedCount = events.filter((r) => r.backed).length;
 
     const bar = document.getElementById("hheeRespBar");
     const txt = document.getElementById("hheeRespTxt");
     if (bar) bar.style.width = total ? `${Math.round((backedCount / total) * 100)}%` : "0%";
     if (txt) txt.textContent = `${backedCount} de ${total}`;
 
-    if (!total) {
+    if (!all.length) {
         host.innerHTML = `<div class="hh-rec-empty">Sin registros de HHEE en este mes.</div>`;
         return;
     }
@@ -3710,16 +3711,19 @@ function renderHheeRecordsList() {
     }
 
     host.innerHTML = `<div class="hh-rec-list">${rows.map((r) => {
+        const negative = r.adjustment ? " hh-hchip-neg" : "";
         const chips = [
-            r.d ? `<span class="hh-hchip hh-hchip-d">${fmtHheeHours(r.d)} h diurnas</span>` : "",
-            r.n ? `<span class="hh-hchip hh-hchip-n">${fmtHheeHours(r.n)} h nocturnas</span>` : ""
+            r.d ? `<span class="hh-hchip hh-hchip-d${negative}">${fmtHheeHours(r.d)} h diurnas</span>` : "",
+            r.n ? `<span class="hh-hchip hh-hchip-n${negative}">${fmtHheeHours(r.n)} h nocturnas</span>` : ""
         ].join("");
-        const resp = r.backed
-            ? `<span class="hh-resp ok">${HHEE_RESP_OK_ICON} Con respaldo</span>`
-            : `<span class="hh-resp missing">${HHEE_RESP_MISSING_ICON} Sin respaldo</span>`;
+        const resp = r.adjustment
+            ? `<span class="hh-resp adjust">${HHEE_RESP_MISSING_ICON} Descuento</span>`
+            : r.backed
+                ? `<span class="hh-resp ok">${HHEE_RESP_OK_ICON} Con respaldo</span>`
+                : `<span class="hh-resp missing">${HHEE_RESP_MISSING_ICON} Sin respaldo</span>`;
 
         return `
-            <div class="hh-rec${r.backed ? "" : " is-missing"}">
+            <div class="hh-rec${r.adjustment ? " is-adjustment" : r.backed ? "" : " is-missing"}">
                 <div class="hh-rec__date"><strong>${escapeHTML(r.day)}</strong><small>${escapeHTML(r.monthShort)}</small></div>
                 <span class="hh-turno ${r.badgeClass}">${escapeHTML(r.label)}</span>
                 <div class="hh-rec__hours">${chips}</div>

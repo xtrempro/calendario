@@ -16311,6 +16311,24 @@ body.theme-dark .hh-v2 {
     background: transparent;
     color: var(--text-soft);
 }
+
+/* Descuento por marcaje: horas programadas que no se trabajaron. No es un
+   evento de HH.EE con respaldo, es una resta al total del mes. */
+.hh-v2 .t-descuento {
+    background: rgba(239, 68, 68, 0.14);
+    color: #b91c1c;
+}
+.hh-v2 .hh-hchip-neg {
+    background: rgba(239, 68, 68, 0.12);
+    color: #b91c1c;
+}
+.hh-v2 .hh-resp.adjust {
+    background: transparent;
+    color: #b91c1c;
+}
+.hh-v2 .hh-rec.is-adjustment {
+    background: rgba(239, 68, 68, 0.05);
+}
 .hh-v2 .hh-rec__detail {
     flex-basis: 100%;
     color: var(--text-muted);

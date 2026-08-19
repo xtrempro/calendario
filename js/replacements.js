@@ -31,7 +31,10 @@ import {
 } from "./rulesEngine.js";
 import { calcHours, isBusinessDay } from "./calculations.js";
 import { getCachedHolidays } from "./holidays.js";
-import { getClockExtraHours } from "./clockMarks.js";
+import {
+    getClockDeficitHours,
+    getClockExtraHours
+} from "./clockMarks.js";
 import {
     addAuditLog,
     AUDIT_CATEGORY
@@ -1187,6 +1190,64 @@ function getPendingManualExtraTurn(profile, keyDay) {
     );
 }
 
+// Un dia cubierto por un permiso o licencia aprobada no genera descuento: las
+// horas no trabajadas ya estan justificadas. Es el mismo criterio del motor de
+// horas, que salta esos dias salvo el medio dia administrativo (ahi si se mide
+// contra la media jornada que quedaba por trabajar).
+function clockDeficitAppliesToDay(profile, keyDay) {
+    const admin = getJSON(`admin_${profile}`, {});
+    const adminValue = admin[keyDay];
+    const isHalfAdmin =
+        adminValue === 0.5 ||
+        adminValue === "0.5M" ||
+        adminValue === "0.5T";
+
+    if (isHalfAdmin) return true;
+
+    return !tieneAusencia(
+        keyDay,
+        admin,
+        getJSON(`legal_${profile}`, {}),
+        getJSON(`comp_${profile}`, {}),
+        getJSON(`absences_${profile}`, {})
+    );
+}
+
+function getClockDeficitLogEntries(profile, year, month, holidays = {}) {
+    const days = new Date(year, month + 1, 0).getDate();
+    const entries = [];
+
+    for (let day = 1; day <= days; day++) {
+        const keyDay = `${year}-${month}-${day}`;
+        const date = new Date(year, month, day);
+
+        if (!clockDeficitAppliesToDay(profile, keyDay)) continue;
+
+        const state = aplicarCambiosTurno(
+            profile,
+            keyDay,
+            getTurnoProgramado(profile, keyDay)
+        );
+        const deficit = getClockDeficitHours(
+            profile,
+            keyDay,
+            date,
+            state,
+            holidays
+        );
+
+        if (!deficit.d && !deficit.n) continue;
+
+        entries.push({
+            date: isoFromKey(keyDay),
+            hours: deficit,
+            detail: `Turno ${turnoReplacementLabel(state)}: horas programadas no trabajadas segun el marcaje.`
+        });
+    }
+
+    return entries;
+}
+
 function getUnbackedOvertimeLogEntries(
     profile,
     year,
@@ -1579,7 +1640,31 @@ export function getHheeMonthRecords(profile, year, month, holidays = {}) {
         };
     });
 
-    return [...backedItems, ...unbackedItems].sort(
+    const deficitItems = getClockDeficitLogEntries(
+        profile,
+        year,
+        month,
+        holidays
+    ).map((entry) => {
+        const parts = hheeRecordDateParts(entry.date);
+
+        return {
+            date: entry.date,
+            day: parts.day,
+            monthShort: parts.monthShort,
+            dateLabel: parts.label,
+            label: "Descuento por marcaje",
+            badgeClass: "t-descuento",
+            d: -(Number(entry.hours?.d) || 0),
+            n: -(Number(entry.hours?.n) || 0),
+            detail: entry.detail,
+            backed: true,
+            // No es un evento de HH.EE: no entra en el contador de respaldos.
+            adjustment: true
+        };
+    });
+
+    return [...backedItems, ...unbackedItems, ...deficitItems].sort(
         (a, b) => a.date.localeCompare(b.date)
     );
 }

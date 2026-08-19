@@ -92,19 +92,25 @@ test("Larga 8-20 con solo salida 15:00: reduccion de jornada (deficit 5h)", () =
     assert.equal(c.isReduction, true);
 });
 
-test("el reporte resta el deficit del marcaje a las HH.EE del turno cubierto", async () => {
+test("el reporte resta el deficit del marcaje sin recortarlo dentro del dia", async () => {
     const report = await readFile(
         new URL("../js/hoursReport.js", import.meta.url),
         "utf8"
     );
     const start = report.indexOf("function buildAssignedShiftDayRows(");
     assert.notEqual(start, -1);
-    const body = report.slice(start, start + 3500);
+    const body = report.slice(start, start + 4200);
 
     // Sin esto, una Larga cubierta con "Salida 15:00" mostraba 12 HH.EE en vez de 7.
     assert.match(body, /getClockDeficitHours\(/);
-    assert.match(body, /Math\.max\(0, grossExtraHours\.d - clockDeficitHours\.d\)/);
-    assert.match(body, /Math\.max\(0, grossExtraHours\.n - clockDeficitHours\.n\)/);
+    // El recorte por dia (Math.max(0, ...)) perdia las horas programadas no
+    // trabajadas que no cabian en el excedente de ESE dia: una Noche completa
+    // ausente descontaba solo lo que alcanzaba a cubrir el excedente y el
+    // reporte quedaba por encima del timeline. El sobrante debe bajar el total
+    // del mes, aunque el mes termine en negativo.
+    assert.match(body, /d: grossExtraHours\.d - clockDeficitHours\.d/);
+    assert.match(body, /n: grossExtraHours\.n - clockDeficitHours\.n/);
+    assert.doesNotMatch(body, /Math\.max\(0, grossExtraHours/);
 });
 
 test("clockMarkSummary usa 'a las', clasifica y reetiqueta el motivo", async () => {
