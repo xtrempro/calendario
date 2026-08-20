@@ -1836,6 +1836,56 @@ body[data-active-view="home"] .secondary-grid {
 .hm-dot-time { flex: none; font-size: 0.78rem; font-weight: 700; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .hm-dot-empty { padding: 14px; text-align: center; color: var(--text-muted); font-size: 0.8rem; border: 1px dashed var(--border-strong); border-radius: 11px; }
 @media (max-width: 560px) { .hm-dot-cols { grid-template-columns: 1fr; } }
+/* Calendario organizativo de tareas (se abre desde la fecha del encabezado) */
+.hm-date[data-hm="open-taskcal"] { cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.hm-date[data-hm="open-taskcal"]:hover { border-color: var(--accent); box-shadow: var(--shadow-panel); transform: translateY(-1px); }
+.hm-date[data-hm="open-taskcal"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hm-date-go { display: grid; place-items: center; color: var(--text-muted); flex: none; margin-left: 4px; }
+.hm-date-go svg { width: 17px; height: 17px; }
+.hm-date[data-hm="open-taskcal"]:hover .hm-date-go { color: var(--accent); }
+
+/* El listado de un dia se abre ENCIMA del calendario, que queda visible detras. */
+.hm-modal-backdrop--over { z-index: 1210; }
+.hm-modal--taskcal { width: min(1040px, 100%); }
+/* Las flechas ya toman el margin-left:auto del encabezado; sin esto el boton de
+   cerrar toma un segundo auto y el grupo queda repartido a lo ancho. */
+.hm-modal--taskcal .hm-modal-close { margin-left: 12px; }
+.hm-tc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.hm-tc-dow { text-align: center; font-size: 0.72rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; padding-bottom: 4px; }
+.hm-tc-cell {
+    min-height: 92px; padding: 6px; border-radius: 11px;
+    background: var(--panel-alt); border: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 4px; overflow: hidden;
+}
+.hm-tc-cell--blank { background: transparent; border-color: transparent; }
+.hm-tc-cell.is-today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.hm-tc-cell.is-clickable { cursor: pointer; }
+.hm-tc-cell.is-clickable:hover { border-color: var(--accent); background: var(--accent-soft); }
+.hm-tc-cell.is-clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hm-tc-day { font-size: 0.78rem; font-weight: 800; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+.hm-tc-cell.is-today .hm-tc-day { color: var(--accent); }
+.hm-tc-chips { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.hm-tc-chip {
+    display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 0.7rem; font-weight: 600; color: var(--text);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 7px; padding: 2px 6px;
+}
+.hm-tc-chip b { font-weight: 800; color: var(--accent); margin-right: 5px; font-variant-numeric: tabular-nums; }
+.hm-tc-chip.is-done { color: var(--text-muted); text-decoration: line-through; }
+.hm-tc-chip.is-done b { color: var(--text-muted); }
+.hm-tc-more { font-size: 0.68rem; font-weight: 800; color: var(--accent); padding-left: 2px; }
+
+/* Listado completo de un dia */
+.hm-dt-list { display: flex; flex-direction: column; gap: 6px; }
+.hm-dt-row { display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 11px; background: var(--panel-alt); border: 1px solid var(--border); }
+.hm-dt-time { flex: none; font-size: 0.8rem; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.hm-dt-name { flex: 1; min-width: 0; font-size: 0.86rem; font-weight: 600; color: var(--text); }
+.hm-dt-repeat { flex: none; font-size: 0.71rem; font-weight: 700; color: var(--text-soft); background: var(--hm-track); padding: 3px 8px; border-radius: 7px; white-space: nowrap; }
+.hm-dt-row.is-done .hm-dt-name { color: var(--text-muted); text-decoration: line-through; }
+@media (max-width: 760px) {
+    .hm-tc-cell { min-height: 68px; }
+    .hm-tc-chip { font-size: 0.64rem; }
+}
 .hm-modal-tasks { display: flex; flex-direction: column; gap: 8px; }
 .hm-mt-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--panel-alt); border: 1px solid var(--border); }
 .hm-mt-name { font-weight: 600; font-size: 0.89rem; color: var(--text); }

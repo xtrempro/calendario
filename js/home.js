@@ -38,7 +38,7 @@ import { updateTimelineCells } from "./timeline.js";
 import { birthDateParts } from "./staffing.js";
 import { cambiosDelMes, cambioEstaAnulado } from "./swaps.js";
 import { TURNO_LABEL, ESTAMENTO, TURNO } from "./constants.js";
-import { getHomeTasks, saveHomeTasks } from "./homeTasks.js";
+import { getHomeTasks, saveHomeTasks, isTaskActiveOn } from "./homeTasks.js";
 import { getActiveWorkspace } from "./workspaces.js";
 
 // Nombre por defecto para entornos que aun no tienen "Nombre del supervisor"
@@ -75,6 +75,10 @@ function todayISO() {
 // las flechas; se conserva entre repintados del panel.
 let birthdayYear = new Date().getFullYear();
 let birthdayMonth = new Date().getMonth();
+
+// Calendario organizativo de tareas (se abre desde la fecha del encabezado).
+let taskCalYear = new Date().getFullYear();
+let taskCalMonth = new Date().getMonth();
 
 let coverageDetail = false;
 // Datos de cobertura calculados una vez por render (para no recalcular al
@@ -575,6 +579,181 @@ function tareasWidget() {
         </div>`;
 }
 
+/* =========================================================
+   Calendario organizativo de tareas
+
+   Se abre al hacer click en la fecha del encabezado ("Hoy es ..."). Pinta el mes
+   con las tareas que caen en cada dia segun su recurrencia, usando la MISMA
+   regla que dispara las alertas (isTaskActiveOn), para que el calendario y el
+   aviso sonoro nunca digan cosas distintas.
+
+   En una casilla no caben todas las tareas de un dia: se muestran las primeras
+   y el resto queda como "+N mas". Al abrir el dia se ve el listado completo.
+========================================================= */
+
+// Cuantas tareas alcanzan a mostrarse dentro de una casilla.
+const TASKS_PER_CELL = 3;
+
+// La semana parte el lunes.
+const DIAS_SEMANA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
+
+export function getTasksForDay(date, tasks = getHomeTasks()) {
+    return tasks
+        .filter(task => isTaskActiveOn(task, date))
+        .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+}
+
+// Las casillas del mes, con los blancos iniciales para que el dia 1 caiga en su
+// columna. null = casilla vacia antes del dia 1.
+export function buildTaskCalendarCells(year, month, tasks = getHomeTasks()) {
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    // getDay() da 0 en domingo; con la semana en lunes, domingo es la columna 6.
+    const lead = (new Date(year, month, 1).getDay() + 6) % 7;
+    const cells = new Array(lead).fill(null);
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+        const date = new Date(year, month, day);
+
+        cells.push({
+            day,
+            iso: isoFromDate(date),
+            tasks: getTasksForDay(date, tasks)
+        });
+    }
+
+    return cells;
+}
+
+function isoFromDate(date) {
+    return `${date.getFullYear()}` +
+        `-${String(date.getMonth() + 1).padStart(2, "0")}` +
+        `-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function dateLabelFromISO(iso) {
+    const [year, month, day] = String(iso).split("-").map(Number);
+    const date = new Date(year, month - 1, day);
+
+    return `${DIAS[date.getDay()]}, ${day} de ${MESES[month - 1]} de ${year}`;
+}
+
+function taskChipHTML(task, iso) {
+    const done = task.doneDate === iso;
+
+    return `
+        <span class="hm-tc-chip ${done ? "is-done" : ""}" title="${esc(`${task.time} · ${task.name}`)}">
+            <b>${esc(task.time)}</b>${esc(task.name)}
+        </span>`;
+}
+
+function taskCalendarCellHTML(cell, todayIso) {
+    if (!cell) return `<div class="hm-tc-cell hm-tc-cell--blank"></div>`;
+
+    const isToday = cell.iso === todayIso;
+    const extra = cell.tasks.length - TASKS_PER_CELL;
+    // Solo se abre un dia que tenga algo que mostrar.
+    const clickable = cell.tasks.length > 0;
+    const attrs = clickable
+        ? ` role="button" tabindex="0" data-hm="taskcal-day" data-iso="${esc(cell.iso)}"` +
+          ` title="Ver las ${cell.tasks.length} tareas del día"`
+        : "";
+
+    return `
+        <div class="hm-tc-cell ${isToday ? "is-today" : ""} ${clickable ? "is-clickable" : ""}"${attrs}>
+            <span class="hm-tc-day">${cell.day}</span>
+            <div class="hm-tc-chips">
+                ${cell.tasks.slice(0, TASKS_PER_CELL).map(task => taskChipHTML(task, cell.iso)).join("")}
+                ${extra > 0 ? `<span class="hm-tc-more">+${extra} más</span>` : ""}
+            </div>
+        </div>`;
+}
+
+function taskCalendarBody() {
+    const cells = buildTaskCalendarCells(taskCalYear, taskCalMonth);
+    const todayIso = todayISO();
+    const total = cells.reduce(
+        (sum, cell) => sum + (cell ? cell.tasks.length : 0),
+        0
+    );
+
+    return {
+        heading: `${MESES[taskCalMonth]} ${taskCalYear}`,
+        total,
+        grid: `
+            ${DIAS_SEMANA.map(day => `<div class="hm-tc-dow">${day}</div>`).join("")}
+            ${cells.map(cell => taskCalendarCellHTML(cell, todayIso)).join("")}`
+    };
+}
+
+function taskCalendarModal() {
+    const { heading, total, grid } = taskCalendarBody();
+
+    return `
+        <div class="hm-modal-backdrop" data-hm="taskcal-modal" hidden>
+            <div class="hm-modal hm-modal--taskcal" role="dialog" aria-modal="true" aria-label="Calendario de tareas">
+                <div class="hm-modal-head">
+                    <span class="hm-modal-ico">${svg(IC.calendar)}</span>
+                    <h3>Calendario de tareas · <span data-hm="tc-month">${esc(heading)}</span></h3>
+                    <div class="hm-bday-nav">
+                        <button type="button" data-hm="tc-prev" aria-label="Mes anterior">&#8249;</button>
+                        <button type="button" data-hm="tc-next" aria-label="Mes siguiente">&#8250;</button>
+                    </div>
+                    <span class="hm-count" data-hm="tc-count">${total}</span>
+                    <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="hm-modal-body">
+                    <div class="hm-tc-grid" data-hm="tc-grid">${grid}</div>
+                </div>
+            </div>
+        </div>`;
+}
+
+// Segundo modal: el listado completo de un dia, para cuando las tareas no caben
+// en la casilla.
+function dayTasksModal() {
+    return `
+        <div class="hm-modal-backdrop hm-modal-backdrop--over" data-hm="dayTasks-modal" hidden>
+            <div class="hm-modal" role="dialog" aria-modal="true" aria-label="Tareas del día">
+                <div class="hm-modal-head">
+                    <span class="hm-modal-ico">${svg(IC.checkClip)}</span>
+                    <h3 data-hm="dt-title">Tareas del día</h3>
+                    <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="hm-modal-body" data-hm="dt-body"></div>
+            </div>
+        </div>`;
+}
+
+function openDayTasks(panel, iso) {
+    const modal = panel.querySelector('[data-hm="dayTasks-modal"]');
+    if (!modal) return;
+
+    const [year, month, day] = String(iso).split("-").map(Number);
+    const tasks = getTasksForDay(new Date(year, month - 1, day));
+
+    modal.querySelector('[data-hm="dt-title"]').textContent = dateLabelFromISO(iso);
+    modal.querySelector('[data-hm="dt-body"]').innerHTML = tasks.length
+        ? `<div class="hm-dt-list">${tasks.map(task => `
+            <div class="hm-dt-row ${task.doneDate === iso ? "is-done" : ""}">
+                <span class="hm-dt-time">${esc(task.time)}</span>
+                <span class="hm-dt-name">${esc(task.name)}</span>
+                <span class="hm-dt-repeat">${esc(task.repeat)}</span>
+            </div>`).join("")}</div>`
+        : `<div class="hm-empty">Sin tareas para este día.</div>`;
+    modal.hidden = false;
+}
+
+function reRenderTaskCalendar(panel) {
+    const { heading, total, grid } = taskCalendarBody();
+    const month = panel.querySelector('[data-hm="tc-month"]');
+    const count = panel.querySelector('[data-hm="tc-count"]');
+    const host = panel.querySelector('[data-hm="tc-grid"]');
+
+    if (month) month.textContent = heading;
+    if (count) count.textContent = total;
+    if (host) host.innerHTML = grid;
+}
+
 function ausenciasWidget() {
     const items = getTodayAbsences();
     const body = items.length
@@ -946,9 +1125,11 @@ function homeHTML() {
                 <div class="hm-greet">
                     <h1>¡Hola, ${supervisor}! 👋</h1>
                     <p>Este es tu resumen diario de ${unit}.</p>
-                    <div class="hm-date">
+                    <div class="hm-date" data-hm="open-taskcal" role="button" tabindex="0"
+                        title="Ver el calendario de tareas">
                         <span class="hm-date-ico">${svg(IC.calendar)}</span>
                         <span><small>Hoy es</small><strong>${esc(todayLabel())}</strong></span>
+                        <span class="hm-date-go">${svg(IC.chevron, 'stroke-width="2.4"')}</span>
                     </div>
                 </div>
                 <div class="hm-highlight">
@@ -980,7 +1161,9 @@ function homeHTML() {
         </div>
         ${tasksModal()}
         ${taskEditModal()}
-        ${dotacionModal()}`;
+        ${dotacionModal()}
+        ${taskCalendarModal()}
+        ${dayTasksModal()}`;
 }
 
 // ---- Interactividad ----
@@ -1171,6 +1354,77 @@ function wire(panel) {
             renderHomePanel();
         });
     });
+
+    // --- Calendario de tareas: se abre desde la fecha del encabezado ---
+    const taskCal = panel.querySelector('[data-hm="taskcal-modal"]');
+    const dateBtn = panel.querySelector('[data-hm="open-taskcal"]');
+    const dayTasks = panel.querySelector('[data-hm="dayTasks-modal"]');
+
+    if (dateBtn && taskCal) {
+        const openCalendar = () => {
+            // Siempre abre en el mes de hoy, no donde quedo la vez anterior:
+            // se entra por "Hoy es ...".
+            const now = new Date();
+
+            taskCalYear = now.getFullYear();
+            taskCalMonth = now.getMonth();
+            reRenderTaskCalendar(panel);
+            taskCal.hidden = false;
+        };
+
+        dateBtn.addEventListener("click", openCalendar);
+        dateBtn.addEventListener("keydown", event => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            openCalendar();
+        });
+    }
+
+    if (taskCal) {
+        taskCal.addEventListener("click", event => {
+            if (event.target === taskCal || event.target.closest('[data-hm="close"]')) {
+                taskCal.hidden = true;
+                if (dayTasks) dayTasks.hidden = true;
+                return;
+            }
+
+            const nav = event.target.closest('[data-hm="tc-prev"], [data-hm="tc-next"]');
+
+            if (nav) {
+                const step = nav.dataset.hm === "tc-next" ? 1 : -1;
+                // Con Date, diciembre -> enero salta de año solo.
+                const next = new Date(taskCalYear, taskCalMonth + step, 1);
+
+                taskCalYear = next.getFullYear();
+                taskCalMonth = next.getMonth();
+                reRenderTaskCalendar(panel);
+                return;
+            }
+
+            const cell = event.target.closest('[data-hm="taskcal-day"]');
+
+            if (cell) openDayTasks(panel, cell.dataset.iso);
+        });
+        taskCal.addEventListener("keydown", event => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+
+            const cell = event.target.closest('[data-hm="taskcal-day"]');
+
+            if (!cell) return;
+
+            event.preventDefault();
+            openDayTasks(panel, cell.dataset.iso);
+        });
+    }
+
+    if (dayTasks) {
+        dayTasks.addEventListener("click", event => {
+            // Cerrar el listado del dia deja el calendario abierto detras.
+            if (event.target === dayTasks || event.target.closest('[data-hm="close"]')) {
+                dayTasks.hidden = true;
+            }
+        });
+    }
 
     // --- Cumpleaños: navegar de mes en mes sin repintar todo el panel ---
     panel.querySelectorAll('[data-hm="bday-prev"], [data-hm="bday-next"]')

@@ -159,7 +159,10 @@ function monthsBetween(from, to) {
         (to.getMonth() - from.getMonth());
 }
 
-function isTaskActiveOn(task, date) {
+// Exportada: el calendario organizativo del home pregunta, dia por dia, que
+// tareas caen ahi. Tiene que ser LA MISMA regla que dispara las alertas, o el
+// calendario mostraria una recurrencia y el aviso sonaria en otra.
+export function isTaskActiveOn(task, date) {
     const anchor = parseISODate(task.date);
     if (!anchor) {
         // Sin fecha de inicio solo tiene sentido la recurrencia diaria.
