@@ -33,6 +33,9 @@ import {
     getPreassignments
 } from "./preassignments.js";
 import { refreshAll } from "./refresh.js";
+import { updateDayCell, updateVisibleCalendarDays } from "./calendar.js";
+import { updateTimelineCells } from "./timeline.js";
+import { keyFromISO } from "./dateUtils.js";
 import { cambiosDelMes, cambioEstaAnulado } from "./swaps.js";
 import { TURNO_LABEL, ESTAMENTO, TURNO } from "./constants.js";
 import { getHomeTasks, saveHomeTasks } from "./homeTasks.js";
@@ -1036,14 +1039,33 @@ function wire(panel) {
                 }
 
                 const confirmar = button.dataset.hm === "cob-confirm";
+                const worker = preassignment.worker;
+                const replaced = preassignment.replaced;
+                const keyDay = keyFromISO(preassignment.date);
                 const done = confirmar
                     ? confirmPreassignment(preassignment)
                     : cancelPreassignment(preassignment);
 
                 if (!done) return;
 
-                // El turno pasa a reemplazo real (o vuelve a "!"), asi que hay
-                // que repintar calendario, timeline y esta misma tarjeta.
+                // refreshAll solo repinta la vista ACTIVA, y aca la activa es
+                // el inicio: calendario y timeline quedaban con el marcador de
+                // preasignado hasta recargar. Se actualizan sus casillas igual
+                // que hace el modal del calendario, aunque esten ocultos.
+                void (async () => {
+                    await updateDayCell(replaced, keyDay);
+
+                    if (worker && worker !== replaced) {
+                        await updateDayCell(worker, keyDay);
+                    }
+
+                    updateTimelineCells(replaced, [keyDay]);
+
+                    if (worker) updateTimelineCells(worker, [keyDay]);
+
+                    await updateVisibleCalendarDays({ updateSummary: true });
+                })();
+
                 refreshAll();
                 renderHomePanel();
             });

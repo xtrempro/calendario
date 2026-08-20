@@ -138,6 +138,31 @@ test("la tarjeta del inicio pinta los dos botones y los cablea", async () => {
     assert.match(home, /refreshAll\(\);\s*\n\s*renderHomePanel\(\);/);
 });
 
+test("resolver desde el inicio actualiza calendario Y timeline", async () => {
+    const [home, refresh] = await Promise.all([
+        readFile(new URL("../js/home.js", import.meta.url), "utf8"),
+        readFile(new URL("../js/refresh.js", import.meta.url), "utf8")
+    ]).then(sources => sources.map(text => text.replace(/\r\n/g, "\n")));
+
+    // refreshAll repinta SOLO la vista activa, y al resolver desde el inicio la
+    // activa es "home": ni el calendario ni el timeline se enteraban, y el
+    // marcador de preasignado seguia ahi hasta recargar.
+    assert.match(refresh, /if \(activeView === "turnos"\) \{\s*\n\s*renderCalendar/);
+    assert.match(refresh, /if \(activeView === "timeline"\) \{\s*\n\s*renderTimeline/);
+
+    // Por eso el inicio actualiza las casillas directamente, como el modal.
+    assert.match(home, /await updateDayCell\(replaced, keyDay\);/);
+    assert.match(home, /await updateDayCell\(worker, keyDay\);/);
+    assert.match(home, /updateTimelineCells\(replaced, \[keyDay\]\);/);
+    assert.match(home, /updateTimelineCells\(worker, \[keyDay\]\);/);
+    assert.match(home, /await updateVisibleCalendarDays\(\{ updateSummary: true \}\);/);
+    // Los nombres se leen ANTES de resolver: despues la preasignacion ya no esta.
+    assert.match(
+        home,
+        /const worker = preassignment\.worker;[\s\S]{0,200}?const done = confirmar/
+    );
+});
+
 test("el calendario ya no duplica la logica, la reusa", async () => {
     const calendar = (await readFile(
         new URL("../js/calendar.js", import.meta.url),
