@@ -16669,6 +16669,26 @@ body.theme-dark .hh-v2 {
 .hh-v2 .hh-rec__date {
     min-width: 54px;
 }
+/* La fecha es el boton de accion de la fila: abre el cuadro que le falta a ese
+   dia (respaldo, marcaje o anular el turno extra). */
+.hh-v2 .hh-rec__date--action {
+    padding: 4px 6px;
+    margin: -4px -6px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.hh-v2 .hh-rec__date--action:hover {
+    background: var(--panel-alt);
+    border-color: var(--border);
+}
+.hh-v2 .hh-rec__date--action:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
 .hh-v2 .hh-rec__date strong {
     display: block;
     font-size: 1rem;

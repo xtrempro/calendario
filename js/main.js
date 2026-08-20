@@ -3714,7 +3714,7 @@ function renderHheeRecordsList() {
         return;
     }
 
-    host.innerHTML = `<div class="hh-rec-list">${rows.map((r) => {
+    host.innerHTML = `<div class="hh-rec-list">${rows.map((r, index) => {
         const negative = r.adjustment ? " hh-hchip-neg" : "";
         const chips = [
             r.d ? `<span class="hh-hchip hh-hchip-d${negative}">${fmtHheeHours(r.d)} h diurnas</span>` : "",
@@ -3726,9 +3726,21 @@ function renderHheeRecordsList() {
                 ? `<span class="hh-resp ok">${HHEE_RESP_OK_ICON} Con respaldo</span>`
                 : `<span class="hh-resp missing">${HHEE_RESP_MISSING_ICON} Sin respaldo</span>`;
 
+        // La fecha abre el cuadro que corresponde a ese registro: asignar el
+        // respaldo que falta, ver o corregir el marcaje, o anular el turno
+        // extra. Antes habia que ir al calendario, buscar el dia y clickear la
+        // casilla.
+        const action = hheeRecordActionTitle(r);
+
         return `
             <div class="hh-rec${r.adjustment ? " is-adjustment" : r.backed ? "" : " is-missing"}">
-                <div class="hh-rec__date"><strong>${escapeHTML(r.day)}</strong><small>${escapeHTML(r.monthShort)}</small></div>
+                <button
+                    class="hh-rec__date hh-rec__date--action"
+                    type="button"
+                    data-hhee-record-index="${index}"
+                    title="${escapeHTML(action)}"
+                    aria-label="${escapeHTML(`${r.dateLabel}: ${action}`)}"
+                ><strong>${escapeHTML(r.day)}</strong><small>${escapeHTML(r.monthShort)}</small></button>
                 <span class="hh-turno ${r.badgeClass}">${escapeHTML(r.label)}</span>
                 <div class="hh-rec__hours">${chips}</div>
                 <span class="hh-rec__spacer"></span>
@@ -3736,6 +3748,61 @@ function renderHheeRecordsList() {
                 <small class="hh-rec__detail">${escapeHTML(r.detail)}</small>
             </div>`;
     }).join("")}</div>`;
+
+    host.querySelectorAll("[data-hhee-record-index]").forEach((button) => {
+        button.onclick = () =>
+            openHheeRecordAction(rows[Number(button.dataset.hheeRecordIndex)]);
+    });
+}
+
+// Que ofrece la fecha de cada registro, segun lo que le falta a ese dia.
+function hheeRecordActionTitle(record) {
+    if (record?.kind === "pending-manual" || record?.kind === "pending-clock") {
+        return "Asignar el respaldo de estas horas extras";
+    }
+
+    if (record?.kind === "clock-backing" || record?.kind === "deficit") {
+        return "Ver o modificar el marcaje de este día";
+    }
+
+    return "Ver el turno extra y anularlo si corresponde";
+}
+
+async function openHheeRecordAction(record) {
+    const profileName = hheeRecordsProfileName;
+    const keyDay = record?.keyDay || "";
+
+    if (!profileName || !keyDay) return;
+
+    if (record.kind === "pending-manual") {
+        await window.openExtraReasonDialog?.(
+            profileName,
+            keyDay,
+            Number(record.pendingTurn) || 0
+        );
+        return;
+    }
+
+    if (record.kind === "pending-clock") {
+        await window.openClockExtraReasonDialog?.(
+            profileName,
+            keyDay,
+            Number(record.state) || 0
+        );
+        return;
+    }
+
+    if (record.kind === "clock-backing" || record.kind === "deficit") {
+        // El detalle del marcaje lleva dentro el boton para modificarlo.
+        window.openClockMarkDetailForDate?.(profileName, keyDay);
+        return;
+    }
+
+    await window.openReplacementDetailDialog?.(
+        profileName,
+        keyDay,
+        record.replacementId || ""
+    );
 }
 
 function renderProfileDocs(data, editing) {
@@ -12565,6 +12632,15 @@ window.addEventListener("proturnos:workerLinksChanged", () => {
 // pendientes: cuando cambia hay que repintar la ficha.
 window.addEventListener("proturnos:workerInvitesChanged", () => {
     scheduleWorkspaceUiRefresh();
+});
+
+// Resolver un registro desde el panel de HH.EE (asignar respaldo, anular un
+// turno extra) cambia esa misma lista: se repinta para que la fila refleje el
+// nuevo estado sin salir de la pantalla.
+window.addEventListener("proturnos:calendarProfilesChanged", () => {
+    if (document.body.dataset.activeView !== "hours") return;
+
+    void renderProfileHoursSummary(getPerfilActual());
 });
 
 // Atajos de teclado globales para modales: Escape cierra/cancela y Enter

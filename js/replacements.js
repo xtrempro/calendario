@@ -1415,6 +1415,8 @@ function getUnbackedOvertimeLogEntries(
                     date: iso,
                     label: turnoReplacementLabel(pendingTurn),
                     hours,
+                    kind: "pending-manual",
+                    pendingTurn,
                     detail: "No se ha asignado respaldo."
                 });
             }
@@ -1442,6 +1444,8 @@ function getUnbackedOvertimeLogEntries(
                 date: iso,
                 label: "Marcaje reloj control",
                 hours: clockHours,
+                kind: "pending-clock",
+                state,
                 detail: "No se ha asignado respaldo."
             });
         }
@@ -1694,7 +1698,13 @@ export function getHheeMonthRecords(profile, year, month, holidays = {}) {
             n: Number(hours?.n) || 0,
             detail,
             backed: true,
-            isClockExtra
+            isClockExtra,
+            // Con que se abre el cuadro al clickear la fecha en el panel: el
+            // respaldo de marcaje lleva a su detalle; el turno extra, al suyo
+            // (donde ademas se anula).
+            kind: isClockExtra ? "clock-backing" : "backed-replacement",
+            keyDay: key,
+            replacementId: record.id || ""
         };
     }).filter((item) =>
         // Respaldo de marcaje sin marcaje vigente: el motivo quedo huerfano
@@ -1718,7 +1728,12 @@ export function getHheeMonthRecords(profile, year, month, holidays = {}) {
             d: Number(entry.hours?.d) || 0,
             n: Number(entry.hours?.n) || 0,
             detail: entry.detail,
-            backed: false
+            backed: false,
+            // Con que se abre el cuadro al clickear la fecha en el panel.
+            kind: entry.kind || "pending-manual",
+            keyDay: keyFromISO(entry.date),
+            pendingTurn: entry.pendingTurn || 0,
+            state: entry.state || 0
         };
     });
 
@@ -1742,7 +1757,9 @@ export function getHheeMonthRecords(profile, year, month, holidays = {}) {
             detail: entry.detail,
             backed: true,
             // No es un evento de HH.EE: no entra en el contador de respaldos.
-            adjustment: true
+            adjustment: true,
+            kind: "deficit",
+            keyDay: keyFromISO(entry.date)
         };
     });
 

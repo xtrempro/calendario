@@ -46,6 +46,7 @@
     "test:dashboard-hhee": "node --test tests/dashboard-hhee-por-trabajador.test.mjs",
     "test:cumpleanos": "node --test tests/inicio-cumpleanos.test.mjs",
     "test:ranking-licencias": "node --test tests/dashboard-ranking-licencias.test.mjs",
+    "test:hhee-fecha-accion": "node --test tests/hhee-registros-fecha-accion.test.mjs",
     "test:swap-receivers": "node --test tests/swap-receiver-filter.test.mjs",
     "test:swap-marker": "node --test tests/cambio-turno-marcador-proyeccion.test.mjs",
     "test:worker-app-unlink": "node --test tests/worker-app-unlink.test.mjs",

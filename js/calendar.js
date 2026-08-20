@@ -6794,6 +6794,27 @@ function clockDetailSegmentsHTML(profile, keyDay, date, state, holidays, mark) {
         .join("");
 }
 
+// Entrada desde fuera del calendario (panel de registros de HH.EE): resuelve
+// por su cuenta la fecha, el turno realizado y los feriados del dia.
+window.openClockMarkDetailForDate = async (profile, keyDay) => {
+    if (!profile || !keyDay) return;
+
+    const date = parseKey(keyDay);
+    const holidays = await fetchHolidays(date.getFullYear());
+
+    openClockMarkDetailDialog({
+        profile,
+        keyDay,
+        date,
+        state: aplicarCambiosTurno(
+            profile,
+            keyDay,
+            getTurnoProgramado(profile, keyDay)
+        ),
+        holidays
+    });
+};
+
 function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {} }) {
     const mark = getClockMarks(profile)[keyDay];
 
