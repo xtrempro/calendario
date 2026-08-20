@@ -8,6 +8,7 @@ import {
     getProfiles,
     getReplacements,
     getRotativa,
+    saveProfileDayTurn,
     saveReplacements,
     getReplacementRequests,
     saveReplacementRequests,
@@ -418,6 +419,38 @@ export function cancelReplacementsForWorkerRange(
     return canceled;
 }
 
+/**
+ * Quita del calendario el turno extra que respaldaba un registro anulado.
+ *
+ * Un turno extra MANUAL se agrega primero al calendario (edicion directa) y
+ * despues se le registra el motivo con addsShift: false: el registro es solo el
+ * respaldo, no proyecta el turno. Al anularlo se borraba el motivo pero el turno
+ * seguia puesto, asi que la casilla volvia a pedir motivo con el "?" y en la
+ * practica no se anulaba nada. Aca se resta ese turno del dia, dejando la casilla
+ * en su turno base o vacia.
+ *
+ * Los respaldos de marcaje (clock_extra) no entran: sus horas vienen del reloj,
+ * no de un turno del calendario, asi que no hay nada que quitar.
+ */
+function removeManualExtraTurnFromCalendar(record) {
+    if (record?.source !== "manual_extra") return;
+
+    const worker = String(record?.worker || "").trim();
+    const keyDay = keyFromISO(record?.date);
+    const extraTurn = codeToTurno(record?.turno);
+
+    if (!worker || !keyDay || !extraTurn) return;
+
+    const currentTurn = getTurnoProgramado(worker, keyDay);
+    const restoredTurn = restarTurnoCubierto(currentTurn, extraTurn);
+
+    // El turno extra puede no estar en el calendario (p. ej. una extension
+    // horaria, que solo existe como registro): ahi no hay nada que revertir.
+    if (Number(restoredTurn) === Number(currentTurn)) return;
+
+    saveProfileDayTurn(keyDay, restoredTurn, worker);
+}
+
 export function cancelReplacementById(
     replacementId,
     {
@@ -455,6 +488,7 @@ export function cancelReplacementById(
     if (!canceled) return null;
 
     saveReplacements(replacements);
+    removeManualExtraTurnFromCalendar(canceled);
     cancelLinkedRequestsForReplacements([canceled], {
         canceledAt,
         reason,
