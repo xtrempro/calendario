@@ -1580,6 +1580,54 @@ body[data-active-view="home"] .secondary-grid {
 .hm-sum--good .hm-sum-val { color: var(--hm-good); }
 .hm-sum--warn .hm-sum-val { color: var(--hm-warn); }
 .hm-sum--accent .hm-sum-val { color: var(--accent); }
+/* Cumpleaños de hoy: solo aparece el dia que corresponde, por eso resalta. */
+.hm-sum--bday { background: rgba(236, 72, 153, 0.12); }
+.hm-sum--bday span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-sum--bday .hm-sum-val { font-size: 0.9rem; color: #db2777; }
+
+/* Cumpleaños del mes */
+.hm-bday-list { gap: 2px; }
+.hm-bday {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: 10px;
+}
+.hm-bday.is-today { background: rgba(236, 72, 153, 0.12); }
+.hm-bday.is-past { opacity: 0.5; }
+.hm-bday-day {
+    min-width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 9px;
+    background: var(--panel-alt);
+    font-size: 0.82rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-strong);
+}
+.hm-bday.is-today .hm-bday-day { background: #db2777; color: #fff; }
+.hm-bday-name { display: flex; flex-direction: column; min-width: 0; }
+.hm-bday-name strong {
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.hm-bday-name small { font-size: 0.72rem; color: var(--text-muted); }
+.hm-bday-today {
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #db2777;
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 800;
+}
 
 /* Cambios de turno */
 .hm-swap { display: flex; align-items: center; gap: 10px; padding: 10px 6px; border-radius: 10px; }

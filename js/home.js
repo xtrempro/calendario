@@ -16,7 +16,7 @@ import {
     getShiftAssigned
 } from "./storage.js";
 import { getJSON } from "./persistence.js";
-import { keyFromDate } from "./dateUtils.js";
+import { keyFromDate, keyFromISO } from "./dateUtils.js";
 import { getTurnoBase, getTurnoReal } from "./turnEngine.js";
 import {
     requiereReemplazoTurnoBase,
@@ -35,7 +35,7 @@ import {
 import { refreshAll } from "./refresh.js";
 import { updateDayCell, updateVisibleCalendarDays } from "./calendar.js";
 import { updateTimelineCells } from "./timeline.js";
-import { keyFromISO } from "./dateUtils.js";
+import { birthDateParts } from "./staffing.js";
 import { cambiosDelMes, cambioEstaAnulado } from "./swaps.js";
 import { TURNO_LABEL, ESTAMENTO, TURNO } from "./constants.js";
 import { getHomeTasks, saveHomeTasks } from "./homeTasks.js";
@@ -457,6 +457,7 @@ const IC = {
     check: '<path d="M20 6 9 17l-5-5"/>',
     arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     chevron: '<path d="M9 6l6 6-6 6"/>',
+    cake: '<path d="M4 21h16v-7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3z"/><path d="M4 16c1.5 1 2.5 1 4 0s2.5-1 4 0 2.5 1 4 0 2.5-1 4 0"/><path d="M12 8V5M9 8V6M15 8V6"/>',
     palm: '<path d="M12 2a7 7 0 0 1 7 7c0 4-7 13-7 13S5 13 5 9a7 7 0 0 1 7-7z"/>',
     sun: '<path d="M17 8c0-3-2-5-5-5S7 5 7 8c0 6-3 8-3 8h16s-3-2-3-8"/><path d="M12 3V1"/>',
     file: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 8v6M9 11h6"/>',
@@ -589,9 +590,71 @@ function ausenciasWidget() {
         </div>`;
 }
 
+// ---- Cumpleaños del mes ----
+// Se reusa birthDateParts de staffing (acepta YYYY-MM-DD y DD-MM-YYYY) para no
+// tener dos lecturas distintas de la misma fecha.
+export function getMonthBirthdays(reference = new Date()) {
+    const month = reference.getMonth();
+    const today = reference.getDate();
+    const year = reference.getFullYear();
+
+    return getProfiles()
+        .filter(isProfileActive)
+        .map(profile => {
+            const parts = birthDateParts(profile.birthDate);
+
+            if (!parts || parts.month !== month) return null;
+
+            // La edad solo se muestra si la fecha trae año.
+            const bornYear = Number(
+                String(profile.birthDate || "").match(/(\d{4})/)?.[1]
+            );
+            const turns = bornYear && bornYear < year
+                ? year - bornYear
+                : 0;
+
+            return {
+                name: profile.name,
+                day: parts.day,
+                turns,
+                isToday: parts.day === today,
+                isPast: parts.day < today
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) =>
+            a.day - b.day ||
+            a.name.localeCompare(b.name, "es")
+        );
+}
+
+function cumpleanosWidget() {
+    const birthdays = getMonthBirthdays();
+    const monthName = MESES[new Date().getMonth()];
+    const body = birthdays.length
+        ? birthdays.map(item => `
+            <div class="hm-bday ${item.isToday ? "is-today" : ""} ${item.isPast ? "is-past" : ""}">
+                <span class="hm-bday-day">${item.day}</span>
+                <span class="hm-bday-name">
+                    <strong>${esc(item.name)}</strong>
+                    ${item.turns ? `<small>cumple ${item.turns}</small>` : ""}
+                </span>
+                ${item.isToday ? `<span class="hm-bday-today">Hoy</span>` : ""}
+            </div>`).join("")
+        : `<div class="hm-empty">Sin cumpleaños en ${esc(monthName.toLowerCase())}.</div>`;
+
+    return `
+        <div class="hm-card hm-col-4">
+            ${panelHead(IC.cake, `Cumpleaños de ${monthName}`, `<span class="hm-count">${birthdays.length}</span>`)}
+            <div class="hm-listcol hm-bday-list">${body}</div>
+        </div>`;
+}
+
 function resumenWidget() {
     const swapCount = getMonthSwaps().length;
     const dotacion = getDotacionHoy().total;
+    // Si hoy cumple alguien, el resumen lo dice; si no, la fila no aparece.
+    const birthdaysToday = getMonthBirthdays().filter(item => item.isToday);
     function row(tone, name, val) {
         return `<div class="hm-sum hm-sum--${tone}"><span>${name}</span><span class="hm-sum-val">${val}</span></div>`;
     }
@@ -602,6 +665,12 @@ function resumenWidget() {
                 ${row("good", "En servicio hoy", dotacion)}
                 ${row("warn", "Pendientes", 7)}
                 ${row("accent", "Cambios de turno", swapCount)}
+                ${birthdaysToday.length
+                    ? `<div class="hm-sum hm-sum--bday" title="${esc(birthdaysToday.map(item => item.name).join(", "))}">
+                        <span>🎂 ${esc(birthdaysToday.map(item => item.name).join(", "))}</span>
+                        <span class="hm-sum-val">Hoy</span>
+                    </div>`
+                    : ""}
             </div>
             ${panelLink("Ver calendario")}
         </div>`;
@@ -856,6 +925,7 @@ function homeHTML() {
             <section class="hm-grid">
                 ${cambiosWidget()}
                 ${coberturaWidget()}
+                ${cumpleanosWidget()}
             </section>
 
             <div class="hm-note">

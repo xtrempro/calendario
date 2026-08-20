@@ -1218,7 +1218,8 @@ function firstName(name) {
         .split(/\s+/)[0] || "colaborador";
 }
 
-function birthDateParts(value) {
+// Acepta las dos formas guardadas: YYYY-MM-DD y DD-MM-YYYY.
+export function birthDateParts(value) {
     const source = String(value || "").trim();
     let match = source.match(/^(\d{4})-(\d{2})-(\d{2})$/);
 
