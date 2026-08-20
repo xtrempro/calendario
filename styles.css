@@ -4348,6 +4348,194 @@ body.theme-dark .app-toast span {
     gap: 8px;
 }
 
+/* ---- Horas extras por trabajador ----
+   Dos series (diurnas / nocturnas) en barras apiladas: la altura total es la
+   suma, que es justo lo que se quiere comparar entre trabajadores.
+   Los pasos de color estan validados contra las superficies reales del app
+   (claro #ffffff, oscuro #0a121e): banda de luminosidad, croma, separacion
+   para daltonismo y contraste. El modo oscuro NO es un volteo automatico:
+   son sus propios pasos del mismo tono. */
+.dashboard-overtime {
+    --dash-hhee-day: #c9760a;
+    --dash-hhee-night: #2f6bd8;
+    display: grid;
+    gap: 12px;
+}
+
+body.theme-dark .dashboard-overtime {
+    --dash-hhee-day: #bf801c;
+    --dash-hhee-night: #4f88ee;
+}
+
+.dashboard-overtime-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    font-size: 0.8rem;
+    color: var(--text-soft);
+}
+
+.dashboard-overtime-legend b {
+    margin-left: auto;
+    color: var(--text-strong);
+}
+
+.dashboard-overtime-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: -1px;
+}
+
+.dashboard-overtime-swatch.is-day { background: var(--dash-hhee-day); }
+.dashboard-overtime-swatch.is-night { background: var(--dash-hhee-night); }
+
+.dashboard-overtime-plot {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+}
+
+/* Eje Y: los valores se reparten de arriba hacia abajo alineados con las guias. */
+.dashboard-overtime-axis {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 246px;
+    padding-bottom: 40px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+/* Las guias van en una capa fija detras de las barras: si viajaran dentro del
+   contenedor con scroll se cortarian al desplazarse. */
+.dashboard-overtime-field {
+    position: relative;
+    min-width: 0;
+}
+
+.dashboard-overtime-guides {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 206px;
+    pointer-events: none;
+}
+
+/* Guias horizontales recesivas: orientan sin competir con las barras. */
+.dashboard-overtime-guides i {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--border);
+    opacity: 0.5;
+}
+
+.dashboard-overtime-bars {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    height: 246px;
+    padding-bottom: 40px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+}
+
+.dashboard-overtime-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    min-width: 48px;
+    flex: 1 0 48px;
+    height: 100%;
+}
+
+.dashboard-overtime-total {
+    font-size: 0.72rem;
+    color: var(--text-strong);
+    margin-bottom: 3px;
+}
+
+.dashboard-overtime-stack {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    width: 26px;
+    min-height: 2px;
+    border-radius: 4px 4px 0 0;
+    overflow: hidden;
+}
+
+.dashboard-overtime-stack span {
+    display: block;
+    width: 100%;
+}
+
+/* Separador de 2px del color de la superficie entre los dos segmentos. */
+.dashboard-overtime-night {
+    background: var(--dash-hhee-night);
+    box-shadow: 0 2px 0 0 var(--panel);
+}
+
+.dashboard-overtime-day { background: var(--dash-hhee-day); }
+
+.dashboard-overtime-item small {
+    position: absolute;
+    bottom: -34px;
+    width: 100%;
+    font-size: 0.66rem;
+    line-height: 1.15;
+    color: var(--text-muted);
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+.dashboard-month-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.dashboard-month-nav span {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-strong);
+}
+
+.dashboard-month-nav button {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--field);
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.dashboard-month-nav button:hover { filter: brightness(0.95); }
+
+.dashboard-control-card select {
+    width: 100%;
+    min-height: 34px;
+    padding: 0 8px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--field);
+    color: var(--text);
+}
+
 .dashboard-check-list label,
 .dashboard-radio-list label {
     display: flex;

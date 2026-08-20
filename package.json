@@ -43,6 +43,7 @@
     "test:marcaje-turno-extra": "node --test tests/marcaje-sobre-turno-extra.test.mjs",
     "test:cobertura-inicio": "node --test tests/cobertura-inicio-preasignados.test.mjs",
     "test:no-coverage-motivo": "node --test tests/no-coverage-motivo.test.mjs",
+    "test:dashboard-hhee": "node --test tests/dashboard-hhee-por-trabajador.test.mjs",
     "test:swap-receivers": "node --test tests/swap-receiver-filter.test.mjs",
     "test:swap-marker": "node --test tests/cambio-turno-marcador-proyeccion.test.mjs",
     "test:worker-app-unlink": "node --test tests/worker-app-unlink.test.mjs",

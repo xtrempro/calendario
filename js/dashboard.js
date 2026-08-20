@@ -62,7 +62,13 @@ const MONTH_SHORT = [
 const DASHBOARD_MONTH_COUNT = 15;
 
 const dashboardState = {
-    licenseYears: 2
+    licenseYears: 2,
+    // Grafico de HH.EE por trabajador: profesion filtrada y mes visible. Se
+    // calcula SOLO la profesion elegida; recorrer toda la unidad con
+    // calcularHorasMesPerfil es lo que hizo desactivar otros graficos por lentos.
+    overtimeProfession: "",
+    overtimeYear: currentDate.getFullYear(),
+    overtimeMonth: currentDate.getMonth()
 };
 
 let renderRequest = 0;
@@ -503,6 +509,193 @@ function renderLicenseRanking(rows) {
     `;
 }
 
+// ---- HH.EE por trabajador (filtrado por profesion, mes a mes) ----
+
+function overtimeProfessions() {
+    const seen = new Map();
+
+    getProfiles()
+        .filter(isProfileActive)
+        .forEach(profile => {
+            const label = String(profile.profession || "").trim();
+
+            if (!label) return;
+
+            const key = normalizeText(label);
+
+            if (!seen.has(key)) seen.set(key, label);
+        });
+
+    return [...seen.values()].sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function activeOvertimeProfession() {
+    const professions = overtimeProfessions();
+
+    if (!professions.length) return "";
+
+    const current = dashboardState.overtimeProfession;
+
+    return professions.includes(current) ? current : professions[0];
+}
+
+// Nombre corto para el eje X: los nombres completos no caben. El nombre
+// completo viaja en el tooltip de la barra.
+function shortWorkerName(fullName) {
+    const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
+
+    if (parts.length <= 2) return parts.join(" ");
+
+    return `${parts[0]} ${parts[parts.length - 2]}`;
+}
+
+export async function buildOvertimeByWorkerRows(profession, year, month) {
+    const target = normalizeText(profession);
+    const profiles = getProfiles().filter(profile =>
+        isProfileActive(profile) &&
+        normalizeText(profile.profession || "") === target
+    );
+
+    if (!profiles.length) return [];
+
+    const days = new Date(year, month + 1, 0).getDate();
+    const holidays = await holidaysForYear(year);
+
+    return profiles
+        .map(profile => {
+            const stats = calcularHorasMesPerfil(
+                profile.name,
+                year,
+                month,
+                days,
+                holidays,
+                getProfileData(profile.name),
+                {},
+                { d: 0, n: 0 }
+            );
+            const day = Number(stats.hheeDiurnas) || 0;
+            const night = Number(stats.hheeNocturnas) || 0;
+
+            return {
+                name: profile.name,
+                shortName: shortWorkerName(profile.name),
+                day,
+                night,
+                total: day + night
+            };
+        })
+        .sort((a, b) =>
+            b.total - a.total ||
+            a.name.localeCompare(b.name, "es")
+        );
+}
+
+function formatOvertimeHours(value) {
+    const rounded = Math.round((Number(value) || 0) * 10) / 10;
+
+    return Number.isInteger(rounded)
+        ? String(rounded)
+        : rounded.toFixed(1).replace(".", ",");
+}
+
+function renderOvertimeControls(professions, profession) {
+    const monthName = `${MONTH_SHORT[dashboardState.overtimeMonth]} ${dashboardState.overtimeYear}`;
+
+    return `
+        <aside class="dashboard-control-card">
+            <strong>Profesión</strong>
+            <select data-dashboard-overtime-profession>
+                ${professions.map(item => `
+                    <option value="${escapeHTML(item)}" ${item === profession ? "selected" : ""}>
+                        ${escapeHTML(item)}
+                    </option>
+                `).join("")}
+            </select>
+            <strong>Mes</strong>
+            <div class="dashboard-month-nav">
+                <button type="button" data-dashboard-overtime-month="-1" aria-label="Mes anterior">&#8249;</button>
+                <span>${escapeHTML(monthName)}</span>
+                <button type="button" data-dashboard-overtime-month="1" aria-label="Mes siguiente">&#8250;</button>
+            </div>
+        </aside>
+    `;
+}
+
+export function renderOvertimeByWorker(rows) {
+    if (!rows.length) {
+        return chartEmpty(
+            "No hay trabajadores activos con esta profesión."
+        );
+    }
+
+    const totals = rows.reduce((acc, row) => ({
+        day: acc.day + row.day,
+        night: acc.night + row.night
+    }), { day: 0, night: 0 });
+
+    if (!totals.day && !totals.night) {
+        return chartEmpty("Sin horas extras registradas en este mes.");
+    }
+
+    // Escala del eje Y: se redondea hacia arriba para que la barra mas alta no
+    // toque el techo y las guias caigan en numeros legibles.
+    const maxTotal = Math.max(...rows.map(row => row.total), 1);
+    const step = maxTotal <= 20 ? 5 : maxTotal <= 60 ? 10 : 20;
+    const axisMax = Math.ceil(maxTotal / step) * step;
+    const guides = [];
+
+    for (let value = axisMax; value >= 0; value -= step) {
+        guides.push(value);
+    }
+
+    return `
+        <div class="dashboard-overtime">
+            <div class="dashboard-overtime-legend">
+                <span><i class="dashboard-overtime-swatch is-day"></i> HH.EE diurnas</span>
+                <span><i class="dashboard-overtime-swatch is-night"></i> HH.EE nocturnas</span>
+                <b>Total ${escapeHTML(formatOvertimeHours(totals.day + totals.night))} h</b>
+            </div>
+            <div class="dashboard-overtime-plot">
+                <div class="dashboard-overtime-axis" aria-hidden="true">
+                    ${guides.map(value => `<span>${value}</span>`).join("")}
+                </div>
+                <div class="dashboard-overtime-field">
+                    <div class="dashboard-overtime-guides" aria-hidden="true">
+                        ${guides.map((value, index) => `
+                            <i style="top:${(index / (guides.length - 1)) * 100}%"></i>
+                        `).join("")}
+                    </div>
+                    <div class="dashboard-overtime-bars">
+                    ${rows.map(row => {
+                        const height = (row.total / axisMax) * 100;
+                        const dayShare = row.total
+                            ? (row.day / row.total) * 100
+                            : 0;
+                        const nightShare = row.total
+                            ? (row.night / row.total) * 100
+                            : 0;
+                        const title =
+                            `${row.name}: ${formatOvertimeHours(row.total)} h totales ` +
+                            `(${formatOvertimeHours(row.day)} diurnas / ${formatOvertimeHours(row.night)} nocturnas)`;
+
+                        return `
+                            <div class="dashboard-overtime-item" title="${escapeHTML(title)}">
+                                <b class="dashboard-overtime-total">${escapeHTML(formatOvertimeHours(row.total))}</b>
+                                <div class="dashboard-overtime-stack" style="height:${height}%">
+                                    ${row.night ? `<span class="dashboard-overtime-night" style="height:${nightShare}%"></span>` : ""}
+                                    ${row.day ? `<span class="dashboard-overtime-day" style="height:${dayShare}%"></span>` : ""}
+                                </div>
+                                <small>${escapeHTML(row.shortName)}</small>
+                            </div>
+                        `;
+                    }).join("")}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function loadingHTML() {
     return `
         <div class="dashboard-loading">
@@ -517,7 +710,7 @@ function dashboardShell(content = loadingHTML()) {
             <div class="dashboard-head">
                 <div>
                     <h2>Dashboard</h2>
-                    <p>Ranking de licencias m\u00e9dicas por trabajador.</p>
+                    <p>Horas extras por trabajador y ranking de licencias m\u00e9dicas.</p>
                 </div>
             </div>
             ${content}
@@ -558,6 +751,30 @@ function bindDashboardControls(root) {
                 renderDashboardPanel();
             });
         });
+
+    root
+        .querySelector("[data-dashboard-overtime-profession]")
+        ?.addEventListener("change", event => {
+            dashboardState.overtimeProfession = event.target.value;
+            renderDashboardPanel();
+        });
+
+    root
+        .querySelectorAll("[data-dashboard-overtime-month]")
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                const step = Number(button.dataset.dashboardOvertimeMonth) || 0;
+                const next = new Date(
+                    dashboardState.overtimeYear,
+                    dashboardState.overtimeMonth + step,
+                    1
+                );
+
+                dashboardState.overtimeYear = next.getFullYear();
+                dashboardState.overtimeMonth = next.getMonth();
+                renderDashboardPanel();
+            });
+        });
 }
 
 // NOTA: los graficos "Gasto en pago de horas extras", "Dotacion por estamento"
@@ -588,7 +805,31 @@ export async function renderDashboardPanel() {
 
             if (requestId !== renderRequest) return;
 
+            const professions = overtimeProfessions();
+            const profession = activeOvertimeProfession();
+            const overtimeRows = profession
+                ? await measurePerformance(
+                    "dashboard:build-overtime-by-worker",
+                    () => buildOvertimeByWorkerRows(
+                        profession,
+                        dashboardState.overtimeYear,
+                        dashboardState.overtimeMonth
+                    ),
+                    { profession }
+                )
+                : [];
+
+            if (requestId !== renderRequest) return;
+
             root.innerHTML = dashboardShell(`
+                ${professions.length
+                    ? renderCard(
+                        "Horas extras por trabajador",
+                        `${escapeHTML(profession)} \u00b7 ${MONTH_SHORT[dashboardState.overtimeMonth]} ${dashboardState.overtimeYear}.`,
+                        renderOvertimeByWorker(overtimeRows),
+                        renderOvertimeControls(professions, profession)
+                    )
+                    : ""}
                 ${renderCard(
                     "Ranking de licencias m\u00e9dicas",
                     `Top 15 trabajadores en los \u00faltimos ${dashboardState.licenseYears} a\u00f1o(s).`,
