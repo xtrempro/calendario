@@ -1586,7 +1586,11 @@ body[data-active-view="home"] .secondary-grid {
 .hm-sum--bday .hm-sum-val { font-size: 0.9rem; color: #db2777; }
 
 /* Cumpleaños del mes */
-.hm-bday-nav { display: flex; gap: 5px; flex: none; }
+/* Ancladas a la derecha, no al texto: el nombre del mes cambia de largo
+   ("Mayo" vs "Septiembre") y las flechas se movian con el. El contador pierde
+   aca su margin-left:auto para quedar pegado a ellas. */
+.hm-bday-nav { display: flex; gap: 5px; flex: none; margin-left: auto; }
+.hm-bday-nav + .hm-count { margin-left: 0; }
 .hm-bday-nav button {
     width: 24px;
     height: 24px;
