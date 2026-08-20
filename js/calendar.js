@@ -6633,6 +6633,30 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
         mark
     );
     const reason = getClockExtraBackupForWorker(profile, keyDay)?.reason || "";
+    // El marcaje puede haberse hecho SOBRE un turno extra. Son dos cosas
+    // distintas -el turno extra y su motivo por un lado, la incidencia de
+    // marcaje por otro- y este modal solo mostraba la segunda, asi que el motivo
+    // del turno extra desaparecia al modificar el marcaje.
+    const extraShift = getReplacementDetailRecord(profile, keyDay);
+    const extraShiftHTML = extraShift
+        ? `
+            <div class="clock-detail-extra">
+                <strong>${escapeHTML(
+                    extraShift.replaced
+                        ? (extraShift.isLoan ? "Prestamo asignado" : "Reemplazo asignado")
+                        : "Turno extra asignado"
+                )}</strong>
+                <div class="clock-detail-rows">
+                    <div><span>Turno</span><b>${escapeHTML(replacementDetailTurnLabel(extraShift))}</b></div>
+                    ${extraShift.replaced
+                        ? `<div><span>${escapeHTML(extraShift.isLoan ? "Cubre a" : "Reemplaza a")}</span><b>${escapeHTML(extraShift.replaced)}</b></div>`
+                        : ""}
+                    <div><span>${escapeHTML(extraShift.replaced ? "Ausencia" : "Motivo")}</span><b>${escapeHTML(replacementDetailReasonLabel(extraShift))}</b></div>
+                    <div><span>Origen</span><b>${escapeHTML(replacementDetailSourceLabel(extraShift))}</b></div>
+                </div>
+            </div>
+        `
+        : "";
 
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
@@ -6651,8 +6675,12 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
             ${reason
                 ? `<p class="clock-detail-reason"><span>Motivo horas extras:</span> ${escapeHTML(reason)}</p>`
                 : ""}
+            ${extraShiftHTML}
             <div class="turn-change-dialog__actions">
                 <button class="primary-button" type="button" data-action="edit">Modificar marcaje</button>
+                ${extraShift
+                    ? `<button class="secondary-button" type="button" data-action="extra-shift">Ver turno extra</button>`
+                    : ""}
                 <button class="ghost-button" type="button" data-action="close">Cerrar</button>
             </div>
         </section>
@@ -6677,6 +6705,18 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
         ?.addEventListener("click", () => {
             close();
             window.openClockMarkEditorForDate?.(date);
+        });
+    // Con una incidencia de marcaje el click de la casilla abre este modal, asi
+    // que el detalle del turno extra -y su anulacion- quedaba sin camino.
+    backdrop
+        .querySelector("[data-action='extra-shift']")
+        ?.addEventListener("click", () => {
+            close();
+            void openReplacementDetailDialog(
+                profile,
+                keyDay,
+                extraShift?.id || ""
+            );
         });
 
     document.addEventListener("keydown", onKeydown);
@@ -7594,7 +7634,13 @@ async function renderCalendarImpl(options = {}) {
                     // se conservan solo las advertencias del dia si las hay.
                     const warning = suffix.replace(/^\s*\|\s*/, "");
 
-                    return replacementTitle || warning;
+                    // Un dia puede tener las dos cosas a la vez: el motivo del
+                    // turno extra y una incidencia de marcaje sobre ese mismo
+                    // turno. Antes el motivo tapaba la advertencia, asi que el
+                    // marcaje modificado quedaba invisible en el hover.
+                    return [replacementTitle, warning]
+                        .filter(Boolean)
+                        .join("\n");
                 })();
 
                 return [
