@@ -1586,6 +1586,19 @@ body[data-active-view="home"] .secondary-grid {
 .hm-sum--bday .hm-sum-val { font-size: 0.9rem; color: #db2777; }
 
 /* Cumpleaños del mes */
+.hm-bday-nav { display: flex; justify-content: flex-end; gap: 6px; margin: -4px 0 6px; }
+.hm-bday-nav button {
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--field);
+    color: var(--text);
+    font-size: 0.95rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.hm-bday-nav button:hover { filter: brightness(0.95); }
 .hm-bday-list { gap: 2px; }
 .hm-bday {
     display: flex;

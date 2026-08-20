@@ -72,7 +72,7 @@ test("lista solo los cumpleaños del mes, de activos y con fecha", () => {
     seed();
 
     assert.deepEqual(
-        getMonthBirthdays(HOY).map(item => item.name),
+        getMonthBirthdays(HOY, HOY).map(item => item.name),
         ["Ana Perez", "Bruno Soto", "Carla Diaz"]
     );
 });
@@ -81,7 +81,7 @@ test("ordena por dia del mes", () => {
     seed();
 
     assert.deepEqual(
-        getMonthBirthdays(HOY).map(item => item.day),
+        getMonthBirthdays(HOY, HOY).map(item => item.day),
         [1, 19, 25]
     );
 });
@@ -89,7 +89,7 @@ test("ordena por dia del mes", () => {
 test("marca el de hoy y los que ya pasaron", () => {
     seed();
 
-    const rows = getMonthBirthdays(HOY);
+    const rows = getMonthBirthdays(HOY, HOY);
     const byName = Object.fromEntries(rows.map(row => [row.name, row]));
 
     assert.equal(byName["Bruno Soto"].isToday, true);
@@ -102,7 +102,7 @@ test("calcula la edad que cumple en ambos formatos de fecha", () => {
     seed();
 
     const byName = Object.fromEntries(
-        getMonthBirthdays(HOY).map(row => [row.name, row])
+        getMonthBirthdays(HOY, HOY).map(row => [row.name, row])
     );
 
     assert.equal(byName["Ana Perez"].turns, 36);
@@ -120,7 +120,7 @@ test("un año no anterior al actual no muestra edad", () => {
         { id: "2", name: "Futuro Raro", active: true, birthDate: "2030-08-06" }
     ]));
 
-    const rows = getMonthBirthdays(HOY);
+    const rows = getMonthBirthdays(HOY, HOY);
 
     assert.deepEqual(rows.map(row => row.turns), [0, 0]);
 });
@@ -133,7 +133,7 @@ test("la tarjeta y el aviso del resumen estan cableados", async () => {
 
     assert.match(home, /function cumpleanosWidget\(\)/);
     assert.match(home, /\$\{cumpleanosWidget\(\)\}/);
-    assert.match(home, /Cumpleaños de \$\{monthName\}/);
+    assert.match(home, /Cumpleaños de <span data-hm="bday-month">/);
     // Estado vacio propio.
     assert.match(home, /Sin cumpleaños en \$\{esc\(monthName\.toLowerCase\(\)\)\}/);
 
@@ -144,4 +144,47 @@ test("la tarjeta y el aviso del resumen estan cableados", async () => {
     );
     assert.match(home, /\$\{birthdaysToday\.length\s*\n\s*\?/);
     assert.match(home, /hm-sum--bday/);
+
+    // Flechas de mes y repintado solo de la tarjeta (no de todo el panel).
+    assert.match(home, /data-hm="bday-prev"/);
+    assert.match(home, /data-hm="bday-next"/);
+    assert.match(home, /function reRenderBirthdays\(panel\)/);
+    assert.match(
+        home,
+        /const next = new Date\(birthdayYear, birthdayMonth \+ step, 1\);/
+    );
+});
+
+test("al navegar a otro mes ningun dia se marca como hoy", () => {
+    // El 19 existe en varios meses: sin comparar contra la fecha REAL, navegar a
+    // septiembre habria pintado el dia 19 como "Hoy".
+    localStorage.clear();
+    localStorage.setItem("profiles", JSON.stringify([
+        { id: "1", name: "Ana Agosto", active: true, birthDate: "1990-08-19" },
+        { id: "2", name: "Bruno Septiembre", active: true, birthDate: "1990-09-19" }
+    ]));
+
+    const agosto = getMonthBirthdays(new Date(2026, 7, 1), HOY);
+    const septiembre = getMonthBirthdays(new Date(2026, 8, 1), HOY);
+
+    assert.equal(agosto[0].isToday, true, "en el mes actual si");
+    assert.equal(septiembre[0].isToday, false, "en otro mes no");
+});
+
+test("los meses ya pasados quedan todos atenuados", () => {
+    localStorage.clear();
+    localStorage.setItem("profiles", JSON.stringify([
+        { id: "1", name: "Ana Julio", active: true, birthDate: "1990-07-28" }
+    ]));
+
+    const julio = getMonthBirthdays(new Date(2026, 6, 1), HOY);
+    const septiembre = getMonthBirthdays(new Date(2026, 8, 1), HOY);
+
+    assert.equal(julio[0].isPast, true);
+    assert.equal(septiembre.length, 0);
+
+    // Y un año anterior tambien cuenta como pasado.
+    const agosto2025 = getMonthBirthdays(new Date(2025, 6, 1), HOY);
+
+    assert.equal(agosto2025[0].isPast, true);
 });

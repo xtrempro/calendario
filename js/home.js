@@ -71,6 +71,11 @@ function todayISO() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// Mes visible en la tarjeta de cumpleaños. Arranca en el actual y se mueve con
+// las flechas; se conserva entre repintados del panel.
+let birthdayYear = new Date().getFullYear();
+let birthdayMonth = new Date().getMonth();
+
 let coverageDetail = false;
 // Datos de cobertura calculados una vez por render (para no recalcular al
 // alternar el switch de detalles).
@@ -593,10 +598,18 @@ function ausenciasWidget() {
 // ---- Cumpleaños del mes ----
 // Se reusa birthDateParts de staffing (acepta YYYY-MM-DD y DD-MM-YYYY) para no
 // tener dos lecturas distintas de la misma fecha.
-export function getMonthBirthdays(reference = new Date()) {
+export function getMonthBirthdays(reference = new Date(), now = new Date()) {
     const month = reference.getMonth();
-    const today = reference.getDate();
     const year = reference.getFullYear();
+    // "Hoy" y "ya paso" son relativos a la fecha REAL, no al mes que se esta
+    // mirando: al navegar a otro mes ningun dia debe marcarse como hoy.
+    const isCurrentMonth =
+        now.getMonth() === month &&
+        now.getFullYear() === year;
+    const isPastMonth =
+        year < now.getFullYear() ||
+        (year === now.getFullYear() && month < now.getMonth());
+    const today = now.getDate();
 
     return getProfiles()
         .filter(isProfileActive)
@@ -617,8 +630,9 @@ export function getMonthBirthdays(reference = new Date()) {
                 name: profile.name,
                 day: parts.day,
                 turns,
-                isToday: parts.day === today,
-                isPast: parts.day < today
+                isToday: isCurrentMonth && parts.day === today,
+                isPast: isPastMonth ||
+                    (isCurrentMonth && parts.day < today)
             };
         })
         .filter(Boolean)
@@ -628,10 +642,16 @@ export function getMonthBirthdays(reference = new Date()) {
         );
 }
 
-function cumpleanosWidget() {
-    const birthdays = getMonthBirthdays();
-    const monthName = MESES[new Date().getMonth()];
-    const body = birthdays.length
+function birthdaysBody() {
+    const reference = new Date(birthdayYear, birthdayMonth, 1);
+    const birthdays = getMonthBirthdays(reference);
+    const monthName = MESES[birthdayMonth];
+    const now = new Date();
+    // El año solo se muestra cuando no es el actual, para no repetirlo siempre.
+    const heading = birthdayYear === now.getFullYear()
+        ? monthName
+        : `${monthName} ${birthdayYear}`;
+    const list = birthdays.length
         ? birthdays.map(item => `
             <div class="hm-bday ${item.isToday ? "is-today" : ""} ${item.isPast ? "is-past" : ""}">
                 <span class="hm-bday-day">${item.day}</span>
@@ -643,10 +663,24 @@ function cumpleanosWidget() {
             </div>`).join("")
         : `<div class="hm-empty">Sin cumpleaños en ${esc(monthName.toLowerCase())}.</div>`;
 
+    return { heading, count: birthdays.length, list };
+}
+
+function cumpleanosWidget() {
+    const { heading, count, list } = birthdaysBody();
+
     return `
         <div class="hm-card hm-col-4">
-            ${panelHead(IC.cake, `Cumpleaños de ${monthName}`, `<span class="hm-count">${birthdays.length}</span>`)}
-            <div class="hm-listcol hm-bday-list">${body}</div>
+            ${panelHead(
+                IC.cake,
+                `Cumpleaños de <span data-hm="bday-month">${esc(heading)}</span>`,
+                `<span class="hm-count" data-hm="bday-count">${count}</span>`
+            )}
+            <div class="hm-bday-nav">
+                <button type="button" data-hm="bday-prev" aria-label="Mes anterior">&#8249;</button>
+                <button type="button" data-hm="bday-next" aria-label="Mes siguiente">&#8250;</button>
+            </div>
+            <div class="hm-listcol hm-bday-list" data-hm="bday-list">${list}</div>
         </div>`;
 }
 
@@ -1084,6 +1118,20 @@ function wire(panel) {
         });
     }
 
+    // --- Cumpleaños: navegar de mes en mes sin repintar todo el panel ---
+    panel.querySelectorAll('[data-hm="bday-prev"], [data-hm="bday-next"]')
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                const step = button.dataset.hm === "bday-next" ? 1 : -1;
+                // Con Date, diciembre -> enero salta de año solo.
+                const next = new Date(birthdayYear, birthdayMonth + step, 1);
+
+                birthdayYear = next.getFullYear();
+                birthdayMonth = next.getMonth();
+                reRenderBirthdays(panel);
+            });
+        });
+
     // --- Cobertura: switch de detalles (siempre muestra sin cubrir + preasignados) ---
     const detail = panel.querySelector('[data-hm="cob-detail"]');
     if (detail) {
@@ -1138,6 +1186,17 @@ function wire(panel) {
                 renderHomePanel();
             });
         });
+}
+
+function reRenderBirthdays(panel) {
+    const { heading, count, list } = birthdaysBody();
+    const monthEl = panel.querySelector('[data-hm="bday-month"]');
+    const countEl = panel.querySelector('[data-hm="bday-count"]');
+    const listEl = panel.querySelector('[data-hm="bday-list"]');
+
+    if (monthEl) monthEl.textContent = heading;
+    if (countEl) countEl.textContent = String(count);
+    if (listEl) listEl.innerHTML = list;
 }
 
 function reRenderCoverage(panel) {
