@@ -12755,34 +12755,62 @@ initSelfTestButton();
 
 registerSupervisorServiceWorker();
 
-// Boton "Actualizar": desregistra el service worker, limpia las caches y recarga
-// para traer la ultima version desplegada (evita el cache viejo del SW).
+// "Actualizar": desregistra el service worker, limpia las caches y recarga para
+// traer la ultima version desplegada (evita el cache viejo del SW). Al recargar,
+// la app vuelve a bajar los turnos desde Firebase.
+let appReloadInFlight = false;
+
+async function reloadAppToLatestVersion(button = null) {
+    if (appReloadInFlight) return;
+
+    appReloadInFlight = true;
+
+    if (button) {
+        button.disabled = true;
+        button.classList.add("is-spinning");
+    }
+
+    try {
+        if (navigator.serviceWorker?.getRegistrations) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(
+                regs.map(reg => reg.unregister().catch(() => {}))
+            );
+        }
+    } catch (error) { /* sin SW: se ignora */ }
+
+    try {
+        if (window.caches?.keys) {
+            const keys = await caches.keys();
+            await Promise.all(
+                keys.map(key => caches.delete(key).catch(() => {}))
+            );
+        }
+    } catch (error) { /* sin Cache API: se ignora */ }
+
+    window.location.reload();
+}
+
 const appReloadBtn = document.getElementById("appReloadBtn");
 if (appReloadBtn) {
-    appReloadBtn.onclick = async () => {
-        appReloadBtn.disabled = true;
-        appReloadBtn.classList.add("is-spinning");
+    appReloadBtn.onclick = () => reloadAppToLatestVersion(appReloadBtn);
+}
 
-        try {
-            if (navigator.serviceWorker?.getRegistrations) {
-                const regs = await navigator.serviceWorker.getRegistrations();
-                await Promise.all(
-                    regs.map(reg => reg.unregister().catch(() => {}))
-                );
-            }
-        } catch (error) { /* sin SW: se ignora */ }
+// El logo hace lo mismo que el boton: es el gesto que la gente intenta primero
+// cuando algo se ve desactualizado.
+const appBrandReload = document.getElementById("appBrandReload");
+if (appBrandReload) {
+    appBrandReload.addEventListener("click", () => {
+        appBrandReload.classList.add("is-reloading");
+        void reloadAppToLatestVersion();
+    });
+    appBrandReload.addEventListener("keydown", event => {
+        if (event.key !== "Enter" && event.key !== " ") return;
 
-        try {
-            if (window.caches?.keys) {
-                const keys = await caches.keys();
-                await Promise.all(
-                    keys.map(key => caches.delete(key).catch(() => {}))
-                );
-            }
-        } catch (error) { /* sin Cache API: se ignora */ }
-
-        window.location.reload();
-    };
+        event.preventDefault();
+        appBrandReload.classList.add("is-reloading");
+        void reloadAppToLatestVersion();
+    });
 }
 
 initTurnosSidePanelSync();

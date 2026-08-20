@@ -17177,3 +17177,32 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 /* Boton "Actualizar" (topbar): icono girando mientras recarga */
 .icon-button.is-spinning svg { animation: app-reload-spin 0.8s linear infinite; }
 @keyframes app-reload-spin { to { transform: rotate(360deg); } }
+
+/* El logo tambien actualiza la app: es el gesto que la gente intenta primero
+   cuando ve algo desactualizado. */
+.brand-mark--reload {
+    cursor: pointer;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.brand-mark--reload:hover {
+    transform: scale(1.04);
+}
+
+.brand-mark--reload:active {
+    transform: scale(0.97);
+}
+
+.brand-mark--reload:focus-visible {
+    outline: 2px solid rgba(var(--brand-blue-rgb), 0.65);
+    outline-offset: 3px;
+}
+
+.brand-mark--reload.is-reloading {
+    opacity: 0.55;
+    animation: app-reload-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes app-reload-pulse {
+    50% { opacity: 0.9; }
+}
