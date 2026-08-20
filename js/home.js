@@ -674,12 +674,14 @@ function cumpleanosWidget() {
             ${panelHead(
                 IC.cake,
                 `Cumpleaños de <span data-hm="bday-month">${esc(heading)}</span>`,
-                `<span class="hm-count" data-hm="bday-count">${count}</span>`
+                // Las flechas van pegadas al mes; el contador conserva su
+                // margin-left:auto y sigue alineado a la derecha.
+                `<div class="hm-bday-nav">
+                    <button type="button" data-hm="bday-prev" aria-label="Mes anterior">&#8249;</button>
+                    <button type="button" data-hm="bday-next" aria-label="Mes siguiente">&#8250;</button>
+                </div>
+                <span class="hm-count" data-hm="bday-count">${count}</span>`
             )}
-            <div class="hm-bday-nav">
-                <button type="button" data-hm="bday-prev" aria-label="Mes anterior">&#8249;</button>
-                <button type="button" data-hm="bday-next" aria-label="Mes siguiente">&#8250;</button>
-            </div>
             <div class="hm-listcol hm-bday-list" data-hm="bday-list">${list}</div>
         </div>`;
 }
