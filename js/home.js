@@ -38,7 +38,14 @@ import { updateTimelineCells } from "./timeline.js";
 import { birthDateParts } from "./staffing.js";
 import { cambiosDelMes, cambioEstaAnulado } from "./swaps.js";
 import { TURNO_LABEL, ESTAMENTO, TURNO } from "./constants.js";
-import { getHomeTasks, saveHomeTasks, isTaskActiveOn } from "./homeTasks.js";
+import {
+    getHomeTasks,
+    saveHomeTasks,
+    isTaskActiveOn,
+    isTaskDoneOn,
+    toggleTaskDoneOn
+} from "./homeTasks.js";
+import { fetchHolidays, getCachedHolidays } from "./holidays.js";
 import { getActiveWorkspace } from "./workspaces.js";
 
 // Nombre por defecto para entornos que aun no tienen "Nombre del supervisor"
@@ -55,7 +62,8 @@ const MESES = [
 
 // Las tareas se leen/guardan por usuario en Firestore (ver homeTasks.js).
 const REPEAT_OPTS = [
-    "Una sola vez", "Diario", "Semanal", "Mensual", "Trimestral", "Cuatrimestral", "Anual"
+    "Una sola vez", "Diario", "Diario Hábil", "Semanal", "Mensual",
+    "Trimestral", "Cuatrimestral", "Anual"
 ];
 const ALERT_OPTS = [
     "Sin alerta", "Al momento", "5 minutos antes", "15 minutos antes", "30 minutos antes", "1 hora antes"
@@ -554,7 +562,7 @@ function panelHead(icon, title, extra = "") {
 
 // ---- Widgets ----
 function taskRowHTML(t) {
-    const done = t.doneDate === todayISO();
+    const done = isTaskDoneOn(t, todayISO());
     return `
         <div class="hm-task ${done ? "is-done" : ""}" data-hm="task-row" data-id="${esc(t.id)}" role="button" tabindex="0" title="Modificar tarea">
             <button class="hm-task-check" type="button" data-hm="task-toggle" data-id="${esc(t.id)}" aria-pressed="${done ? "true" : "false"}" aria-label="Marcar como realizada">${svg(IC.check, 'stroke-width="3"')}</button>
@@ -604,15 +612,20 @@ const TASKS_PER_CELL = 3;
 // La semana parte el lunes.
 const DIAS_SEMANA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
-export function getTasksForDay(date, tasks = getHomeTasks()) {
+export function getTasksForDay(date, tasks = getHomeTasks(), holidays) {
     return tasks
-        .filter(task => isTaskActiveOn(task, date))
+        .filter(task => isTaskActiveOn(task, date, holidays))
         .sort((a, b) => String(a.time).localeCompare(String(b.time)));
 }
 
 // Las casillas del mes, con los blancos iniciales para que el dia 1 caiga en su
 // columna. null = casilla vacia antes del dia 1.
-export function buildTaskCalendarCells(year, month, tasks = getHomeTasks()) {
+export function buildTaskCalendarCells(
+    year,
+    month,
+    tasks = getHomeTasks(),
+    holidays = getCachedHolidays(year)
+) {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     // getDay() da 0 en domingo; con la semana en lunes, domingo es la columna 6.
     const lead = (new Date(year, month, 1).getDay() + 6) % 7;
@@ -624,7 +637,7 @@ export function buildTaskCalendarCells(year, month, tasks = getHomeTasks()) {
         cells.push({
             day,
             iso: isoFromDate(date),
-            tasks: getTasksForDay(date, tasks)
+            tasks: getTasksForDay(date, tasks, holidays)
         });
     }
 
@@ -645,7 +658,7 @@ function dateLabelFromISO(iso) {
 }
 
 function taskChipHTML(task, iso) {
-    const done = task.doneDate === iso;
+    const done = isTaskDoneOn(task, iso);
 
     return `
         <span class="hm-tc-chip ${done ? "is-done" : ""}" title="${esc(`${task.time} · ${task.name}`)}">
@@ -731,23 +744,59 @@ function dayTasksModal() {
         </div>`;
 }
 
-function openDayTasks(panel, iso) {
-    const modal = panel.querySelector('[data-hm="dayTasks-modal"]');
-    if (!modal) return;
+function dayTaskRowHTML(task, iso) {
+    const done = isTaskDoneOn(task, iso);
 
+    return `
+        <div class="hm-dt-row ${done ? "is-done" : ""}" data-hm="dt-row" data-id="${esc(task.id)}"
+            role="button" tabindex="0" title="Modificar tarea">
+            <button class="hm-task-check" type="button" data-hm="dt-toggle" data-id="${esc(task.id)}"
+                aria-pressed="${done ? "true" : "false"}" aria-label="Marcar como realizada">${svg(IC.check, 'stroke-width="3"')}</button>
+            <span class="hm-dt-time">${esc(task.time)}</span>
+            <span class="hm-dt-name">${esc(task.name)}</span>
+            <span class="hm-dt-repeat">${esc(task.repeat)}</span>
+        </div>`;
+}
+
+// El dia abierto en el listado. Al modificar o marcar una tarea hay que
+// repintarlo, y el modal no guarda su propia fecha.
+let openDayIso = "";
+
+function renderDayTasks(panel) {
+    const modal = panel.querySelector('[data-hm="dayTasks-modal"]');
+    if (!modal || !openDayIso) return;
+
+    const iso = openDayIso;
     const [year, month, day] = String(iso).split("-").map(Number);
     const tasks = getTasksForDay(new Date(year, month - 1, day));
 
     modal.querySelector('[data-hm="dt-title"]').textContent = dateLabelFromISO(iso);
     modal.querySelector('[data-hm="dt-body"]').innerHTML = tasks.length
-        ? `<div class="hm-dt-list">${tasks.map(task => `
-            <div class="hm-dt-row ${task.doneDate === iso ? "is-done" : ""}">
-                <span class="hm-dt-time">${esc(task.time)}</span>
-                <span class="hm-dt-name">${esc(task.name)}</span>
-                <span class="hm-dt-repeat">${esc(task.repeat)}</span>
-            </div>`).join("")}</div>`
+        ? `<div class="hm-dt-list">${tasks.map(task => dayTaskRowHTML(task, iso)).join("")}</div>`
         : `<div class="hm-empty">Sin tareas para este día.</div>`;
+}
+
+function openDayTasks(panel, iso) {
+    const modal = panel.querySelector('[data-hm="dayTasks-modal"]');
+    if (!modal) return;
+
+    openDayIso = iso;
+    renderDayTasks(panel);
     modal.hidden = false;
+}
+
+// "Diario Hábil" depende de los feriados del año que se esta mirando, y la
+// primera vez vienen de red. Se pinta con lo que haya en cache y se repinta al
+// llegar, en vez de dejar el calendario esperando.
+async function ensureHolidaysLoaded(year, onReady) {
+    if (Object.keys(getCachedHolidays(year)).length) return;
+
+    try {
+        await fetchHolidays(year);
+        onReady();
+    } catch (error) {
+        console.warn("No se pudieron cargar los feriados del calendario.", error);
+    }
 }
 
 function reRenderTaskCalendar(panel) {
@@ -1012,15 +1061,7 @@ function tasksModal() {
                         <label>Fecha de inicio <input type="date" data-hm="nt-date" value="${todayISO()}"></label>
                         <label>Horario <input type="time" data-hm="nt-time" value="08:00"></label>
                         <label>Repetir
-                            <select data-hm="nt-repeat">
-                                <option>Una sola vez</option>
-                                <option selected>Diario</option>
-                                <option>Semanal</option>
-                                <option>Mensual</option>
-                                <option>Trimestral</option>
-                                <option>Cuatrimestral</option>
-                                <option>Anual</option>
-                            </select>
+                            <select data-hm="nt-repeat">${optionsHTML(REPEAT_OPTS, "Diario")}</select>
                         </label>
                         <label>Alerta
                             <select data-hm="nt-alert">
@@ -1044,7 +1085,7 @@ function tasksModal() {
 
 function taskEditModal() {
     return `
-        <div class="hm-modal-backdrop" data-hm="task-edit-modal" hidden>
+        <div class="hm-modal-backdrop hm-modal-backdrop--top" data-hm="task-edit-modal" hidden>
             <div class="hm-modal" role="dialog" aria-modal="true" aria-label="Modificar tarea">
                 <div class="hm-modal-head">
                     <span class="hm-modal-ico">${svg(IC.edit)}</span>
@@ -1192,7 +1233,12 @@ function openTaskEdit(panel, id) {
 function wire(panel) {
     const tasksList = panel.querySelector('[data-hm="tasks-list"]');
     const refreshTasks = () => {
+        // Las tres superficies muestran las mismas tareas: la tarjeta del dia,
+        // la grilla del mes y el listado del dia abierto. Modificar una tarea
+        // desde cualquiera tiene que verse en las otras dos.
         if (tasksList) tasksList.innerHTML = tasksListHTML();
+        reRenderTaskCalendar(panel);
+        renderDayTasks(panel);
     };
 
     // --- Tareas: visto (toggle realizada) + click en la fila (modificar) ---
@@ -1202,10 +1248,9 @@ function wire(panel) {
             if (toggle) {
                 const id = toggle.dataset.id;
                 const tasks = getHomeTasks();
-                const task = tasks.find(t => t.id === id);
-                if (task) {
-                    const today = todayISO();
-                    task.doneDate = task.doneDate === today ? "" : today;
+                const index = tasks.findIndex(t => t.id === id);
+                if (index >= 0) {
+                    tasks[index] = toggleTaskDoneOn(tasks[index], todayISO());
                     saveHomeTasks(tasks);
                     refreshTasks();
                 }
@@ -1285,7 +1330,7 @@ function wire(panel) {
                     repeat: modal.querySelector('[data-hm="nt-repeat"]').value,
                     date: modal.querySelector('[data-hm="nt-date"]').value,
                     alert: modal.querySelector('[data-hm="nt-alert"]').value,
-                    doneDate: ""
+                    doneDates: []
                 });
                 tasks.sort((a, b) => a.time.localeCompare(b.time));
                 saveHomeTasks(tasks);
@@ -1376,6 +1421,10 @@ function wire(panel) {
             taskCalMonth = now.getMonth();
             reRenderTaskCalendar(panel);
             taskCal.hidden = false;
+            void ensureHolidaysLoaded(
+                taskCalYear,
+                () => reRenderTaskCalendar(panel)
+            );
         };
 
         // Dos puertas al mismo calendario: la fecha del encabezado y "Ver todas
@@ -1409,6 +1458,10 @@ function wire(panel) {
                 taskCalYear = next.getFullYear();
                 taskCalMonth = next.getMonth();
                 reRenderTaskCalendar(panel);
+                void ensureHolidaysLoaded(
+                    taskCalYear,
+                    () => reRenderTaskCalendar(panel)
+                );
                 return;
             }
 
@@ -1429,11 +1482,48 @@ function wire(panel) {
     }
 
     if (dayTasks) {
+        const editFromDay = id => {
+            openTaskEdit(panel, id);
+            // El listado queda abierto detras: al guardar se vuelve al dia.
+        };
+
         dayTasks.addEventListener("click", event => {
             // Cerrar el listado del dia deja el calendario abierto detras.
             if (event.target === dayTasks || event.target.closest('[data-hm="close"]')) {
                 dayTasks.hidden = true;
+                openDayIso = "";
+                return;
             }
+
+            const toggle = event.target.closest('[data-hm="dt-toggle"]');
+
+            if (toggle) {
+                // El visto se marca CONTRA EL DIA ABIERTO, no contra hoy: desde
+                // el calendario se cierra el 27 estando parado en el 20.
+                const tasks = getHomeTasks();
+                const index = tasks.findIndex(task => task.id === toggle.dataset.id);
+
+                if (index >= 0) {
+                    tasks[index] = toggleTaskDoneOn(tasks[index], openDayIso);
+                    saveHomeTasks(tasks);
+                    refreshTasks();
+                }
+                return;
+            }
+
+            const row = event.target.closest('[data-hm="dt-row"]');
+
+            if (row) editFromDay(row.dataset.id);
+        });
+        dayTasks.addEventListener("keydown", event => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+
+            const row = event.target.closest('[data-hm="dt-row"]');
+
+            if (!row) return;
+
+            event.preventDefault();
+            editFromDay(row.dataset.id);
         });
     }
 
@@ -1601,4 +1691,14 @@ export function renderHomePanel() {
 
     panel.innerHTML = homeHTML();
     wire(panel);
+
+    // La tarjeta del dia tambien filtra por "Diario Hábil": sin los feriados
+    // cargados, una tarea habil apareceria en un feriado hasta el repintado.
+    const year = new Date().getFullYear();
+
+    void ensureHolidaysLoaded(year, () => {
+        const list = panel.querySelector('[data-hm="tasks-list"]');
+
+        if (list) list.innerHTML = tasksListHTML();
+    });
 }

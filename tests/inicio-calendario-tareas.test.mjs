@@ -50,7 +50,8 @@ globalThis.alert = () => {};
 globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
 const { buildTaskCalendarCells, getTasksForDay } = await import("../js/home.js");
-const { isTaskActiveOn } = await import("../js/homeTasks.js");
+const { isTaskActiveOn, isTaskDoneOn, toggleTaskDoneOn } =
+    await import("../js/homeTasks.js");
 
 const home = (await readFile(new URL("../js/home.js", import.meta.url), "utf8"))
     .replace(/\r\n/g, "\n");
@@ -229,5 +230,118 @@ test("el calendario se mueve de mes y siempre abre en el actual", () => {
     assert.match(
         home,
         /const openCalendar = \(\) => \{[\s\S]{0,320}taskCalYear = now\.getFullYear\(\);/
+    );
+});
+
+/* =========================================================
+   Periodicidad "Diario Hábil"
+========================================================= */
+
+// isBusinessDay indexa los feriados como "año-mes(0)-dia".
+// El 21 de agosto de 2026 es viernes: aca se marca como feriado a proposito,
+// para separar "no es habil por feriado" de "no es habil por fin de semana".
+const FERIADOS = { "2026-7-21": "Feriado de prueba" };
+
+test("Diario Hábil salta fines de semana y feriados", () => {
+    const task = tarea({ repeat: "Diario Hábil", date: "2026-08-01" });
+    const activo = dia => isTaskActiveOn(task, new Date(ANIO, MES, dia), FERIADOS);
+
+    assert.equal(activo(20), true, "jueves habil");
+    assert.equal(activo(21), false, "viernes feriado");
+    assert.equal(activo(22), false, "sabado");
+    assert.equal(activo(23), false, "domingo");
+    assert.equal(activo(24), true, "lunes habil");
+});
+
+test("Diario Hábil cae solo en los habiles del mes", () => {
+    const task = tarea({ id: "habil", repeat: "Diario Hábil", date: "2026-08-01" });
+    const cells = buildTaskCalendarCells(ANIO, MES, [task], FERIADOS);
+    const conTarea = cells.filter(Boolean)
+        .filter(cell => cell.tasks.length)
+        .map(cell => cell.day);
+
+    // Agosto 2026 tiene 31 dias y empieza sabado: 10 de fin de semana y 21
+    // habiles, menos el feriado del 21 = 20.
+    assert.equal(conTarea.length, 20);
+    assert.ok(!conTarea.includes(21), "el feriado queda fuera");
+    assert.ok(!conTarea.includes(1), "el sabado 1 queda fuera");
+    assert.ok(conTarea.includes(3), "el lunes 3 entra");
+});
+
+test("Diario Hábil es distinto de Diario", () => {
+    // Si fueran lo mismo, la opcion nueva no serviria de nada.
+    const habil = tarea({ repeat: "Diario Hábil", date: "2026-08-01" });
+    const diario = tarea({ repeat: "Diario", date: "2026-08-01" });
+    const sabado = new Date(ANIO, MES, 22);
+
+    assert.equal(isTaskActiveOn(habil, sabado, FERIADOS), false);
+    assert.equal(isTaskActiveOn(diario, sabado, FERIADOS), true);
+});
+
+test("la periodicidad nueva esta en el formulario", () => {
+    assert.match(home, /"Diario Hábil"/);
+    // Los dos formularios (agregar y modificar) salen de la misma lista, para
+    // que no se pueda elegir en uno y no en el otro.
+    assert.match(home, /data-hm="nt-repeat">\$\{optionsHTML\(REPEAT_OPTS, "Diario"\)\}/);
+    assert.match(home, /data-hm="et-repeat">\$\{optionsHTML\(REPEAT_OPTS, "Diario"\)\}/);
+});
+
+/* =========================================================
+   Visto de realizada, por dia
+========================================================= */
+
+test("marcar un dia no borra el visto de otro", () => {
+    // Con una sola fecha de visto, cerrar el 27 borraba el del 26: en una tarea
+    // que se repite, el calendario mostraria un solo dia hecho.
+    let task = tarea({ repeat: "Diario", date: "2026-08-01" });
+
+    task = toggleTaskDoneOn(task, "2026-08-26");
+    task = toggleTaskDoneOn(task, "2026-08-27");
+
+    assert.equal(isTaskDoneOn(task, "2026-08-26"), true);
+    assert.equal(isTaskDoneOn(task, "2026-08-27"), true);
+    assert.equal(isTaskDoneOn(task, "2026-08-28"), false);
+});
+
+test("volver a marcar el mismo dia lo desmarca", () => {
+    let task = toggleTaskDoneOn(tarea({}), "2026-08-27");
+
+    assert.equal(isTaskDoneOn(task, "2026-08-27"), true);
+
+    task = toggleTaskDoneOn(task, "2026-08-27");
+
+    assert.equal(isTaskDoneOn(task, "2026-08-27"), false);
+});
+
+test("el visto viejo de una sola fecha no se pierde", () => {
+    // Las tareas guardadas antes traen doneDate (una fecha), no doneDates.
+    const antigua = { id: "v", name: "Vieja", time: "08:00", repeat: "Diario", doneDate: "2026-08-26" };
+    const migrada = toggleTaskDoneOn(antigua, "2026-08-27");
+
+    assert.equal(isTaskDoneOn(migrada, "2026-08-26"), true);
+    assert.equal(isTaskDoneOn(migrada, "2026-08-27"), true);
+});
+
+test("desde el calendario el visto se marca contra el dia abierto", () => {
+    // No contra hoy: se cierra el 27 estando parado en el 20.
+    assert.match(home, /toggleTaskDoneOn\(tasks\[index\], openDayIso\)/);
+    // Y en la tarjeta del inicio, contra hoy.
+    assert.match(home, /toggleTaskDoneOn\(tasks\[index\], todayISO\(\)\)/);
+});
+
+test("desde el calendario se puede modificar la tarea", () => {
+    // La misma via que la tarjeta del inicio: openTaskEdit.
+    assert.match(home, /data-hm="dt-row" data-id=/);
+    assert.match(home, /const editFromDay = id => \{[\s\S]{0,40}openTaskEdit\(panel, id\);/);
+    // Y el modal de modificar tiene que quedar POR ENCIMA del listado del dia.
+    assert.match(home, /hm-modal-backdrop--top" data-hm="task-edit-modal"/);
+});
+
+test("modificar una tarea repinta las tres superficies", () => {
+    // Tarjeta del dia, grilla del mes y listado del dia abierto muestran el
+    // mismo dato: si solo se repintara una, las otras quedarian mintiendo.
+    assert.match(
+        home,
+        /const refreshTasks = \(\) => \{[\s\S]{0,400}tasksListHTML\(\);[\s\S]{0,120}reRenderTaskCalendar\(panel\);[\s\S]{0,60}renderDayTasks\(panel\);/
     );
 });

@@ -14,6 +14,8 @@ import {
 } from "./firebaseClient.js";
 import { getActiveWorkspace } from "./workspaces.js";
 import { getJSON, setJSON } from "./persistence.js";
+import { getCachedHolidays } from "./holidays.js";
+import { isBusinessDay } from "./calculations.js";
 
 let cache = [];
 let unsub = null;
@@ -27,6 +29,24 @@ function newId() {
     return `t${Date.now().toString(36)}${idCounter}`;
 }
 
+// Cuantos vistos se conservan por tarea. Una tarea diaria acumularia un ISO por
+// dia para siempre dentro del documento del usuario; con este tope guarda algo
+// mas de medio año, que es de sobra para mirar hacia atras en el calendario.
+const MAX_DONE_DATES = 200;
+
+function normalizeDoneDates(task) {
+    // Antes el visto era UNA sola fecha ("hecha hoy"). Desde que se puede marcar
+    // cualquier dia en el calendario hace falta una por dia: con una sola, poner
+    // el visto el 27 borraba el del 26.
+    const list = Array.isArray(task?.doneDates)
+        ? task.doneDates
+        : (task?.doneDate ? [task.doneDate] : []);
+
+    return [...new Set(list.map(String).filter(Boolean))]
+        .sort()
+        .slice(-MAX_DONE_DATES);
+}
+
 function normalizeTask(task) {
     return {
         id: task && task.id ? String(task.id) : newId(),
@@ -35,10 +55,23 @@ function normalizeTask(task) {
         repeat: String(task?.repeat || "Diario"),
         date: String(task?.date || ""),
         alert: String(task?.alert || "Sin alerta"),
-        // Fecha (ISO) en que se marcó como realizada. Se considera "hecha" solo
-        // si es hoy, de modo que el visto se reinicia automáticamente cada día.
-        doneDate: String(task?.doneDate || "")
+        // Fechas (ISO) en que se marcó como realizada, una por dia cumplido.
+        doneDates: normalizeDoneDates(task)
     };
+}
+
+// Unico lugar donde se decide si una tarea esta hecha en un dia. La tarjeta del
+// inicio, el calendario y el listado del dia preguntan aca.
+export function isTaskDoneOn(task, iso) {
+    return Array.isArray(task?.doneDates) && task.doneDates.includes(iso);
+}
+
+export function toggleTaskDoneOn(task, iso) {
+    const done = normalizeDoneDates(task).filter(date => date !== iso);
+
+    if (!isTaskDoneOn(task, iso)) done.push(iso);
+
+    return { ...task, doneDates: done.sort().slice(-MAX_DONE_DATES) };
 }
 
 function normalizeList(list) {
@@ -162,7 +195,7 @@ function monthsBetween(from, to) {
 // Exportada: el calendario organizativo del home pregunta, dia por dia, que
 // tareas caen ahi. Tiene que ser LA MISMA regla que dispara las alertas, o el
 // calendario mostraria una recurrencia y el aviso sonaria en otra.
-export function isTaskActiveOn(task, date) {
+export function isTaskActiveOn(task, date, holidays) {
     const anchor = parseISODate(task.date);
     if (!anchor) {
         // Sin fecha de inicio no hay donde anclar la recurrencia, asi que la
@@ -179,6 +212,14 @@ export function isTaskActiveOn(task, date) {
     switch (task.repeat) {
         case "Una sola vez": return day.getTime() === start.getTime();
         case "Diario": return true;
+        // Habil = ni fin de semana ni feriado. Se usa el mismo isBusinessDay que
+        // el motor de horas, para que "habil" signifique lo mismo en toda la app
+        // (incluidos los feriados que el usuario agrega a mano).
+        case "Diario Hábil":
+            return isBusinessDay(
+                day,
+                holidays || getCachedHolidays(day.getFullYear())
+            );
         case "Semanal": return day.getDay() === start.getDay();
         case "Mensual": return day.getDate() === start.getDate();
         case "Trimestral":

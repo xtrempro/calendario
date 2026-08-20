@@ -1882,6 +1882,13 @@ body[data-active-view="home"] .secondary-grid {
 .hm-dt-name { flex: 1; min-width: 0; font-size: 0.86rem; font-weight: 600; color: var(--text); }
 .hm-dt-repeat { flex: none; font-size: 0.71rem; font-weight: 700; color: var(--text-soft); background: var(--hm-track); padding: 3px 8px; border-radius: 7px; white-space: nowrap; }
 .hm-dt-row.is-done .hm-dt-name { color: var(--text-muted); text-decoration: line-through; }
+.hm-dt-row { cursor: pointer; transition: border-color .12s ease; }
+.hm-dt-row:hover { border-color: var(--accent); }
+.hm-dt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.hm-dt-row.is-done .hm-task-check { background: var(--hm-good); border-color: var(--hm-good); color: #fff; }
+/* Modificar una tarea se abre por encima del listado del dia, que a su vez esta
+   por encima del calendario. */
+.hm-modal-backdrop--top { z-index: 1220; }
 @media (max-width: 760px) {
     .hm-tc-cell { min-height: 68px; }
     .hm-tc-chip { font-size: 0.64rem; }
