@@ -506,8 +506,8 @@ function dotacionCard(tone, label, dia, noche) {
         </article>`;
 }
 
-// Stat cards: una tarjeta por estamento en servicio hoy (colores en ciclo),
-// luego "Plan del día" (total del día) y "Pendientes".
+// Stat cards: una tarjeta por estamento en servicio hoy (colores en ciclo) y
+// "Pendientes".
 function statsSection() {
     const dot = getDotacionHoy();
     const tones = ["violet", "blue", "green", "amber"];
@@ -521,7 +521,6 @@ function statsSection() {
 
     return `
         ${estCards}
-        ${statCard("green", IC.calendar, "Plan del día", dot.total, "turnos programados")}
         ${statCard("amber", IC.clipboard, "Pendientes", 7, "tareas pendientes")}`;
 }
 
@@ -600,7 +599,6 @@ function resumenWidget() {
         <div class="hm-card hm-col-4">
             ${panelHead(IC.bars, "Resumen rápido")}
             <div class="hm-listcol hm-listcol--gap">
-                ${row("info", "Turnos programados", dotacion)}
                 ${row("good", "En servicio hoy", dotacion)}
                 ${row("warn", "Pendientes", 7)}
                 ${row("accent", "Cambios de turno", swapCount)}
