@@ -96,9 +96,11 @@ import {
     getBackedTurnForWorker,
     getClockExtraBackupForWorker,
     buildReplacementRequestWhatsAppUrl,
+    cancelPreassignment,
     cancelReplacementRequest,
     cancelReplacementById,
     codeToTurno,
+    confirmPreassignment,
     createReplacementRequest,
     createReplacementRequests,
     expireReplacementRequests,
@@ -6802,29 +6804,10 @@ function openPreassignmentDialog({ profile, keyDay }) {
         .querySelector("[data-action='confirm']")
         ?.addEventListener("click", async () => {
             await withBusyState(async () => {
-                if (typeof window.pushUndoState === "function") {
-                    window.pushUndoState("Confirmar preasignacion");
-                }
-
                 // Pasa a reemplazo real (proyecta + suma horas), igual que el
-                // paso directo de asignar.
-                saveReplacement({
-                    worker,
-                    replaced,
-                    keyDay,
-                    turno,
-                    absenceType,
-                    source: "replacement",
-                    overtimeHours: preassignment.overtimeHours || null,
-                    diurnoLongCoverage: Boolean(preassignment.diurnoLongCoverage)
-                });
-                removePreassignment(id);
-                addAuditLog(
-                    AUDIT_CATEGORY.CALENDAR,
-                    "Confirmo preasignacion",
-                    `${replaced}: ${worker} confirmo el turno preasignado del ${keyDay}.`,
-                    { profile: replaced, keyDay }
-                );
+                // paso directo de asignar. La accion vive en replacements.js
+                // porque tambien la dispara la tarjeta de cobertura del inicio.
+                confirmPreassignment(preassignment);
                 close();
                 await refresh();
             }, { label: "Confirmando..." });
@@ -6833,17 +6816,7 @@ function openPreassignmentDialog({ profile, keyDay }) {
         .querySelector("[data-action='cancel-preassign']")
         ?.addEventListener("click", async () => {
             await withBusyState(async () => {
-                if (typeof window.pushUndoState === "function") {
-                    window.pushUndoState("Cancelar preasignacion");
-                }
-
-                removePreassignment(id);
-                addAuditLog(
-                    AUDIT_CATEGORY.CALENDAR,
-                    "Cancelo preasignacion",
-                    `${replaced}: se cancelo el turno preasignado del ${keyDay}.`,
-                    { profile: replaced, keyDay }
-                );
+                cancelPreassignment(preassignment);
                 close();
                 await refresh();
             }, { label: "Cancelando..." });

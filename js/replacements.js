@@ -41,6 +41,7 @@ import {
     AUDIT_CATEGORY
 } from "./auditLog.js";
 import { getWorkerAppLinkForProfile } from "./workerAppDataSync.js";
+import { removePreassignment } from "./preassignments.js";
 
 function formatNotificationDate(value) {
     const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -632,6 +633,70 @@ export function getReplacementRecordHours(
         state,
         holidays
     );
+}
+
+/**
+ * Confirma una preasignacion: pasa a reemplazo REAL (proyecta el turno y suma
+ * HH.EE) y saca la reserva tentativa. Es la accion del boton "Confirmar (el
+ * trabajador acepto)" del calendario, compartida con la tarjeta de cobertura del
+ * inicio para que las dos entradas hagan exactamente lo mismo.
+ */
+export function confirmPreassignment(preassignment) {
+    const record = preassignment || {};
+    const keyDay = keyFromISO(record.date);
+
+    if (!record.id || !keyDay || !record.worker) return false;
+
+    if (typeof window !== "undefined" &&
+        typeof window.pushUndoState === "function") {
+        window.pushUndoState("Confirmar preasignacion");
+    }
+
+    saveReplacement({
+        worker: record.worker,
+        replaced: record.replaced || "",
+        keyDay,
+        turno: codeToTurno(record.turno),
+        absenceType: record.absenceType || "",
+        source: "replacement",
+        overtimeHours: record.overtimeHours || null,
+        diurnoLongCoverage: Boolean(record.diurnoLongCoverage)
+    });
+    removePreassignment(record.id);
+    addAuditLog(
+        AUDIT_CATEGORY.CALENDAR,
+        "Confirmo preasignacion",
+        `${record.replaced || "Sin reemplazado"}: ${record.worker} confirmo el turno preasignado del ${keyDay}.`,
+        { profile: record.replaced || record.worker, keyDay }
+    );
+
+    return true;
+}
+
+/**
+ * Cancela una preasignacion: el turno vuelve a quedar pendiente de cobertura
+ * ("!"). Espejo de "Cancelar preasignacion" del calendario.
+ */
+export function cancelPreassignment(preassignment) {
+    const record = preassignment || {};
+    const keyDay = keyFromISO(record.date);
+
+    if (!record.id || !keyDay) return false;
+
+    if (typeof window !== "undefined" &&
+        typeof window.pushUndoState === "function") {
+        window.pushUndoState("Cancelar preasignacion");
+    }
+
+    removePreassignment(record.id);
+    addAuditLog(
+        AUDIT_CATEGORY.CALENDAR,
+        "Cancelo preasignacion",
+        `${record.replaced || "Sin reemplazado"}: se cancelo el turno preasignado del ${keyDay}.`,
+        { profile: record.replaced || record.worker || "", keyDay }
+    );
+
+    return true;
 }
 
 export function getAbsenceLabelForProfileDate(profile, keyDay) {

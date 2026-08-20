@@ -1622,6 +1622,40 @@ body[data-active-view="home"] .secondary-grid {
 .hm-cob-meta b { color: var(--text); font-weight: 700; }
 .hm-cob-none { color: var(--hm-warn); font-weight: 700; }
 
+/* Confirmar / cancelar un turno preasignado desde la tarjeta de cobertura. */
+.hm-cob-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.hm-cob-btn {
+    flex: 1;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+}
+
+.hm-cob-btn:hover { filter: brightness(0.94); }
+.hm-cob-btn:active { transform: translateY(1px); }
+
+.hm-cob-btn--confirm {
+    background: var(--accent);
+    color: #fff;
+}
+
+.hm-cob-btn--cancel {
+    background: transparent;
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #b91c1c;
+}
+
 .hm-turno { font-size: 0.71rem; font-weight: 800; padding: 3px 8px; border-radius: 7px; letter-spacing: 0.2px; white-space: nowrap; }
 .hm-turno--larga { background: rgba(59, 130, 246, 0.16); color: #2563eb; }
 .hm-turno--noche { background: rgba(109, 75, 216, 0.18); color: #6d3bd4; }

@@ -23,11 +23,16 @@ import {
     getAbsenceType,
     esAusenciaInjustificada
 } from "./rulesEngine.js";
-import { getReplacementForCoveredShift } from "./replacements.js";
+import {
+    cancelPreassignment,
+    confirmPreassignment,
+    getReplacementForCoveredShift
+} from "./replacements.js";
 import {
     getPreassignmentForCoveredShift,
     getPreassignments
 } from "./preassignments.js";
+import { refreshAll } from "./refresh.js";
 import { cambiosDelMes, cambioEstaAnulado } from "./swaps.js";
 import { TURNO_LABEL, ESTAMENTO, TURNO } from "./constants.js";
 import { getHomeTasks, saveHomeTasks } from "./homeTasks.js";
@@ -410,6 +415,7 @@ function getPreassignedShifts() {
             dateLabel: shortDateFromISO(record.date),
             turnoLabel: TURNO_LABEL[Number(record.turno)] || "Turno",
             turnoClass: turnoCssClass(record.turno),
+            id: record.id,
             origin: record.replaced,
             reason: record.absenceType || "",
             assigned: record.worker
@@ -633,6 +639,15 @@ function coberturaRow(item, kind) {
             : '<div class="hm-cob-meta"><span class="hm-cob-none">Sin candidatos disponibles</span></div>')
         : `<div class="hm-cob-meta"><b>Preasignado:</b> ${esc(item.assigned)}</div>`;
     const reason = item.reason ? ` · ${esc(item.reason)}` : "";
+    // Los preasignados se resuelven desde aca sin pasar por el calendario: son
+    // las mismas dos acciones del modal del turno preasignado.
+    const actions = kind === "preasignado" && item.id
+        ? `
+            <div class="hm-cob-actions">
+                <button class="hm-cob-btn hm-cob-btn--confirm" type="button" data-hm="cob-confirm" data-preassign-id="${esc(item.id)}">CONFIRMAR</button>
+                <button class="hm-cob-btn hm-cob-btn--cancel" type="button" data-hm="cob-cancel" data-preassign-id="${esc(item.id)}">CANCELAR</button>
+            </div>`
+        : "";
     return `
         <div class="hm-cob-row">
             <div class="hm-cob-top">
@@ -642,6 +657,7 @@ function coberturaRow(item, kind) {
             </div>
             <div class="hm-cob-meta"><b>Origina:</b> ${esc(item.origin)}${reason}</div>
             ${third}
+            ${actions}
         </div>`;
 }
 
@@ -1005,6 +1021,33 @@ function wire(panel) {
             reRenderCoverage(panel);
         });
     }
+
+    // --- Cobertura: confirmar / cancelar un turno preasignado sin salir del inicio ---
+    panel.querySelectorAll('[data-hm="cob-confirm"], [data-hm="cob-cancel"]')
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                const preassignment = getPreassignments().find(item =>
+                    String(item.id) === button.dataset.preassignId
+                );
+
+                if (!preassignment) {
+                    renderHomePanel();
+                    return;
+                }
+
+                const confirmar = button.dataset.hm === "cob-confirm";
+                const done = confirmar
+                    ? confirmPreassignment(preassignment)
+                    : cancelPreassignment(preassignment);
+
+                if (!done) return;
+
+                // El turno pasa a reemplazo real (o vuelve a "!"), asi que hay
+                // que repintar calendario, timeline y esta misma tarjeta.
+                refreshAll();
+                renderHomePanel();
+            });
+        });
 }
 
 function reRenderCoverage(panel) {

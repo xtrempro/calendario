@@ -75,10 +75,11 @@ test("una sola cobertura por ausente/dia (la nueva reemplaza a la previa)", () =
 });
 
 test("integracion: modo, handler, modal, badge, compatibilidad y sync", async () => {
-    const [calendar, timeline, modules] = await Promise.all([
+    const [calendar, timeline, modules, replacements] = await Promise.all([
         readFile(new URL("../js/calendar.js", import.meta.url), "utf8"),
         readFile(new URL("../js/timeline.js", import.meta.url), "utf8"),
-        readFile(new URL("../js/firebaseStateModules.js", import.meta.url), "utf8")
+        readFile(new URL("../js/firebaseStateModules.js", import.meta.url), "utf8"),
+        readFile(new URL("../js/replacements.js", import.meta.url), "utf8")
     ]);
 
     // Toggle de modo + handler que preasigna en vez de asignar.
@@ -93,7 +94,11 @@ test("integracion: modo, handler, modal, badge, compatibilidad y sync", async ()
     assert.match(calendar, /function openPreassignmentDialog\(/);
     assert.match(calendar, /data-action="confirm"/);
     assert.match(calendar, /data-action="cancel-preassign"/);
-    assert.match(calendar, /saveReplacement\(\{[\s\S]{0,200}?source: "replacement"/);
+    // Confirmar pasa a reemplazo REAL. La accion vive en replacements.js porque
+    // tambien la dispara la tarjeta de cobertura del inicio; el modal la reusa.
+    assert.match(calendar, /confirmPreassignment\(preassignment\);/);
+    assert.match(calendar, /cancelPreassignment\(preassignment\);/);
+    assert.match(replacements, /saveReplacement\(\{[\s\S]{0,260}?source: "replacement"/);
     assert.match(calendar, /return openPreassignmentDialog\(\{ profile: profileName, keyDay \}\)/);
     // Compatibilidad 24h con preasignaciones.
     assert.match(calendar, /function preassignmentBlocksReplacementCandidate\(/);
