@@ -690,7 +690,21 @@ function turnoBloqueadoPorTurno24Invertido(nombre, key, turno) {
     );
 }
 
-function allowedTurnsForBase(baseTurno, isHab) {
+// `allowLibre` agrega el dia VACIO al final del ciclo, para que el ultimo click
+// vuelva al turno inicial (Larga -> 24h -> vacio -> Larga). Solo lo usa la
+// edicion directa de un trabajador a honorarios, donde la jornada se pacta dia a
+// dia y hay que poder dejar el dia sin turno.
+function allowedTurnsForBase(baseTurno, isHab, allowLibre = false) {
+    const turns = baseAllowedTurns(baseTurno, isHab);
+
+    if (!turns || !allowLibre || turns.includes(TURNO.LIBRE)) {
+        return turns;
+    }
+
+    return [...turns, TURNO.LIBRE];
+}
+
+function baseAllowedTurns(baseTurno, isHab) {
     const base = Number(baseTurno) || TURNO.LIBRE;
 
     if (base === TURNO.LARGA) {
@@ -766,11 +780,17 @@ export function siguienteTurnoValido(
     const visitados = new Set();
     const baseTurno =
         Number(options.baseTurno) || TURNO.LIBRE;
+    const allowLibre = options.allowLibre === true;
     const allowedTurns =
-        allowedTurnsForBase(baseTurno, isHab);
+        allowedTurnsForBase(baseTurno, isHab, allowLibre);
+    // Con un turno base el vacio queda fuera del ciclo (el turno de la rotativa
+    // no se borra desde el calendario). `allowLibre` levanta esa proteccion.
     const disallowLibre =
-        Boolean(options.disallowLibre) ||
-        baseTurno > TURNO.LIBRE;
+        !allowLibre &&
+        (
+            Boolean(options.disallowLibre) ||
+            baseTurno > TURNO.LIBRE
+        );
     const nextCandidate = turno =>
         allowedTurns
             ? siguienteEnLista(turno, allowedTurns)
@@ -813,6 +833,12 @@ export function getProtectedDirectEditTurn(
     const protectedBaseTurn = replacementTurn
         ? fusionarTurnos(effectiveBaseTurn, replacementTurn)
         : effectiveBaseTurn;
+    // A honorarios la jornada se pacta dia a dia, asi que la edicion directa
+    // tiene que poder dejar el dia VACIO y volver al turno inicial en el
+    // siguiente click. Con un reemplazo asignado se mantiene la proteccion: ese
+    // turno no se borra desde el calendario, se anula desde su propio cuadro.
+    const allowLibre = options.allowLibre === true ||
+        (!replacementTurn && isHonorariaProfile(nombre, key));
     const nextVisibleTurn = siguienteTurnoValido(
         nombre,
         key,
@@ -820,6 +846,7 @@ export function getProtectedDirectEditTurn(
         isHab,
         {
             ...options,
+            allowLibre,
             baseTurno: protectedBaseTurn
         }
     );
