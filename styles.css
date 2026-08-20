@@ -3620,7 +3620,7 @@ body[data-active-view="profile"] .profile-view-layout > .sidebar .profile-item__
 
 .nav-tile span {
     max-width: 100%;
-    font-size: 0.76rem;
+    font-size: 0.684rem;
     font-weight: 700;
     letter-spacing: 0;
     line-height: 1.08;
@@ -13324,7 +13324,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
     }
 
     .nav-tile span {
-        font-size: 0.58rem;
+        font-size: 0.522rem;
         white-space: nowrap;
     }
 
@@ -13569,7 +13569,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
     }
 
     .nav-tile span {
-        font-size: 0.66rem;
+        font-size: 0.594rem;
     }
 
     .secondary-grid {
@@ -13897,7 +13897,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-size: 0.78rem;
+        font-size: 0.702rem;
     }
 }
 
@@ -14116,7 +14116,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
     }
 
     .nav-tile span {
-        font-size: 0.68rem;
+        font-size: 0.612rem;
     }
 
     .primary-grid,
@@ -14376,7 +14376,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
     }
 
     .nav-tile span {
-        font-size: 0.63rem;
+        font-size: 0.567rem;
     }
 
     .calendar-panel,
@@ -14626,7 +14626,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
 
     .nav-tile span {
         white-space: normal;
-        font-size: 0.66rem;
+        font-size: 0.594rem;
         line-height: 1.05;
     }
 
@@ -15799,7 +15799,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
 
     .actionbar .nav-tile span {
         max-width: none;
-        font-size: 0.8rem;
+        font-size: 0.72rem;
         font-weight: 600;
         line-height: 1.25;
         white-space: normal;
