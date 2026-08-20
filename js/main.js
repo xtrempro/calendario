@@ -7281,6 +7281,9 @@ async function selectProfileByName(profileName, options = {}) {
 
 window.selectProfileByName = selectProfileByName;
 
+// Lo usa el inicio para avisar el resultado de la cobertura automatica.
+window.showAppToast = showAppToast;
+
 function parseCalendarJumpDate(value) {
     const match = String(value || "")
         .match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);

@@ -1721,6 +1721,22 @@ body[data-active-view="home"] .secondary-grid {
     color: #b91c1c;
 }
 
+.hm-cob-btn--ver {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text);
+}
+
+.hm-cob-btn--auto {
+    background: var(--hm-good, #16a34a);
+    color: #fff;
+}
+
+.hm-cob-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .hm-turno { font-size: 0.71rem; font-weight: 800; padding: 3px 8px; border-radius: 7px; letter-spacing: 0.2px; white-space: nowrap; }
 .hm-turno--larga { background: rgba(59, 130, 246, 0.16); color: #2563eb; }
 .hm-turno--noche { background: rgba(109, 75, 216, 0.18); color: #6d3bd4; }

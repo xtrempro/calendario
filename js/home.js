@@ -16,7 +16,7 @@ import {
     getShiftAssigned
 } from "./storage.js";
 import { getJSON } from "./persistence.js";
-import { keyFromDate, keyFromISO } from "./dateUtils.js";
+import { keyFromDate, keyFromISO, isoFromKey } from "./dateUtils.js";
 import { getTurnoBase, getTurnoReal } from "./turnEngine.js";
 import {
     requiereReemplazoTurnoBase,
@@ -404,6 +404,9 @@ function getUncoveredShifts() {
                 turnoLabel: TURNO_LABEL[turno] || "Turno",
                 turnoClass: turnoCssClass(turno),
                 origin: profile.name,
+                // Para "Ver en calendario" y "Cobertura automatica".
+                keyDay,
+                iso: isoFromKey(keyDay),
                 reason: absenceLabelForDay(profile.name, keyDay),
                 candidates: getAvailableCandidates(profile, keyDay).slice(0, 3)
             });
@@ -753,7 +756,13 @@ function coberturaRow(item, kind) {
                 <button class="hm-cob-btn hm-cob-btn--confirm" type="button" data-hm="cob-confirm" data-preassign-id="${esc(item.id)}">CONFIRMAR</button>
                 <button class="hm-cob-btn hm-cob-btn--cancel" type="button" data-hm="cob-cancel" data-preassign-id="${esc(item.id)}">CANCELAR</button>
             </div>`
-        : "";
+        : kind === "sincubrir" && item.keyDay
+            ? `
+            <div class="hm-cob-actions">
+                <button class="hm-cob-btn hm-cob-btn--ver" type="button" data-hm="cob-ver" data-cob-profile="${esc(item.origin)}" data-cob-iso="${esc(item.iso)}">VER EN CALENDARIO</button>
+                <button class="hm-cob-btn hm-cob-btn--auto" type="button" data-hm="cob-auto" data-cob-profile="${esc(item.origin)}" data-cob-key="${esc(item.keyDay)}">COBERTURA AUTOMÁTICA</button>
+            </div>`
+            : "";
     return `
         <div class="hm-cob-row">
             <div class="hm-cob-top">
@@ -1120,6 +1129,49 @@ function wire(panel) {
         });
     }
 
+    // --- Cobertura: ver el dia en el calendario ---
+    panel.querySelectorAll('[data-hm="cob-ver"]').forEach(button => {
+        button.addEventListener("click", () => {
+            // Mismo evento que usa "ver en el calendario" de las solicitudes:
+            // salta al mes, selecciona al trabajador y abre Turnos.
+            window.dispatchEvent(
+                new CustomEvent("proturnos:viewWorkerRequestInCalendar", {
+                    detail: {
+                        profile: button.dataset.cobProfile,
+                        date: button.dataset.cobIso
+                    }
+                })
+            );
+        });
+    });
+
+    // --- Cobertura: solicitud masiva a los candidatos con la app enlazada ---
+    panel.querySelectorAll('[data-hm="cob-auto"]').forEach(button => {
+        button.addEventListener("click", async () => {
+            const label = button.textContent;
+
+            button.disabled = true;
+            button.textContent = "ENVIANDO...";
+
+            try {
+                const result = await window.runAutomaticCoverage?.(
+                    button.dataset.cobProfile,
+                    button.dataset.cobKey
+                );
+
+                announceAutomaticCoverage(result);
+            } catch (error) {
+                console.warn("No se pudo enviar la cobertura automatica.", error);
+                announceAutomaticCoverage({ status: "error" });
+            } finally {
+                button.disabled = false;
+                button.textContent = label;
+            }
+
+            renderHomePanel();
+        });
+    });
+
     // --- Cumpleaños: navegar de mes en mes sin repintar todo el panel ---
     panel.querySelectorAll('[data-hm="bday-prev"], [data-hm="bday-next"]')
         .forEach(button => {
@@ -1188,6 +1240,66 @@ function wire(panel) {
                 renderHomePanel();
             });
         });
+}
+
+// Cada resultado necesita su propio mensaje: "no se envio nada" por falta de
+// candidatos no es lo mismo que porque ninguno tiene la app.
+function announceAutomaticCoverage(result) {
+    const toast = (text, options) =>
+        (window.showAppToast || (message => alert(message)))(text, options);
+
+    if (!result || result.status === "error") {
+        toast("No se pudo enviar la cobertura automática.", {
+            title: "Cobertura automática",
+            variant: "warn"
+        });
+        return;
+    }
+
+    if (result.status === "disabled") {
+        toast(
+            "La solicitud de aprobación al trabajador está desactivada en la configuración del entorno.",
+            { title: "Cobertura automática", variant: "warn" }
+        );
+        return;
+    }
+
+    if (result.status === "nothing-to-cover") {
+        toast("Ese turno ya no necesita cobertura.", {
+            title: "Cobertura automática",
+            variant: "warn"
+        });
+        return;
+    }
+
+    if (result.status === "canceled" || result.status === "invalid") {
+        toast("No se pudo calcular los candidatos de ese turno.", {
+            title: "Cobertura automática",
+            variant: "warn"
+        });
+        return;
+    }
+
+    if (result.status === "no-targets") {
+        const motivo = !result.candidates
+            ? "No hay trabajadores que puedan cubrir ese turno."
+            : result.alreadyPending
+                ? "Los candidatos con la app enlazada ya tienen una solicitud pendiente."
+                : "Ninguno de los candidatos tiene la app enlazada para recibir la solicitud.";
+
+        toast(motivo, { title: "Cobertura automática", variant: "warn" });
+        return;
+    }
+
+    const extra = [
+        result.withoutApp ? `${result.withoutApp} sin app` : "",
+        result.alreadyPending ? `${result.alreadyPending} ya tenían solicitud` : ""
+    ].filter(Boolean).join(" · ");
+
+    toast(
+        `Solicitud enviada a ${result.sent} trabajador(es)${extra ? `. ${extra}.` : "."}`,
+        { title: "Cobertura automática", variant: "good" }
+    );
 }
 
 function reRenderBirthdays(panel) {

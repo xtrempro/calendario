@@ -206,6 +206,7 @@ import {
     acceptWorkerRequestById,
     rejectWorkerRequestById
 } from "./workerRequests.js";
+import { getWorkerAppLinkForProfile } from "./workerAppDataSync.js";
 import { runCooperativeRange } from "./mainThreadScheduler.js";
 import {
     canEditTarget,
@@ -4666,6 +4667,100 @@ async function getReplacementCandidates(
         throw error;
     }
 }
+
+/**
+ * "Cobertura automatica" de la tarjeta de inicio: manda la solicitud de
+ * reemplazo a TODOS los candidatos que podrian cubrir el turno y tienen la app
+ * enlazada. Es el equivalente a abrir el cuadro de sugerencias, activar
+ * "Solicitar aprobacion" y marcar a todos, sin abrirlo.
+ *
+ * Usa getReplacementCandidates -el motor real, con las reglas de 24 invertido,
+ * preasignaciones, contrato y ausencias- y NO la heuristica del inicio: mandar
+ * solicitudes con una lista aproximada es peor que no mandarlas.
+ *
+ * Devuelve un resumen para que quien lo llama avise que paso.
+ */
+window.runAutomaticCoverage = async (profileName, keyDay) => {
+    const name = String(profileName || "").trim();
+
+    if (!name || !keyDay) {
+        return { status: "invalid" };
+    }
+
+    if (getReplacementRequestConfig().enableWorkerAcceptanceRequest === false) {
+        return { status: "disabled" };
+    }
+
+    const neededTurn = getReplacementNeededTurn(name, keyDay);
+
+    if (!neededTurn) return { status: "nothing-to-cover" };
+
+    const candidates = await getReplacementCandidates(name, keyDay);
+
+    if (!candidates) return { status: "canceled" };
+
+    // Un forzado no cumple el perfil del ausente y un dia bloqueado es una
+    // peticion expresa del trabajador: ninguno entra en un envio masivo.
+    const eligible = candidates.filter(candidate =>
+        !candidate.isForced &&
+        !candidate.blockedDay &&
+        !candidate.isLinked
+    );
+    const pending = new Set(
+        getPendingReplacementRequestsForShift(name, keyDay, neededTurn)
+            .map(request => request.worker)
+    );
+    const withApp = eligible.filter(candidate =>
+        Boolean(getWorkerAppLinkForProfile(candidate.profile.name))
+    );
+    const targets = withApp.filter(candidate =>
+        !pending.has(candidate.profile.name)
+    );
+    const summary = {
+        status: "ok",
+        candidates: eligible.length,
+        withoutApp: eligible.length - withApp.length,
+        alreadyPending: withApp.length - targets.length,
+        sent: 0
+    };
+
+    if (!targets.length) return { ...summary, status: "no-targets" };
+
+    if (typeof window.pushUndoState === "function") {
+        window.pushUndoState("Cobertura automatica");
+    }
+
+    const requests = createReplacementRequests(
+        {
+            replaced: name,
+            keyDay,
+            turno: neededTurn,
+            absenceType: getAbsenceLabelForProfileDate(name, keyDay),
+            scope: "compatible",
+            source: "replacement_request",
+            diurnoLongCoverageWorkers: targets
+                .filter(candidate => candidate.isDiurnoLongCoverage)
+                .map(candidate => candidate.profile.name),
+            workerCoverage: Object.fromEntries(
+                targets.map(candidate => [
+                    candidate.profile.name,
+                    {
+                        diurnoLongCoverage: Boolean(candidate.isDiurnoLongCoverage),
+                        overtimeHours: candidate.overtimeHours || null
+                    }
+                ])
+            )
+        },
+        targets.map(candidate => candidate.profile.name)
+    );
+
+    summary.sent = requests.length;
+
+    await updateDayCell(name, keyDay);
+    updateTimelineCells(name, [keyDay]);
+
+    return summary;
+};
 
 function replacementDialogHTML({
     profileName,
