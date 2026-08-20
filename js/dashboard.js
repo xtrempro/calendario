@@ -411,7 +411,7 @@ function dateInRange(date, start, end) {
         date.getTime() <= end.getTime();
 }
 
-function buildLicenseRanking() {
+export function buildLicenseRanking() {
     const end = new Date(
         currentDate.getFullYear(),
         currentDate.getMonth() + 1,
@@ -424,6 +424,9 @@ function buildLicenseRanking() {
     );
 
     return getProfiles()
+        // Los perfiles desactivados ya no son parte de la dotacion: seguir
+        // rankeandolos empujaba fuera del top a gente que si esta trabajando.
+        .filter(isProfileActive)
         .map(profile => {
             const days = Object.entries(
                 getJSON(`absences_${profile.name}`, {})
