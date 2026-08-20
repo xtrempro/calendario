@@ -23,6 +23,7 @@ const EXACT_KEY_MODULES = new Map([
     ["preassignments", "turnos"],
     ["manualHolidays", "turnos"],
     ["manualExtraReasonPresets", "turnos"],
+    ["noCoverageReasonPresets", "turnos"],
     ["turnoColorConfig", "turnos"],
     ["replacementRequests", "requests"],
     ["workerRequests", "requests"],

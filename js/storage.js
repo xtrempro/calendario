@@ -823,15 +823,27 @@ export function getNoCoverageDays(profile){
     return getJSON(`noCoverage_${profile}`, {});
 }
 
+// El valor guardado es `true` (marcas antiguas, sin comentario) o un objeto
+// { reason } cuando el supervisor explico por que ese turno no necesita
+// reemplazo. Por eso se evalua por verdadero y no contra `true`.
 export function isNoCoverageDay(profile, keyDay){
-    return getNoCoverageDays(profile)[keyDay] === true;
+    return Boolean(getNoCoverageDays(profile)[keyDay]);
 }
 
-export function setNoCoverageDay(profile, keyDay, value){
+export function getNoCoverageReason(profile, keyDay){
+    const value = getNoCoverageDays(profile)[keyDay];
+
+    if (!value || typeof value !== "object") return "";
+
+    return String(value.reason || "").trim();
+}
+
+export function setNoCoverageDay(profile, keyDay, value, reason = ""){
     const map = getNoCoverageDays(profile);
+    const cleanReason = String(reason || "").trim();
 
     if (value) {
-        map[keyDay] = true;
+        map[keyDay] = cleanReason ? { reason: cleanReason } : true;
     } else {
         delete map[keyDay];
     }

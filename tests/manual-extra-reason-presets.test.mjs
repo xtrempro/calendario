@@ -16,7 +16,16 @@ test("los motivos predefinidos de HHEE se editan y sincronizan por entorno", asy
         calendarSource,
         /MANUAL_EXTRA_REASON_PRESETS_KEY = "manualExtraReasonPresets"/
     );
-    assert.match(calendarSource, /setJSON\(\s*MANUAL_EXTRA_REASON_PRESETS_KEY/);
+    // Los helpers son genericos (dos listas: HHEE y "no requiere cobertura"),
+    // con la de HHEE como clave por defecto.
+    assert.match(
+        calendarSource,
+        /function saveReasonPresets\(values, key = MANUAL_EXTRA_REASON_PRESETS_KEY\) \{\s*\n\s*setJSON\(key, normalizeManualExtraReasonPresets\(values\)\);/
+    );
+    assert.match(
+        calendarSource,
+        /function getReasonPresets\(\s*\n\s*key = MANUAL_EXTRA_REASON_PRESETS_KEY/
+    );
     assert.match(calendarSource, /data-manual-reason-presets-edit/);
     assert.match(calendarSource, /data-manual-reason-preset=/);
     assert.match(calendarSource, /appendManualExtraReasonPreset/);

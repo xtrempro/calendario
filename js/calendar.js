@@ -38,6 +38,7 @@ import {
     profileCanCoverProfile,
     saveReplacements,
     isNoCoverageDay,
+    getNoCoverageReason,
     setNoCoverageDay
 } from "./storage.js";
 import {
@@ -237,6 +238,15 @@ const DEFAULT_MANUAL_EXTRA_REASON_PRESETS = [
     "Apoyo Oncol\u00f3gico",
     "Apoyo Pabell\u00f3n",
     "Operativo displasia de cadera"
+];
+// Lista aparte de la de turnos extra: los motivos son de otra naturaleza
+// ("Dotacion completa" vs "Campana de Invierno") y mezclarlos ensuciaria las dos.
+const NO_COVERAGE_REASON_PRESETS_KEY = "noCoverageReasonPresets";
+const DEFAULT_NO_COVERAGE_REASON_PRESETS = [
+    "Dotaci\u00f3n completa",
+    "Dotaci\u00f3n cubierta por funcionario de 3er turno",
+    "Turno sin demanda asistencial",
+    "Cobertura resuelta con otra unidad"
 ];
 const calendarAuditTimers = new Map();
 const calendarAuditDrafts = new Map();
@@ -3665,6 +3675,9 @@ function openLeaveDetailDialog({
     const noCoverageInfo = noCoverage
         ? getNoCoverageAuditInfo(profile, keyDay)
         : null;
+    const noCoverageReason = noCoverage
+        ? getNoCoverageReason(profile, keyDay)
+        : "";
 
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
@@ -3686,6 +3699,9 @@ function openLeaveDetailDialog({
                     <div class="leave-detail-rows">
                         <div><span>Asignado</span><b>${escapeHTML(noCoverageInfo?.createdAtLabel || "Sin registro")}</b></div>
                         <div><span>Por</span><b>${escapeHTML(noCoverageInfo?.actorName || "No registrado")}</b></div>
+                        ${noCoverageReason
+                            ? `<div><span>Motivo</span><b>${escapeHTML(noCoverageReason)}</b></div>`
+                            : ""}
                     </div>
                     <p class="leave-detail-note">
                         "Sí requiere cobertura" revierte esta marca: vuelve a aparecer la alerta para asignar un reemplazo.
@@ -5300,26 +5316,27 @@ async function openReplacementDialog(profileName, keyDay) {
             backdrop.querySelector("[data-action='no-coverage']");
         if (noCoverageButton) {
             noCoverageButton.onclick = async () => {
-                const confirmed = await showConfirm(
-                    `Se marcará este turno de ${profileName} como "no requiere cobertura": desaparecerá la alerta y no se volverá a pedir un reemplazo para este día.`,
-                    {
-                        title: "No requiere cobertura",
-                        confirmText: "No requiere cobertura"
-                    }
+                // Segundo modal: confirma y ademas deja registrado POR QUE no
+                // necesita cobertura, con motivos predefinidos reutilizables.
+                const result = await openNoCoverageReasonDialog(
+                    profileName,
+                    keyDay
                 );
 
-                if (!confirmed) return;
+                if (!result) return;
+
+                const reason = result.reason || "";
 
                 await withBusyState(async () => {
                     if (typeof window.pushUndoState === "function") {
                         window.pushUndoState("Marcar sin cobertura");
                     }
 
-                    setNoCoverageDay(profileName, keyDay, true);
+                    setNoCoverageDay(profileName, keyDay, true, reason);
                     addAuditLog(
                         AUDIT_CATEGORY.CALENDAR,
                         "Marco sin cobertura",
-                        `${profileName}: marco el ${keyDay} como no requiere cobertura.`,
+                        `${profileName}: marco el ${keyDay} como no requiere cobertura.${reason ? ` Motivo: ${reason}.` : ""}`,
                         { profile: profileName, keyDay }
                     );
                     close();
@@ -5972,19 +5989,29 @@ function normalizeManualExtraReasonPresets(values) {
         .slice(0, 40);
 }
 
+function getReasonPresets(
+    key = MANUAL_EXTRA_REASON_PRESETS_KEY,
+    defaults = DEFAULT_MANUAL_EXTRA_REASON_PRESETS
+) {
+    return normalizeManualExtraReasonPresets(getJSON(key, defaults));
+}
+
+function saveReasonPresets(values, key = MANUAL_EXTRA_REASON_PRESETS_KEY) {
+    setJSON(key, normalizeManualExtraReasonPresets(values));
+}
+
 function getManualExtraReasonPresets() {
-    return normalizeManualExtraReasonPresets(
-        getJSON(
-            MANUAL_EXTRA_REASON_PRESETS_KEY,
-            DEFAULT_MANUAL_EXTRA_REASON_PRESETS
-        )
-    );
+    return getReasonPresets();
 }
 
 function saveManualExtraReasonPresets(values) {
-    setJSON(
-        MANUAL_EXTRA_REASON_PRESETS_KEY,
-        normalizeManualExtraReasonPresets(values)
+    saveReasonPresets(values);
+}
+
+function getNoCoverageReasonPresets() {
+    return getReasonPresets(
+        NO_COVERAGE_REASON_PRESETS_KEY,
+        DEFAULT_NO_COVERAGE_REASON_PRESETS
     );
 }
 
@@ -6034,7 +6061,10 @@ function appendManualExtraReasonPreset(textarea, preset) {
     }
 }
 
-function openManualExtraReasonPresetsDialog() {
+function openManualExtraReasonPresetsDialog(
+    presetsKey = MANUAL_EXTRA_REASON_PRESETS_KEY,
+    presets = getManualExtraReasonPresets()
+) {
     return new Promise(resolve => {
         const backdrop = document.createElement("div");
         const previousFocus =
@@ -6052,7 +6082,7 @@ function openManualExtraReasonPresetsDialog() {
                     Escribe un motivo por linea. Quedaran disponibles para todos
                     los administradores de este entorno.
                 </p>
-                <textarea rows="8" data-manual-reason-preset-list placeholder="Estacion de Trabajo&#10;Apoyo Oncologico">${escapeHTML(getManualExtraReasonPresets().join("\n"))}</textarea>
+                <textarea rows="8" data-manual-reason-preset-list placeholder="Estacion de Trabajo&#10;Apoyo Oncologico">${escapeHTML(presets.join("\n"))}</textarea>
                 <div class="turn-change-dialog__actions">
                     <button class="secondary-button" type="button" data-action="cancel-presets">
                         Cancelar
@@ -6097,9 +6127,10 @@ function openManualExtraReasonPresetsDialog() {
         backdrop
             .querySelector("[data-action='save-presets']")
             .addEventListener("click", () => {
-                saveManualExtraReasonPresets(
+                saveReasonPresets(
                     backdrop.querySelector("[data-manual-reason-preset-list]")
-                        ?.value || ""
+                        ?.value || "",
+                    presetsKey
                 );
                 finish(true);
             });
@@ -6107,6 +6138,154 @@ function openManualExtraReasonPresetsDialog() {
         document.addEventListener("keydown", onKeydown, true);
         document.body.appendChild(backdrop);
         backdrop.querySelector("[data-manual-reason-preset-list]")?.focus();
+    });
+}
+
+/**
+ * Segundo paso de "No requiere cobertura": pide un comentario OPCIONAL que
+ * explique por que ese turno no necesita reemplazo. Antes la marca quedaba muda
+ * y meses despues nadie recordaba el criterio.
+ *
+ * Resuelve con { reason } al confirmar, o null si se cancela. Los motivos
+ * predefinidos se editan con el lapiz, igual que los de turnos extra, pero en su
+ * propia lista.
+ */
+function openNoCoverageReasonDialog(profileName, keyDay) {
+    return new Promise(resolve => {
+        const backdrop = document.createElement("div");
+        const previousFocus =
+            document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null;
+        let settled = false;
+
+        const presetsHTML = () => {
+            const presets = getNoCoverageReasonPresets();
+
+            if (!presets.length) {
+                return `<small data-no-coverage-presets-empty>Sin motivos predefinidos.</small>`;
+            }
+
+            return presets.map(preset => `
+                <button
+                    class="ghost-button"
+                    type="button"
+                    data-no-coverage-preset="${escapeHTML(preset)}"
+                >
+                    ${escapeHTML(preset)}
+                </button>
+            `).join("");
+        };
+
+        backdrop.className = "turn-change-dialog-backdrop";
+        backdrop.dataset.noCoverageReasonDialog = "true";
+        backdrop.innerHTML = `
+            <section class="turn-change-dialog replacement-dialog no-coverage-dialog" role="dialog" aria-modal="true" aria-labelledby="noCoverageReasonTitle">
+                <strong id="noCoverageReasonTitle">No requiere cobertura</strong>
+                <p>
+                    Se ocultará la alerta de este día para ${escapeHTML(profileName)}
+                    y no se volverá a pedir reemplazo. Puedes dejar un comentario
+                    que explique por qué (opcional).
+                </p>
+                <div class="extra-reason-field">
+                    <div class="overtime-backup-subsection__head">
+                        <span>Comentario (opcional)</span>
+                        <button
+                            class="icon-button icon-button--small"
+                            type="button"
+                            data-action="edit-no-coverage-presets"
+                            title="Editar motivos predefinidos"
+                            aria-label="Editar motivos predefinidos"
+                        >
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M12 20h9"></path>
+                                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <textarea
+                        rows="3"
+                        data-no-coverage-reason
+                        placeholder="Ej: Dotación completa"
+                    ></textarea>
+                    <div class="replacement-dialog-toolbar" data-no-coverage-preset-list>
+                        ${presetsHTML()}
+                    </div>
+                </div>
+                <div class="turn-change-dialog__actions">
+                    <button class="secondary-button" type="button" data-action="cancel">
+                        Cancelar
+                    </button>
+                    <button class="primary-button" type="button" data-action="save">
+                        No requiere cobertura
+                    </button>
+                </div>
+            </section>
+        `;
+
+        const textarea = backdrop.querySelector("[data-no-coverage-reason]");
+        const finish = result => {
+            if (settled) return;
+
+            settled = true;
+            document.removeEventListener("keydown", onKeydown, true);
+            backdrop.remove();
+
+            if (previousFocus?.isConnected) {
+                previousFocus.focus();
+            }
+
+            resolve(result);
+        };
+
+        function onKeydown(event) {
+            if (event.key !== "Escape") return;
+
+            event.preventDefault();
+            event.stopPropagation();
+            finish(null);
+        }
+
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) finish(null);
+        });
+        backdrop
+            .querySelector("[data-action='cancel']")
+            ?.addEventListener("click", () => finish(null));
+        backdrop
+            .querySelector("[data-action='save']")
+            ?.addEventListener("click", () => {
+                finish({ reason: String(textarea?.value || "").trim() });
+            });
+        backdrop
+            .querySelector("[data-action='edit-no-coverage-presets']")
+            ?.addEventListener("click", async () => {
+                const saved = await openManualExtraReasonPresetsDialog(
+                    NO_COVERAGE_REASON_PRESETS_KEY,
+                    getNoCoverageReasonPresets()
+                );
+
+                if (!saved) return;
+
+                const host = backdrop.querySelector("[data-no-coverage-preset-list]");
+
+                if (host) host.innerHTML = presetsHTML();
+            });
+        // Delegado: los botones se vuelven a pintar al editar la lista.
+        backdrop.addEventListener("click", event => {
+            const preset = event.target.closest("[data-no-coverage-preset]");
+
+            if (!preset) return;
+
+            appendManualExtraReasonPreset(
+                textarea,
+                preset.dataset.noCoveragePreset
+            );
+        });
+
+        document.addEventListener("keydown", onKeydown, true);
+        document.body.appendChild(backdrop);
+        textarea?.focus();
     });
 }
 

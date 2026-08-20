@@ -72,7 +72,10 @@ test("el modal agrupa opciones, agrega No requiere cobertura y renombra", async 
     // Nuevo boton "No requiere cobertura".
     assert.match(calendar, /data-action="no-coverage"/);
     assert.match(calendar, /No requiere cobertura/);
-    assert.match(calendar, /setNoCoverageDay\(profileName, keyDay, true\)/);
+    // Marcar el dia pasa por un segundo modal que pide un comentario opcional,
+    // asi que la marca se guarda junto con ese motivo.
+    assert.match(calendar, /openNoCoverageReasonDialog\(\s*\n?\s*profileName,\s*\n?\s*keyDay\s*\n?\s*\)/);
+    assert.match(calendar, /setNoCoverageDay\(profileName, keyDay, true, reason\)/);
     // Rename del toggle.
     assert.match(calendar, /Solicitar aprobaci&oacute;n/);
     assert.doesNotMatch(calendar, /Solicitar aceptacion al trabajador/);
