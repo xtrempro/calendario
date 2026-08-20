@@ -77,7 +77,48 @@ function celda(cells, dia) {
 test("la fecha del encabezado abre el calendario", () => {
     assert.match(home, /class="hm-date" data-hm="open-taskcal" role="button" tabindex="0"/);
     // Y tambien con el teclado, no solo con el mouse.
-    assert.match(home, /dateBtn\.addEventListener\("keydown"/);
+    assert.match(home, /trigger\.addEventListener\("keydown"/);
+});
+
+test("la tarjeta de tareas diarias muestra SOLO las de hoy", () => {
+    // Una tarea programada para el 27 no puede aparecer en el resumen del 20.
+    // El bug era que la tarjeta listaba getHomeTasks() sin mirar la fecha.
+    assert.match(home, /const tasks = getTasksForDay\(new Date\(\)\);/);
+    assert.doesNotMatch(
+        home,
+        /function tasksListHTML\(\) \{[\s\S]{0,200}getHomeTasks\(\)/
+    );
+});
+
+test("una tarea futura se ve en el calendario, no en la tarjeta", () => {
+    // El 20 de agosto no la muestra; el 27, si.
+    const task = tarea({
+        id: "futura", repeat: "Una sola vez", date: "2026-08-27"
+    });
+
+    assert.equal(getTasksForDay(new Date(ANIO, MES, 20), [task]).length, 0);
+    assert.equal(getTasksForDay(new Date(ANIO, MES, 27), [task]).length, 1);
+
+    const cells = buildTaskCalendarCells(ANIO, MES, [task]);
+
+    assert.equal(celda(cells, 20).tasks.length, 0);
+    assert.deepEqual(celda(cells, 27).tasks.map(item => item.id), ["futura"]);
+});
+
+test("una tarea sin fecha de inicio no desaparece", () => {
+    // Sin fecha no hay donde anclarla. Descartarla la sacaria de la tarjeta, del
+    // calendario y de las alertas a la vez, sin dejar rastro para el usuario.
+    const sinFecha = tarea({ id: "vieja", repeat: "Semanal", date: "" });
+
+    assert.equal(isTaskActiveOn(sinFecha, new Date(ANIO, MES, 20)), true);
+    assert.equal(getTasksForDay(new Date(ANIO, MES, 20), [sinFecha]).length, 1);
+});
+
+test("\"Ver todas las tareas\" tambien abre el calendario", () => {
+    // Es donde uno va a buscar la tarea que ya no ve en la tarjeta.
+    assert.match(home, /panelLink\("Ver todas las tareas", "open-taskcal"\)/);
+    // Los dos disparadores se cablean, no solo el primero.
+    assert.match(home, /panel\.querySelectorAll\('\[data-hm="open-taskcal"\]'\)/);
 });
 
 test("el dia 1 cae en su columna, con la semana en lunes", () => {

@@ -165,8 +165,11 @@ function monthsBetween(from, to) {
 export function isTaskActiveOn(task, date) {
     const anchor = parseISODate(task.date);
     if (!anchor) {
-        // Sin fecha de inicio solo tiene sentido la recurrencia diaria.
-        return task.repeat === "Diario";
+        // Sin fecha de inicio no hay donde anclar la recurrencia, asi que la
+        // tarea vale para todos los dias. Es la unica lectura que no la hace
+        // desaparecer: si se descartara, no saldria en la tarjeta, ni en el
+        // calendario, ni sonaria nunca su alerta.
+        return true;
     }
 
     const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());

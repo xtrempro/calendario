@@ -537,8 +537,10 @@ function statsSection() {
         ${statCard("amber", IC.clipboard, "Pendientes", 7, "tareas pendientes")}`;
 }
 
-function panelLink(text) {
-    return `<button class="hm-link" type="button">${text} ${svg(IC.chevron, 'stroke-width="2.2"')}</button>`;
+function panelLink(text, action = "") {
+    const attr = action ? ` data-hm="${action}"` : "";
+
+    return `<button class="hm-link" type="button"${attr}>${text} ${svg(IC.chevron, 'stroke-width="2.2"')}</button>`;
 }
 
 function panelHead(icon, title, extra = "") {
@@ -562,10 +564,15 @@ function taskRowHTML(t) {
 }
 
 function tasksListHTML() {
-    const tasks = getHomeTasks();
+    // Solo las de HOY: una tarea programada para el 27 no tiene nada que hacer
+    // en el resumen del 20. Se filtra con la misma regla que usan el calendario
+    // y las alertas, no con una comparacion propia.
+    const tasks = getTasksForDay(new Date());
+
     if (!tasks.length) {
-        return `<div class="hm-empty">Sin tareas. Agrégalas con el botón +.</div>`;
+        return `<div class="hm-empty">Sin tareas para hoy. Agrégalas con el botón + o revisa el calendario.</div>`;
     }
+
     return tasks.map(taskRowHTML).join("");
 }
 
@@ -575,7 +582,7 @@ function tareasWidget() {
         <div class="hm-card hm-col-4">
             ${panelHead(IC.checkClip, "Tareas diarias", addBtn)}
             <div class="hm-listcol" data-hm="tasks-list">${tasksListHTML()}</div>
-            ${panelLink("Ver todas las tareas")}
+            ${panelLink("Ver todas las tareas", "open-taskcal")}
         </div>`;
 }
 
@@ -1357,10 +1364,9 @@ function wire(panel) {
 
     // --- Calendario de tareas: se abre desde la fecha del encabezado ---
     const taskCal = panel.querySelector('[data-hm="taskcal-modal"]');
-    const dateBtn = panel.querySelector('[data-hm="open-taskcal"]');
     const dayTasks = panel.querySelector('[data-hm="dayTasks-modal"]');
 
-    if (dateBtn && taskCal) {
+    if (taskCal) {
         const openCalendar = () => {
             // Siempre abre en el mes de hoy, no donde quedo la vez anterior:
             // se entra por "Hoy es ...".
@@ -1372,11 +1378,16 @@ function wire(panel) {
             taskCal.hidden = false;
         };
 
-        dateBtn.addEventListener("click", openCalendar);
-        dateBtn.addEventListener("keydown", event => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            openCalendar();
+        // Dos puertas al mismo calendario: la fecha del encabezado y "Ver todas
+        // las tareas", que es donde uno busca la tarea que programo para otro
+        // dia y ya no ve en la tarjeta.
+        panel.querySelectorAll('[data-hm="open-taskcal"]').forEach(trigger => {
+            trigger.addEventListener("click", openCalendar);
+            trigger.addEventListener("keydown", event => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                openCalendar();
+            });
         });
     }
 
