@@ -4302,7 +4302,16 @@ function candidatePositionLabel(profileName, keyDay, currentState) {
 // Texto de estado del candidato en la lista de reemplazos. Prioriza la posicion
 // en la rotativa (3er/4to turno); el diurno se muestra como "Diurno" sin prefijo.
 function candidateStateLabel(candidate, pendingRequest) {
-    if (pendingRequest) return "Solicitud pendiente";
+    if (pendingRequest) {
+        // Lo que antes decia la lista separada de solicitudes enviadas, en la
+        // misma tarjeta: a quien se le pidio y cuanto le queda.
+        const left = formatRequestTimeLeft(pendingRequest.expiresAt);
+
+        return left
+            ? `Solicitud pendiente · queda ${left}`
+            : "Solicitud pendiente";
+    }
+
     if (candidate.positionLabel) return candidate.positionLabel;
     if (candidate.currentState === TURNO.DIURNO) return "Diurno";
     if (candidate.isFree) return "Libre ese dia";
@@ -4841,8 +4850,24 @@ function replacementDialogHTML({
                     </small>
                 `;
 
+            // El boton de anular va como HERMANO de la tarjeta, no dentro: la
+            // tarjeta es un <button> (o un <label>), y anidar un boton adentro
+            // seria invalido y ademas dispararia el click de la tarjeta.
+            const cancelButton = pendingRequest
+                ? `<button class="replacement-candidate-cancel" type="button"
+                    data-cancel-request="${escapeHTML(pendingRequest.id)}"
+                    title="Anular la solicitud enviada a ${escapeHTML(candidate.profile.name)}">Anular</button>`
+                : "";
+            const openSlot = pendingRequest
+                ? `<div class="replacement-candidate-slot">`
+                : "";
+            const closeSlot = pendingRequest
+                ? `${cancelButton}</div>`
+                : "";
+
             if (isRequestMode) {
                 return `
+                ${openSlot}
                 <label class="replacement-candidate replacement-candidate--request ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${pendingRequest ? "is-disabled" : ""}">
                     <input
                         class="replacement-candidate-checkbox"
@@ -4863,13 +4888,13 @@ function replacementDialogHTML({
                         ${warning ? `<small class="replacement-candidate-warning">${escapeHTML(warning)}</small>` : ""}
                     </span>
                     <span>
-                        ${pendingRequest ? "<em>Pendiente</em>" : ""}
                         ${candidate.isLinked ? "<em>Unidad enlazada</em>" : ""}
                         ${candidate.isForced ? "<em>Forzado</em>" : ""}
                         ${candidate.blockedDay ? "<em>Dia bloqueado</em>" : ""}
                         ${candidateHours}
                     </span>
                 </label>
+                ${closeSlot}
                 `;
             }
 
@@ -4887,6 +4912,7 @@ function replacementDialogHTML({
 
             return `
             ${unitHeading}
+            ${openSlot}
             <button
                 class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.isLinked ? "replacement-candidate--linked" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${pendingRequest ? "is-disabled" : ""}"
                 type="button"
@@ -4909,13 +4935,13 @@ function replacementDialogHTML({
                     ${warning ? `<small class="replacement-candidate-warning">${escapeHTML(warning)}</small>` : ""}
                 </span>
                 <span>
-                    ${pendingRequest ? "<em>Pendiente</em>" : ""}
                     ${candidate.isLinked ? "<em>Unidad enlazada</em>" : ""}
                     ${candidate.isForced ? "<em>Forzado</em>" : ""}
                     ${candidate.blockedDay ? "<em>Dia bloqueado</em>" : ""}
                     ${candidateHours}
                 </span>
             </button>
+            ${closeSlot}
             `;
         }).join("")
         : `
@@ -4927,23 +4953,9 @@ function replacementDialogHTML({
                 )}
             </div>
         `;
-    const pendingList = (pendingRequests || []).length
-        ? `
-            <div class="replacement-request-list">
-                ${(pendingRequests || []).map(request => `
-                    <article class="replacement-request-item">
-                        <span>
-                            <strong>${escapeHTML(request.worker)}</strong>
-                            <small>Caduca: ${escapeHTML(new Date(request.expiresAt).toLocaleString("es-CL"))}</small>
-                        </span>
-                        <button class="ghost-button" type="button" data-cancel-request="${escapeHTML(request.id)}">
-                            Anular
-                        </button>
-                    </article>
-                `).join("")}
-            </div>
-        `
-        : "";
+    // Las solicitudes enviadas NO llevan lista propia: cada una se muestra sobre
+    // la tarjeta del candidato al que se le pidio, con su boton de anular. Antes
+    // habia dos listas y el mismo trabajador aparecia dos veces.
     const bulkActions = isRequestMode
         ? `
             <div class="replacement-bulk-actions">
@@ -5086,7 +5098,7 @@ function replacementDialogHTML({
                 </div>
             ` : ""}
             ${bulkActions}
-            ${pendingList}
+
             ${forceMode ? `
                 <div class="replacement-dialog-note">
                     Modo forzado activo: se muestran trabajadores disponibles aunque no coincidan por profesion o estamento.

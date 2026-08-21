@@ -325,19 +325,31 @@ test("aceptar crea el reemplazo y apaga las demas solicitudes", () => {
    El listado del modal
 ========================================================= */
 
-test("el cuadro de sugerencias tampoco corta la lista de enviadas", () => {
-    // El mismo problema en el otro modal: con 15 o 20 solicitudes pendientes la
-    // lista empujaba a los candidatos y a los botones fuera de la pantalla.
-    assert.match(
-        styles,
-        /\.replacement-request-list \{[\s\S]{0,260}max-height: min\(300px, 34vh\);[\s\S]{0,60}overflow: auto;/
-    );
-    // Dos columnas en escritorio, en la misma regla que ya lo hacia con los
-    // candidatos: las dos listas del modal tienen que comportarse igual.
-    assert.match(
-        styles,
-        /\.replacement-dialog \.replacement-candidate-list,[\s\S]{0,80}\.replacement-dialog \.replacement-request-list \{[\s\S]{0,40}grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/
-    );
+test("el cuadro de sugerencias tiene UNA sola lista", () => {
+    // Antes habia dos: la de solicitudes enviadas arriba y la de candidatos
+    // abajo, con el mismo trabajador repetido en las dos.
+    assert.doesNotMatch(calendar, /replacement-request-list/);
+    assert.doesNotMatch(calendar, /replacement-request-item/);
+    assert.doesNotMatch(styles, /\.replacement-request-list/);
+    // Y el chip "Pendiente" tampoco se repite: el estado de la tarjeta ya lo
+    // dice, y ademas chocaba con el boton de anular en la esquina.
+    assert.doesNotMatch(calendar, /pendingRequest \? "<em>Pendiente<\/em>" : ""/);
+});
+
+test("la tarjeta del candidato lleva su propio boton de anular", () => {
+    assert.match(calendar, /class="replacement-candidate-cancel"/);
+    assert.match(calendar, /data-cancel-request="\$\{escapeHTML\(pendingRequest\.id\)\}"/);
+    // Va como HERMANO de la tarjeta: la tarjeta es un <button> (o un <label>) y
+    // anidar un boton adentro seria invalido y dispararia su click.
+    assert.match(calendar, /const openSlot = pendingRequest/);
+    assert.match(calendar, /replacement-candidate-slot/);
+    assert.match(styles, /\.replacement-candidate-slot \{[\s\S]{0,80}position: relative;/);
+});
+
+test("la tarjeta pendiente dice cuanto le queda", () => {
+    // Es el dato que mostraba la lista que se elimino; sin esto se perdia.
+    assert.match(calendar, /Solicitud pendiente · queda \$\{left\}/);
+    assert.match(calendar, /formatRequestTimeLeft\(pendingRequest\.expiresAt\)/);
 });
 
 test("el listado va en dos columnas y con scroll propio", () => {

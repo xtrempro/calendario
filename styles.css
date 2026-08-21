@@ -7470,8 +7470,7 @@ body.auth-gate-active .app-shell {
         width: min(760px, 100%);
     }
 
-    .replacement-dialog .replacement-candidate-list,
-    .replacement-dialog .replacement-request-list {
+    .replacement-dialog .replacement-candidate-list {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
@@ -7784,46 +7783,38 @@ body.theme-light .replacement-candidate-warning {
     white-space: nowrap;
 }
 
-.replacement-request-list {
+/* La solicitud enviada se muestra SOBRE la tarjeta del candidato al que se le
+   pidio. El boton de anular va como hermano de la tarjeta, posicionado encima:
+   la tarjeta es un <button> (o un <label>) y no admite otro boton adentro. */
+.replacement-candidate-slot {
+    position: relative;
     display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 8px;
-    margin-bottom: 12px;
-    max-height: min(300px, 34vh);
-    overflow: auto;
-    padding-right: 4px;
-}
-
-.replacement-request-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 12px;
-    border: 1px dashed rgba(var(--brand-blue-rgb), 0.34);
-    border-radius: 14px;
-    background: rgba(var(--brand-blue-rgb), 0.07);
-}
-
-.replacement-request-item span {
-    display: grid;
-    gap: 2px;
     min-width: 0;
 }
 
-.replacement-request-item span strong,
-.replacement-request-item small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.replacement-candidate-slot > .replacement-candidate {
+    width: 100%;
+    /* Aire para que el texto no pase por debajo del boton. */
+    padding-right: 74px;
 }
 
-.replacement-request-item button {
-    flex: none;
+.replacement-candidate-cancel {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(220, 38, 38, 0.35);
+    background: var(--panel);
+    color: #dc2626;
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 800;
+    cursor: pointer;
 }
 
-.replacement-request-item small {
-    color: var(--text-muted);
+.replacement-candidate-cancel:hover {
+    background: rgba(220, 38, 38, 0.1);
 }
 
 .extra-reason-dialog .turn-change-dialog__actions {
