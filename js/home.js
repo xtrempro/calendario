@@ -26,7 +26,9 @@ import {
 import {
     cancelPreassignment,
     confirmPreassignment,
-    getReplacementForCoveredShift
+    getReplacementForCoveredShift,
+    buildPendingRequestIndex,
+    getPendingRequestsFromIndex
 } from "./replacements.js";
 import {
     getPreassignmentForCoveredShift,
@@ -398,6 +400,8 @@ function getUncoveredShifts() {
     const today = new Date();
     const profiles = getProfiles().filter(isProfileActive);
     const rows = [];
+    // Una sola pasada para toda la ventana de cobertura.
+    const pendingRequestIndex = buildPendingRequestIndex();
 
     for (let offset = 0; offset < COVERAGE_WINDOW_DAYS; offset++) {
         const date = new Date(
@@ -420,7 +424,14 @@ function getUncoveredShifts() {
                 keyDay,
                 iso: isoFromKey(keyDay),
                 reason: absenceLabelForDay(profile.name, keyDay),
-                candidates: getAvailableCandidates(profile, keyDay).slice(0, 3)
+                candidates: getAvailableCandidates(profile, keyDay).slice(0, 3),
+                // Solicitudes ya enviadas a las PWA: el turno pasa de "sin
+                // cubrir" a "en espera".
+                pendingRequests: getPendingRequestsFromIndex(
+                    pendingRequestIndex,
+                    profile.name,
+                    isoFromKey(keyDay)
+                )
             });
 
             if (rows.length >= COVERAGE_MAX_ROWS) return rows;
@@ -477,6 +488,7 @@ const IC = {
     check: '<path d="M20 6 9 17l-5-5"/>',
     arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     chevron: '<path d="M9 6l6 6-6 6"/>',
+    phone: '<rect x="7" y="2" width="10" height="20" rx="2.2"/><path d="M11 18.5h2"/>',
     cake: '<path d="M4 21h16v-7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3z"/><path d="M4 16c1.5 1 2.5 1 4 0s2.5-1 4 0 2.5 1 4 0 2.5-1 4 0"/><path d="M12 8V5M9 8V6M15 8V6"/>',
     palm: '<path d="M12 2a7 7 0 0 1 7 7c0 4-7 13-7 13S5 13 5 9a7 7 0 0 1 7-7z"/>',
     sun: '<path d="M17 8c0-3-2-5-5-5S7 5 7 8c0 6-3 8-3 8h16s-3-2-3-8"/><path d="M12 3V1"/>',
@@ -974,10 +986,22 @@ function cambiosWidget() {
 }
 
 function coberturaRow(item, kind) {
-    const status = kind === "sincubrir"
-        ? '<span class="hm-cob-status hm-cob-status--sincubrir">Sin cubrir</span>'
-        : '<span class="hm-cob-status hm-cob-status--preasignado">Preasignado</span>';
-    const third = kind === "sincubrir"
+    // El turno cuya solicitud ya salio a las PWA no esta "sin cubrir": esta en
+    // espera de respuesta. El celular es el mismo marcador del calendario y del
+    // timeline, para que las tres superficies digan lo mismo.
+    const waiting = kind === "sincubrir" && (item.pendingRequests?.length || 0) > 0;
+    const status = waiting
+        ? `<button class="hm-cob-status hm-cob-status--espera" type="button"
+                data-hm="cob-espera" data-cob-profile="${esc(item.origin)}" data-cob-key="${esc(item.keyDay)}"
+                title="Ver a quién se le envió y cuánto queda">${svg(IC.phone)}En espera..</button>`
+        : kind === "sincubrir"
+            ? '<span class="hm-cob-status hm-cob-status--sincubrir">Sin cubrir</span>'
+            : '<span class="hm-cob-status hm-cob-status--preasignado">Preasignado</span>';
+    const third = waiting
+        ? `<div class="hm-cob-meta"><b>Solicitud enviada a:</b> ${esc(
+            item.pendingRequests.map(request => request.worker).join(", ")
+        )}</div>`
+        : kind === "sincubrir"
         ? (item.candidates.length
             ? `<div class="hm-cob-meta"><b>Podría cubrir:</b> ${esc(item.candidates.join(", "))}</div>`
             : '<div class="hm-cob-meta"><span class="hm-cob-none">Sin candidatos disponibles</span></div>')
@@ -1377,6 +1401,16 @@ function wire(panel) {
                     }
                 })
             );
+        });
+    });
+
+    // --- Cobertura: detalle de la solicitud ya enviada ---
+    panel.querySelectorAll('[data-hm="cob-espera"]').forEach(button => {
+        button.addEventListener("click", () => {
+            window.openPendingRequestsDialog?.({
+                profile: button.dataset.cobProfile,
+                keyDay: button.dataset.cobKey
+            });
         });
     });
 

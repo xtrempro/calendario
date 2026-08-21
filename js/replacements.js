@@ -932,6 +932,47 @@ export function expireReplacementRequests(now = new Date()) {
     return requests;
 }
 
+// Indice de solicitudes pendientes para TODO el entorno, en una pasada. El
+// timeline pinta N trabajadores por mes: preguntando turno por turno se
+// dispararia el barrido de caducidad (que ademas escribe) una vez por casilla.
+export function buildPendingRequestIndex(now = new Date()) {
+    const index = new Map();
+
+    expireReplacementRequests(now)
+        .filter(request => request.status === "pending")
+        .forEach(request => {
+            const key = `${request.replaced}|${request.date}`;
+            const list = index.get(key) || [];
+
+            list.push(request);
+            index.set(key, list);
+        });
+
+    return index;
+}
+
+export function getPendingRequestsFromIndex(index, replaced, iso) {
+    return index?.get(`${replaced}|${iso}`) || [];
+}
+
+// Cuanto le queda a la solicitud, en la unidad que se entiende de una mirada.
+// Con caducidad de 24 h, "1440 min" no le dice nada a nadie.
+export function formatRequestTimeLeft(expiresAt, now = new Date()) {
+    const ms = new Date(expiresAt).getTime() - now.getTime();
+
+    if (!Number.isFinite(ms)) return "";
+    if (ms <= 0) return "Expirada";
+
+    const minutes = Math.floor(ms / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days >= 1) return `${days} d ${hours % 24} h`;
+    if (hours >= 1) return `${hours} h ${minutes % 60} min`;
+
+    return `${Math.max(minutes, 1)} min`;
+}
+
 export function getPendingReplacementRequestsForShift(
     replaced,
     keyDay,

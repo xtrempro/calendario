@@ -852,7 +852,10 @@ export function setNoCoverageDay(profile, keyDay, value, reason = ""){
 }
 
 const DEFAULT_REPLACEMENT_REQUEST_CONFIG = {
-    expiresMinutes: 60,
+    // 24 horas. Una solicitud que caducaba en 60 minutos vencia de noche o en
+    // el turno siguiente antes de que el trabajador alcanzara a mirar el
+    // telefono, y el supervisor volvia a quedar sin cobertura sin enterarse.
+    expiresMinutes: 24 * 60,
     enableLinkedUnitSuggestions: true,
     enableCrossRoleSuggestions: true,
     enableWorkerAcceptanceRequest: true

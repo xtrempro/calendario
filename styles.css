@@ -1683,9 +1683,34 @@ body[data-active-view="home"] .secondary-grid {
 .hm-cob-status { margin-left: auto; font-size: 0.71rem; font-weight: 800; padding: 3px 10px; border-radius: 999px; }
 .hm-cob-status--sincubrir { background: var(--hm-red-soft); color: var(--hm-red); }
 .hm-cob-status--preasignado { background: var(--accent-soft); color: var(--accent); }
+.hm-cob-status--espera {
+    display: inline-flex; align-items: center; gap: 5px;
+    border: none; cursor: pointer; font-family: inherit;
+    background: #dbeafe; color: #1d4ed8;
+}
+.hm-cob-status--espera svg { width: 11px; height: 13px; }
+.hm-cob-status--espera:hover { background: #bfdbfe; }
 .hm-cob-meta { font-size: 0.83rem; color: var(--text-soft); line-height: 1.35; }
 .hm-cob-meta b { color: var(--text); font-weight: 700; }
 .hm-cob-none { color: var(--hm-warn); font-weight: 700; }
+
+/* Detalle de la solicitud de cobertura enviada: a quien se le pidio y cuanto le
+   queda antes de caducar. */
+.request-wait-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 2px; }
+.request-wait-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 9px 11px; border-radius: 11px;
+    background: var(--panel-alt); border: 1px solid var(--border);
+}
+.request-wait-worker { display: flex; flex-direction: column; min-width: 0; }
+.request-wait-worker b { font-size: 0.88rem; font-weight: 700; color: var(--text); }
+.request-wait-worker small { font-size: 0.74rem; color: var(--text-muted); }
+.request-wait-left {
+    flex: none; font-size: 0.78rem; font-weight: 800; color: #1d4ed8;
+    background: #dbeafe; padding: 3px 10px; border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+}
+.request-wait-left.is-expired { color: var(--hm-red); background: var(--hm-red-soft); }
 
 /* Confirmar / cancelar un turno preasignado desde la tarjeta de cobertura. */
 .hm-cob-actions {
@@ -5417,6 +5442,19 @@ body.theme-light .day.worker-blocked-day {
 .day-badge--preassign svg {
     width: 18px;
     height: 8px;
+}
+
+/* Solicitud de cobertura enviada y en espera: azul, distinto del "!" rojo de
+   "sin cubrir" y del naranjo del preasignado. */
+.day-badge--request {
+    padding: 2px 5px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #fff;
+}
+
+.day-badge--request svg {
+    width: 11px;
+    height: 13px;
 }
 
 /* Casilla con turno preasignado (cobertura tentativa): tinte naranjo distinto del
@@ -10027,6 +10065,16 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 .timeline-replacement-marker .timeline-preassign-marker {
     width: 13px;
     height: 6px;
+}
+
+.mini.request-wait-day .timeline-replacement-marker {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #fff;
+}
+
+.timeline-replacement-marker .timeline-request-marker {
+    width: 8px;
+    height: 11px;
 }
 
 .mini.clock-severe-day .timeline-replacement-marker {

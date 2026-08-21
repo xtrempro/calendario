@@ -105,6 +105,9 @@ import {
     createReplacementRequest,
     createReplacementRequests,
     expireReplacementRequests,
+    buildPendingRequestIndex,
+    getPendingRequestsFromIndex,
+    formatRequestTimeLeft,
     getCoveringWorkersForShift,
     getPendingReplacementRequestsForShift,
     getReplacementForCoveredShift,
@@ -2609,6 +2612,16 @@ const CLOCK_MARK_BADGE_ICON = `
 // naranjo (via CSS) y tres puntos blancos. Reemplaza al "!" en la casilla del
 // ausente y marca el turno tentativo del reemplazante. Centinela que buildDayCell
 // detecta para rendir el SVG.
+// Badge de "solicitud de cobertura enviada": celular, para distinguir de un
+// vistazo el turno que ya salio a las PWA del que todavia no se pidio a nadie.
+const REQUEST_PENDING_BADGE = "request-pending";
+const REQUEST_PENDING_BADGE_ICON = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="7" y="2" width="10" height="20" rx="2.2"/>
+        <path d="M11 18.5h2"/>
+    </svg>
+`;
+
 const PREASSIGN_BADGE = "preassign";
 const PREASSIGN_BADGE_ICON = `
     <svg viewBox="0 0 24 10" fill="currentColor" aria-hidden="true">
@@ -2700,6 +2713,10 @@ function buildDayCell({
 
                     if (item === PREASSIGN_BADGE) {
                         return `<span class="day-badge day-badge--preassign" title="Turno preasignado (pendiente de confirmar)">${PREASSIGN_BADGE_ICON}</span>`;
+                    }
+
+                    if (item === REQUEST_PENDING_BADGE) {
+                        return `<span class="day-badge day-badge--request" title="Solicitud de cobertura enviada: en espera de respuesta">${REQUEST_PENDING_BADGE_ICON}</span>`;
                     }
 
                     const className = item === "No disp."
@@ -5225,6 +5242,106 @@ async function cancelReplacedProfileLeave(profileName, keyDay) {
     return { ok: true, type, manual: true, coveringWorkers };
 }
 
+// Detalle de una solicitud de cobertura ya enviada: a quien se le pidio y
+// cuanto le queda antes de caducar. Se abre desde el calendario, el timeline y
+// la tarjeta de cobertura del inicio, que son las tres superficies donde
+// aparece el celular de "en espera".
+function openPendingRequestsDialog({ profile, keyDay }) {
+    const requests = getPendingReplacementRequestsForShift(profile, keyDay);
+
+    if (!requests.length) return;
+
+    const canEdit = canEditTarget("calendarPanel");
+    const backdrop = document.createElement("div");
+
+    backdrop.className = "turn-change-dialog-backdrop";
+
+    const rowsHTML = () => requests.map(request => {
+        const left = formatRequestTimeLeft(request.expiresAt);
+
+        return `
+            <div class="request-wait-row" data-request-row="${escapeHTML(request.id)}">
+                <span class="request-wait-worker">
+                    <b>${escapeHTML(request.worker)}</b>
+                    <small>${escapeHTML(
+                        request.channel === "app"
+                            ? "Enviada a su aplicación"
+                            : "Enviada por WhatsApp"
+                    )}</small>
+                </span>
+                <span class="request-wait-left ${left === "Expirada" ? "is-expired" : ""}"
+                    data-request-left="${escapeHTML(request.id)}">${escapeHTML(left)}</span>
+            </div>`;
+    }).join("");
+
+    backdrop.innerHTML = `
+        <section class="turn-change-dialog leave-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="requestWaitTitle">
+            <strong id="requestWaitTitle">Solicitud de cobertura enviada</strong>
+            <div class="leave-detail-rows">
+                <div><span>Turno de</span><b>${escapeHTML(profile)}</b></div>
+                <div><span>Fecha</span><b>${escapeHTML(leaveDateLabelFromKey(keyDay))}</b></div>
+                <div><span>Turno</span><b>${escapeHTML(turnoReplacementLabel(codeToTurno(requests[0].turno)))}</b></div>
+            </div>
+            <p class="leave-detail-note">
+                En espera de respuesta. El turno sigue sin cubrir hasta que alguien
+                acepte; si nadie responde antes de que caduque, vuelve a quedar
+                marcado como pendiente de cobertura ("!").
+            </p>
+            <div class="request-wait-list" data-request-list>${rowsHTML()}</div>
+            <div class="turn-change-dialog__actions leave-detail-actions--stacked">
+                ${canEdit ? `
+                <button class="primary-button" type="button" data-action="suggestions">Ver sugerencias de reemplazo</button>
+                ` : ""}
+                <button class="ghost-button" type="button" data-action="close">Cerrar</button>
+            </div>
+        </section>
+    `;
+
+    // La cuenta regresiva se refresca sola: con 24 h de caducidad el modal
+    // puede quedar abierto un buen rato.
+    const ticker = setInterval(() => {
+        requests.forEach(request => {
+            const cell = backdrop.querySelector(
+                `[data-request-left="${CSS.escape(request.id)}"]`
+            );
+
+            if (!cell) return;
+
+            const left = formatRequestTimeLeft(request.expiresAt);
+
+            cell.textContent = left;
+            cell.classList.toggle("is-expired", left === "Expirada");
+        });
+    }, 30000);
+
+    const close = () => {
+        clearInterval(ticker);
+        document.removeEventListener("keydown", onKeydown);
+        backdrop.remove();
+    };
+    const onKeydown = event => {
+        if (event.key === "Escape") close();
+    };
+
+    backdrop.addEventListener("click", event => {
+        if (event.target === backdrop) close();
+    });
+    backdrop
+        .querySelector("[data-action='close']")
+        ?.addEventListener("click", close);
+    backdrop
+        .querySelector("[data-action='suggestions']")
+        ?.addEventListener("click", () => {
+            close();
+            void openReplacementDialog(profile, keyDay);
+        });
+
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(backdrop);
+}
+
+window.openPendingRequestsDialog = openPendingRequestsDialog;
+
 async function openReplacementDialog(profileName, keyDay) {
     const existing = getReplacementForCoveredShift(
         profileName,
@@ -7211,6 +7328,13 @@ async function clickDia(
     }
 
     if (needsReplacement) {
+        // Si ya salio la solicitud, lo primero que se necesita saber es a quien
+        // se le pidio y cuanto queda; desde ahi se llega al cuadro de
+        // sugerencias si hace falta insistir.
+        if (getPendingReplacementRequestsForShift(profileName, keyDay).length) {
+            return openPendingRequestsDialog({ profile: profileName, keyDay });
+        }
+
         return openReplacementDialog(
             profileName,
             keyDay
@@ -7605,6 +7729,9 @@ async function renderCalendarImpl(options = {}) {
     const clockMarks = getClockMarks(activeProfile);
     const replacementIndex =
         buildCalendarReplacementIndex(activeProfile);
+    // Una sola pasada para el mes: el barrido de caducidad tambien escribe, y
+    // no puede correr una vez por casilla.
+    const pendingRequestIndex = buildPendingRequestIndex();
     const turnChangeIndex =
         buildCalendarTurnChangeIndex(activeProfile, y, m);
     const shiftMoveIndex =
@@ -7789,12 +7916,24 @@ async function renderCalendarImpl(options = {}) {
             !replacementContractError &&
             !severeClockIncident &&
             !needsReplacement;
+        // Solicitudes ya enviadas a las PWA para este turno. Cambian el "!" de
+        // "sin cubrir" por el celular de "en espera": no es lo mismo un turno
+        // que nadie ha pedido que uno que ya salio a los telefonos.
+        const pendingRequests = needsReplacement
+            ? getPendingRequestsFromIndex(
+                pendingRequestIndex,
+                activeProfile,
+                isoDay
+            )
+            : [];
         const badge = replacementContractError
             ? "X"
             : severeClockIncident
                 ? "!!!"
                 : preassignedCovered
                     ? PREASSIGN_BADGE
+                : pendingRequests.length
+                    ? REQUEST_PENDING_BADGE
                 : needsReplacement
                     ? "!"
                 : preassignedWorker
@@ -7871,7 +8010,10 @@ async function renderCalendarImpl(options = {}) {
                     replacementIndex.coveringWorkersByDate.get(isoDay) || []
                 );
 
-                const suffix = needsReplacement
+                const suffix = pendingRequests.length
+                    ? ` | Solicitud de cobertura enviada a ${pendingRequests.length} ` +
+                      `trabajador${pendingRequests.length === 1 ? "" : "es"}: en espera de respuesta`
+                    : needsReplacement
                     ? " | Requiere reemplazo de turno base"
                     : workerBlockedDay
                         ? ` | ${workerBlockedDay.message}`

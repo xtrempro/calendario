@@ -245,9 +245,9 @@ function renderRequestsPanel() {
                         type="number"
                         min="5"
                         step="5"
-                        value="${Number(config.expiresMinutes) || 60}"
+                        value="${Number(config.expiresMinutes) || 24 * 60}"
                     >
-                    <small>Tiempo en minutos. Valor recomendado: 60.</small>
+                    <small>Tiempo en minutos. Valor recomendado: 1440 (24 horas).</small>
                 </label>
             ` : ""}
         </section>
