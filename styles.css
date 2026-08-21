@@ -1866,6 +1866,10 @@ body[data-active-view="home"] .secondary-grid {
 .hm-modal-ico { width: 34px; height: 34px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; flex: none; }
 .hm-modal-ico svg { width: 19px; height: 19px; }
 .hm-modal-head h3 { margin: 0; font-size: 1.1rem; font-weight: 800; color: var(--text); }
+.hm-modal-action { margin-left: auto; width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border); background: var(--accent-soft); color: var(--accent); cursor: pointer; display: grid; place-items: center; flex: none; }
+.hm-modal-action svg { width: 18px; height: 18px; }
+.hm-modal-action:hover { border-color: var(--accent); background: var(--accent); color: #fff; }
+.hm-modal-action + .hm-modal-close { margin-left: 0; }
 .hm-modal-close { margin-left: auto; width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel-alt); color: var(--text-soft); font-size: 1.25rem; line-height: 1; cursor: pointer; }
 .hm-modal-close:hover { color: var(--hm-red); }
 .hm-modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; }

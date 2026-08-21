@@ -206,9 +206,9 @@ test("lo que no cabe en la casilla se resume en +N mas", () => {
     assert.match(home, /\$\{extra\} más/);
 });
 
-test("solo se puede abrir un dia que tenga tareas", () => {
-    // Un dia vacio no es clickeable: abriria un modal sin nada.
-    assert.match(home, /const clickable = cell\.tasks\.length > 0;/);
+test("se puede abrir cualquier dia para agregar tareas", () => {
+    // Un dia vacio tambien sirve: desde su listado se agrega una tarea nueva.
+    assert.match(home, /const clickable = true;/);
     assert.match(home, /data-hm="taskcal-day" data-iso=/);
     assert.match(home, /const cell = event\.target\.closest\('\[data-hm="taskcal-day"\]'\);/);
 });
@@ -335,6 +335,14 @@ test("desde el calendario se puede modificar la tarea", () => {
     assert.match(home, /const editFromDay = id => \{[\s\S]{0,40}openTaskEdit\(panel, id\);/);
     // Y el modal de modificar tiene que quedar POR ENCIMA del listado del dia.
     assert.match(home, /hm-modal-backdrop--top" data-hm="task-edit-modal"/);
+});
+
+test("desde el calendario se puede agregar una tarea en el dia abierto", () => {
+    // El signo + del listado abre el mismo modal de alta que la tarjeta diaria,
+    // pero dejando precargada la fecha seleccionada en el calendario.
+    assert.match(home, /data-hm="dt-add"/);
+    assert.match(home, /openTaskAdd\(panel, openDayIso, \{ top: true \}\)/);
+    assert.match(home, /modal\.querySelector\('\[data-hm="nt-date"\]'\)\.value = date \|\| todayISO\(\);/);
 });
 
 test("modificar una tarea repinta las tres superficies", () => {

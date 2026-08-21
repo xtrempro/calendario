@@ -683,12 +683,11 @@ function taskCalendarCellHTML(cell, todayIso) {
 
     const isToday = cell.iso === todayIso;
     const extra = cell.tasks.length - TASKS_PER_CELL;
-    // Solo se abre un dia que tenga algo que mostrar.
-    const clickable = cell.tasks.length > 0;
-    const attrs = clickable
-        ? ` role="button" tabindex="0" data-hm="taskcal-day" data-iso="${esc(cell.iso)}"` +
-          ` title="Ver las ${cell.tasks.length} tareas del día"`
-        : "";
+    // Todos los dias reales se pueden abrir: aunque no tengan tareas, desde el
+    // listado del dia se pueden crear nuevas con el boton +.
+    const clickable = true;
+    const attrs = ` role="button" tabindex="0" data-hm="taskcal-day" data-iso="${esc(cell.iso)}"` +
+        ` title="Abrir tareas del día"`;
 
     return `
         <div class="hm-tc-cell ${isToday ? "is-today" : ""} ${clickable ? "is-clickable" : ""}"${attrs}>
@@ -749,6 +748,8 @@ function dayTasksModal() {
                 <div class="hm-modal-head">
                     <span class="hm-modal-ico">${svg(IC.checkClip)}</span>
                     <h3 data-hm="dt-title">Tareas del día</h3>
+                    <button class="hm-modal-action" type="button" data-hm="dt-add"
+                        aria-label="Agregar tarea" title="Agregar tarea">${svg(IC.plus, 'stroke-width="2.4"')}</button>
                     <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
                 </div>
                 <div class="hm-modal-body" data-hm="dt-body"></div>
@@ -1242,6 +1243,20 @@ function homeHTML() {
 }
 
 // ---- Interactividad ----
+function openTaskAdd(panel, date = todayISO(), options = {}) {
+    const modal = panel.querySelector('[data-hm="tasks-modal"]');
+    if (!modal) return;
+
+    modal.classList.toggle("hm-modal-backdrop--top", Boolean(options.top));
+    modal.querySelector('[data-hm="nt-name"]').value = "";
+    modal.querySelector('[data-hm="nt-date"]').value = date || todayISO();
+    modal.querySelector('[data-hm="nt-time"]').value = "08:00";
+    modal.querySelector('[data-hm="nt-repeat"]').value = "Diario";
+    modal.querySelector('[data-hm="nt-alert"]').value = "15 minutos antes";
+    modal.hidden = false;
+    modal.querySelector('[data-hm="nt-name"]')?.focus();
+}
+
 function openTaskEdit(panel, id) {
     const task = getHomeTasks().find(t => t.id === id);
     if (!task) return;
@@ -1337,13 +1352,15 @@ function wire(panel) {
     const modal = panel.querySelector('[data-hm="tasks-modal"]');
     const addOpen = panel.querySelector('[data-hm="tasks-add"]');
     if (addOpen && modal) {
-        addOpen.addEventListener("click", () => {
-            modal.hidden = false;
-            modal.querySelector('[data-hm="nt-name"]')?.focus();
-        });
+        const closeTaskAdd = () => {
+            modal.hidden = true;
+            modal.classList.remove("hm-modal-backdrop--top");
+        };
+
+        addOpen.addEventListener("click", () => openTaskAdd(panel));
         modal.addEventListener("click", event => {
             if (event.target === modal || event.target.closest('[data-hm="close"]')) {
-                modal.hidden = true;
+                closeTaskAdd();
                 return;
             }
             if (event.target.closest('[data-hm="add-task"]')) {
@@ -1362,7 +1379,7 @@ function wire(panel) {
                 tasks.sort((a, b) => a.time.localeCompare(b.time));
                 saveHomeTasks(tasks);
                 refreshTasks();
-                modal.hidden = true;
+                closeTaskAdd();
             }
         });
     }
@@ -1523,12 +1540,21 @@ function wire(panel) {
             openTaskEdit(panel, id);
             // El listado queda abierto detras: al guardar se vuelve al dia.
         };
+        const addFromDay = () => {
+            if (!openDayIso) return;
+            openTaskAdd(panel, openDayIso, { top: true });
+        };
 
         dayTasks.addEventListener("click", event => {
             // Cerrar el listado del dia deja el calendario abierto detras.
             if (event.target === dayTasks || event.target.closest('[data-hm="close"]')) {
                 dayTasks.hidden = true;
                 openDayIso = "";
+                return;
+            }
+
+            if (event.target.closest('[data-hm="dt-add"]')) {
+                addFromDay();
                 return;
             }
 
