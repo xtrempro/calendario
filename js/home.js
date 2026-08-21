@@ -1019,7 +1019,10 @@ function coberturaRow(item, kind) {
             ? `
             <div class="hm-cob-actions">
                 <button class="hm-cob-btn hm-cob-btn--ver" type="button" data-hm="cob-ver" data-cob-profile="${esc(item.origin)}" data-cob-iso="${esc(item.iso)}">VER EN CALENDARIO</button>
-                <button class="hm-cob-btn hm-cob-btn--auto" type="button" data-hm="cob-auto" data-cob-profile="${esc(item.origin)}" data-cob-key="${esc(item.keyDay)}">COBERTURA AUTOMÁTICA</button>
+                <button class="hm-cob-btn hm-cob-btn--auto" type="button" data-hm="cob-auto"
+                    data-cob-profile="${esc(item.origin)}" data-cob-key="${esc(item.keyDay)}"
+                    ${waiting ? `disabled title="Ya se envió la solicitud. Se habilita cuando caduque o cuando alguien acepte el turno."` : ""}>${
+                    waiting ? "SOLICITUD ENVIADA" : "COBERTURA AUTOMÁTICA"}</button>
             </div>`
             : "";
     return `

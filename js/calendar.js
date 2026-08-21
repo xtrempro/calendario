@@ -5275,7 +5275,7 @@ function openPendingRequestsDialog({ profile, keyDay }) {
     }).join("");
 
     backdrop.innerHTML = `
-        <section class="turn-change-dialog leave-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="requestWaitTitle">
+        <section class="turn-change-dialog leave-detail-dialog request-wait-dialog" role="dialog" aria-modal="true" aria-labelledby="requestWaitTitle">
             <strong id="requestWaitTitle">Solicitud de cobertura enviada</strong>
             <div class="leave-detail-rows">
                 <div><span>Turno de</span><b>${escapeHTML(profile)}</b></div>

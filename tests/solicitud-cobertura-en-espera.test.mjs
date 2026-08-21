@@ -51,7 +51,9 @@ globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 const {
     buildPendingRequestIndex,
     getPendingRequestsFromIndex,
-    formatRequestTimeLeft
+    formatRequestTimeLeft,
+    applyAcceptedReplacementRequests,
+    getReplacementForCoveredShift
 } = await import("../js/replacements.js");
 const { getReplacementRequestConfig } = await import("../js/storage.js");
 
@@ -65,6 +67,7 @@ const calendar = await read("../js/calendar.js");
 const timeline = await read("../js/timeline.js");
 const home = await read("../js/home.js");
 const settings = await read("../js/systemSettings.js");
+const styles = await read("../styles.css");
 
 const REPLACED = "Hugo Rojas Tapia";
 const DAY_ISO = "2026-08-13";
@@ -263,4 +266,75 @@ test("consultar quien tiene la solicitud no exige permiso de edicion", () => {
         timeline,
         /cell\.dataset\.requestWaitProfile\) \{[\s\S]{0,220}ensureCanEditTarget/
     );
+});
+
+/* =========================================================
+   El boton de cobertura automatica no se puede disparar dos veces
+========================================================= */
+
+test("cobertura automatica queda deshabilitada mientras la solicitud vive", () => {
+    // Volver a apretarlo mandaria una segunda tanda a los mismos telefonos.
+    assert.match(home, /waiting \? `disabled title=/);
+    assert.match(home, /waiting \? "SOLICITUD ENVIADA" : "COBERTURA AUTOMÁTICA"/);
+});
+
+test("el bloqueo sale del dato, no de una marca local", () => {
+    // Si fuera una variable en memoria, recargar la pagina lo soltaria; y no
+    // sabria cuando caduco la solicitud. Sale de las pendientes del turno.
+    assert.match(
+        home,
+        /const waiting = kind === "sincubrir" && \(item\.pendingRequests\?\.length \|\| 0\) > 0;/
+    );
+});
+
+/* =========================================================
+   Cuando alguien acepta, el requerimiento desaparece
+========================================================= */
+
+test("aceptar crea el reemplazo y apaga las demas solicitudes", () => {
+    // Es lo que hace desaparecer la fila de cobertura: isShiftUncovered deja de
+    // ser verdadera en cuanto existe el reemplazo.
+    sembrar([
+        solicitud({
+            id: "a", worker: "Mariana Rojas Bravo", groupId: "g1",
+            status: "accepted", acceptedAt: "2026-08-12T10:00:00",
+            keyDay: "2026-7-13"
+        }),
+        solicitud({ id: "b", worker: "Elena Diaz Soto", groupId: "g1" }),
+        solicitud({ id: "c", worker: "Otro Mas", groupId: "g1" })
+    ]);
+    localStorage.setItem("replacements", JSON.stringify([]));
+
+    assert.equal(applyAcceptedReplacementRequests(), true);
+
+    // El turno quedo cubierto...
+    const replacement = getReplacementForCoveredShift(REPLACED, "2026-7-13");
+
+    assert.ok(replacement, "deberia existir el reemplazo");
+    assert.equal(replacement.worker, "Mariana Rojas Bravo");
+
+    // ...y ninguna solicitud sigue pendiente, asi que se apaga el "en espera"
+    // y el boton de cobertura automatica vuelve a habilitarse.
+    const index = buildPendingRequestIndex(AHORA);
+
+    assert.deepEqual(getPendingRequestsFromIndex(index, REPLACED, DAY_ISO), []);
+});
+
+/* =========================================================
+   El listado del modal
+========================================================= */
+
+test("el listado va en dos columnas y con scroll propio", () => {
+    // Un turno puede salir a 15 o 20 trabajadores: en una columna el modal se
+    // pasaba de largo de la pantalla.
+    assert.match(
+        styles,
+        /\.request-wait-list \{[\s\S]{0,220}grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/
+    );
+    assert.match(styles, /\.request-wait-list \{[\s\S]{0,260}overflow-y: auto;/);
+    // El scroll lo lleva la lista, no el modal entero: el titulo y los botones
+    // tienen que quedar siempre a la vista.
+    assert.match(styles, /\.turn-change-dialog\.request-wait-dialog \{[\s\S]{0,120}max-height: 86vh;/);
+    // En pantalla angosta vuelve a una columna.
+    assert.match(styles, /\.request-wait-list \{ grid-template-columns: 1fr;/);
 });

@@ -1696,14 +1696,34 @@ body[data-active-view="home"] .secondary-grid {
 
 /* Detalle de la solicitud de cobertura enviada: a quien se le pidio y cuanto le
    queda antes de caducar. */
-.request-wait-list { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 2px; }
+/* Un turno puede salir a 15 o 20 trabajadores: en una columna el modal se pasa
+   de largo de la pantalla. Dos columnas y scroll propio en la lista, para que
+   el titulo y los botones queden siempre a la vista. */
+.turn-change-dialog.request-wait-dialog {
+    width: min(720px, 100%);
+    max-height: 86vh;
+}
+.request-wait-list {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px; margin: 4px 0 2px;
+    max-height: 46vh; overflow-y: auto;
+    /* Aire para que la barra de scroll no tape el borde de las tarjetas. */
+    padding-right: 4px;
+}
+@media (max-width: 620px) {
+    .turn-change-dialog.request-wait-dialog { width: 100%; }
+    .request-wait-list { grid-template-columns: 1fr; max-height: 50vh; }
+}
 .request-wait-row {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding: 9px 11px; border-radius: 11px;
     background: var(--panel-alt); border: 1px solid var(--border);
 }
 .request-wait-worker { display: flex; flex-direction: column; min-width: 0; }
-.request-wait-worker b { font-size: 0.88rem; font-weight: 700; color: var(--text); }
+.request-wait-worker b {
+    font-size: 0.88rem; font-weight: 700; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .request-wait-worker small { font-size: 0.74rem; color: var(--text-muted); }
 .request-wait-left {
     flex: none; font-size: 0.78rem; font-weight: 800; color: #1d4ed8;

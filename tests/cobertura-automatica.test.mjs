@@ -26,7 +26,10 @@ function block(source, signature, length = 4000) {
 
 test("los turnos sin cubrir traen los dos botones", () => {
     assert.match(home, />VER EN CALENDARIO</);
-    assert.match(home, />COBERTURA AUTOMÁTICA</);
+    // El rotulo del segundo depende del estado: pasa a "SOLICITUD ENVIADA" y se
+    // deshabilita mientras haya solicitudes vivas, para no mandar dos tandas a
+    // los mismos telefonos (ver solicitud-cobertura-en-espera.test.mjs).
+    assert.match(home, /"SOLICITUD ENVIADA" : "COBERTURA AUTOMÁTICA"/);
     // Solo en los sin cubrir: un preasignado ya tiene sus propias acciones.
     assert.match(home, /kind === "sincubrir" && item\.keyDay/);
     // La fila carga el dia en los dos formatos que necesita cada accion.
