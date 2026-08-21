@@ -122,6 +122,8 @@ test("los accesos inferiores del inicio no se muestran", () => {
     assert.doesNotMatch(home, /Ver calendario/);
     assert.doesNotMatch(home, /Ver todos los cambios/);
     assert.doesNotMatch(home, /Ir a cobertura de turnos/);
+    assert.doesNotMatch(home, /tareas pendientes/);
+    assert.doesNotMatch(home, /statCard\("amber", IC\.clipboard, "Pendientes"/);
     assert.doesNotMatch(home, /hm-highlight/);
     assert.doesNotMatch(home, /Organizaci[oó]n hoy/);
     // La fecha del encabezado sigue siendo la puerta al calendario de tareas.
@@ -144,6 +146,21 @@ test("el inicio resume solicitudes pendientes por categoria", () => {
     assert.match(home, /Resumen de solicitudes/);
     assert.match(home, /data-hm="req-detail"/);
     assert.match(home, /data-hm="req-open"/);
+    assert.match(home, /data-hm="req-accept"/);
+    assert.match(home, /data-hm="req-reject"/);
+    assert.match(home, /acceptWorkerRequestById\(requestId\)/);
+    assert.match(home, /rejectWorkerRequestById\(requestId\)/);
+    assert.doesNotMatch(home, /hm-req-note/);
+});
+
+test("los cambios de turno del inicio abren detalle y se anulan con la logica del calendario", () => {
+    assert.match(home, /data-hm="swap-detail"/);
+    assert.match(home, /openHomeSwapDetailDialog\(swap\)/);
+    assert.match(home, /Anular cambio/);
+    assert.match(home, /deshacerCambioTurno\(targetSwap\)/);
+    assert.match(home, /window\.pushUndoState\("Deshacer cambio de turno"\)/);
+    assert.match(home, /const profiles = \[targetSwap\.from, targetSwap\.to\]/);
+    assert.match(home, /dates\.map\(date => updateDayCell\(profile, date\)\)/);
 });
 
 test("el dia 1 cae en su columna, con la semana en lunes", () => {

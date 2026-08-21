@@ -118,3 +118,15 @@ test("usuarios y permisos oculta al creador y muestra solo colaboradores", () =>
     );
     assert.match(systemSettings, /openSystemSettings\(initialTab = activeTab\)/);
 });
+
+test("usuarios y permisos permite enviar invitaciones de administrador", () => {
+    assert.match(systemSettings, /data-settings-invite-email/);
+    assert.match(systemSettings, /data-settings-send-supervisor-invite/);
+    assert.match(systemSettings, /Enviar invitación/);
+    assert.match(systemSettings, /showSupervisorInvitePermissionsDialog/);
+    assert.match(systemSettings, /sendSupervisorInvitationEmail\(/);
+    assert.match(systemSettings, /getCurrentFirebaseUser\(\)/);
+    assert.match(systemSettings, /normalizeEmailKey\(emailInput\?\.value\)/);
+    assert.match(systemSettings, /isValidEmailFormat\(email\)/);
+    assert.match(styles, /\.settings-user-invite/);
+});

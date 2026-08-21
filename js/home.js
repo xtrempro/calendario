@@ -39,7 +39,12 @@ import { refreshAll } from "./refresh.js";
 import { updateDayCell, updateVisibleCalendarDays } from "./calendar.js";
 import { updateTimelineCells } from "./timeline.js";
 import { birthDateParts } from "./staffing.js";
-import { cambiosDelMes, cambioEstaAnulado } from "./swaps.js";
+import {
+    cambiosDelMes,
+    cambioEstaAnulado,
+    deshacerCambioTurno,
+    swapCodeLabel
+} from "./swaps.js";
 import { TURNO_LABEL, ESTAMENTO, TURNO } from "./constants.js";
 import {
     getHomeTasks,
@@ -48,6 +53,10 @@ import {
     isTaskDoneOn,
     toggleTaskDoneOn
 } from "./homeTasks.js";
+import {
+    acceptWorkerRequestById,
+    rejectWorkerRequestById
+} from "./workerRequests.js";
 import { fetchHolidays, getCachedHolidays } from "./holidays.js";
 import { getActiveWorkspace } from "./workspaces.js";
 
@@ -235,8 +244,28 @@ function formatShortDate(iso) {
     return `${day} ${MESES_ABR[monthIndex] || ""}`.trim();
 }
 
+function formatSwapDetailDate(iso) {
+    const parts = String(iso || "").split("-");
+
+    if (parts.length !== 3) return String(iso || "");
+
+    const day = Number(parts[2]);
+    const monthIndex = Number(parts[1]) - 1;
+    const year = Number(parts[0]);
+
+    return [day, MESES_ABR[monthIndex], year]
+        .filter(Boolean)
+        .join(" ");
+}
+
 function shortName(full) {
     return String(full || "").split(/\s+/).filter(Boolean).slice(0, 2).join(" ");
+}
+
+function homeSwapTurnLabel(turno) {
+    const numeric = Number(turno);
+
+    return TURNO_LABEL[numeric] || swapCodeLabel(turno);
 }
 
 // Cambios de turno activos del mes en curso.
@@ -567,22 +596,17 @@ function dotacionCard(tone, label, dia, noche) {
         </article>`;
 }
 
-// Stat cards: una tarjeta por estamento en servicio hoy (colores en ciclo) y
-// "Pendientes".
+// Stat cards: una tarjeta por estamento en servicio hoy (colores en ciclo).
 function statsSection() {
     const dot = getDotacionHoy();
     const tones = ["violet", "blue", "green", "amber"];
 
-    const estCards = dot.estamentos.length
+    return dot.estamentos.length
         ? dot.estamentos.map((est, i) => {
             const e = dot.byEstamento[est];
             return dotacionCard(tones[i % tones.length], est, e.dia, e.noche);
         }).join("")
         : statCard("violet", IC.users, "En servicio hoy", 0, "sin dotación hoy");
-
-    return `
-        ${estCards}
-        ${statCard("amber", IC.clipboard, "Pendientes", 7, "tareas pendientes")}`;
 }
 
 function panelHead(icon, title, extra = "") {
@@ -750,10 +774,9 @@ function requestSummaryRowHTML(request) {
             ? "Cambio"
             : "Marcaje";
     const meta = requestSummaryMeta(request);
-    const note = String(request.note || request.detail || "").trim();
 
     return `
-        <div class="hm-req-row hm-req-row--${esc(request.group)}">
+        <div class="hm-req-row hm-req-row--${esc(request.group)}" data-request-id="${esc(request.id || "")}">
             <div class="hm-req-top">
                 <span class="hm-req-type">${esc(groupLabel)}</span>
                 <span class="hm-req-worker">${esc(request.profile || "Sin trabajador")}</span>
@@ -762,7 +785,12 @@ function requestSummaryRowHTML(request) {
             <div class="hm-req-meta">
                 <b>${esc(requestTypeLabel(request.type))}</b>${meta ? ` · ${esc(meta)}` : ""}
             </div>
-            ${note ? `<div class="hm-req-note">${esc(note)}</div>` : ""}
+            <div class="hm-cob-actions hm-req-row-actions">
+                <button class="hm-cob-btn hm-cob-btn--confirm" type="button"
+                    data-hm="req-accept" data-request-id="${esc(request.id || "")}">ACEPTAR</button>
+                <button class="hm-cob-btn hm-cob-btn--cancel" type="button"
+                    data-hm="req-reject" data-request-id="${esc(request.id || "")}">RECHAZAR</button>
+            </div>
         </div>`;
 }
 
@@ -1151,15 +1179,15 @@ function cambiosWidget() {
     const swaps = getMonthSwaps();
     const body = swaps.length
         ? swaps.slice(0, 6).map(swap => {
-            const turno = TURNO_LABEL[Number(swap.turno)] || "";
+            const turno = homeSwapTurnLabel(swap.turno);
             const meta = [turno, formatShortDate(swap.fecha)].filter(Boolean).join(" · ");
             return `
-                <div class="hm-swap">
+                <button class="hm-swap" type="button" data-hm="swap-detail" data-swap-id="${esc(swap.id || "")}">
                     <span class="hm-swap-tag">${esc(shortName(swap.from))}</span>
                     <span class="hm-swap-arrow">${svg(IC.arrowRight, 'stroke-width="2.2"')}</span>
                     <span class="hm-swap-tag">${esc(shortName(swap.to))}</span>
                     <span class="hm-swap-count">${esc(meta)}</span>
-                </div>`;
+                </button>`;
         }).join("")
         : `<div class="hm-empty">Sin cambios de turno este mes.</div>`;
     return `
@@ -1167,6 +1195,125 @@ function cambiosWidget() {
             ${panelHead(IC.swap, "Cambios de turno", `<span class="hm-count">${swaps.length}</span>`)}
             <div class="hm-listcol">${body}</div>
         </div>`;
+}
+
+function swapDetailItemHTML(label, date, turn, skipped) {
+    const turnLabel = homeSwapTurnLabel(turn);
+    const value = skipped
+        ? "Sin movimiento en calendario"
+        : [formatSwapDetailDate(date), turnLabel].filter(Boolean).join(" Â· ");
+
+    return `
+        <li>
+            <span>${esc(label)}</span>
+            <strong>${esc(value || "Sin dato")}</strong>
+        </li>`;
+}
+
+function openHomeSwapDetailDialog(swap) {
+    if (!swap) return;
+
+    const backdrop = document.createElement("div");
+
+    backdrop.className = "turn-change-dialog-backdrop hm-swap-dialog-backdrop";
+    backdrop.innerHTML = `
+        <section class="turn-change-dialog hm-swap-dialog" role="dialog" aria-modal="true" aria-labelledby="homeSwapDetailTitle">
+            <strong id="homeSwapDetailTitle">Cambio de turno aplicado</strong>
+            <p>
+                Revisa el detalle del cambio antes de anularlo.
+            </p>
+            <div class="turn-change-dialog__meta hm-swap-dialog__meta">
+                <span>${esc(swap.from || "Sin trabajador")}</span>
+                <span class="hm-swap-dialog__arrow">${svg(IC.arrowRight, 'stroke-width="2.2"')}</span>
+                <span>${esc(swap.to || "Sin trabajador")}</span>
+            </div>
+            <ul class="turn-change-dialog__swap-detail">
+                ${swapDetailItemHTML("Entrega", swap.fecha, swap.turno, Boolean(swap.skipFecha))}
+                ${swapDetailItemHTML("Devuelve", swap.devolucion, swap.turnoDevuelto, Boolean(swap.skipDevolucion))}
+            </ul>
+            <p class="leave-detail-note hm-swap-dialog__note">
+                Al anularlo se restauran los dias de ambos trabajadores a su turno original.
+            </p>
+            <div class="turn-change-dialog__actions">
+                <button class="secondary-button" type="button" data-action="cancel">
+                    Cancelar
+                </button>
+                <button class="leave-detail-undo" type="button" data-action="undo">
+                    Anular cambio
+                </button>
+            </div>
+        </section>`;
+
+    const close = () => {
+        document.removeEventListener("keydown", onKeydown);
+        backdrop.remove();
+    };
+
+    const onKeydown = event => {
+        if (event.key === "Escape") {
+            close();
+        }
+    };
+
+    backdrop.addEventListener("click", event => {
+        if (event.target === backdrop) {
+            close();
+        }
+    });
+
+    backdrop
+        .querySelector("[data-action='cancel']")
+        ?.addEventListener("click", close);
+
+    backdrop
+        .querySelector("[data-action='undo']")
+        ?.addEventListener("click", async event => {
+            const targetSwap = getMonthSwaps().find(item =>
+                String(item.id || "") === String(swap.id || "")
+            );
+
+            event.currentTarget.disabled = true;
+
+            if (!targetSwap) {
+                alert("Este cambio ya no esta disponible para anular.");
+                close();
+                renderHomePanel();
+                return;
+            }
+
+            if (typeof window.pushUndoState === "function") {
+                window.pushUndoState("Deshacer cambio de turno");
+            }
+
+            deshacerCambioTurno(targetSwap);
+
+            const dates = [targetSwap.fecha, targetSwap.devolucion]
+                .filter(Boolean);
+            const profiles = [targetSwap.from, targetSwap.to]
+                .filter(Boolean);
+            const keys = dates
+                .map(keyFromISO)
+                .filter(key => key && !key.includes("NaN"));
+
+            await Promise.all(
+                profiles.flatMap(profile =>
+                    dates.map(date => updateDayCell(profile, date))
+                )
+            );
+
+            profiles.forEach(profile => {
+                updateTimelineCells(profile, keys);
+            });
+            await updateVisibleCalendarDays({ updateSummary: true });
+
+            close();
+            refreshAll();
+            renderHomePanel();
+        });
+
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(backdrop);
+    backdrop.querySelector("[data-action='undo']")?.focus();
 }
 
 function coberturaRow(item, kind) {
@@ -1590,6 +1737,21 @@ function wire(panel) {
         });
     }
 
+    panel.querySelectorAll('[data-hm="swap-detail"]').forEach(button => {
+        button.addEventListener("click", () => {
+            const swap = getMonthSwaps().find(item =>
+                String(item.id || "") === String(button.dataset.swapId || "")
+            );
+
+            if (!swap) {
+                renderHomePanel();
+                return;
+            }
+
+            openHomeSwapDetailDialog(swap);
+        });
+    });
+
     // --- Cobertura: ver el dia en el calendario ---
     panel.querySelectorAll('[data-hm="cob-ver"]').forEach(button => {
         button.addEventListener("click", () => {
@@ -1806,6 +1968,34 @@ function wire(panel) {
     panel.querySelector('[data-hm="req-open"]')?.addEventListener("click", () => {
         document.querySelector('.nav-tile[data-target="workerRequestsPanel"]')?.click();
     });
+
+    panel.querySelectorAll('[data-hm="req-accept"], [data-hm="req-reject"]')
+        .forEach(button => {
+            button.addEventListener("click", async () => {
+                const requestId = button.dataset.requestId || "";
+                if (!requestId) return;
+
+                const actions = button.closest(".hm-req-row-actions");
+                actions?.querySelectorAll("button").forEach(item => {
+                    item.disabled = true;
+                });
+
+                const accepted = button.dataset.hm === "req-accept";
+                const ok = accepted
+                    ? await acceptWorkerRequestById(requestId)
+                    : await rejectWorkerRequestById(requestId);
+
+                if (!ok) {
+                    actions?.querySelectorAll("button").forEach(item => {
+                        item.disabled = false;
+                    });
+                    return;
+                }
+
+                renderHomePanel();
+                window.dispatchEvent(new CustomEvent("proturnos:workerRequestsChanged"));
+            });
+        });
 
     // --- Cobertura: confirmar / cancelar un turno preasignado sin salir del inicio ---
     panel.querySelectorAll('[data-hm="cob-confirm"], [data-hm="cob-cancel"]')

@@ -1,5 +1,10 @@
 import { escapeHTML } from "./htmlUtils.js";
 import { showConfirm } from "./dialogs.js";
+import { getCurrentFirebaseUser } from "./firebaseClient.js";
+import {
+    isValidEmailFormat,
+    normalizeEmailKey
+} from "./emailUtils.js";
 import {
     DEFAULT_GRADE_HOUR_CONFIG,
     getGradeHourConfig,
@@ -46,6 +51,13 @@ import {
     getDefaultTurnoColorConfig,
     applyTurnoColors
 } from "./turnoColors.js";
+import {
+    getActiveWorkspace,
+    sendSupervisorInvitationEmail
+} from "./workspaces.js";
+import {
+    showSupervisorInvitePermissionsDialog
+} from "./supervisorInvitesUI.js";
 
 const GROUPS = [
     {
@@ -73,6 +85,10 @@ let colorConfigDraft = null;
 let memberPermissionDraft = [];
 let memberPermissionLoading = false;
 let memberPermissionError = "";
+let supervisorInviteSending = false;
+let supervisorInviteMessage = "";
+let supervisorInviteError = "";
+let supervisorInviteEmailDraft = "";
 let onSettingsSaved = null;
 
 function formatRate(value) {
@@ -445,6 +461,56 @@ function memberLabel(member) {
     );
 }
 
+function renderSupervisorInviteBox() {
+    const message = supervisorInviteMessage
+        ? `
+            <div class="settings-user-invite-message settings-user-invite-message--ok">
+                ${escapeHTML(supervisorInviteMessage)}
+            </div>
+        `
+        : "";
+    const error = supervisorInviteError
+        ? `
+            <div class="settings-user-invite-message settings-user-invite-message--error">
+                ${escapeHTML(supervisorInviteError)}
+            </div>
+        `
+        : "";
+
+    return `
+        <div class="settings-user-invite">
+            <div>
+                <strong>Invitar administrador</strong>
+                <span>Envía una invitación segura para administrar esta unidad.</span>
+            </div>
+            <div class="settings-user-invite__form">
+                <label class="settings-user-invite__field">
+                    <span>Correo para invitación</span>
+                    <input
+                        type="email"
+                        inputmode="email"
+                        autocomplete="email"
+                        data-settings-invite-email
+                        placeholder="colaborador@correo.cl"
+                        value="${escapeHTML(supervisorInviteEmailDraft)}"
+                        ${supervisorInviteSending ? "disabled" : ""}
+                    >
+                </label>
+                <button
+                    class="primary-button"
+                    type="button"
+                    data-settings-send-supervisor-invite
+                    ${supervisorInviteSending ? "disabled" : ""}
+                >
+                    ${supervisorInviteSending ? "Enviando..." : "Enviar invitación"}
+                </button>
+            </div>
+            ${message}
+            ${error}
+        </div>
+    `;
+}
+
 function renderUsersPanel() {
     const state = getWorkspacePermissionState();
 
@@ -483,6 +549,7 @@ function renderUsersPanel() {
                     <h4>Usuarios y permisos</h4>
                     <span>Cargando usuarios de la unidad...</span>
                 </div>
+                ${renderSupervisorInviteBox()}
                 <div class="settings-empty">Cargando permisos.</div>
             </section>
         `;
@@ -495,6 +562,7 @@ function renderUsersPanel() {
                     <h4>Usuarios y permisos</h4>
                     <span>No se pudo cargar la lista de usuarios.</span>
                 </div>
+                ${renderSupervisorInviteBox()}
                 <div class="settings-empty">
                     ${escapeHTML(memberPermissionError)}
                 </div>
@@ -515,6 +583,8 @@ function renderUsersPanel() {
                     puede editar informaci\u00f3n.
                 </span>
             </div>
+
+            ${renderSupervisorInviteBox()}
 
             ${collaborators.length ? `
                 <div class="settings-users-list">
@@ -1009,6 +1079,9 @@ function preserveActiveDraft(backdrop) {
 
     if (activeTab === "users") {
         readMemberPermissionDraft(backdrop);
+        supervisorInviteEmailDraft = String(
+            backdrop.querySelector("[data-settings-invite-email]")?.value || ""
+        );
     }
 }
 
@@ -1052,6 +1125,97 @@ async function saveMemberPermissionDrafts() {
                 )
             )
     );
+}
+
+function rerenderSettings(backdrop, focusSelector = "") {
+    backdrop.innerHTML = modalHTML();
+
+    if (focusSelector) {
+        backdrop.querySelector(focusSelector)?.focus();
+    }
+}
+
+async function sendSettingsSupervisorInvitation(backdrop, sourceButton) {
+    preserveActiveDraft(backdrop);
+
+    const state = getWorkspacePermissionState();
+    const activeWorkspace = getActiveWorkspace();
+    const workspace = {
+        ...(activeWorkspace || {}),
+        id: state.workspaceId || activeWorkspace?.id || "",
+        name: activeWorkspace?.name || "la unidad"
+    };
+    const user = getCurrentFirebaseUser();
+    const emailInput = sourceButton
+        ?.closest(".settings-user-invite")
+        ?.querySelector("[data-settings-invite-email]");
+    const email = normalizeEmailKey(emailInput?.value);
+
+    supervisorInviteEmailDraft = email;
+    supervisorInviteMessage = "";
+    supervisorInviteError = "";
+
+    if (!workspace.id) {
+        supervisorInviteError =
+            "Selecciona o crea una unidad antes de enviar invitaciones.";
+        rerenderSettings(backdrop, "[data-settings-invite-email]");
+        return;
+    }
+
+    if (!user) {
+        supervisorInviteError =
+            "Debes iniciar sesión para enviar invitaciones.";
+        rerenderSettings(backdrop, "[data-settings-invite-email]");
+        return;
+    }
+
+    if (!email) {
+        supervisorInviteError =
+            "Ingresa el correo al que quieres enviar la invitación.";
+        rerenderSettings(backdrop, "[data-settings-invite-email]");
+        return;
+    }
+
+    if (!isValidEmailFormat(email)) {
+        supervisorInviteError =
+            "El correo debe tener el formato nombre@dominio.cl.";
+        rerenderSettings(backdrop, "[data-settings-invite-email]");
+        return;
+    }
+
+    const permissions =
+        await showSupervisorInvitePermissionsDialog({
+            title: "Nueva invitación segura",
+            message:
+                "Selecciona los permisos que tendrá el supervisor si apruebas su solicitud.",
+            confirmText: "Enviar invitación"
+        });
+
+    if (!permissions) return;
+
+    supervisorInviteSending = true;
+    rerenderSettings(backdrop);
+
+    try {
+        await sendSupervisorInvitationEmail(
+            user,
+            workspace,
+            email,
+            permissions
+        );
+
+        supervisorInviteEmailDraft = "";
+        supervisorInviteMessage = `Invitación enviada a ${email}.`;
+    } catch (error) {
+        supervisorInviteError =
+            error?.message || "No se pudo enviar la invitación.";
+    } finally {
+        supervisorInviteSending = false;
+        rerenderSettings(
+            backdrop,
+            supervisorInviteError ? "[data-settings-invite-email]" : ""
+        );
+    }
 }
 
 function rerenderHolidayList(backdrop) {
@@ -1111,6 +1275,17 @@ function bindBackdrop(backdrop) {
         if (resetColors) {
             colorConfigDraft = getDefaultTurnoColorConfig();
             backdrop.innerHTML = modalHTML();
+            return;
+        }
+
+        const sendSupervisorInvite = event.target.closest(
+            "[data-settings-send-supervisor-invite]"
+        );
+        if (sendSupervisorInvite) {
+            await sendSettingsSupervisorInvitation(
+                backdrop,
+                sendSupervisorInvite
+            );
             return;
         }
 
@@ -1300,6 +1475,10 @@ export function openSystemSettings(initialTab = activeTab) {
     memberPermissionDraft = [];
     memberPermissionLoading = false;
     memberPermissionError = "";
+    supervisorInviteSending = false;
+    supervisorInviteMessage = "";
+    supervisorInviteError = "";
+    supervisorInviteEmailDraft = "";
 
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
@@ -1322,7 +1501,7 @@ export function openSystemSettings(initialTab = activeTab) {
                             : activeTab === "turnChanges"
                                 ? "#settingsAllowSwaps"
                                 : activeTab === "users"
-                                    ? "[data-member-permission]"
+                                    ? "[data-settings-invite-email], [data-member-permission]"
                                     : "[data-staffing-modality]"
         )
         ?.focus();
