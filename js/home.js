@@ -385,10 +385,14 @@ function getDotacionHoy() {
     const det = getDotacionDetalleHoy();
     const byEstamento = {};
     let total = 0;
+    let dia = 0;
+    let noche = 0;
 
     det.estamentos.forEach(est => {
         const e = det.byEstamento[est];
         byEstamento[est] = { dia: e.dia.length, noche: e.noche.length };
+        dia += e.dia.length;
+        noche += e.noche.length;
         const unique = new Set([
             ...e.dia.map(x => x.name),
             ...e.noche.map(x => x.name)
@@ -396,7 +400,7 @@ function getDotacionHoy() {
         total += unique.size;
     });
 
-    return { byEstamento, estamentos: det.estamentos, total };
+    return { byEstamento, estamentos: det.estamentos, total, dia, noche };
 }
 
 // ---- Cobertura de turnos (datos reales) ----
@@ -1152,7 +1156,7 @@ function cumpleanosWidget() {
 
 function resumenWidget() {
     const swapCount = getMonthSwaps().length;
-    const dotacion = getDotacionHoy().total;
+    const dotacion = getDotacionHoy();
     // Si hoy cumple alguien, el resumen lo dice; si no, la fila no aparece.
     const birthdaysToday = getMonthBirthdays().filter(item => item.isToday);
     function row(tone, name, val) {
@@ -1162,8 +1166,9 @@ function resumenWidget() {
         <div class="hm-card hm-col-4">
             ${panelHead(IC.bars, "Resumen rápido")}
             <div class="hm-listcol hm-listcol--gap">
-                ${row("good", "En servicio hoy", dotacion)}
-                ${row("warn", "Pendientes", 7)}
+                ${row("good", "En servicio hoy", dotacion.total)}
+                ${row("info", "Personal de día", dotacion.dia)}
+                ${row("night", "Personal de noche", dotacion.noche)}
                 ${row("accent", "Cambios de turno", swapCount)}
                 ${birthdaysToday.length
                     ? `<div class="hm-sum hm-sum--bday" title="${esc(birthdaysToday.map(item => item.name).join(", "))}">
@@ -1201,7 +1206,7 @@ function swapDetailItemHTML(label, date, turn, skipped) {
     const turnLabel = homeSwapTurnLabel(turn);
     const value = skipped
         ? "Sin movimiento en calendario"
-        : [formatSwapDetailDate(date), turnLabel].filter(Boolean).join(" Â· ");
+        : [formatSwapDetailDate(date), turnLabel].filter(Boolean).join(" - ");
 
     return `
         <li>

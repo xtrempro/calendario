@@ -3577,6 +3577,7 @@ function leaveLabelForType(type) {
     if (type === "half_admin") return "1/2 ADM";
     if (type === "legal") return "F. Legal";
     if (type === "comp") return "F. Compensatorio";
+    if (type === "training") return "Capacitaci\u00f3n";
     if (type === "professional_license") return "LM Profesional";
     if (type === "union_leave") return "Permiso Gremial";
     if (type === "unpaid_leave") return "Permiso sin Goce";
@@ -3919,6 +3920,8 @@ async function linkedWorkspaceCandidates(
     const baseProfile = getProfiles().find(profile =>
         profile.name === profileName
     );
+    const trainingCoverageHours =
+        getTrainingCoverageHours(profileName, keyDay);
 
     if (!baseProfile) {
         linkedReplacementStatus =
@@ -3962,7 +3965,8 @@ async function linkedWorkspaceCandidates(
                 : null,
             hheeDiurnas: 0,
             hheeNocturnas: 0,
-            hhee: 0
+            hhee: 0,
+            overtimeHours: trainingCoverageHours
         };
     });
 
@@ -4357,6 +4361,26 @@ function getReplacementNeededTurn(profileName, keyDay) {
     return getTurnoBase(profileName, keyDay);
 }
 
+function getTrainingAbsence(profileName, keyDay) {
+    const absence = getJSON(`absences_${profileName}`, {})[keyDay];
+
+    return getAbsenceType(absence) === "training"
+        ? absence
+        : null;
+}
+
+function getTrainingCoverageHours(profileName, keyDay) {
+    const absence = getTrainingAbsence(profileName, keyDay);
+    const hours = absence?.overtimeHours;
+
+    if (!hours) return null;
+
+    return {
+        d: Number(hours.d) || 0,
+        n: Number(hours.n) || 0
+    };
+}
+
 function canCoverShift(
     currentState,
     neededTurn,
@@ -4544,6 +4568,8 @@ async function getReplacementCandidates(
     const neededTurn =
         options.neededTurn ||
         getReplacementNeededTurn(profileName, keyDay);
+    const trainingCoverageHours =
+        getTrainingCoverageHours(profileName, keyDay);
     const isHalfAfternoonCoverage =
         isHalfAdminAfternoonCoverage(
             profileName,
@@ -4595,14 +4621,17 @@ async function getReplacementCandidates(
                     date,
                     holidays
                 );
-            const overtimeHours = isDiurnoLongCoverage
-                ? diurnoLongCoverageHours(date)
-                : isHalfAfternoonCoverage
-                    ? halfAdminAfternoonCoverageHours(
-                        currentState,
-                        date
-                    )
-                    : null;
+            const overtimeHours = trainingCoverageHours ||
+                (
+                    isDiurnoLongCoverage
+                        ? diurnoLongCoverageHours(date)
+                        : isHalfAfternoonCoverage
+                            ? halfAdminAfternoonCoverageHours(
+                                currentState,
+                                date
+                            )
+                            : null
+                );
             const stats = calculateWorkerMonthTotals(
                 profile.name,
                 y,
@@ -5451,6 +5480,7 @@ async function openReplacementDialog(profileName, keyDay) {
             date: keyToISODate(keyDay),
             turnCode: turnoToCode(neededTurn),
             absenceType,
+            ...replacementCoverageFromDataset(button.dataset)
         });
 
         saveReplacement({
@@ -5467,6 +5497,7 @@ async function openReplacementDialog(profileName, keyDay) {
             workerWorkspaceName,
             hostWorkspaceId: activeWorkspace?.id || "",
             hostWorkspaceName: activeWorkspace?.name || "",
+            ...replacementCoverageFromDataset(button.dataset)
         });
     };
 
@@ -8194,24 +8225,28 @@ async function renderCalendarImpl(options = {}) {
             }
         }
 
-        const dayColorGradient = getDayColorGradient(
-            activeProfile,
-            keyDay,
-            state,
-            date,
-            holidays,
-            admin[keyDay],
-            baseState,
-            {
-                unbasedComponentsAreExtra: manualExtra,
-                singleBandGradient: manualExtra,
-                // En un dia de devolucion con color personalizado, la mitad DDTT
-                // (componente extra del 24h) se pinta con ese color.
-                extraColorOverride: returnCustomColor
-                    ? "var(--color-turn-change-return)"
-                    : undefined
-            }
-        );
+        const isTrainingDay =
+            getAbsenceType(absences[keyDay]) === "training";
+        const dayColorGradient = isTrainingDay
+            ? null
+            : getDayColorGradient(
+                activeProfile,
+                keyDay,
+                state,
+                date,
+                holidays,
+                admin[keyDay],
+                baseState,
+                {
+                    unbasedComponentsAreExtra: manualExtra,
+                    singleBandGradient: manualExtra,
+                    // En un dia de devolucion con color personalizado, la mitad DDTT
+                    // (componente extra del 24h) se pinta con ese color.
+                    extraColorOverride: returnCustomColor
+                        ? "var(--color-turn-change-return)"
+                        : undefined
+                }
+            );
 
         aplicarClasesEspeciales(
             div,
@@ -8240,6 +8275,7 @@ async function renderCalendarImpl(options = {}) {
             keyDay,
             (
                 window.selectionMode === "admin" ||
+                window.selectionMode === "training" ||
                 window.selectionMode === "hoursreturn" ||
                 window.selectionMode === "moveshiftsource" ||
                 window.selectionMode === "moveshifttarget"

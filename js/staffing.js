@@ -2131,6 +2131,7 @@ function absenceLabelFromType(type) {
     if (type === "professional_license") return "LM Profesional";
     if (type === "union_leave") return "Permiso Gremial";
     if (type === "unpaid_leave") return "Permiso sin Goce";
+    if (type === "training") return "Capacitaci\u00f3n";
     if (type === "license") return "Licencia M\u00e9dica";
     if (type === "unjustified_absence") {
         return "Ausencia injustificada";
@@ -2602,6 +2603,7 @@ const WEEKLY_LEAVE_ROWS = [
     { key: "license", label: "Licencia M\u00e9dica" },
     { key: "professional_license", label: "LM Profesional" },
     { key: "union_leave", label: "Permiso Gremial" },
+    { key: "training", label: "Capacitaci\u00f3n" },
     { key: "admin", label: "P. Administrativo" },
     { key: "legal", label: "F. Legal" },
     { key: "comp", label: "F. Compensatorio" },

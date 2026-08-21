@@ -212,6 +212,8 @@ export function getAbsenceType(absence) {
     if (typeof absence === "string") {
         const normalized = normalizeText(absence).replace(/\s+/g, "_");
 
+        if (normalized.includes("capacitacion")) return "training";
+
         return normalized.includes("gremial")
             ? "union_leave"
             : normalized;
@@ -224,6 +226,8 @@ export function getAbsenceType(absence) {
         absence.label ||
         ""
     ).replace(/\s+/g, "_");
+
+    if (normalized.includes("capacitacion")) return "training";
 
     return normalized.includes("gremial")
         ? "union_leave"
@@ -334,6 +338,15 @@ export function esTurnoAdministrativoValido(state, rotativa = "") {
     return (
         turno === TURNO.LARGA ||
         turno === TURNO.NOCHE
+    );
+}
+
+export function esTurnoCapacitacionValido(state) {
+    const turno = Number(state) || TURNO.LIBRE;
+
+    return (
+        turno === TURNO.LARGA ||
+        turno === TURNO.DIURNO
     );
 }
 
@@ -636,6 +649,8 @@ export function obtenerLabelDia(
             label = "PG";
         } else if (absenceType === "unpaid_leave") {
             label = "PSG";
+        } else if (absenceType === "training") {
+            label = "CAP";
         } else if (absenceType === "license") {
             label = "LM";
         } else if (esAusenciaInjustificada(absences[keyDay])) {
@@ -749,6 +764,8 @@ export function aplicarClasesEspeciales(
             div.classList.add("union-leave-day");
         } else if (absenceType === "unpaid_leave") {
             div.classList.add("unpaid-leave-day");
+        } else if (absenceType === "training") {
+            div.classList.add("training-day");
         } else if (absenceType === "license") {
             div.classList.add("license-day");
         } else if (esAusenciaInjustificada(absences[keyDay])) {
@@ -1105,6 +1122,20 @@ export function estaBloqueadoModo(
             !Number(state) ||
             hasBlockingAbsence ||
             hasFullHourReturn
+        );
+    }
+
+    if (selectionMode === "training") {
+        return (
+            !esTurnoCapacitacionValido(state) ||
+            hasHourReturn ||
+            Boolean(tieneAusencia(
+                keyDay,
+                admin,
+                legal,
+                comp,
+                absences
+            ))
         );
     }
 

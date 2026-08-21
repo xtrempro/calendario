@@ -2251,6 +2251,7 @@ function getColor(nombre, key, maps = null, isExtra = false, realTurn = null){
     }
     if (absenceType === "union_leave") return "#dc2626"; // no configurable (rojo)
     if (absenceType === "unpaid_leave") return named.unpaid_leave || "#6b7280";
+    if (absenceType === "training") return named.training || "#0891b2";
     if (abs[key]) {
         return esAusenciaInjustificada(abs[key])
             ? (named.unjustified_absence || "#b91c1c")
@@ -2302,6 +2303,7 @@ function leaveLabelForType(type) {
     if (type === "professional_license") return "LM Profesional";
     if (type === "union_leave") return "Permiso Gremial";
     if (type === "unpaid_leave") return "Permiso sin Goce";
+    if (type === "training") return "Capacitaci\u00f3n";
     if (type === "unjustified_absence") return "Ausencia Injustificada";
     if (type === "license") return "Licencia Medica";
 

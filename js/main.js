@@ -58,6 +58,12 @@ import {
     classifyClockMarkSegment
 } from "./clockMarkUtils.js";
 import {
+    cloneDate,
+    dateAt,
+    formatTime,
+    parseTimeValue
+} from "./timeUtils.js";
+import {
     ATTACHMENT_ACCEPT,
     deleteStoredAttachment,
     hasAttachmentContent,
@@ -301,7 +307,7 @@ import {
     fetchHolidays,
     getCachedHolidays
 } from "./holidays.js";
-import { isBusinessDay } from "./calculations.js";
+import { calcHours, isBusinessDay } from "./calculations.js";
 import { TURNO } from "./constants.js";
 import {
     turnoLabel,
@@ -315,6 +321,7 @@ import {
     getTurnoProgramado
 } from "./turnEngine.js";
 import {
+    esTurnoCapacitacionValido,
     moveShiftConfigBlockReason,
     moveShiftTargetCombina24
 } from "./rulesEngine.js";
@@ -460,6 +467,7 @@ import {
     aplicarAusenciaInjustificada,
     aplicarLegal,
     aplicarComp,
+    aplicarCapacitacion,
     aplicarLicencia,
     existeBloque10Legal,
     validarCantidadLegalAnual
@@ -4473,6 +4481,7 @@ function renderLeaveActionLabels() {
         DOM.hoursReturnBtn.disabled = true;
         DOM.unjustifiedAbsenceBtn.disabled = true;
         DOM.clockMarkBtn.disabled = true;
+        if (DOM.trainingBtn) DOM.trainingBtn.disabled = true;
         DOM.moveShiftBtn.disabled = true;
         if (profile && !isProfileActive(profile)) {
             DOM.adminBtnLabel.textContent = `${adminBase} (inactivo)`;
@@ -4537,6 +4546,7 @@ function renderLeaveActionLabels() {
     DOM.hoursReturnBtn.disabled = saldos.hoursReturn <= 0;
     DOM.unjustifiedAbsenceBtn.disabled = false;
     DOM.clockMarkBtn.disabled = false;
+    if (DOM.trainingBtn) DOM.trainingBtn.disabled = false;
     DOM.moveShiftBtn.disabled = false;
 }
 
@@ -4556,6 +4566,7 @@ function syncEditRestrictedControls() {
         DOM.hoursReturnBtn,
         DOM.unjustifiedAbsenceBtn,
         DOM.clockMarkBtn,
+        DOM.trainingBtn,
         DOM.moveShiftBtn
     ].forEach(button => {
         if (!button) return;
@@ -10870,6 +10881,321 @@ function activarSelectorMarcajeReloj() {
         "Solo quedan habilitados los d\u00edas con turno real y sin vacaciones o ausencias.";
 }
 
+function activarSelectorCapacitacion() {
+    if (!canModifyCurrentProfile()) return;
+
+    activarModo(
+        "training",
+        "Selecciona el turno diurno donde el trabajador asistira a capacitacion."
+    );
+
+    DOM.adminInfo.textContent =
+        "Solo quedan habilitados turnos Larga o Diurno sin permisos, licencias, ausencias ni devoluciones.";
+}
+
+function compareDateMinute(left, right) {
+    return Math.round(left.getTime() / 60000) -
+        Math.round(right.getTime() / 60000);
+}
+
+function sameMinute(left, right) {
+    return compareDateMinute(left, right) === 0;
+}
+
+function minDate(...dates) {
+    return new Date(Math.min(...dates.map(date => date.getTime())));
+}
+
+function maxDate(...dates) {
+    return new Date(Math.max(...dates.map(date => date.getTime())));
+}
+
+function trainingIntervalFromTimes(
+    date,
+    startTime,
+    endTime,
+    scheduledStart = null,
+    scheduledEnd = null
+) {
+    const start = parseTimeValue(startTime);
+    const end = parseTimeValue(endTime);
+
+    if (!start || !end) return null;
+
+    const startDate = dateAt(date, start.hour, start.minute);
+    const endDate = dateAt(date, end.hour, end.minute);
+    const crossesMidnight =
+        scheduledStart &&
+        scheduledEnd &&
+        scheduledEnd > scheduledStart &&
+        scheduledEnd.getDate() !== scheduledStart.getDate();
+
+    if (crossesMidnight && startDate < scheduledStart) {
+        const nextStart = cloneDate(startDate);
+
+        nextStart.setDate(nextStart.getDate() + 1);
+
+        if (nextStart >= scheduledStart && nextStart < scheduledEnd) {
+            startDate.setDate(startDate.getDate() + 1);
+        }
+    }
+
+    if (endDate <= startDate) {
+        endDate.setDate(endDate.getDate() + 1);
+    }
+
+    return {
+        start: startDate,
+        end: endDate
+    };
+}
+
+function trainingIntersections(interval, segments) {
+    return segments
+        .map(segment => ({
+            start: maxDate(interval.start, segment.start),
+            end: minDate(interval.end, segment.end)
+        }))
+        .filter(item => item.end > item.start);
+}
+
+function trainingBoundaryAfter(cursor, end) {
+    const candidates = [
+        new Date(
+            cursor.getFullYear(),
+            cursor.getMonth(),
+            cursor.getDate() + 1,
+            0,
+            0
+        ),
+        dateAt(cursor, 7),
+        dateAt(cursor, 21),
+        end
+    ].filter(date => date > cursor);
+
+    return minDate(...candidates);
+}
+
+function trainingHourBucket(cursor, holidays) {
+    const day = new Date(
+        cursor.getFullYear(),
+        cursor.getMonth(),
+        cursor.getDate()
+    );
+    const hour = cursor.getHours() + cursor.getMinutes() / 60;
+
+    return !isBusinessDay(day, holidays) || hour < 7 || hour >= 21
+        ? "n"
+        : "d";
+}
+
+function roundTrainingHours(value) {
+    return Math.round((Number(value) || 0) * 2) / 2;
+}
+
+function classifyTrainingIntervals(intervals, holidays) {
+    const total = { d: 0, n: 0 };
+
+    intervals.forEach(interval => {
+        let cursor = cloneDate(interval.start);
+
+        while (cursor < interval.end) {
+            const boundary = trainingBoundaryAfter(cursor, interval.end);
+            const amount = Math.max(0, (boundary - cursor) / 36e5);
+
+            total[trainingHourBucket(cursor, holidays)] += amount;
+            cursor = boundary;
+        }
+    });
+
+    return {
+        d: roundTrainingHours(total.d),
+        n: roundTrainingHours(total.n)
+    };
+}
+
+function formatTrainingHours(value) {
+    const rounded = roundTrainingHours(value);
+
+    return Number.isInteger(rounded)
+        ? String(rounded)
+        : String(rounded).replace(".", ",");
+}
+
+function buildTrainingRecord({
+    date,
+    state,
+    holidays,
+    segments,
+    startTime,
+    endTime
+}) {
+    const scheduledStart = segments[0]?.start;
+    const scheduledEnd = segments[segments.length - 1]?.end;
+    const interval = trainingIntervalFromTimes(
+        date,
+        startTime,
+        endTime,
+        scheduledStart,
+        scheduledEnd
+    );
+
+    if (!interval) {
+        return { error: "Ingresa una hora de inicio y termino valida." };
+    }
+
+    if (
+        !scheduledStart ||
+        !scheduledEnd ||
+        interval.start < scheduledStart ||
+        interval.end > scheduledEnd
+    ) {
+        return {
+            error: "La capacitacion debe quedar dentro de la jornada programada."
+        };
+    }
+
+    const intersections = trainingIntersections(interval, segments);
+
+    if (!intersections.length) {
+        return {
+            error: "El tramo seleccionado no cruza horas trabajadas de la jornada."
+        };
+    }
+
+    const fullSchedule =
+        sameMinute(interval.start, scheduledStart) &&
+        sameMinute(interval.end, scheduledEnd);
+    const overtimeHours = fullSchedule
+        ? calcHours(date, Number(state) || TURNO.LIBRE, holidays)
+        : classifyTrainingIntervals(intersections, holidays);
+
+    return {
+        record: {
+            type: "training",
+            startTime,
+            endTime,
+            scheduledStart: formatTime(scheduledStart),
+            scheduledEnd: formatTime(scheduledEnd),
+            overtimeHours
+        }
+    };
+}
+
+function openTrainingDialog({
+    profile,
+    keyDay,
+    date,
+    state,
+    holidays,
+    segments
+}) {
+    return new Promise(resolve => {
+        const scheduledStart = segments[0]?.start;
+        const scheduledEnd = segments[segments.length - 1]?.end;
+        const backdrop = document.createElement("div");
+
+        backdrop.className = "turn-change-dialog-backdrop";
+        backdrop.innerHTML = `
+            <form class="turn-change-dialog clock-mark-dialog training-dialog" role="dialog" aria-modal="true">
+                <strong>Capacitaci&oacute;n</strong>
+                <p>
+                    ${escapeHTML(profile)} | ${escapeHTML(turnoLabel(state) || "Turno")}
+                </p>
+                <div class="training-time-grid">
+                    <label>
+                        <span>Desde</span>
+                        <input name="startTime" type="time" step="300" required value="${escapeHTML(formatTime(scheduledStart))}">
+                    </label>
+                    <label>
+                        <span>Hasta</span>
+                        <input name="endTime" type="time" step="300" required value="${escapeHTML(formatTime(scheduledEnd))}">
+                    </label>
+                </div>
+                <p class="training-dialog-summary" data-training-summary></p>
+                <div class="turn-change-dialog__actions">
+                    <button class="primary-button" type="submit">
+                        Guardar
+                    </button>
+                    <button class="secondary-button" type="button" data-action="cancel">
+                        Cancelar
+                    </button>
+                </div>
+            </form>
+        `;
+
+        const dialog = backdrop.querySelector("form");
+        const startInput = dialog.querySelector("[name='startTime']");
+        const endInput = dialog.querySelector("[name='endTime']");
+        const summary = dialog.querySelector("[data-training-summary]");
+        const close = value => {
+            document.removeEventListener("keydown", onKeydown);
+            backdrop.remove();
+            resolve(value);
+        };
+        const onKeydown = event => {
+            if (event.key === "Escape") {
+                close(null);
+            }
+        };
+        const currentRecord = () => buildTrainingRecord({
+            date,
+            state,
+            holidays,
+            segments,
+            startTime: startInput.value,
+            endTime: endInput.value
+        });
+        const syncSummary = () => {
+            const result = currentRecord();
+
+            if (result.error) {
+                summary.textContent = result.error;
+                summary.classList.add("is-error");
+                return;
+            }
+
+            const hours = result.record.overtimeHours;
+
+            summary.classList.remove("is-error");
+            summary.textContent =
+                `Reemplazo: ${formatTrainingHours(hours.d)} h diurnas / ` +
+                `${formatTrainingHours(hours.n)} h nocturnas.`;
+        };
+
+        startInput.addEventListener("input", syncSummary);
+        endInput.addEventListener("input", syncSummary);
+
+        dialog
+            .querySelector("[data-action='cancel']")
+            .onclick = () => close(null);
+
+        dialog.onsubmit = event => {
+            event.preventDefault();
+
+            const result = currentRecord();
+
+            if (result.error) {
+                alert(result.error);
+                return;
+            }
+
+            close(result.record);
+        };
+
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) {
+                close(null);
+            }
+        });
+
+        document.addEventListener("keydown", onKeydown);
+        document.body.appendChild(backdrop);
+        syncSummary();
+        startInput.focus();
+    });
+}
+
 async function handleHoursReturnSelection(fecha) {
     const profile = getCurrentProfile();
     const keyDay = keyFromDate(fecha);
@@ -11006,6 +11332,77 @@ async function handleClockMarkSelection(fecha) {
                 keyDay
             }
         );
+    }
+
+    clearSelectionMode();
+}
+
+async function handleTrainingSelection(fecha) {
+    const profile = getCurrentProfile();
+    const keyDay = keyFromDate(fecha);
+    const holidays = await fetchHolidays(fecha.getFullYear());
+    const admin = getAdminDays();
+    const legal = getLegalDays();
+    const comp = getCompDays();
+    const absences = getAbsences();
+    const state = getTurnoBase(profile, keyDay);
+
+    if (!esTurnoCapacitacionValido(state)) {
+        alert("Selecciona un turno diurno (Larga o Diurno) para registrar capacitacion.");
+        clearSelectionMode();
+        return;
+    }
+
+    if (
+        admin[keyDay] ||
+        legal[keyDay] ||
+        comp[keyDay] ||
+        absences[keyDay] ||
+        getHourReturn(profile, keyDay)
+    ) {
+        alert("Este turno ya tiene un permiso, licencia, feriado, ausencia o devolucion aplicada.");
+        clearSelectionMode();
+        return;
+    }
+
+    const segments = getScheduledSegmentsForProfile(
+        profile,
+        keyDay,
+        fecha,
+        state,
+        holidays
+    ).filter(segment => segment.start < segment.end);
+
+    if (!segments.length) {
+        alert("No hay un horario de turno disponible para esta fecha.");
+        clearSelectionMode();
+        return;
+    }
+
+    const record = await openTrainingDialog({
+        profile,
+        keyDay,
+        date: fecha,
+        state,
+        holidays,
+        segments
+    });
+
+    if (!record) {
+        clearSelectionMode();
+        return;
+    }
+
+    const applied = await aplicarCapacitacion(
+        fecha,
+        record,
+        {
+            beforeMutation: () => pushHistory()
+        }
+    );
+
+    if (applied === false) {
+        alert("No se pudo registrar la capacitacion en ese turno.");
     }
 
     clearSelectionMode();
@@ -12214,6 +12611,9 @@ DOM.hoursReturnBtn.onclick = activarSelectorDevolucionHoras;
 DOM.unjustifiedAbsenceBtn.onclick =
     activarSelectorAusenciaInjustificada;
 DOM.clockMarkBtn.onclick = activarSelectorMarcajeReloj;
+if (DOM.trainingBtn) {
+    DOM.trainingBtn.onclick = activarSelectorCapacitacion;
+}
 DOM.moveShiftBtn.onclick = activarSelectorMoverTurno;
 syncMoveShiftAvailability();
 
@@ -12302,6 +12702,11 @@ setCalendarSelectionHandler(async ({ cell: celda, date: fecha }) => {
 
     if (selectionMode === "clockmark") {
         await handleClockMarkSelection(fecha);
+        return;
+    }
+
+    if (selectionMode === "training") {
+        await handleTrainingSelection(fecha);
         return;
     }
 

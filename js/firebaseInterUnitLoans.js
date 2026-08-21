@@ -30,7 +30,7 @@ function assignmentToReplacement(assignment) {
         clockLabel: "",
         clockHours: null,
         diurnoLongCoverage: false,
-        overtimeHours: null,
+        overtimeHours: assignment.overtimeHours || null,
         isLoan: true,
         workerWorkspaceId: assignment.sourceWorkspaceId || "",
         workerWorkspaceName: assignment.sourceWorkspaceName || "",

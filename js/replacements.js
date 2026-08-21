@@ -34,7 +34,10 @@ import { calcHours, isBusinessDay } from "./calculations.js";
 import { getCachedHolidays } from "./holidays.js";
 import {
     getClockDeficitHours,
-    getClockExtraHours
+    getClockExtraHours,
+    getClockMarks,
+    getScheduledSegmentsForProfile,
+    saveClockMarks
 } from "./clockMarks.js";
 import {
     addAuditLog,
@@ -58,6 +61,149 @@ function normalizeHours(hours) {
     const n = Math.max(0, Number(hours.n) || 0);
 
     return d || n ? { d, n } : null;
+}
+
+function trainingAbsenceForReplacement(record) {
+    if (!record?.replaced || !record?.date) return null;
+
+    const keyDay = keyFromISO(record.date);
+    const absence = getJSON(`absences_${record.replaced}`, {})[keyDay];
+
+    return getAbsenceType(absence) === "training"
+        ? absence
+        : null;
+}
+
+function applyTrainingReplacementClockMark(record) {
+    const keyDay = keyFromISO(record?.date);
+    const worker = String(record?.worker || "").trim();
+    const absence = trainingAbsenceForReplacement(record);
+
+    if (
+        !worker ||
+        !keyDay ||
+        record?.isLoan ||
+        !record?.addsShift ||
+        !absence?.startTime ||
+        !absence?.endTime ||
+        !absence?.scheduledStart ||
+        !absence?.scheduledEnd ||
+        (
+            absence.startTime === absence.scheduledStart &&
+            absence.endTime === absence.scheduledEnd
+        )
+    ) {
+        return;
+    }
+
+    const date = parseKey(keyDay);
+
+    if (Number.isNaN(date.getTime())) return;
+
+    const turn = codeToTurno(record.turno);
+
+    if (
+        turn !== TURNO.LARGA &&
+        turn !== TURNO.DIURNO
+    ) {
+        return;
+    }
+
+    const holidays = getCachedHolidays(date.getFullYear());
+    const segments = getScheduledSegmentsForProfile(
+        worker,
+        keyDay,
+        date,
+        turn,
+        holidays
+    ).filter(segment => segment.start < segment.end);
+
+    if (segments.length !== 1) return;
+
+    const segment = segments[0];
+
+    if (
+        segment.id !== "larga" &&
+        segment.id !== "diurno"
+    ) {
+        return;
+    }
+
+    const marks = getClockMarks(worker);
+    const currentMark = marks[keyDay] || { segments: {} };
+    const currentSegment =
+        currentMark.segments?.[segment.id] || null;
+
+    // Si el reemplazante ya tenia un marcaje manual, no lo pisamos.
+    if (currentSegment && Object.keys(currentSegment).length) {
+        return;
+    }
+
+    const segmentMark = {
+        trainingReplacementId: record.id
+    };
+
+    if (absence.startTime !== absence.scheduledStart) {
+        segmentMark.entryTime = absence.startTime;
+    }
+
+    if (absence.endTime !== absence.scheduledEnd) {
+        segmentMark.exitTime = absence.endTime;
+    }
+
+    if (!segmentMark.entryTime && !segmentMark.exitTime) return;
+
+    marks[keyDay] = {
+        ...currentMark,
+        segments: {
+            ...(currentMark.segments || {}),
+            [segment.id]: segmentMark
+        },
+        updatedAt: new Date().toISOString()
+    };
+
+    saveClockMarks(worker, marks);
+}
+
+function removeTrainingReplacementClockMark(record) {
+    const keyDay = keyFromISO(record?.date);
+    const worker = String(record?.worker || "").trim();
+    const id = String(record?.id || "");
+
+    if (!worker || !keyDay || !id) return;
+
+    const marks = getClockMarks(worker);
+    const mark = marks[keyDay];
+
+    if (!mark?.segments) return;
+
+    const nextSegments = {};
+    let changed = false;
+
+    Object.entries(mark.segments).forEach(([segmentId, segmentMark]) => {
+        if (
+            String(segmentMark?.trainingReplacementId || "") === id
+        ) {
+            changed = true;
+            return;
+        }
+
+        nextSegments[segmentId] = segmentMark;
+    });
+
+    if (!changed) return;
+
+    if (Object.keys(nextSegments).length) {
+        marks[keyDay] = {
+            ...mark,
+            segments: nextSegments,
+            updatedAt: new Date().toISOString()
+        };
+    } else {
+        delete marks[keyDay];
+    }
+
+    saveClockMarks(worker, marks);
 }
 
 function diurnoExtensionHours(date, holidays = {}) {
@@ -302,6 +448,7 @@ export function cancelReplacementsForWorkerKeys(
     if (!canceled.length) return [];
 
     saveReplacements(replacements);
+    canceled.forEach(removeTrainingReplacementClockMark);
     cancelLinkedRequestsForReplacements(canceled, {
         canceledAt,
         reason,
@@ -353,6 +500,7 @@ export function cancelFutureReplacementsForWorker(
     if (!canceled.length) return [];
 
     saveReplacements(replacements);
+    canceled.forEach(removeTrainingReplacementClockMark);
     cancelLinkedRequestsForReplacements(canceled, {
         canceledAt,
         reason,
@@ -411,6 +559,7 @@ export function cancelReplacementsForWorkerRange(
     if (!canceled.length) return [];
 
     saveReplacements(replacements);
+    canceled.forEach(removeTrainingReplacementClockMark);
     cancelLinkedRequestsForReplacements(canceled, {
         canceledAt,
         reason,
@@ -490,6 +639,7 @@ export function cancelReplacementById(
 
     saveReplacements(replacements);
     removeManualExtraTurnFromCalendar(canceled);
+    removeTrainingReplacementClockMark(canceled);
     cancelLinkedRequestsForReplacements([canceled], {
         canceledAt,
         reason,
@@ -726,6 +876,10 @@ export function getAbsenceLabelForProfileDate(profile, keyDay) {
         return "Permiso Gremial";
     }
 
+    if (absenceType === "training") {
+        return "Capacitaci\u00f3n";
+    }
+
     if (absenceType === "license") {
         return "Licencia M\u00e9dica";
     }
@@ -800,6 +954,7 @@ export function saveReplacement(data) {
     replacements.push(record);
 
     saveReplacements(replacements);
+    applyTrainingReplacementClockMark(record);
 
     // El trabajador necesita saber en la notificacion a quien cubre ese dia, o
     // el motivo cuando el turno extra no reemplaza a nadie.

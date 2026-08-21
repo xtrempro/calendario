@@ -1466,6 +1466,7 @@ body[data-active-view="home"] .secondary-grid {
     --hm-warn-soft: rgba(249, 115, 22, 0.16);
     --hm-info: #2477ee;
     --hm-info-soft: rgba(36, 119, 238, 0.15);
+    --hm-night: #4f46e5;
 }
 
 .hm-root { display: flex; flex-direction: column; gap: 18px; }
@@ -1571,6 +1572,7 @@ body[data-active-view="home"] .secondary-grid {
 .hm-sum--good .hm-sum-val { color: var(--hm-good); }
 .hm-sum--warn .hm-sum-val { color: var(--hm-warn); }
 .hm-sum--accent .hm-sum-val { color: var(--accent); }
+.hm-sum--night .hm-sum-val { color: var(--hm-night); }
 /* Cumpleaños de hoy: solo aparece el dia que corresponde, por eso resalta. */
 .hm-sum--bday { background: rgba(236, 72, 153, 0.12); }
 .hm-sum--bday span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3833,6 +3835,10 @@ body[data-active-view="profile"] .profile-view-layout > .sidebar .profile-item__
     text-align: center;
 }
 
+.nav-tile[data-alert-count] {
+    padding-right: 34px;
+}
+
 .actionbar .nav-tile[data-target="staffingWeeklyCalendar"] span,
 .actionbar .nav-tile[data-target="taskAssignmentsPanel"] span {
     white-space: normal;
@@ -3841,7 +3847,7 @@ body[data-active-view="profile"] .profile-view-layout > .sidebar .profile-item__
 .nav-tile .nav-alert-badge {
     position: absolute;
     top: 5px;
-    right: 25%;
+    right: 10px;
     display: inline-grid;
     place-items: center;
     min-width: 20px;
@@ -7968,6 +7974,44 @@ body.theme-dark .overtime-backup-subsection {
     margin-bottom: 18px;
 }
 
+.training-time-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.training-time-grid label {
+    display: grid;
+    gap: 7px;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.training-time-grid input {
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0 12px;
+    color: var(--text);
+    background: var(--panel);
+    font: inherit;
+    font-weight: 800;
+}
+
+.training-dialog-summary {
+    min-height: 20px;
+    margin: 12px 0 0;
+    color: var(--text-muted);
+    font-size: 0.86rem;
+    font-weight: 700;
+}
+
+.training-dialog-summary.is-error {
+    color: var(--red);
+}
+
 .clock-mark-dialog .turn-change-dialog__actions {
     grid-template-columns: 1fr 1fr;
     margin-top: 22px;
@@ -8931,6 +8975,7 @@ body.theme-dark .overtime-backup-subsection {
 .legal-soft,
 .comp-day,
 .comp-soft,
+.training-day,
 .license-day,
 .union-leave-day,
 .professional-license-day,
@@ -9114,13 +9159,13 @@ body.theme-dark .overtime-backup-subsection {
     ) !important;
 }
 
-.weekend:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.license-day):not(.union-leave-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.hours-return-day):not(.legal-day):not(.comp-day),
-.holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.license-day):not(.union-leave-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.hours-return-day):not(.legal-day):not(.comp-day) {
+.weekend:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.training-day):not(.license-day):not(.union-leave-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.hours-return-day):not(.legal-day):not(.comp-day),
+.holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.training-day):not(.license-day):not(.union-leave-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.hours-return-day):not(.legal-day):not(.comp-day) {
     background: rgba(255, 255, 255, 0.06);
 }
 
-body.theme-light .weekend:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.license-day):not(.union-leave-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.hours-return-day):not(.legal-day):not(.comp-day),
-body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.license-day):not(.union-leave-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.hours-return-day):not(.legal-day):not(.comp-day) {
+body.theme-light .weekend:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.training-day):not(.license-day):not(.union-leave-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.hours-return-day):not(.legal-day):not(.comp-day),
+body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):not(.yellow):not(.half-morning):not(.half-afternoon):not(.eighteen):not(.admin-day):not(.half-admin-day):not(.training-day):not(.license-day):not(.union-leave-day):not(.professional-license-day):not(.unpaid-leave-day):not(.unjustified-absence-day):not(.hours-return-day):not(.legal-day):not(.comp-day) {
     background: rgba(17, 32, 56, 0.05);
 }
 
@@ -9182,6 +9227,11 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
 
 .comp-soft {
     background: linear-gradient(135deg, rgba(139, 43, 217, 0.7), rgba(186, 82, 236, 0.82)) !important;
+}
+
+.training-day {
+    background: var(--color-training, #0891b2) !important;
+    color: var(--color-training-text, #ffffff) !important;
 }
 
 .license-day {

@@ -53,7 +53,8 @@ import {
     puedeAplicarAusenciaInjustificada,
     puedeAplicarCompensatorioDesde,
     puedeAplicarLegalDesde,
-    puedeReemplazarAusencia
+    puedeReemplazarAusencia,
+    esTurnoCapacitacionValido
 } from "./rulesEngine.js";
 import { createLeaveMemoTask } from "./memos.js";
 import { showConfirm } from "./dialogs.js";
@@ -194,6 +195,7 @@ async function confirmAndCancelScheduleConflicts(
 }
 
 function absenceLabel(type) {
+    if (type === "training") return "Capacitaci\u00f3n";
     if (type === "professional_license") return "LM Profesional";
     if (type === "union_leave") return "Permiso Gremial";
     if (type === "unpaid_leave") return "Permiso sin Goce";
@@ -304,6 +306,103 @@ export async function aplicarAusenciaInjustificada(fecha){
             date: isoFromKey(key),
             keys: [key],
             type: "unjustified_absence"
+        }
+    );
+
+    return true;
+}
+
+export async function aplicarCapacitacion(
+    fecha,
+    record = {},
+    options = {}
+) {
+    const currentProfile = getCurrentProfile();
+
+    if (!currentProfile) return false;
+
+    const key = keyFromDate(fecha);
+    const turno = getTurnoBase(currentProfile, key);
+    const absences = getAbsences();
+    const blocked = getBlockedDays();
+    const admin = getAdminDays();
+    const legal = getLegalDays();
+    const comp = getCompDays();
+
+    if (
+        !esTurnoCapacitacionValido(turno) ||
+        admin[key] ||
+        legal[key] ||
+        comp[key] ||
+        absences[key]
+    ) {
+        return false;
+    }
+
+    const startTime = String(record.startTime || "").trim();
+    const endTime = String(record.endTime || "").trim();
+    const overtimeHours = record.overtimeHours || {};
+    let mutationPrepared = false;
+    const prepareMutation = async () => {
+        if (mutationPrepared) return;
+
+        mutationPrepared = true;
+
+        if (typeof options.beforeMutation === "function") {
+            await options.beforeMutation();
+        }
+    };
+    const conflictCancellation =
+        await confirmAndCancelScheduleConflicts(
+            currentProfile,
+            [key],
+            "Capacitaci\u00f3n",
+            {
+                confirmDialog: options.confirmConflicts || showConfirm,
+                beforeCancellation: prepareMutation
+            }
+        );
+
+    if (!conflictCancellation) {
+        return null;
+    }
+
+    await prepareMutation();
+
+    absences[key] = {
+        type: "training",
+        startTime,
+        endTime,
+        scheduledStart: String(record.scheduledStart || "").trim(),
+        scheduledEnd: String(record.scheduledEnd || "").trim(),
+        overtimeHours: {
+            d: Number(overtimeHours.d) || 0,
+            n: Number(overtimeHours.n) || 0
+        }
+    };
+    blocked[key] = true;
+
+    saveAbsences(absences);
+    saveBlockedDays(blocked);
+
+    addAuditLog(
+        AUDIT_CATEGORY.LEAVE_ABSENCE,
+        "Aplic\u00f3 Capacitaci\u00f3n",
+        `${currentProfile}: ${formatKey(key)} ${startTime || ""}-${endTime || ""}.`,
+        {
+            profile: currentProfile,
+            date: isoFromKey(key),
+            keys: [key],
+            amount: 1,
+            type: "training",
+            startTime,
+            endTime,
+            overtimeHours: {
+                d: Number(overtimeHours.d) || 0,
+                n: Number(overtimeHours.n) || 0
+            },
+            canceledSwapIds:
+                conflictCancellation.canceledSwaps.map(swap => swap.id)
         }
     );
 

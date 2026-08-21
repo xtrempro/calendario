@@ -1196,6 +1196,7 @@ function absenceLabelForType(type) {
     if (type === "professional_license") return "LM Profesional";
     if (type === "union_leave") return "Permiso Gremial";
     if (type === "unpaid_leave") return "Permiso sin Goce";
+    if (type === "training") return "Capacitaci\u00f3n";
     if (type === "unjustified_absence") return "Ausencia injustificada";
 
     return "Ausencia";

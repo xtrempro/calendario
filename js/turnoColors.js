@@ -54,6 +54,7 @@ export const NAMED_TURNO_COLORS = [
     { key: "reduction", label: "Reducción horaria", default: "#dc2626" },
     { key: "legal", label: "F. Legal", default: "#0ea5a6" },
     { key: "comp", label: "F. Compensatorio", default: "#8b2bd9" },
+    { key: "training", label: "Capacitaci\u00f3n", default: "#0891b2" },
     { key: "license", label: "Licencia Médica", default: LICENSE_MUTED_ORANGE },
     { key: "professional_license", label: "LM Profesional", default: "#2563eb" },
     { key: "unpaid_leave", label: "Permiso sin Goce", default: "#6b7280" },

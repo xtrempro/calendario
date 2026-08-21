@@ -2887,6 +2887,20 @@ exports.createInterUnitLoan = onCall(
     const date = cleanCallableText(data.date, 10);
     const turnCode = cleanCallableText(data.turnCode, 8);
     const absenceType = cleanCallableText(data.absenceType, 160);
+    const rawOvertimeHours =
+      data.overtimeHours && typeof data.overtimeHours === "object"
+        ? data.overtimeHours
+        : null;
+    const overtimeHours = rawOvertimeHours
+      ? {
+          d: Math.max(0, Number(rawOvertimeHours.d) || 0),
+          n: Math.max(0, Number(rawOvertimeHours.n) || 0)
+        }
+      : null;
+    const normalizedOvertimeHours =
+      overtimeHours && (overtimeHours.d || overtimeHours.n)
+        ? overtimeHours
+        : null;
 
     if (
       !linkId ||
@@ -3011,6 +3025,7 @@ exports.createInterUnitLoan = onCall(
         date,
         turnCode,
         absenceType,
+        overtimeHours: normalizedOvertimeHours,
         createdByUid: uid,
         createdByName: cleanCallableText(
           request.auth.token.name ||

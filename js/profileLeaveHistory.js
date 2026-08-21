@@ -10,6 +10,7 @@ const LEAVE_LABELS = {
     license: "Licencia M\u00e9dica",
     professional_license: "LM Profesional",
     union_leave: "Permiso Gremial",
+    training: "Capacitaci\u00f3n",
     unpaid_leave: "Permiso sin Goce",
     unjustified_absence: "Ausencia Injustificada"
 };
@@ -24,6 +25,7 @@ function normalizeType(value) {
         .replace(/^_+|_+$/g, "");
 
     if (type.includes("gremial")) return "union_leave";
+    if (type.includes("capacitacion")) return "training";
     if (type === "medical_license") return "license";
     return type;
 }

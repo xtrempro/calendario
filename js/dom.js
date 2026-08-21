@@ -79,6 +79,7 @@ export const DOM = {
     hoursReturnBtnLabel: document.getElementById("hoursReturnBtnLabel"),
     unjustifiedAbsenceBtn: document.getElementById("unjustifiedAbsenceBtn"),
     clockMarkBtn: document.getElementById("clockMarkBtn"),
+    trainingBtn: document.getElementById("trainingBtn"),
     moveShiftBtn: document.getElementById("moveShiftBtn"),
 
     /* navegacion */

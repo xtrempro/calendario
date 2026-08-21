@@ -739,6 +739,7 @@ async function undoLeaveAbsenceLog(log) {
         type === "union_leave" ||
         type === "professional_license" ||
         type === "unpaid_leave" ||
+        type === "training" ||
         type === "unjustified_absence"
     ) {
         removedKeys = removeAbsenceBlock(

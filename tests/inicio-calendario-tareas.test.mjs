@@ -124,6 +124,11 @@ test("los accesos inferiores del inicio no se muestran", () => {
     assert.doesNotMatch(home, /Ir a cobertura de turnos/);
     assert.doesNotMatch(home, /tareas pendientes/);
     assert.doesNotMatch(home, /statCard\("amber", IC\.clipboard, "Pendientes"/);
+    assert.doesNotMatch(home, /row\("warn", "Pendientes"/);
+    assert.match(home, /Personal de d[ií]a/);
+    assert.match(home, /Personal de noche/);
+    assert.match(home, /dotacion\.dia/);
+    assert.match(home, /dotacion\.noche/);
     assert.doesNotMatch(home, /hm-highlight/);
     assert.doesNotMatch(home, /Organizaci[oó]n hoy/);
     // La fecha del encabezado sigue siendo la puerta al calendario de tareas.
@@ -161,6 +166,7 @@ test("los cambios de turno del inicio abren detalle y se anulan con la logica de
     assert.match(home, /window\.pushUndoState\("Deshacer cambio de turno"\)/);
     assert.match(home, /const profiles = \[targetSwap\.from, targetSwap\.to\]/);
     assert.match(home, /dates\.map\(date => updateDayCell\(profile, date\)\)/);
+    assert.doesNotMatch(home, /Â·/);
 });
 
 test("el dia 1 cae en su columna, con la semana en lunes", () => {
