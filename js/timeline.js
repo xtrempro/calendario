@@ -168,7 +168,7 @@ const TIMELINE_CLOCK_MARKER = `<svg class="timeline-clock-marker" viewBox="0 0 2
 const TIMELINE_PREASSIGN_MARKER = `<svg class="timeline-preassign-marker" viewBox="0 0 24 10" fill="currentColor" aria-hidden="true"><circle cx="5" cy="5" r="2.3"/><circle cx="12" cy="5" r="2.3"/><circle cx="19" cy="5" r="2.3"/></svg>`;
 
 // Celular: la solicitud de cobertura ya salio a las PWA y se espera respuesta.
-const TIMELINE_REQUEST_MARKER = `<svg class="timeline-request-marker" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2.2"/><path d="M11 18.5h2"/></svg>`;
+const TIMELINE_REQUEST_MARKER = `<svg class="timeline-request-marker" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2.8"/><path d="M10.6 4.7h2.8"/><rect x="7.4" y="6.7" width="9.2" height="10.2" rx="1"/><circle cx="12" cy="19.6" r="1.15"/></svg>`;
 let timelineLastUserActivityAt = Date.now();
 // Contexto del ultimo render (mes visible) para actualizar casillas sueltas
 // sin reconstruir todo el timeline.

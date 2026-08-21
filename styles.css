@@ -1688,7 +1688,7 @@ body[data-active-view="home"] .secondary-grid {
     border: none; cursor: pointer; font-family: inherit;
     background: #dbeafe; color: #1d4ed8;
 }
-.hm-cob-status--espera svg { width: 11px; height: 13px; }
+.hm-cob-status--espera svg { width: 16px; height: 16px; margin: -2px 0; }
 .hm-cob-status--espera:hover { background: #bfdbfe; }
 .hm-cob-meta { font-size: 0.83rem; color: var(--text-soft); line-height: 1.35; }
 .hm-cob-meta b { color: var(--text); font-weight: 700; }
@@ -5467,14 +5467,14 @@ body.theme-light .day.worker-blocked-day {
 /* Solicitud de cobertura enviada y en espera: azul, distinto del "!" rojo de
    "sin cubrir" y del naranjo del preasignado. */
 .day-badge--request {
-    padding: 2px 5px;
+    padding: 1px 4px;
     background: linear-gradient(135deg, #3b82f6, #2563eb);
     color: #fff;
 }
 
 .day-badge--request svg {
-    width: 11px;
-    height: 13px;
+    width: 17px;
+    height: 17px;
 }
 
 /* Casilla con turno preasignado (cobertura tentativa): tinte naranjo distinto del
@@ -10093,8 +10093,8 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 }
 
 .timeline-replacement-marker .timeline-request-marker {
-    width: 8px;
-    height: 11px;
+    width: 14px;
+    height: 14px;
 }
 
 .mini.clock-severe-day .timeline-replacement-marker {

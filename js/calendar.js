@@ -2616,9 +2616,11 @@ const CLOCK_MARK_BADGE_ICON = `
 // vistazo el turno que ya salio a las PWA del que todavia no se pidio a nadie.
 const REQUEST_PENDING_BADGE = "request-pending";
 const REQUEST_PENDING_BADGE_ICON = `
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="7" y="2" width="10" height="20" rx="2.2"/>
-        <path d="M11 18.5h2"/>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="5" y="2" width="14" height="20" rx="2.8"/>
+        <path d="M10.6 4.7h2.8"/>
+        <rect x="7.4" y="6.7" width="9.2" height="10.2" rx="1"/>
+        <circle cx="12" cy="19.6" r="1.15"/>
     </svg>
 `;
 

@@ -488,7 +488,7 @@ const IC = {
     check: '<path d="M20 6 9 17l-5-5"/>',
     arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     chevron: '<path d="M9 6l6 6-6 6"/>',
-    phone: '<rect x="7" y="2" width="10" height="20" rx="2.2"/><path d="M11 18.5h2"/>',
+    phone: '<rect x="5" y="2" width="14" height="20" rx="2.8"/><path d="M10.6 4.7h2.8"/><rect x="7.4" y="6.7" width="9.2" height="10.2" rx="1"/><circle cx="12" cy="19.6" r="1.15"/>',
     cake: '<path d="M4 21h16v-7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3z"/><path d="M4 16c1.5 1 2.5 1 4 0s2.5-1 4 0 2.5 1 4 0 2.5-1 4 0"/><path d="M12 8V5M9 8V6M15 8V6"/>',
     palm: '<path d="M12 2a7 7 0 0 1 7 7c0 4-7 13-7 13S5 13 5 9a7 7 0 0 1 7-7z"/>',
     sun: '<path d="M17 8c0-3-2-5-5-5S7 5 7 8c0 6-3 8-3 8h16s-3-2-3-8"/><path d="M12 3V1"/>',
@@ -993,7 +993,7 @@ function coberturaRow(item, kind) {
     const status = waiting
         ? `<button class="hm-cob-status hm-cob-status--espera" type="button"
                 data-hm="cob-espera" data-cob-profile="${esc(item.origin)}" data-cob-key="${esc(item.keyDay)}"
-                title="Ver a quién se le envió y cuánto queda">${svg(IC.phone)}En espera..</button>`
+                title="Ver a quién se le envió y cuánto queda">${svg(IC.phone, 'stroke-width="1.7"')}En espera..</button>`
         : kind === "sincubrir"
             ? '<span class="hm-cob-status hm-cob-status--sincubrir">Sin cubrir</span>'
             : '<span class="hm-cob-status hm-cob-status--preasignado">Preasignado</span>';

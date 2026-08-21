@@ -215,7 +215,7 @@ test("el timeline muestra el celular", () => {
 
 test("la tarjeta de cobertura del inicio muestra el celular", () => {
     // El icono va pegado al texto dentro del mismo boton.
-    assert.match(home, /svg\(IC\.phone\)\}En espera\.\.</);
+    assert.match(home, /svg\(IC\.phone[^)]*\)\}En espera\.\.</);
     assert.match(home, /hm-cob-status--espera/);
     assert.match(home, /phone:/);
     // Y en vez de "Podria cubrir" dice a quien ya se le pidio.
