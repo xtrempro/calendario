@@ -13,7 +13,8 @@ import {
     getProfiles,
     isProfileActive,
     isNoCoverageDay,
-    getShiftAssigned
+    getShiftAssigned,
+    getWorkerRequests
 } from "./storage.js";
 import { getJSON } from "./persistence.js";
 import { keyFromDate, keyFromISO, isoFromKey } from "./dateUtils.js";
@@ -70,6 +71,32 @@ const REPEAT_OPTS = [
 const ALERT_OPTS = [
     "Sin alerta", "Al momento", "5 minutos antes", "15 minutos antes", "30 minutos antes", "1 hora antes"
 ];
+const REQUEST_LEAVE_TYPES = new Set([
+    "",
+    "admin",
+    "half_admin_morning",
+    "half_admin_afternoon",
+    "legal",
+    "comp",
+    "union_leave",
+    "unpaid_leave",
+    "leave_cancel"
+]);
+const REQUEST_CLOCK_TYPES = new Set(["missing_clock", "clock_incident"]);
+const REQUEST_TYPE_LABELS = {
+    admin: "P. Administrativo",
+    half_admin_morning: "1/2 ADM Mañana",
+    half_admin_afternoon: "1/2 ADM Tarde",
+    legal: "F. Legal",
+    comp: "F. Compensatorio",
+    union_leave: "Permiso Gremial",
+    unpaid_leave: "Permiso sin Goce",
+    leave_cancel: "Anulación de permiso",
+    missing_clock: "Olvido de marcación",
+    clock_incident: "Incidencia de marcaje",
+    swap: "Cambio de turno",
+    unknown: "Solicitud"
+};
 let editingTaskId = "";
 
 function optionsHTML(opts, selected) {
@@ -91,6 +118,7 @@ let taskCalYear = new Date().getFullYear();
 let taskCalMonth = new Date().getMonth();
 
 let coverageDetail = false;
+let requestsDetail = false;
 // Datos de cobertura calculados una vez por render (para no recalcular al
 // alternar el switch de detalles).
 let coverageData = { uncovered: [], preassigned: [] };
@@ -557,12 +585,6 @@ function statsSection() {
         ${statCard("amber", IC.clipboard, "Pendientes", 7, "tareas pendientes")}`;
 }
 
-function panelLink(text, action = "") {
-    const attr = action ? ` data-hm="${action}"` : "";
-
-    return `<button class="hm-link" type="button"${attr}>${text} ${svg(IC.chevron, 'stroke-width="2.2"')}</button>`;
-}
-
 function panelHead(icon, title, extra = "") {
     return `
         <div class="hm-head">
@@ -602,7 +624,171 @@ function tareasWidget() {
         <div class="hm-card hm-col-4">
             ${panelHead(IC.checkClip, "Tareas diarias", addBtn)}
             <div class="hm-listcol" data-hm="tasks-list">${tasksListHTML()}</div>
-            ${panelLink("Ver todas las tareas", "open-taskcal")}
+        </div>`;
+}
+
+function requestTypeLabel(type) {
+    return REQUEST_TYPE_LABELS[type] || REQUEST_TYPE_LABELS.unknown;
+}
+
+function requestSummaryGroup(request = {}) {
+    const type = String(request.type || "");
+
+    if (REQUEST_LEAVE_TYPES.has(type)) return "leave";
+    if (type === "swap") return "swap";
+    if (REQUEST_CLOCK_TYPES.has(type)) return "clock";
+
+    return "";
+}
+
+export function buildRequestSummary(requests = getWorkerRequests()) {
+    const summary = {
+        leave: [],
+        swap: [],
+        clock: [],
+        total: 0,
+        pending: []
+    };
+
+    (Array.isArray(requests) ? requests : []).forEach(request => {
+        if (request?.status !== "pending") return;
+
+        const group = requestSummaryGroup(request);
+        if (!group) return;
+
+        summary[group].push(request);
+        summary.pending.push({ ...request, group });
+    });
+
+    summary.pending.sort((a, b) =>
+        String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+    );
+    summary.total = summary.pending.length;
+
+    return summary;
+}
+
+function requestPrimaryDate(request = {}) {
+    return (
+        request.date ||
+        request.changeDate ||
+        request.fecha ||
+        request.startDate ||
+        request.returnDate ||
+        request.devolucion ||
+        ""
+    );
+}
+
+function requestSummaryDateLabel(request = {}) {
+    const iso = requestPrimaryDate(request);
+
+    return iso ? shortDateFromISO(iso) : "Sin fecha";
+}
+
+function requestDocumentCount(request = {}) {
+    const documents = Array.isArray(request.documents)
+        ? request.documents
+        : Array.isArray(request.attachments)
+            ? request.attachments
+            : [];
+
+    return documents.length;
+}
+
+function requestSummaryMeta(request = {}) {
+    const pieces = [];
+    const date = requestPrimaryDate(request);
+
+    if (date) pieces.push(`Fecha: ${shortDateFromISO(date)}`);
+    if (request.endDate && request.endDate !== date) {
+        pieces.push(`Hasta: ${shortDateFromISO(request.endDate)}`);
+    }
+    if (request.days) pieces.push(`${request.days} día(s)`);
+
+    if (request.type === "swap") {
+        const counterpart =
+            request.to ||
+            request.targetProfile ||
+            request.counterpart ||
+            request.receiver ||
+            "";
+        const returnDate =
+            request.devolucion ||
+            request.returnDate ||
+            request.endDate ||
+            "";
+
+        if (counterpart) pieces.push(`Con: ${counterpart}`);
+        if (returnDate) pieces.push(`Devuelve: ${shortDateFromISO(returnDate)}`);
+    }
+
+    if (REQUEST_CLOCK_TYPES.has(String(request.type || ""))) {
+        const docs = requestDocumentCount(request);
+
+        if (docs) pieces.push(`${docs} adjunto(s)`);
+    }
+
+    return pieces.join(" · ");
+}
+
+function requestSummaryChipHTML(tone, icon, count, label) {
+    return `
+        <div class="hm-req-chip hm-req-chip--${tone}">
+            <span class="hm-req-chip-ico">${svg(icon)}</span>
+            <span>
+                <span class="hm-req-chip-num">${count}</span>
+                <span class="hm-req-chip-lbl">${label}</span>
+            </span>
+        </div>`;
+}
+
+function requestSummaryRowHTML(request) {
+    const groupLabel = request.group === "leave"
+        ? "Permiso"
+        : request.group === "swap"
+            ? "Cambio"
+            : "Marcaje";
+    const meta = requestSummaryMeta(request);
+    const note = String(request.note || request.detail || "").trim();
+
+    return `
+        <div class="hm-req-row hm-req-row--${esc(request.group)}">
+            <div class="hm-req-top">
+                <span class="hm-req-type">${esc(groupLabel)}</span>
+                <span class="hm-req-worker">${esc(request.profile || "Sin trabajador")}</span>
+                <span class="hm-req-date">${esc(requestSummaryDateLabel(request))}</span>
+            </div>
+            <div class="hm-req-meta">
+                <b>${esc(requestTypeLabel(request.type))}</b>${meta ? ` · ${esc(meta)}` : ""}
+            </div>
+            ${note ? `<div class="hm-req-note">${esc(note)}</div>` : ""}
+        </div>`;
+}
+
+function solicitudesWidget() {
+    const summary = buildRequestSummary();
+    const list = summary.pending.length
+        ? summary.pending.map(requestSummaryRowHTML).join("")
+        : `<div class="hm-empty">Sin solicitudes pendientes.</div>`;
+
+    return `
+        <div class="hm-card hm-col-4">
+            ${panelHead(IC.megaphone, "Resumen de solicitudes", `<span class="hm-count">${summary.total}</span>`)}
+            <div class="hm-cob-controls">
+                <label class="hm-toggle"><input type="checkbox" data-hm="req-detail" ${requestsDetail ? "checked" : ""}> Ver detalles</label>
+            </div>
+            <div class="hm-req-summary" ${requestsDetail ? "hidden" : ""}>
+                ${requestSummaryChipHTML("leave", IC.file, summary.leave.length, "Vacaciones / permisos")}
+                ${requestSummaryChipHTML("swap", IC.swap, summary.swap.length, "Cambios de turno")}
+                ${requestSummaryChipHTML("clock", IC.clock, summary.clock.length, "Incidencias marcaje")}
+            </div>
+            <div class="hm-req-list" ${requestsDetail ? "" : "hidden"}>
+                ${list}
+                <div class="hm-req-actions">
+                    <button class="hm-cob-btn hm-cob-btn--ver" type="button" data-hm="req-open">REVISAR SOLICITUDES</button>
+                </div>
+            </div>
         </div>`;
 }
 
@@ -842,7 +1028,6 @@ function ausenciasWidget() {
         <div class="hm-card hm-col-4">
             ${panelHead(IC.users, "Ausencias del día")}
             <div class="hm-listcol">${body}</div>
-            ${panelLink("Ver todas las ausencias")}
         </div>`;
 }
 
@@ -959,7 +1144,6 @@ function resumenWidget() {
                     </div>`
                     : ""}
             </div>
-            ${panelLink("Ver calendario")}
         </div>`;
 }
 
@@ -982,7 +1166,6 @@ function cambiosWidget() {
         <div class="hm-card hm-col-5">
             ${panelHead(IC.swap, "Cambios de turno", `<span class="hm-count">${swaps.length}</span>`)}
             <div class="hm-listcol">${body}</div>
-            ${panelLink("Ver todos los cambios")}
         </div>`;
 }
 
@@ -1068,7 +1251,6 @@ function coberturaWidget() {
             </div>
             <div class="hm-cob-summary" ${coverageDetail ? "hidden" : ""}>${summary}</div>
             <div class="hm-cob-list" ${coverageDetail ? "" : "hidden"}>${list}</div>
-            ${panelLink("Ir a cobertura de turnos")}
         </div>`;
 }
 
@@ -1208,10 +1390,6 @@ function homeHTML() {
                         <span class="hm-date-go">${svg(IC.chevron, 'stroke-width="2.4"')}</span>
                     </div>
                 </div>
-                <div class="hm-highlight">
-                    <span class="hm-highlight-big">66</span>
-                    <p>Organización hoy, mejores resultados siempre.</p>
-                </div>
             </section>
 
             <section class="hm-stats">
@@ -1220,13 +1398,17 @@ function homeHTML() {
 
             <section class="hm-grid">
                 ${tareasWidget()}
+                ${solicitudesWidget()}
                 ${ausenciasWidget()}
-                ${resumenWidget()}
             </section>
 
             <section class="hm-grid">
                 ${cambiosWidget()}
                 ${coberturaWidget()}
+            </section>
+
+            <section class="hm-grid">
+                ${resumenWidget()}
                 ${cumpleanosWidget()}
             </section>
 
@@ -1613,6 +1795,18 @@ function wire(panel) {
         });
     }
 
+    const requestDetail = panel.querySelector('[data-hm="req-detail"]');
+    if (requestDetail) {
+        requestDetail.addEventListener("change", () => {
+            requestsDetail = requestDetail.checked;
+            reRenderRequestsSummary(panel);
+        });
+    }
+
+    panel.querySelector('[data-hm="req-open"]')?.addEventListener("click", () => {
+        document.querySelector('.nav-tile[data-target="workerRequestsPanel"]')?.click();
+    });
+
     // --- Cobertura: confirmar / cancelar un turno preasignado sin salir del inicio ---
     panel.querySelectorAll('[data-hm="cob-confirm"], [data-hm="cob-cancel"]')
         .forEach(button => {
@@ -1739,6 +1933,18 @@ function reRenderCoverage(panel) {
 
     if (summary) summary.hidden = coverageDetail;
     if (list) list.hidden = !coverageDetail;
+}
+
+function reRenderRequestsSummary(panel) {
+    const control = panel.querySelector('[data-hm="req-detail"]');
+    const card = control?.closest(".hm-card");
+    if (!card) return;
+
+    const summary = card.querySelector(".hm-req-summary");
+    const list = card.querySelector(".hm-req-list");
+
+    if (summary) summary.hidden = requestsDetail;
+    if (list) list.hidden = !requestsDetail;
 }
 
 // Refresca solo el listado de tareas (para el sync remoto de Firestore).

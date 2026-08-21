@@ -12425,6 +12425,9 @@ window.addEventListener("proturnos:workerRequestsChanged", () => {
         renderWorkerRequestsPanel();
     } else {
         refreshWorkerRequestsNavBadge();
+        if (document.body.dataset.activeView === "home") {
+            renderHomePanel();
+        }
     }
 
     void updateVisibleCalendarDays({ updateSummary: true });

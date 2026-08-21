@@ -49,7 +49,8 @@ globalThis.document = {
 globalThis.alert = () => {};
 globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
-const { buildTaskCalendarCells, getTasksForDay } = await import("../js/home.js");
+const { buildRequestSummary, buildTaskCalendarCells, getTasksForDay } =
+    await import("../js/home.js");
 const { isTaskActiveOn, isTaskDoneOn, toggleTaskDoneOn } =
     await import("../js/homeTasks.js");
 
@@ -115,11 +116,34 @@ test("una tarea sin fecha de inicio no desaparece", () => {
     assert.equal(getTasksForDay(new Date(ANIO, MES, 20), [sinFecha]).length, 1);
 });
 
-test("\"Ver todas las tareas\" tambien abre el calendario", () => {
-    // Es donde uno va a buscar la tarea que ya no ve en la tarjeta.
-    assert.match(home, /panelLink\("Ver todas las tareas", "open-taskcal"\)/);
-    // Los dos disparadores se cablean, no solo el primero.
+test("los accesos inferiores del inicio no se muestran", () => {
+    assert.doesNotMatch(home, /Ver todas las tareas/);
+    assert.doesNotMatch(home, /Ver todas las ausencias/);
+    assert.doesNotMatch(home, /Ver calendario/);
+    assert.doesNotMatch(home, /Ver todos los cambios/);
+    assert.doesNotMatch(home, /Ir a cobertura de turnos/);
+    assert.doesNotMatch(home, /hm-highlight/);
+    assert.doesNotMatch(home, /Organizaci[oó]n hoy/);
+    // La fecha del encabezado sigue siendo la puerta al calendario de tareas.
     assert.match(home, /panel\.querySelectorAll\('\[data-hm="open-taskcal"\]'\)/);
+});
+
+test("el inicio resume solicitudes pendientes por categoria", () => {
+    const summary = buildRequestSummary([
+        { id: "vac", status: "pending", type: "legal", profile: "Ana", date: "2026-08-22" },
+        { id: "adm", status: "accepted", type: "admin", profile: "Beto", date: "2026-08-22" },
+        { id: "swap", status: "pending", type: "swap", profile: "Carla", date: "2026-08-23" },
+        { id: "clock", status: "pending", type: "clock_incident", profile: "Dani", date: "2026-08-24" },
+        { id: "other", status: "pending", type: "hhee_return", profile: "Ema", date: "2026-08-25" }
+    ]);
+
+    assert.equal(summary.leave.length, 1);
+    assert.equal(summary.swap.length, 1);
+    assert.equal(summary.clock.length, 1);
+    assert.equal(summary.total, 3);
+    assert.match(home, /Resumen de solicitudes/);
+    assert.match(home, /data-hm="req-detail"/);
+    assert.match(home, /data-hm="req-open"/);
 });
 
 test("el dia 1 cae en su columna, con la semana en lunes", () => {
