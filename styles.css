@@ -7470,7 +7470,8 @@ body.auth-gate-active .app-shell {
         width: min(760px, 100%);
     }
 
-    .replacement-dialog .replacement-candidate-list {
+    .replacement-dialog .replacement-candidate-list,
+    .replacement-dialog .replacement-request-list {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
@@ -7785,8 +7786,12 @@ body.theme-light .replacement-candidate-warning {
 
 .replacement-request-list {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
     margin-bottom: 12px;
+    max-height: min(300px, 34vh);
+    overflow: auto;
+    padding-right: 4px;
 }
 
 .replacement-request-item {
@@ -7803,6 +7808,18 @@ body.theme-light .replacement-candidate-warning {
 .replacement-request-item span {
     display: grid;
     gap: 2px;
+    min-width: 0;
+}
+
+.replacement-request-item span strong,
+.replacement-request-item small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.replacement-request-item button {
+    flex: none;
 }
 
 .replacement-request-item small {

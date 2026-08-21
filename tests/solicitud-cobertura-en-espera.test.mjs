@@ -67,6 +67,7 @@ const calendar = await read("../js/calendar.js");
 const timeline = await read("../js/timeline.js");
 const home = await read("../js/home.js");
 const settings = await read("../js/systemSettings.js");
+const workerRequests = await read("../js/workerRequests.js");
 const styles = await read("../styles.css");
 
 const REPLACED = "Hugo Rojas Tapia";
@@ -324,6 +325,21 @@ test("aceptar crea el reemplazo y apaga las demas solicitudes", () => {
    El listado del modal
 ========================================================= */
 
+test("el cuadro de sugerencias tampoco corta la lista de enviadas", () => {
+    // El mismo problema en el otro modal: con 15 o 20 solicitudes pendientes la
+    // lista empujaba a los candidatos y a los botones fuera de la pantalla.
+    assert.match(
+        styles,
+        /\.replacement-request-list \{[\s\S]{0,260}max-height: min\(300px, 34vh\);[\s\S]{0,60}overflow: auto;/
+    );
+    // Dos columnas en escritorio, en la misma regla que ya lo hacia con los
+    // candidatos: las dos listas del modal tienen que comportarse igual.
+    assert.match(
+        styles,
+        /\.replacement-dialog \.replacement-candidate-list,[\s\S]{0,80}\.replacement-dialog \.replacement-request-list \{[\s\S]{0,40}grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/
+    );
+});
+
 test("el listado va en dos columnas y con scroll propio", () => {
     // Un turno puede salir a 15 o 20 trabajadores: en una columna el modal se
     // pasaba de largo de la pantalla.
@@ -337,4 +353,38 @@ test("el listado va en dos columnas y con scroll propio", () => {
     assert.match(styles, /\.turn-change-dialog\.request-wait-dialog \{[\s\S]{0,120}max-height: 86vh;/);
     // En pantalla angosta vuelve a una columna.
     assert.match(styles, /\.request-wait-list \{ grid-template-columns: 1fr;/);
+});
+
+/* =========================================================
+   Anular una solicitud desde el menu Solicitudes
+========================================================= */
+
+test("las solicitudes enviadas se pueden anular desde el menu", () => {
+    // Antes no traian ninguna accion: "pending" excluye a proposito a las de
+    // reemplazo, asi que quedaban solo para mirar.
+    assert.match(
+        workerRequests,
+        /isReplacementRequest\(request\) && request\.status === "pending"/
+    );
+    assert.match(workerRequests, /data-worker-request-action="cancel-replacement"/);
+    assert.match(workerRequests, /Anular solicitud/);
+});
+
+test("anular pregunta antes y usa el dialogo del app", () => {
+    // Es irreversible y le llega al telefono del trabajador.
+    assert.match(workerRequests, /const confirmed = await showConfirm\(/);
+    assert.match(workerRequests, /destructive: true/);
+    assert.match(workerRequests, /if \(!confirmed\) return;/);
+    // Y no el confirm del navegador, que el app no usa en ninguna otra parte.
+    assert.doesNotMatch(workerRequests, /window\.confirm\(/);
+});
+
+test("anular escribe por la via que ya sincroniza", () => {
+    // cancelReplacementRequest guarda y el sync lo sube: asi desaparece de la
+    // PWA del trabajador y el turno vuelve a pedir cobertura.
+    assert.match(workerRequests, /cancelReplacementRequest\(request\.id\);/);
+    assert.match(
+        workerRequests,
+        /import \{ cancelReplacementRequest \} from "\.\/replacements\.js";/
+    );
 });

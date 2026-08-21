@@ -27,6 +27,8 @@ import {
     rejectSupervisorInvitation
 } from "./workspaces.js";
 import { isWorkspaceOwner } from "./workspacePermissions.js";
+import { cancelReplacementRequest } from "./replacements.js";
+import { showConfirm } from "./dialogs.js";
 import {
     formatInviteDate,
     showSupervisorInvitePermissionsDialog,
@@ -1365,6 +1367,16 @@ function requestCardHTML(request) {
                 </div>
             </div>
 
+            ${isReplacementRequest(request) && request.status === "pending"
+                ? `
+                    <div class="worker-request-actions">
+                        <button class="secondary-button secondary-button--small" type="button" data-worker-request-action="cancel-replacement" data-request-id="${escapeHTML(request.id)}">
+                            Anular solicitud
+                        </button>
+                    </div>
+                `
+                : ""}
+
             ${pending
                 ? `
                     <div class="worker-request-actions">
@@ -2061,6 +2073,31 @@ export async function renderWorkerRequestsPanel() {
             if (!request || request.status !== "pending") return;
 
             const action = button.dataset.workerRequestAction || "";
+
+            if (action === "cancel-replacement") {
+                // Anular la solicitud enviada: la escribe cancelReplacementRequest
+                // y el sync la sube, con lo que desaparece de la PWA del
+                // trabajador y el turno vuelve a quedar pendiente de cobertura.
+                const confirmed = await showConfirm(
+                    `¿Anular la solicitud de cobertura enviada a ${request.worker}?`,
+                    {
+                        title: "Anular solicitud",
+                        confirmText: "Anular",
+                        cancelText: "Volver",
+                        destructive: true
+                    }
+                );
+
+                if (!confirmed) return;
+
+                button.disabled = true;
+                cancelReplacementRequest(request.id);
+                await renderWorkerRequestsPanel();
+                window.dispatchEvent(
+                    new CustomEvent("proturnos:workerRequestsChanged")
+                );
+                return;
+            }
 
             if (action === "view-calendar") {
                 window.dispatchEvent(
