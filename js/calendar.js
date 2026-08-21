@@ -3603,6 +3603,87 @@ function leaveSourceMapForType(type, admin, legal, comp, absences) {
     return absences;
 }
 
+function addCalendarDaysKey(keyDay, offset = 1) {
+    const date = dateFromKeyDay(keyDay);
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    date.setDate(date.getDate() + offset);
+    return key(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function leaveValueMatchesType(value, type) {
+    if (!value) return false;
+
+    if (type === "admin") return value === 1;
+    if (type === "half_admin_morning") {
+        return value === "0.5M" || value === 0.5;
+    }
+    if (type === "half_admin_afternoon") {
+        return value === "0.5T" || value === 0.5;
+    }
+    if (type === "half_admin") return value === 0.5;
+    if (type === "legal" || type === "comp") return Boolean(value);
+
+    return esAusenciaInjustificada(value)
+        ? type === "unjustified_absence"
+        : getAbsenceType(value) === type;
+}
+
+function contiguousLeaveKeysForDay(sourceMap, type, keyDay) {
+    if (
+        !sourceMap ||
+        typeof sourceMap !== "object" ||
+        !leaveValueMatchesType(sourceMap[keyDay], type)
+    ) {
+        return [];
+    }
+
+    let start = keyDay;
+    let previous = addCalendarDaysKey(start, -1);
+
+    while (
+        previous &&
+        leaveValueMatchesType(sourceMap[previous], type)
+    ) {
+        start = previous;
+        previous = addCalendarDaysKey(start, -1);
+    }
+
+    const keys = [];
+    let cursor = start;
+    let guard = 0;
+
+    while (
+        cursor &&
+        guard < 750 &&
+        leaveValueMatchesType(sourceMap[cursor], type)
+    ) {
+        keys.push(cursor);
+        cursor = addCalendarDaysKey(cursor, 1);
+        guard++;
+    }
+
+    return keys;
+}
+
+function leaveCancellationKeysForDay({
+    sourceMap,
+    type,
+    keyDay,
+    info = null
+} = {}) {
+    const explicitKeys = Array.isArray(info?.keys)
+        ? info.keys.filter(key =>
+            leaveValueMatchesType(sourceMap?.[key], type)
+        )
+        : [];
+
+    if (explicitKeys.includes(keyDay)) return explicitKeys;
+
+    return contiguousLeaveKeysForDay(sourceMap, type, keyDay);
+}
+
 function leaveApplicationHoverTitle(
     profileName,
     keyDay,
@@ -5163,6 +5244,31 @@ async function cancelReplacedProfileLeave(profileName, keyDay) {
 
     if (!type) return { ok: false, reason: "no-leave" };
 
+    const sourceMap = leaveSourceMapForType(
+        type,
+        admin,
+        legal,
+        comp,
+        absences
+    );
+    const info = type === "half_admin"
+        ? null
+        : getLeaveApplicationInfo({
+            profile: profileName,
+            keyDay,
+            type,
+            sourceMap
+        });
+    const cancelKeys = leaveCancellationKeysForDay({
+        sourceMap,
+        type,
+        keyDay,
+        info
+    });
+    const cancelIsoDates = new Set(
+        cancelKeys.map(keyToISODate).filter(Boolean)
+    );
+
     // Captura ANTES de cancelar a todos los que cubren a este ausente: sus filas
     // del timeline deben recalcularse (turno cubierto + HH.EE). El undo del LOG
     // no siempre devuelve estos trabajadores, asi que no dependemos de su salida.
@@ -5171,26 +5277,15 @@ async function cancelReplacedProfileLeave(profileName, keyDay) {
             .filter(replacement =>
                 replacement &&
                 !replacement.canceled &&
-                replacement.replaced === profileName
+                replacement.replaced === profileName &&
+                (
+                    !cancelIsoDates.size ||
+                    cancelIsoDates.has(replacement.date)
+                )
             )
             .map(replacement => String(replacement.worker || "").trim())
             .filter(Boolean)
     );
-
-    const info = type === "half_admin"
-        ? null
-        : getLeaveApplicationInfo({
-            profile: profileName,
-            keyDay,
-            type,
-            sourceMap: leaveSourceMapForType(
-                type,
-                admin,
-                legal,
-                comp,
-                absences
-            )
-        });
 
     if (info?.canUndo && info?.logId) {
         const result = await undoAuditLogEntry(info.logId, {
@@ -5208,20 +5303,18 @@ async function cancelReplacedProfileLeave(profileName, keyDay) {
                 .filter(Boolean)
                 .forEach(worker => coveringWorkers.add(worker));
 
-            return { ok: true, type, coveringWorkers };
+            return { ok: true, type, coveringWorkers, keys: cancelKeys };
         }
         // Si el undo del LOG falla, cae a la limpieza manual de abajo.
     }
 
-    // Limpieza manual: quita el permiso del mapa correspondiente al dia.
-    const sourceMap = leaveSourceMapForType(
-        type,
-        admin,
-        legal,
-        comp,
-        absences
-    );
-    delete sourceMap[keyDay];
+    // Limpieza manual: quita el permiso del mapa correspondiente en todo el
+    // bloque aplicado, no solo en la casilla desde donde se abrio el modal.
+    cancelKeys.forEach(dayKey => {
+        if (leaveValueMatchesType(sourceMap[dayKey], type)) {
+            delete sourceMap[dayKey];
+        }
+    });
 
     if (
         type === "admin" ||
@@ -5238,22 +5331,28 @@ async function cancelReplacedProfileLeave(profileName, keyDay) {
         setJSON(`absences_${profileName}`, absences);
     }
 
-    // Si el dia ya no tiene ninguna ausencia, libera el bloqueo.
+    // Si los dias ya no tienen ninguna ausencia, libera sus bloqueos.
     const blocked = getJSON(`blocked_${profileName}`, {});
-    if (
-        blocked[keyDay] &&
-        !admin[keyDay] &&
-        !legal[keyDay] &&
-        !comp[keyDay] &&
-        !absences[keyDay]
-    ) {
-        delete blocked[keyDay];
+    let changedBlocked = false;
+    cancelKeys.forEach(dayKey => {
+        if (
+            blocked[dayKey] &&
+            !admin[dayKey] &&
+            !legal[dayKey] &&
+            !comp[dayKey] &&
+            !absences[dayKey]
+        ) {
+            delete blocked[dayKey];
+            changedBlocked = true;
+        }
+    });
+
+    if (changedBlocked) {
         setJSON(`blocked_${profileName}`, blocked);
     }
 
-    // Sin LOG no se cancelan solos: anula los reemplazos que cubrian este dia
+    // Sin LOG no se cancelan solos: anula los reemplazos que cubrian estos dias
     // del ausente y recopila a esos trabajadores para refrescar sus filas.
-    const iso = keyToISODate(keyDay);
     const coveringWorkers = new Set(coveringBefore);
     const now = new Date().toISOString();
     let changedReplacements = false;
@@ -5262,7 +5361,7 @@ async function cancelReplacedProfileLeave(profileName, keyDay) {
             replacement &&
             !replacement.canceled &&
             replacement.replaced === profileName &&
-            replacement.date === iso
+            cancelIsoDates.has(replacement.date)
         ) {
             changedReplacements = true;
 
@@ -5282,7 +5381,7 @@ async function cancelReplacedProfileLeave(profileName, keyDay) {
 
     if (changedReplacements) saveReplacements(nextReplacements);
 
-    return { ok: true, type, manual: true, coveringWorkers };
+    return { ok: true, type, manual: true, coveringWorkers, keys: cancelKeys };
 }
 
 // Detalle de una solicitud de cobertura ya enviada: a quien se le pidio y
@@ -5658,8 +5757,16 @@ async function openReplacementDialog(profileName, keyDay) {
                         profileName,
                         ...(result.coveringWorkers || [])
                     ]);
+                    const affectedKeys = Array.isArray(result.keys) &&
+                        result.keys.length
+                            ? result.keys
+                            : [keyDay];
 
-                    await updateDayCell(profileName, keyDay);
+                    await Promise.all(
+                        affectedKeys.map(dayKey =>
+                            updateDayCell(profileName, dayKey)
+                        )
+                    );
                     affectedProfiles.forEach(worker => {
                         updateTimelineCells(worker);
                     });

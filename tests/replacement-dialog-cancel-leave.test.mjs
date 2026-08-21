@@ -19,6 +19,10 @@ const timeline = await readFile(
     new URL("../js/timeline.js", import.meta.url),
     "utf8"
 );
+const auditLog = await readFile(
+    new URL("../js/auditLog.js", import.meta.url),
+    "utf8"
+);
 
 test("el modal de reemplazo ofrece el boton Anular permiso", () => {
     assert.match(
@@ -36,8 +40,9 @@ test("el handler del boton confirma y llama a cancelReplacedProfileLeave", () =>
         calendar,
         /cancelReplacedProfileLeave\(\s*profileName,\s*keyDay\s*\)/
     );
-    // Refresca la vista tras anular: casilla, timeline y calendario visible.
-    assert.match(calendar, /updateDayCell\(profileName, keyDay\)/);
+    // Refresca la vista tras anular: rango afectado, timeline y calendario visible.
+    assert.match(calendar, /const affectedKeys = Array\.isArray\(result\.keys\)/);
+    assert.match(calendar, /affectedKeys\.map\(dayKey =>\s*updateDayCell\(profileName, dayKey\)/);
     // Refresca la fila del ausente y de cada trabajador que dejo de cubrir.
     assert.match(
         calendar,
@@ -66,9 +71,10 @@ test("cancelReplacedProfileLeave reporta a los trabajadores que cubrian", () => 
     // Camino con LOG: parte de coveringBefore y suma lo que reporta el undo.
     assert.match(body, /const coveringWorkers = new Set\(coveringBefore\)/);
     assert.match(body, /result\.canceledReplacements \|\| \[\]/);
-    assert.match(body, /return \{ ok: true, type, coveringWorkers \}/);
-    // Camino manual: anula los reemplazos del dia y los recopila.
-    assert.match(body, /replacement\.replaced === profileName &&\s*replacement\.date === iso/);
+    assert.match(body, /return \{ ok: true, type, coveringWorkers, keys: cancelKeys \}/);
+    // Camino manual: anula los reemplazos del periodo y los recopila.
+    assert.match(body, /const cancelIsoDates = new Set\(/);
+    assert.match(body, /replacement\.replaced === profileName &&\s*cancelIsoDates\.has\(replacement\.date\)/);
     assert.match(body, /coveringWorkers\.add\(worker\)/);
     assert.match(body, /saveReplacements\(nextReplacements\)/);
 });
@@ -93,16 +99,54 @@ test("cancelReplacedProfileLeave limpia manualmente el mapa y el bloqueo", () =>
     );
     const body = calendar.slice(start, start + 5000);
 
-    // Borra el permiso del mapa correspondiente al dia.
-    assert.match(body, /delete sourceMap\[keyDay\]/);
+    // Borra el permiso del mapa correspondiente en todo el periodo.
+    assert.match(body, /const cancelKeys = leaveCancellationKeysForDay\(/);
+    assert.match(body, /cancelKeys\.forEach\(dayKey => \{/);
+    assert.match(body, /delete sourceMap\[dayKey\]/);
     // Persiste cada mapa segun el tipo de permiso.
     assert.match(body, /setJSON\(`admin_\$\{profileName\}`, admin\)/);
     assert.match(body, /setJSON\(`legal_\$\{profileName\}`, legal\)/);
     assert.match(body, /setJSON\(`comp_\$\{profileName\}`, comp\)/);
     assert.match(body, /setJSON\(`absences_\$\{profileName\}`, absences\)/);
-    // Libera el bloqueo del dia solo si ya no queda ninguna ausencia.
-    assert.match(body, /delete blocked\[keyDay\]/);
+    // Libera los bloqueos del periodo solo si ya no queda ninguna ausencia.
+    assert.match(body, /cancelKeys\.forEach\(dayKey => \{/);
+    assert.match(body, /delete blocked\[dayKey\]/);
     assert.match(body, /setJSON\(`blocked_\$\{profileName\}`, blocked\)/);
+});
+
+test("la anulacion manual resuelve el periodo completo de una licencia", () => {
+    const start = calendar.indexOf(
+        "function leaveCancellationKeysForDay("
+    );
+    assert.notEqual(start, -1, "no se encontro leaveCancellationKeysForDay");
+    const body = calendar.slice(start, start + 1800);
+
+    assert.match(body, /info\?\.keys/);
+    assert.match(body, /explicitKeys\.includes\(keyDay\)/);
+    assert.match(body, /contiguousLeaveKeysForDay\(sourceMap, type, keyDay\)/);
+});
+
+test("undoAuditLogEntry borra el periodo completo registrado en el LOG", () => {
+    assert.match(
+        auditLog,
+        /function removeAbsenceBlock\(\s*profile,\s*startKey,\s*amount,\s*type,\s*explicitKeys = \[\]/
+    );
+    assert.match(
+        auditLog,
+        /const targetKeys = explicitKeys\.length[\s\S]*?contiguousAbsenceKeys\(absences, startKey, type\)/
+    );
+    assert.match(
+        auditLog,
+        /const explicitKeys = normalizeKeyList\(log\?\.meta\?\.keys\)/
+    );
+    assert.match(
+        auditLog,
+        /removeAbsenceBlock\(\s*profile,\s*startKey,\s*amount,\s*type,\s*explicitKeys\s*\)/
+    );
+    assert.match(
+        auditLog,
+        /logTypeCanUseMapSpan\(type\)[\s\S]*?mapSpanIncludes\(sourceMap, type, startKey, keyDay\)/
+    );
 });
 
 test("el listener auditUndoApplied refresca las filas de quienes cubrian", () => {

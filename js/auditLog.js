@@ -401,6 +401,47 @@ function calendarSpanIncludes(startKey, keyDay, days) {
     return false;
 }
 
+function contiguousAbsenceKeys(absences, keyDay, type) {
+    if (!keyDay || absenceTypeOf(absences[keyDay]) !== type) return [];
+
+    let start = keyDay;
+    let previous = addDaysKey(start, -1);
+
+    while (previous && absenceTypeOf(absences[previous]) === type) {
+        start = previous;
+        previous = addDaysKey(start, -1);
+    }
+
+    const keys = [];
+    let cursor = start;
+    let guard = 0;
+
+    while (
+        cursor &&
+        guard < 750 &&
+        absenceTypeOf(absences[cursor]) === type
+    ) {
+        keys.push(cursor);
+        cursor = addDaysKey(cursor, 1);
+        guard++;
+    }
+
+    return keys;
+}
+
+function logTypeCanUseMapSpan(type) {
+    return (
+        type === "legal" ||
+        type === "comp" ||
+        type === "license" ||
+        type === "union_leave" ||
+        type === "professional_license" ||
+        type === "unpaid_leave" ||
+        type === "training" ||
+        type === "unjustified_absence"
+    );
+}
+
 function mapSpanIncludes(sourceMap, type, startKey, keyDay) {
     if (
         !sourceMap ||
@@ -447,15 +488,10 @@ function leaveLogCoversKey(log, type, keyDay, sourceMap) {
     if (!startKey) return false;
 
     if (
-        type === "legal" ||
-        type === "comp"
+        logTypeCanUseMapSpan(type) &&
+        mapSpanIncludes(sourceMap, type, startKey, keyDay)
     ) {
-        return mapSpanIncludes(
-            sourceMap,
-            type,
-            startKey,
-            keyDay
-        ) || startKey === keyDay;
+        return true;
     }
 
     return calendarSpanIncludes(
@@ -498,7 +534,10 @@ export function getLeaveApplicationInfo({
         canUndo: canUndoAuditLog(log),
         createdAt: log.createdAt,
         createdAtLabel: formatTimestamp(log.createdAt),
-        actorName: actorName || "No registrado"
+        actorName: actorName || "No registrado",
+        keys: normalizeKeyList(log?.meta?.keys),
+        amount: Number(log?.meta?.amount) || 0,
+        date: String(log?.meta?.date || "")
     };
 }
 
@@ -597,11 +636,35 @@ function cleanBlockedDays(profile, keys) {
     saveProfileMap("blocked", profile, blocked);
 }
 
-function removeAdminLog(profile, startKey, type, amount) {
+function removeAdminLog(profile, startKey, type, amount, explicitKeys = []) {
     const admin = getProfileMap("admin", profile);
     const removed = [];
 
-    if (type === "half_admin_morning" || type === "half_admin_afternoon") {
+    if (explicitKeys.length) {
+        const expected =
+            type === "half_admin_morning" ? "0.5M" :
+            type === "half_admin_afternoon" ? "0.5T" :
+            1;
+
+        explicitKeys.forEach(keyDay => {
+            if (
+                admin[keyDay] === expected ||
+                (
+                    (
+                        type === "half_admin_morning" ||
+                        type === "half_admin_afternoon"
+                    ) &&
+                    admin[keyDay] === 0.5
+                )
+            ) {
+                delete admin[keyDay];
+                removed.push(keyDay);
+            }
+        });
+    } else if (
+        type === "half_admin_morning" ||
+        type === "half_admin_afternoon"
+    ) {
         const expected =
             type === "half_admin_morning" ? "0.5M" : "0.5T";
 
@@ -630,41 +693,57 @@ function removeAdminLog(profile, startKey, type, amount) {
     return removed;
 }
 
-async function removeBusinessBlock(profile, prefix, startKey, amount) {
+async function removeBusinessBlock(
+    profile,
+    prefix,
+    startKey,
+    amount,
+    explicitKeys = []
+) {
     const map = getProfileMap(prefix, profile);
     const removed = [];
-    const target = Math.max(1, Math.round(Number(amount) || 1));
-    let counted = 0;
-    let keyDay = startKey;
-    let guard = 0;
-    const holidayCache = new Map();
 
-    while (counted < target && guard < 370) {
-        const date = keyToDate(keyDay);
+    if (explicitKeys.length) {
+        explicitKeys.forEach(keyDay => {
+            if (!map[keyDay]) return;
 
-        if (!date || !map[keyDay]) break;
+            delete map[keyDay];
+            removed.push(keyDay);
+        });
+    } else {
+        const target = Math.max(1, Math.round(Number(amount) || 1));
+        let counted = 0;
+        let keyDay = startKey;
+        let guard = 0;
+        const holidayCache = new Map();
 
-        if (!holidayCache.has(date.getFullYear())) {
-            holidayCache.set(
-                date.getFullYear(),
-                await fetchHolidays(date.getFullYear())
-            );
+        while (counted < target && guard < 370) {
+            const date = keyToDate(keyDay);
+
+            if (!date || !map[keyDay]) break;
+
+            if (!holidayCache.has(date.getFullYear())) {
+                holidayCache.set(
+                    date.getFullYear(),
+                    await fetchHolidays(date.getFullYear())
+                );
+            }
+
+            delete map[keyDay];
+            removed.push(keyDay);
+
+            if (
+                isBusinessDay(
+                    date,
+                    holidayCache.get(date.getFullYear())
+                )
+            ) {
+                counted++;
+            }
+
+            keyDay = addDaysKey(keyDay, 1);
+            guard++;
         }
-
-        delete map[keyDay];
-        removed.push(keyDay);
-
-        if (
-            isBusinessDay(
-                date,
-                holidayCache.get(date.getFullYear())
-            )
-        ) {
-            counted++;
-        }
-
-        keyDay = addDaysKey(keyDay, 1);
-        guard++;
     }
 
     if (!removed.length) return [];
@@ -680,20 +759,42 @@ function absenceTypeOf(value) {
     return String(value.type || value.previousType || "");
 }
 
-function removeAbsenceBlock(profile, startKey, amount, type) {
-    const absences = getProfileMap("absences", profile);
-    const removed = [];
+function spanKeys(startKey, amount) {
+    const keys = [];
     const days = Math.max(1, Math.round(Number(amount) || 1));
     let keyDay = startKey;
 
     for (let i = 0; i < days; i++) {
+        keys.push(keyDay);
+        keyDay = addDaysKey(keyDay, 1);
+    }
+
+    return keys;
+}
+
+function removeAbsenceBlock(
+    profile,
+    startKey,
+    amount,
+    type,
+    explicitKeys = []
+) {
+    const absences = getProfileMap("absences", profile);
+    const removed = [];
+    const targetKeys = explicitKeys.length
+        ? explicitKeys
+        : (
+            Number(amount) > 1
+                ? spanKeys(startKey, amount)
+                : contiguousAbsenceKeys(absences, startKey, type)
+        );
+
+    targetKeys.forEach(keyDay => {
         if (absenceTypeOf(absences[keyDay]) === type) {
             delete absences[keyDay];
             removed.push(keyDay);
         }
-
-        keyDay = addDaysKey(keyDay, 1);
-    }
+    });
 
     if (!removed.length) return [];
 
@@ -707,6 +808,7 @@ async function undoLeaveAbsenceLog(log) {
     const startKey = isoToDateKey(log.meta?.date);
     const type = getLeaveUndoType(log);
     const amount = Number(log.meta?.amount || 1);
+    const explicitKeys = normalizeKeyList(log?.meta?.keys);
 
     if (!profile || !startKey || !type) {
         return { ok: false, canceledReplacements: [] };
@@ -719,20 +821,28 @@ async function undoLeaveAbsenceLog(log) {
         type === "half_admin_morning" ||
         type === "half_admin_afternoon"
     ) {
-        removedKeys = removeAdminLog(profile, startKey, type, amount);
+        removedKeys = removeAdminLog(
+            profile,
+            startKey,
+            type,
+            amount,
+            explicitKeys
+        );
     } else if (type === "legal") {
         removedKeys = await removeBusinessBlock(
             profile,
             "legal",
             startKey,
-            amount
+            amount,
+            explicitKeys
         );
     } else if (type === "comp") {
         removedKeys = await removeBusinessBlock(
             profile,
             "comp",
             startKey,
-            amount
+            amount,
+            explicitKeys
         );
     } else if (
         type === "license" ||
@@ -746,7 +856,8 @@ async function undoLeaveAbsenceLog(log) {
             profile,
             startKey,
             amount,
-            type
+            type,
+            explicitKeys
         );
     }
 
