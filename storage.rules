@@ -139,6 +139,31 @@ service firebase.storage {
         );
     }
 
+    // Adjunto de un mensaje del supervisor a un trabajador. El ownerId es el uid
+    // del trabajador destinatario: asi cada uno solo alcanza lo suyo.
+    function isMessageAttachment(moduleId) {
+      return moduleId == "messages";
+    }
+
+    // La mensajeria no tiene permiso de menu propio (el boton flotante esta
+    // disponible para todo miembro), asi que adjuntar sigue la misma regla:
+    // basta con ser miembro del entorno.
+    function allowedMessageFile() {
+      return request.resource.size > 0 &&
+        request.resource.size <= 10 * 1024 * 1024 &&
+        request.resource.contentType.matches(
+          "image/(png|jpeg|jpg|pjpeg|gif|webp|bmp|heic|heif)|application/pdf"
+        );
+    }
+
+    // El trabajador destinatario no es miembro del entorno: entra por su enlace
+    // de PWA, y solo a los adjuntos dirigidos a el.
+    function isLinkedWorkerRecipient(workspaceId, ownerId) {
+      return signedIn() &&
+        ownerId == request.auth.uid &&
+        firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId)/workerLinks/$(request.auth.uid));
+    }
+
     function isPublishedScheduleAttachment(moduleId, ownerId, recordId) {
       return moduleId == "tasks" &&
         ownerId == "weekly-schedule" &&
@@ -167,6 +192,7 @@ service firebase.storage {
     match /workspaces/{workspaceId}/attachments/{moduleId}/{ownerId}/{recordId}/{fileName} {
       allow read: if isWorkspaceMember(workspaceId) &&
         (
+          isMessageAttachment(moduleId) ||
           canViewModule(workspaceId, moduleId) ||
           resource.metadata.uploadedByUid == request.auth.uid
         ) ||
@@ -174,6 +200,10 @@ service firebase.storage {
           isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
           signedIn() &&
           firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId)/workerLinks/$(request.auth.uid))
+        ) ||
+        (
+          isMessageAttachment(moduleId) &&
+          isLinkedWorkerRecipient(workspaceId, ownerId)
         );
 
       allow create: if
@@ -184,7 +214,13 @@ service firebase.storage {
             allowedScheduleImage()
           ) ||
           (
+            isMessageAttachment(moduleId) &&
+            isWorkspaceMember(workspaceId) &&
+            allowedMessageFile()
+          ) ||
+          (
             moduleId != "tasks" &&
+            !isMessageAttachment(moduleId) &&
             !isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
             canEditModule(workspaceId, moduleId) &&
             allowedFile()
@@ -207,7 +243,13 @@ service firebase.storage {
             allowedScheduleImage()
           ) ||
           (
+            isMessageAttachment(moduleId) &&
+            resource.metadata.uploadedByUid == request.auth.uid &&
+            allowedMessageFile()
+          ) ||
+          (
             moduleId != "tasks" &&
+            !isMessageAttachment(moduleId) &&
             !isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
             (
               canEditModule(workspaceId, moduleId) ||

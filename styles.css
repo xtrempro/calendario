@@ -4274,15 +4274,115 @@ body[data-active-view="profile"] .profile-view-layout > .sidebar .profile-item__
 
 .supervisor-message-form {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
     padding: 12px;
     border-top: 1px solid var(--border);
     background: var(--panel-alt);
 }
 
+.supervisor-message-composer {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 10px;
+}
+
+/* Clip: el input de archivo va oculto dentro del label, que es el boton. */
+.supervisor-message-clip {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 48px;
+    border: 1px solid var(--field-border);
+    border-radius: var(--radius-md);
+    background: var(--field);
+    color: var(--text-soft);
+    cursor: pointer;
+}
+
+.supervisor-message-clip:hover { color: var(--accent); border-color: var(--accent); }
+.supervisor-message-clip.is-disabled { opacity: 0.5; cursor: not-allowed; }
+.supervisor-message-clip svg { width: 19px; height: 19px; }
+.supervisor-message-clip input[type="file"] { display: none; }
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.supervisor-message-attachment {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.supervisor-message-attachment[hidden] { display: none; }
+
+.supervisor-message-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 7px 11px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--panel);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.supervisor-message-file.is-draft { cursor: default; }
+.supervisor-message-file:hover:not(.is-draft) { border-color: var(--accent); }
+.supervisor-message-file svg { width: 16px; height: 16px; flex: none; color: var(--text-soft); }
+.supervisor-message-file span { display: grid; min-width: 0; }
+.supervisor-message-file strong {
+    font-size: 0.82rem;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.supervisor-message-file small { font-size: 0.72rem; color: var(--text-muted); }
+
+.supervisor-message-file-remove {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text-soft);
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.supervisor-message-file-remove:hover { color: var(--hm-red); }
+
+/* En la burbuja el adjunto hereda el color del texto de la burbuja. */
+.supervisor-message-bubble .supervisor-message-file {
+    margin-top: 6px;
+    background: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.24);
+}
+
+.supervisor-message-bubble.is-worker .supervisor-message-file {
+    background: var(--panel-alt);
+    border-color: var(--border);
+}
+
 .supervisor-message-disabled-note {
-    grid-column: 1 / -1;
     margin: 0;
     padding: 9px 11px;
     border: 1px dashed var(--border-strong);
@@ -4350,6 +4450,14 @@ body[data-active-view="profile"] .profile-view-layout > .sidebar .profile-item__
 
     .supervisor-message-form {
         grid-template-columns: 1fr;
+    }
+
+    .supervisor-message-composer {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .supervisor-message-composer > [type="submit"] {
+        grid-column: 1 / -1;
     }
 
     .supervisor-message-bubble {

@@ -46,8 +46,20 @@ const STORAGE_MODULES = new Set([
     "memos",
     "weekly",
     "tasks",
-    "requests"
+    "requests",
+    // Adjuntos de la mensajeria con los trabajadores. El ownerId de la ruta es
+    // el uid del destinatario: es lo que deja que su PWA lea el archivo sin ser
+    // miembro del entorno (ver storage.rules).
+    "messages"
 ]);
+
+// La mensajeria acepta MENOS tipos que el resto del app: solo lo que el
+// trabajador puede abrir en el telefono sin instalar nada.
+export const MESSAGE_ATTACHMENT_ACCEPT =
+    ".png,.jpg,.jpeg,.gif,.webp,.bmp,.heic,.heif,.pdf";
+const MESSAGE_ATTACHMENT_EXTENSIONS = new Set(
+    MESSAGE_ATTACHMENT_ACCEPT.split(",").map(extension => extension.slice(1))
+);
 const MIME_BY_EXTENSION = {
     png: "image/png",
     jpg: "image/jpeg",
@@ -356,6 +368,19 @@ export function validateAttachmentFile(file) {
     ) {
         throw new Error(
             "Formato no permitido. Usa imagenes, PDF, texto, Word o Excel sin macros."
+        );
+    }
+
+    return file;
+}
+
+// Valida un adjunto de mensajeria: imagen o PDF, hasta 10 MB.
+export function validateMessageAttachment(file) {
+    validateAttachmentFile(file);
+
+    if (!MESSAGE_ATTACHMENT_EXTENSIONS.has(fileExtension(file.name))) {
+        throw new Error(
+            "En los mensajes solo puedes adjuntar imágenes o archivos PDF."
         );
     }
 

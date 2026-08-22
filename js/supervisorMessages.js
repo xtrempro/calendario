@@ -3,6 +3,12 @@ import { normalizeText } from "./stringUtils.js";
 import { getCurrentFirebaseUser, getFirebaseServices } from "./firebaseClient.js";
 import { getWorkerAppLinks } from "./workerAppDataSync.js";
 import { showConfirm } from "./dialogs.js";
+import {
+    MESSAGE_ATTACHMENT_ACCEPT,
+    validateMessageAttachment,
+    readAttachmentFile,
+    openAttachmentFile
+} from "./attachmentUtils.js";
 
 let activeWorkspace = null;
 let unreadUnsubscribe = null;
@@ -22,6 +28,19 @@ let massMode = false;
 const massSelected = new Set();
 let massText = "";
 let massSending = false;
+// Adjunto elegido para el mensaje que se esta escribiendo, por trabajador. Vive
+// aparte del borrador de texto porque un File no se puede serializar.
+const messageAttachmentDrafts = new Map();
+
+const CLIP_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.67 3.67 0 0 1 5.19 5.19l-9.2 9.19a1.83 1.83 0 0 1-2.59-2.59l8.49-8.48"/></svg>`;
+
+function formatAttachmentSize(bytes) {
+    const size = Number(bytes) || 0;
+
+    return size >= 1024 * 1024
+        ? `${(size / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.max(Math.round(size / 1024), 1)} KB`;
+}
 
 function initials(value) {
     return String(value || "")
@@ -522,6 +541,12 @@ function refreshDialog() {
     form?.addEventListener("submit", sendSupervisorMessage);
     textarea?.addEventListener("keydown", handleComposerKeydown);
 
+    bindAttachmentPicker(form, worker);
+    renderAttachmentDraft(form, worker);
+
+    body.querySelector(".supervisor-message-thread")
+        ?.addEventListener("click", openMessageAttachment);
+
     const list = body.querySelector(".supervisor-message-thread");
     if (list) {
         list.scrollTop = list.scrollHeight;
@@ -625,8 +650,16 @@ function renderMessagesLayout(workers, worker) {
             </div>
             <form class="supervisor-message-form" data-supervisor-message-form>
                 ${canSend ? "" : `<p class="supervisor-message-disabled-note">${escapeHTML(disabledNote)}</p>`}
-                <textarea name="message" rows="2" maxlength="2000" placeholder="${canSend ? `Escribe un mensaje para ${escapeHTML(worker?.name || "el trabajador")}` : "Trabajador desenlazado"}" ${canSend ? "" : "disabled"}></textarea>
-                <button class="primary-button" type="submit" ${canSend ? "" : "disabled"}>Enviar</button>
+                <div class="supervisor-message-attachment" data-message-attachment hidden></div>
+                <div class="supervisor-message-composer">
+                    <label class="supervisor-message-clip ${canSend ? "" : "is-disabled"}" title="Adjuntar imagen o PDF (hasta 10 MB)">
+                        ${CLIP_ICON}
+                        <input type="file" accept="${MESSAGE_ATTACHMENT_ACCEPT}" data-message-attachment-input ${canSend ? "" : "disabled"}>
+                        <span class="sr-only">Adjuntar archivo</span>
+                    </label>
+                    <textarea name="message" rows="2" maxlength="2000" placeholder="${canSend ? `Escribe un mensaje para ${escapeHTML(worker?.name || "el trabajador")}` : "Trabajador desenlazado"}" ${canSend ? "" : "disabled"}></textarea>
+                    <button class="primary-button" type="submit" ${canSend ? "" : "disabled"}>Enviar</button>
+                </div>
             </form>
         </section>
     `;
@@ -833,10 +866,25 @@ async function sendMassMessage() {
 
 function renderMessageBubble(message) {
     const mine = message.sender === "supervisor";
+    const attachments = Array.isArray(message.attachments)
+        ? message.attachments
+        : [];
 
     return `
         <article class="supervisor-message-bubble ${mine ? "is-mine" : "is-worker"}">
-            <p>${escapeHTML(message.text)}</p>
+            ${message.text ? `<p>${escapeHTML(message.text)}</p>` : ""}
+            ${attachments.map(attachment => `
+                <button class="supervisor-message-file" type="button"
+                    data-message-file="${escapeHTML(message.id)}"
+                    data-message-file-index="${attachments.indexOf(attachment)}"
+                    title="Abrir ${escapeHTML(attachment.name || "archivo")}">
+                    ${CLIP_ICON}
+                    <span>
+                        <strong>${escapeHTML(attachment.name || "Archivo")}</strong>
+                        <small>${escapeHTML(formatAttachmentSize(attachment.size))}</small>
+                    </span>
+                </button>
+            `).join("")}
             <small>${mine ? "Supervisor" : "Trabajador"} | ${escapeHTML(formatTime(message.createdAt))}</small>
         </article>
     `;
@@ -894,25 +942,149 @@ async function subscribeSelectedWorkerMessages() {
     }
 }
 
+// Un mensaje que es solo un archivo tiene que decir algo en la lista de
+// conversaciones y en la notificacion; si no, se ve como un mensaje vacio.
+function attachmentPreviewText(attachments = []) {
+    const first = attachments[0];
+
+    if (!first) return "";
+
+    return attachments.length > 1
+        ? `Archivo adjunto (${attachments.length})`
+        : `Archivo adjunto: ${first.name || "archivo"}`;
+}
+
+function bindAttachmentPicker(form, worker) {
+    const input = form?.querySelector("[data-message-attachment-input]");
+
+    if (!input || !worker?.uid) return;
+
+    input.addEventListener("change", () => {
+        const file = input.files?.[0];
+
+        // El input se limpia siempre: si no, volver a elegir el MISMO archivo
+        // no dispara "change" y el usuario cree que no paso nada.
+        input.value = "";
+
+        if (!file) return;
+
+        try {
+            validateMessageAttachment(file);
+        } catch (error) {
+            alert(error.message || "No se pudo adjuntar el archivo.");
+            return;
+        }
+
+        messageAttachmentDrafts.set(worker.uid, file);
+        renderAttachmentDraft(form, worker);
+    });
+}
+
+function renderAttachmentDraft(form, worker) {
+    const host = form?.querySelector("[data-message-attachment]");
+
+    if (!host) return;
+
+    const file = worker?.uid
+        ? messageAttachmentDrafts.get(worker.uid)
+        : null;
+
+    if (!file) {
+        host.hidden = true;
+        host.innerHTML = "";
+        return;
+    }
+
+    host.hidden = false;
+    host.innerHTML = `
+        <span class="supervisor-message-file is-draft">
+            ${CLIP_ICON}
+            <span>
+                <strong>${escapeHTML(file.name)}</strong>
+                <small>${escapeHTML(formatAttachmentSize(file.size))}</small>
+            </span>
+        </span>
+        <button class="supervisor-message-file-remove" type="button"
+            data-message-attachment-remove aria-label="Quitar adjunto">&times;</button>
+    `;
+    host.querySelector("[data-message-attachment-remove]")
+        ?.addEventListener("click", () => {
+            messageAttachmentDrafts.delete(worker.uid);
+            renderAttachmentDraft(form, worker);
+        });
+}
+
+async function openMessageAttachment(event) {
+    const button = event.target.closest("[data-message-file]");
+
+    if (!button) return;
+
+    const message = activeMessages.find(item =>
+        item.id === button.dataset.messageFile
+    );
+    const attachment = message?.attachments?.[
+        Number(button.dataset.messageFileIndex) || 0
+    ];
+
+    if (!attachment) return;
+
+    button.disabled = true;
+
+    try {
+        await openAttachmentFile(attachment, { newTab: true });
+    } catch (error) {
+        alert(error.message || "No se pudo abrir el archivo.");
+    } finally {
+        button.disabled = false;
+    }
+}
+
 async function sendSupervisorMessage(event) {
     event.preventDefault();
 
+    const form = event.currentTarget;
     const worker = selectedWorker();
-    const textarea = event.currentTarget.querySelector("textarea");
+    const textarea = form.querySelector("textarea");
     const text = String(textarea?.value || "").trim();
+    const file = worker?.uid
+        ? messageAttachmentDrafts.get(worker.uid)
+        : null;
 
-    if (!worker?.uid || !text) return;
+    // Un adjunto solo, sin texto, es un mensaje valido.
+    if (!worker?.uid || (!text && !file)) return;
     if (worker.isActive === false) {
         alert("Este trabajador ya no tiene la aplicacion enlazada.");
         return;
     }
 
+    const submit = form.querySelector("[type='submit']");
+
     textarea.disabled = true;
+    if (submit) {
+        submit.disabled = true;
+        submit.textContent = file ? "Subiendo..." : "Enviando...";
+    }
     messageDrafts.delete(worker.uid);
     textarea.value = "";
 
     try {
-        await writeSupervisorMessage(worker, text);
+        const attachment = file
+            ? await readAttachmentFile(file, {
+                moduleId: "messages",
+                // El uid del destinatario manda en la ruta: es lo que permite a
+                // su PWA leer el archivo sin ser miembro del entorno.
+                ownerId: worker.uid,
+                recordId: messageId()
+            })
+            : null;
+
+        await writeSupervisorMessage(
+            worker,
+            text,
+            attachment ? [attachment] : []
+        );
+        messageAttachmentDrafts.delete(worker.uid);
+        renderAttachmentDraft(form, worker);
     } catch (error) {
         console.error(error);
         messageDrafts.set(worker.uid, text);
@@ -920,11 +1092,15 @@ async function sendSupervisorMessage(event) {
         alert(error.message || "No se pudo enviar el mensaje.");
     } finally {
         textarea.disabled = false;
+        if (submit) {
+            submit.disabled = false;
+            submit.textContent = "Enviar";
+        }
         focusMessageComposer();
     }
 }
 
-async function writeSupervisorMessage(worker, text) {
+async function writeSupervisorMessage(worker, text, attachments = []) {
     if (worker?.isActive === false) {
         throw new Error("Este trabajador ya no tiene la aplicacion enlazada.");
     }
@@ -952,7 +1128,7 @@ async function writeSupervisorMessage(worker, text) {
             profileName: worker.name || "",
             profileRut: worker.rut || "",
             workerEmail: worker.email || "",
-            lastMessage: text,
+            lastMessage: text || attachmentPreviewText(attachments),
             lastSender: "supervisor",
             unreadForWorker: true,
             unreadForSupervisor: false,
@@ -966,6 +1142,7 @@ async function writeSupervisorMessage(worker, text) {
             profileName: worker.name || "",
             profileRut: worker.rut || "",
             text,
+            attachments,
             sender: "supervisor",
             senderUid: user?.uid || "",
             senderName: user?.displayName || user?.email || "Supervisor",
@@ -981,7 +1158,7 @@ async function writeSupervisorMessage(worker, text) {
         profileName: worker.name || "",
         profileRut: worker.rut || "",
         workerEmail: worker.email || "",
-        lastMessage: text,
+        lastMessage: text || attachmentPreviewText(attachments),
         lastSender: "supervisor",
         unreadForSupervisor: false,
         unreadForSupervisorCount: 0,
