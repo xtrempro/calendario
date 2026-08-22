@@ -135,6 +135,17 @@ test("los accesos inferiores del inicio no se muestran", () => {
     assert.match(home, /panel\.querySelectorAll\('\[data-hm="open-taskcal"\]'\)/);
 });
 
+test("las ausencias del dia abren detalle y permiten verlas en calendario", () => {
+    assert.match(home, /data-hm="absence-list"/);
+    assert.match(home, /data-hm="absence-summary" data-absence-cat=/);
+    assert.match(home, /data-hm="absence-modal"/);
+    assert.match(home, /data-hm="absence-ver"/);
+    assert.match(home, /VER EN CALENDARIO/);
+    assert.match(home, /openAbsenceDetail\(panel, row\.dataset\.absenceCat\)/);
+    assert.match(home, /profile: button\.dataset\.absenceProfile/);
+    assert.match(home, /date: button\.dataset\.absenceIso/);
+});
+
 test("el inicio resume solicitudes pendientes por categoria", () => {
     const summary = buildRequestSummary([
         { id: "vac", status: "pending", type: "legal", profile: "Ana", date: "2026-08-22" },

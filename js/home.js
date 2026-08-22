@@ -229,6 +229,46 @@ function getTodayAbsences() {
         .map(cat => ({ ...cat, ...counts[cat.key] }));
 }
 
+function getTodayAbsenceDetails(categoryKey) {
+    const today = new Date();
+    const keyDay = keyFromDate(today);
+    const iso = isoFromKey(keyDay);
+    const category = ABSENCE_CATS.find(cat => cat.key === categoryKey);
+
+    if (!category) {
+        return { category: null, rows: [], keyDay, iso, dateLabel: shortDateFromDate(today) };
+    }
+
+    const rows = getProfiles()
+        .filter(isProfileActive)
+        .map(profile => {
+            const name = profile.name;
+            if (classifyAbsence(name, keyDay) !== categoryKey) return null;
+
+            const turno = Number(getTurnoBase(name, keyDay));
+            const meta = [profile.estamento, profile.profession]
+                .filter(Boolean)
+                .join(" · ");
+            const uncovered = isShiftUncovered(name, keyDay);
+
+            return {
+                name,
+                meta: meta || "Sin estamento",
+                keyDay,
+                iso,
+                dateLabel: shortDateFromDate(today),
+                absenceLabel: absenceLabelForDay(name, keyDay) || category.label,
+                turnoLabel: turno > 0 ? (TURNO_LABEL[turno] || "Turno") : "Libre",
+                turnoClass: turnoCssClass(turno),
+                uncovered
+            };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.name.localeCompare(b.name, "es"));
+
+    return { category, rows, keyDay, iso, dateLabel: shortDateFromDate(today) };
+}
+
 // ---- Cambios de turno (datos reales) ----
 const MESES_ABR = [
     "Ene", "Feb", "Mar", "Abr", "May", "Jun",
@@ -1049,18 +1089,69 @@ function ausenciasWidget() {
                 ? `<span class="hm-uncov">${item.uncovered} sin cubrir</span>`
                 : "";
             return `
-                <div class="hm-kv">
+                <button class="hm-kv" type="button" data-hm="absence-summary" data-absence-cat="${esc(item.key)}">
                     <span class="hm-kv-ico hm-${item.tone}">${svg(IC[item.icon])}</span>
                     <span class="hm-kv-name">${esc(item.label)}</span>
                     <span class="hm-kv-right">${chip}<span class="hm-kv-num hm-${item.tone}">${item.total}</span></span>
-                </div>`;
+                </button>`;
         }).join("")
         : `<div class="hm-empty">Sin ausencias registradas hoy.</div>`;
     return `
         <div class="hm-card hm-col-4">
             ${panelHead(IC.users, "Ausencias del día")}
-            <div class="hm-listcol">${body}</div>
+            <div class="hm-listcol" data-hm="absence-list">${body}</div>
         </div>`;
+}
+
+function absenceDetailRowHTML(item) {
+    const status = item.uncovered
+        ? '<span class="hm-cob-status hm-cob-status--sincubrir">Sin cubrir</span>'
+        : '<span class="hm-cob-status hm-cob-status--preasignado">Cubierto</span>';
+
+    return `
+        <div class="hm-cob-row hm-absence-detail-row">
+            <div class="hm-cob-top">
+                <span class="hm-turno hm-turno--${item.turnoClass}">${esc(item.turnoLabel)}</span>
+                <span class="hm-cob-date hm-absence-worker">${esc(item.name)}</span>
+                ${status}
+            </div>
+            <div class="hm-cob-meta"><b>${esc(item.absenceLabel)}:</b> ${esc(item.dateLabel)}</div>
+            <div class="hm-cob-meta"><b>Detalle:</b> ${esc(item.meta)}</div>
+            <div class="hm-cob-actions">
+                <button class="hm-cob-btn hm-cob-btn--ver" type="button"
+                    data-hm="absence-ver" data-absence-profile="${esc(item.name)}"
+                    data-absence-iso="${esc(item.iso)}">VER EN CALENDARIO</button>
+            </div>
+        </div>`;
+}
+
+function absenceModal() {
+    return `
+        <div class="hm-modal-backdrop" data-hm="absence-modal" hidden>
+            <div class="hm-modal hm-modal--absence" role="dialog" aria-modal="true" aria-label="Detalle de ausencias">
+                <div class="hm-modal-head">
+                    <span class="hm-modal-ico">${svg(IC.users)}</span>
+                    <h3 data-hm="absence-title">Ausencias del dia</h3>
+                    <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="hm-modal-body" data-hm="absence-body"></div>
+            </div>
+        </div>`;
+}
+
+function openAbsenceDetail(panel, categoryKey) {
+    const detail = getTodayAbsenceDetails(categoryKey);
+    const modal = panel.querySelector('[data-hm="absence-modal"]');
+    if (!modal) return;
+
+    const title = detail.category
+        ? `${detail.category.label} · ${detail.rows.length}`
+        : "Ausencias del dia";
+    modal.querySelector('[data-hm="absence-title"]').textContent = title;
+    modal.querySelector('[data-hm="absence-body"]').innerHTML = detail.rows.length
+        ? `<div class="hm-absence-detail-list">${detail.rows.map(absenceDetailRowHTML).join("")}</div>`
+        : `<div class="hm-dot-empty">Sin trabajadores con esta ausencia hoy.</div>`;
+    modal.hidden = false;
 }
 
 // ---- Cumpleaños del mes ----
@@ -1572,6 +1663,7 @@ function homeHTML() {
         ${tasksModal()}
         ${taskEditModal()}
         ${dotacionModal()}
+        ${absenceModal()}
         ${taskCalendarModal()}
         ${dayTasksModal()}`;
 }
@@ -1738,6 +1830,38 @@ function wire(panel) {
         dotModal.addEventListener("click", event => {
             if (event.target === dotModal || event.target.closest('[data-hm="close"]')) {
                 dotModal.hidden = true;
+            }
+        });
+    }
+
+    // --- Ausencias: click en la tarjeta -> modal con trabajadores y acceso al calendario ---
+    const absenceList = panel.querySelector('[data-hm="absence-list"]');
+    const absenceModalEl = panel.querySelector('[data-hm="absence-modal"]');
+    if (absenceList) {
+        absenceList.addEventListener("click", event => {
+            const row = event.target.closest('[data-hm="absence-summary"]');
+            if (!row) return;
+            openAbsenceDetail(panel, row.dataset.absenceCat);
+        });
+    }
+    if (absenceModalEl) {
+        absenceModalEl.addEventListener("click", event => {
+            const button = event.target.closest('[data-hm="absence-ver"]');
+            if (button) {
+                absenceModalEl.hidden = true;
+                window.dispatchEvent(
+                    new CustomEvent("proturnos:viewWorkerRequestInCalendar", {
+                        detail: {
+                            profile: button.dataset.absenceProfile,
+                            date: button.dataset.absenceIso
+                        }
+                    })
+                );
+                return;
+            }
+
+            if (event.target === absenceModalEl || event.target.closest('[data-hm="close"]')) {
+                absenceModalEl.hidden = true;
             }
         });
     }
