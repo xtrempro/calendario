@@ -50,6 +50,7 @@
     "test:cobertura-automatica": "node --test tests/cobertura-automatica.test.mjs",
     "test:calendario-tareas": "node --test tests/inicio-calendario-tareas.test.mjs",
     "test:cobertura-en-espera": "node --test tests/solicitud-cobertura-en-espera.test.mjs",
+    "test:solicitud-aceptada": "node --test tests/solicitud-aceptada-no-vuelve-pendiente.test.mjs",
     "test:unidad-espejo": "node --test tests/unidad-espejo.test.mjs",
     "test:swap-receivers": "node --test tests/swap-receiver-filter.test.mjs",
     "test:swap-marker": "node --test tests/cambio-turno-marcador-proyeccion.test.mjs",
