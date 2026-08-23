@@ -1,10 +1,12 @@
 /**
- * Atrasos: minutos entre la hora de ingreso del turno y la marca de entrada.
+ * Horarios de turno frente a las marcas del reloj: a que hora se entra, cuando
+ * hay atraso y que turnos terminan a la manana siguiente.
  *
  * Modulo sin estado, sin DOM y sin Firebase, para que el calculo se pueda
  * probar solo y no dependa de donde se muestre.
  */
 import { TURNO } from "./constants.js";
+import { getTurnoComponentes } from "./rulesEngine.js";
 
 /**
  * Margen de cortesia.
@@ -29,6 +31,21 @@ const DEFAULT_ENTRY_TIME_BY_SHIFT = {
     [TURNO.LARGA]: "08:00",
     [TURNO.NOCHE]: "20:00"
 };
+
+/**
+ * .Termina este turno a la manana siguiente?
+ *
+ * No se guarda una lista aparte de turnos nocturnos: se pregunta por el
+ * segmento de noche, que es el que cruza la medianoche. Asi Noche, 24h, D+N y
+ * 18 horas quedan cubiertos por su composicion, y un turno nuevo que lleve
+ * noche se reconoce solo.
+ *
+ * @param {number} shift
+ * @returns {boolean}
+ */
+export function shiftEndsNextMorning(shift) {
+    return getTurnoComponentes(shift).includes("N");
+}
 
 /**
  * Convierte "HH:MM" en minutos desde medianoche.

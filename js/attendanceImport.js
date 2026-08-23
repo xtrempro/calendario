@@ -228,19 +228,62 @@ export function getMarksFor(rut, iso) {
  * perder la informacion que se quiere revisar. Las marcas sin tipo se muestran
  * en Entrada, que es donde el reloj las deja cuando no lo especifica.
  */
-export function getAttendanceCells(rut, iso) {
+export function getAttendanceCells(rut, iso, options = {}) {
+    const {
+        endsNextMorning = false,
+        previousEndsNextMorning = false
+    } = options;
     const marks = getMarksFor(rut, iso);
+    const entrada = marks
+        .filter(mark => mark.type !== "out")
+        .map(mark => mark.time)
+        .join(" · ");
+
+    // Un turno con noche se cierra a la manana siguiente, asi que el reloj deja
+    // esa salida en el dia siguiente -normalmente un libre-. Se la trae a la
+    // fila del turno, que es donde se entiende.
+    if (endsNextMorning) {
+        const nextIso = shiftIsoDay(iso, 1);
+        const times = exitTimes(rut, nextIso);
+
+        return times[0]
+            ? { entrada, salida: times[0], salidaFrom: nextIso }
+            : { entrada, salida: "" };
+    }
+
+    const own = exitTimes(rut, iso);
 
     return {
-        entrada: marks
-            .filter(mark => mark.type !== "out")
-            .map(mark => mark.time)
-            .join(" · "),
-        salida: marks
-            .filter(mark => mark.type === "out")
-            .map(mark => mark.time)
-            .join(" · ")
+        entrada,
+        // La primera salida del dia es la del turno de anoche, que ya la
+        // muestra en SU fila. Dejarla aqui tambien la contaria dos veces.
+        salida: (previousEndsNextMorning ? own.slice(1) : own).join(" · ")
     };
+}
+
+/**
+ * Corre una fecha ISO la cantidad de dias indicada, cruzando mes y anio.
+ */
+function shiftIsoDay(iso, days) {
+    const [year, month, day] = String(iso).split("-").map(Number);
+    const date = new Date(year, (month || 1) - 1, (day || 1) + days);
+
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0")
+    ].join("-");
+}
+
+/**
+ * Horas de salida de un dia, de la mas temprana a la mas tardia.
+ */
+function exitTimes(rut, iso) {
+    return getMarksFor(rut, iso)
+        .filter(mark => mark.type === "out")
+        .map(mark => String(mark.time || ""))
+        .filter(Boolean)
+        .sort();
 }
 
 /**

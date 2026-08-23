@@ -20,7 +20,8 @@ import {
 } from "./attendanceImport.js";
 import {
     entryDelayForDay,
-    formatDelayCell
+    formatDelayCell,
+    shiftEndsNextMorning
 } from "./attendanceDelay.js";
 import {
     calcularExtraDiurnoProgramadoDia,
@@ -592,6 +593,29 @@ function movedBaseStateForReport(profileName, keyDay, fallbackBase) {
 const MISSING_ENTRY_MARK = "\u2715";
 const MISSING_ENTRY_TITLE = "No existe registro de entrada";
 
+// Asterisco de la salida traida desde el dia siguiente, para que se note que
+// esa hora no se marco en la fecha de la fila.
+const MOVED_EXIT_MARK = "*";
+const MOVED_EXIT_TITLE = "Marcado el";
+
+/**
+ * Clave del dia anterior, cruzando meses y anios.
+ *
+ * Hace falta para saber si anoche hubo un turno con noche: en ese caso la
+ * primera salida de hoy es de ese turno y se muestra en SU fila, no en esta.
+ */
+function previousDayKey(date) {
+    const previous = new Date(date);
+
+    previous.setDate(previous.getDate() - 1);
+
+    return key(
+        previous.getFullYear(),
+        previous.getMonth(),
+        previous.getDate()
+    );
+}
+
 /**
  * Celdas de marcaje del reporte: Entrada, Salida y Atrasos.
  *
@@ -600,7 +624,10 @@ const MISSING_ENTRY_TITLE = "No existe registro de entrada";
  * que se movio y que un turno extra no genere atraso aunque se llegue tarde.
  */
 function attendanceReportCells(profile, iso, day) {
-    const cells = getAttendanceCells(profile.rut, iso);
+    const cells = getAttendanceCells(profile.rut, iso, {
+        endsNextMorning: shiftEndsNextMorning(day.workedShift),
+        previousEndsNextMorning: shiftEndsNextMorning(day.previousWorkedShift)
+    });
     const delay = entryDelayForDay({
         baseShift: day.baseShift,
         extraShift: day.extraShift,
@@ -608,21 +635,28 @@ function attendanceReportCells(profile, iso, day) {
         entryTime: getEntryMarkTime(profile.rut, iso),
         absent: day.absent
     });
+    const meta = {};
+
+    if (delay.missingEntry) {
+        meta.entrada = {
+            title: MISSING_ENTRY_TITLE,
+            className: "report-cell--missing-entry"
+        };
+    }
+    if (cells.salidaFrom) {
+        meta.salida = {
+            title: `${MOVED_EXIT_TITLE} ${formatDate(cells.salidaFrom)}`,
+            className: "report-cell--moved-exit"
+        };
+    }
 
     return {
-        ...cells,
         entrada: delay.missingEntry ? MISSING_ENTRY_MARK : cells.entrada,
+        salida: cells.salidaFrom
+            ? `${cells.salida} ${MOVED_EXIT_MARK}`
+            : cells.salida,
         atrasos: formatDelayCell(delay.minutes),
-        ...(delay.missingEntry
-            ? {
-                __cells: {
-                    entrada: {
-                        title: MISSING_ENTRY_TITLE,
-                        className: "report-cell--missing-entry"
-                    }
-                }
-            }
-            : {})
+        ...(Object.keys(meta).length ? { __cells: meta } : {})
     };
 }
 
@@ -1058,6 +1092,11 @@ function buildNoAssignmentDayRows(
             ...attendanceReportCells(profile, iso, {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
+                previousWorkedShift: actualStateForReport(
+                    profileName,
+                    data,
+                    previousDayKey(date)
+                ),
                 workedShift: actual,
                 absent: Boolean(absence?.full)
             }),
@@ -1194,6 +1233,11 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
             ...attendanceReportCells(profile, iso, {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
+                previousWorkedShift: actualStateForReport(
+                    profileName,
+                    data,
+                    previousDayKey(date)
+                ),
                 workedShift: actual,
                 absent: Boolean(absence?.full)
             }),
@@ -1331,6 +1375,11 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             ...attendanceReportCells(profile, iso, {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
+                previousWorkedShift: actualStateForReport(
+                    profileName,
+                    data,
+                    previousDayKey(date)
+                ),
                 workedShift: actual,
                 absent: Boolean(dayAbsenceDetail(keyDay, maps)?.full)
             }),

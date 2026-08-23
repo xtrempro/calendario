@@ -47,9 +47,11 @@ const {
     entryDelayForDay,
     formatDelayCell,
     minutesFromTime,
-    scheduledEntryTime
+    scheduledEntryTime,
+    shiftEndsNextMorning
 } = await import("../js/attendanceDelay.js");
-const { getEntryMarkTime } = await import("../js/attendanceImport.js");
+const { getAttendanceCells, getEntryMarkTime } =
+    await import("../js/attendanceImport.js");
 
 async function leer(ruta) {
     const fuente = await readFile(new URL(ruta, import.meta.url), "utf8");
@@ -367,6 +369,132 @@ test("la noche del 13 de agosto: entro 19:54, sin atraso", () => {
 });
 
 /* =========================================================
+   La salida del turno de noche viaja al dia del turno
+
+   El reloj deja la salida de un turno con noche en el dia SIGUIENTE, que suele
+   ser un libre. Es correcto pero se lee mal: la fila del turno queda sin
+   salida y un dia libre aparece con una. Se la trae al dia en que se entro.
+========================================================= */
+
+function marcasDelEjemplo() {
+    // Las tres filas de la imagen del usuario.
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            // 03-08: hizo un 24 (Larga + Noche). Entra y no sale ese dia.
+            "2026-08-03": [{ time: "07:57", type: "in" }],
+            // 04-08: la salida de las 08:10 cierra el 24 del dia 3. A las
+            // 19:40 entra a SU turno de noche.
+            "2026-08-04": [
+                { time: "08:10", type: "out" },
+                { time: "19:40", type: "in" }
+            ],
+            // 05-08 es libre: esta salida cierra la noche del dia 4.
+            "2026-08-05": [{ time: "08:08", type: "out" }]
+        }
+    }));
+}
+
+test("el 24 muestra su salida del dia siguiente, con la fecha original", () => {
+    marcasDelEjemplo();
+
+    const dia = getAttendanceCells("1-9", "2026-08-03", {
+        endsNextMorning: true
+    });
+
+    assert.equal(dia.entrada, "07:57");
+    assert.equal(dia.salida, "08:10");
+    assert.equal(dia.salidaFrom, "2026-08-04");
+});
+
+test("la noche del dia 4 toma la salida del 5, no la del 4", () => {
+    // La del 4 a las 08:10 es del turno de anoche; la suya es la del 5.
+    marcasDelEjemplo();
+
+    const dia = getAttendanceCells("1-9", "2026-08-04", {
+        endsNextMorning: true,
+        previousEndsNextMorning: true
+    });
+
+    assert.equal(dia.entrada, "19:40");
+    assert.equal(dia.salida, "08:08");
+    assert.equal(dia.salidaFrom, "2026-08-05");
+});
+
+test("el libre siguiente queda SIN salida: ya se mostro en su turno", () => {
+    // Sin esto la misma marca apareceria dos veces en el reporte.
+    marcasDelEjemplo();
+
+    const dia = getAttendanceCells("1-9", "2026-08-05", {
+        previousEndsNextMorning: true
+    });
+
+    assert.equal(dia.entrada, "");
+    assert.equal(dia.salida, "");
+});
+
+test("un turno de dia no mueve nada", () => {
+    marcasDelEjemplo();
+
+    const dia = getAttendanceCells("1-9", "2026-08-04");
+
+    // Comportamiento de siempre: lo que se marco ese dia, tal cual.
+    assert.equal(dia.salida, "08:10");
+    assert.equal(dia.salidaFrom, undefined);
+});
+
+test("sin salida al dia siguiente la celda queda vacia", () => {
+    marcasDelEjemplo();
+
+    const dia = getAttendanceCells("1-9", "2026-08-05", {
+        endsNextMorning: true
+    });
+
+    assert.equal(dia.salida, "");
+    assert.equal(dia.salidaFrom, undefined);
+});
+
+test("el traslado cruza el fin de mes", () => {
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-31": [{ time: "19:50", type: "in" }],
+            "2026-09-01": [{ time: "08:05", type: "out" }]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-31", {
+        endsNextMorning: true
+    });
+
+    assert.equal(dia.salida, "08:05");
+    assert.equal(dia.salidaFrom, "2026-09-01");
+});
+
+test("el reporte marca la salida movida y dice de que dia viene", () => {
+    assert.match(reporte, /const MOVED_EXIT_MARK = "\*";/);
+    assert.match(reporte, /const MOVED_EXIT_TITLE = "Marcado el";/);
+    assert.match(
+        reporte,
+        /title: `\$\{MOVED_EXIT_TITLE\} \$\{formatDate\(cells\.salidaFrom\)\}`/
+    );
+    assert.match(estilos, /\.report-table td\.report-cell--moved-exit \{/);
+});
+
+test("los tres constructores informan el turno de anoche", () => {
+    // Sin el, la salida de un turno de noche saldria dos veces: en la fila del
+    // turno y otra vez en el libre del dia siguiente.
+    const usos = reporte.match(/previousWorkedShift: actualStateForReport\(/g) || [];
+
+    assert.equal(usos.length, 3);
+    assert.match(reporte, /previousDayKey\(date\)/);
+});
+
+test("el dia anterior se calcula cruzando meses", () => {
+    assert.match(reporte, /previous\.setDate\(previous\.getDate\(\) - 1\);/);
+});
+
+/* =========================================================
    La celda
 ========================================================= */
 
@@ -427,8 +555,29 @@ test("la cruz viaja con su explicacion", () => {
 test("el motor de atrasos no depende de nada del navegador", () => {
     // Igual que el motor de horas extras: sin DOM, sin Firebase y sin estado,
     // para que el calculo se pueda probar solo y no cambie segun donde corra.
-    const importes = motor.match(/^import .*$/gm) || [];
+    // Solo puede apoyarse en otros modulos igual de puros.
+    const permitidos = ["./constants.js", "./rulesEngine.js"];
+    const origenes = [...motor.matchAll(/^import .*? from "(.+?)";$/gm)]
+        .map(coincidencia => coincidencia[1]);
 
-    assert.deepEqual(importes, ['import { TURNO } from "./constants.js";']);
+    assert.ok(origenes.length, "no se detectaron los imports");
+    origenes.forEach(origen => {
+        assert.ok(permitidos.includes(origen), `import no permitido: ${origen}`);
+    });
     assert.doesNotMatch(motor, /document|window|localStorage|firebase/);
+});
+
+test("que turnos terminan a la manana siguiente sale del modelo", () => {
+    // No hay una lista aparte de turnos nocturnos: se pregunta por el segmento
+    // "N". Si manana se agrega un turno con noche, esto lo reconoce solo.
+    assert.match(motor, /getTurnoComponentes\(shift\)\.includes\("N"\)/);
+
+    [TURNO.NOCHE, TURNO.TURNO24, TURNO.DIURNO_NOCHE, TURNO.TURNO18]
+        .forEach(turno => {
+            assert.equal(shiftEndsNextMorning(turno), true, `turno ${turno}`);
+        });
+    [TURNO.LIBRE, TURNO.LARGA, TURNO.DIURNO, TURNO.MEDIA_MANANA, TURNO.MEDIA_TARDE]
+        .forEach(turno => {
+            assert.equal(shiftEndsNextMorning(turno), false, `turno ${turno}`);
+        });
 });
