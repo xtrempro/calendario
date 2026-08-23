@@ -19,7 +19,7 @@ const BACKDROP_PATTERN = /(^|\s)[\w-]*backdrop([\w-]*)?(\s|$)/;
 
 let pressTarget = null;
 
-function isBackdrop(element) {
+function hasBackdropName(element) {
     return Boolean(
         element &&
         element.nodeType === 1 &&
@@ -29,17 +29,51 @@ function isBackdrop(element) {
 }
 
 /**
- * Decide si un click sobre el fondo hay que descartar.
+ * Una capa que cubre la pantalla y que, al recibir un click sobre si misma,
+ * cierra el modal que contiene.
  *
- * Exportada para poder probarla sin un navegador.
+ * La primera version miraba SOLO el nombre de la clase, y por eso no arreglaba
+ * el buscador de trabajadores: su capa se llama "profile-search-modal", sin la
+ * palabra "backdrop". Ahora la señal principal es estructural -posicion fija
+ * cubriendo la pantalla-, que no depende de como se llame nada y sirve para
+ * cualquier modal que se agregue despues.
+ */
+function isOverlayElement(element) {
+    if (!element || element.nodeType !== 1) return false;
+    if (hasBackdropName(element)) return true;
+
+    const view = element.ownerDocument?.defaultView;
+
+    if (!view?.getComputedStyle || !element.getBoundingClientRect) return false;
+
+    if (view.getComputedStyle(element).position !== "fixed") return false;
+
+    const rect = element.getBoundingClientRect();
+
+    // "Casi toda la pantalla": un 90% evita que un margen o un borde dejen
+    // fuera a una capa que en la practica cubre todo.
+    return rect.width >= view.innerWidth * 0.9 &&
+        rect.height >= view.innerHeight * 0.9;
+}
+
+/**
+ * Decide si un click sobre la capa hay que descartar.
+ *
+ * Exportada, y con el detector de capa inyectable, para poder probarla sin un
+ * navegador.
  *
  * @param {EventTarget} target elemento donde termino el click
  * @param {EventTarget} pressed elemento donde empezo la pulsacion
+ * @param {(element: any) => boolean} [isOverlay]
  * @returns {boolean}
  */
-export function shouldIgnoreBackdropClick(target, pressed) {
+export function shouldIgnoreBackdropClick(
+    target,
+    pressed,
+    isOverlay = isOverlayElement
+) {
     if (!pressed || pressed === target) return false;
-    if (!isBackdrop(target)) return false;
+    if (!isOverlay(target)) return false;
 
     // Solo si el arrastre venia de DENTRO de ese mismo modal. Si empezo en otra
     // parte de la pantalla, cerrar es lo correcto.
@@ -81,4 +115,7 @@ export function installModalBackdropGuard(root = document) {
     );
 }
 
-export const MODAL_BACKDROP_GUARD_INTERNALS = { isBackdrop };
+export const MODAL_BACKDROP_GUARD_INTERNALS = {
+    hasBackdropName,
+    isOverlayElement
+};

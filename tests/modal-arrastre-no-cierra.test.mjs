@@ -16,7 +16,7 @@ const {
     MODAL_BACKDROP_GUARD_INTERNALS
 } = await import("../js/modalBackdropGuard.js");
 
-const { isBackdrop } = MODAL_BACKDROP_GUARD_INTERNALS;
+const { hasBackdropName, isOverlayElement } = MODAL_BACKDROP_GUARD_INTERNALS;
 
 const guard = (await readFile(
     new URL("../js/modalBackdropGuard.js", import.meta.url),
@@ -27,12 +27,17 @@ const main = (await readFile(
     "utf8"
 )).replace(/\r\n/g, "\n");
 
+// En los tests la "capa" se marca a mano: la deteccion real mira estilos
+// calculados, que no existen fuera de un navegador.
+const esCapa = (element) => Boolean(element?.esCapa);
+
 // Elementos de mentira, con lo minimo que mira el guardia.
-function element(className, children = []) {
+function element(className, children = [], esCapa = false) {
     const node = {
         nodeType: 1,
         className,
         children,
+        esCapa,
         contains(other) {
             if (other === node) return true;
 
@@ -60,7 +65,7 @@ test("reconoce los fondos de todos los modales del app", () => {
         "task-assignment-dialog-backdrop"
     ].forEach(className => {
         assert.equal(
-            isBackdrop(element(className)),
+            hasBackdropName(element(className)),
             true,
             `no reconocio "${className}"`
         );
@@ -69,11 +74,38 @@ test("reconoce los fondos de todos los modales del app", () => {
 
 test("no confunde otros elementos con un fondo", () => {
     ["hm-modal", "settings-card", "day", ""].forEach(className => {
-        assert.equal(isBackdrop(element(className)), false, className);
+        assert.equal(hasBackdropName(element(className)), false, className);
     });
     // Y no se cae con cosas que no son elementos.
-    assert.equal(isBackdrop(null), false);
-    assert.equal(isBackdrop({ nodeType: 3 }), false);
+    assert.equal(hasBackdropName(null), false);
+    assert.equal(hasBackdropName({ nodeType: 3 }), false);
+});
+
+test("una capa que NO se llama backdrop igual se detecta", async () => {
+    // El fallo real: el buscador de trabajadores usa "profile-search-modal",
+    // sin la palabra "backdrop", asi que la deteccion por nombre no lo cubria y
+    // el modal se seguia cerrando. La señal buena es estructural.
+    const html = (await readFile(
+        new URL("../index.html", import.meta.url),
+        "utf8"
+    )).replace(/\r\n/g, "\n");
+    const styles = (await readFile(
+        new URL("../styles.css", import.meta.url),
+        "utf8"
+    )).replace(/\r\n/g, "\n");
+
+    // Hay cuatro buscadores con esa clase y ninguno dice "backdrop".
+    assert.ok(
+        (html.match(/class="profile-search-modal"/g) || []).length >= 4
+    );
+    assert.equal(hasBackdropName(element("profile-search-modal")), false);
+    // Pero su capa es fija y cubre la pantalla, que es lo que ahora se mira.
+    assert.match(
+        styles,
+        /\.profile-search-modal \{[\s\S]{0,80}position: fixed;[\s\S]{0,20}inset: 0;/
+    );
+    assert.match(guard, /getComputedStyle\(element\)\.position !== "fixed"/);
+    assert.match(guard, /rect\.width >= view\.innerWidth \* 0\.9/);
 });
 
 /* =========================================================
@@ -85,32 +117,32 @@ test("arrastrar desde un campo y soltar en el fondo NO cierra", () => {
     const input = element("search-input");
     const backdrop = element("hm-modal-backdrop", [
         element("hm-modal", [input])
-    ]);
+    ], true);
 
-    assert.equal(shouldIgnoreBackdropClick(backdrop, input), true);
+    assert.equal(shouldIgnoreBackdropClick(backdrop, input, esCapa), true);
 });
 
 test("un click de verdad en el fondo SI cierra", () => {
     // Presionar y soltar sobre el fondo: es la forma de cerrar y debe seguir
     // funcionando.
-    const backdrop = element("hm-modal-backdrop", []);
+    const backdrop = element("hm-modal-backdrop", [], true);
 
-    assert.equal(shouldIgnoreBackdropClick(backdrop, backdrop), false);
+    assert.equal(shouldIgnoreBackdropClick(backdrop, backdrop, esCapa), false);
 });
 
 test("un arrastre que viene de OTRO modal si cierra", () => {
     // Si la pulsacion empezo fuera de este modal, soltar sobre su fondo es un
     // click al fondo legitimo.
     const otro = element("otro-modal");
-    const backdrop = element("hm-modal-backdrop", [element("hm-modal")]);
+    const backdrop = element("hm-modal-backdrop", [element("hm-modal")], true);
 
-    assert.equal(shouldIgnoreBackdropClick(backdrop, otro), false);
+    assert.equal(shouldIgnoreBackdropClick(backdrop, otro, esCapa), false);
 });
 
 test("sin pulsacion previa no se ignora nada", () => {
-    const backdrop = element("hm-modal-backdrop");
+    const backdrop = element("hm-modal-backdrop", [], true);
 
-    assert.equal(shouldIgnoreBackdropClick(backdrop, null), false);
+    assert.equal(shouldIgnoreBackdropClick(backdrop, null, esCapa), false);
 });
 
 test("un click que no termina en un fondo nunca se toca", () => {
@@ -118,7 +150,7 @@ test("un click que no termina en un fondo nunca se toca", () => {
     const boton = element("primary-button");
     const modal = element("hm-modal", [boton]);
 
-    assert.equal(shouldIgnoreBackdropClick(modal, boton), false);
+    assert.equal(shouldIgnoreBackdropClick(modal, boton, esCapa), false);
 });
 
 /* =========================================================
