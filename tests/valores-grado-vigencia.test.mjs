@@ -148,6 +148,28 @@ test("un rango al reves se descarta en vez de quedar imposible", () => {
    Compatibilidad con lo ya guardado
 ========================================================= */
 
+test("lo guardado tambien se puede leer SIN el codigo de periodos", () => {
+    // Una version del app que aun no conoce los periodos lee professional y
+    // general de la RAIZ. Si solo se guardara "periods", no encontraria nada y
+    // caeria a los valores por defecto, mostrando cifras equivocadas sin
+    // avisar. Paso de verdad al escribir el primer periodo desde un script.
+    localStorage.clear();
+    saveGradeHourConfig({
+        periods: [
+            { from: "2025-02", to: "2026-01", professional: { "10": 1000 } },
+            { from: "2026-02", to: "", professional: { "10": 1200 } }
+        ]
+    });
+
+    const guardado = JSON.parse(localStorage.getItem("gradeHourConfig"));
+
+    assert.ok(guardado.periods, "los periodos siguen ahi");
+    // La raiz refleja el periodo VIGENTE, que es el que un cliente antiguo
+    // deberia estar usando hoy.
+    assert.equal(guardado.professional["10"], 1200);
+    assert.ok(guardado.general, "tambien la tabla general");
+});
+
 test("la configuracion vieja sin fechas se migra sola", () => {
     // Era { professional, general } sin periodos. Tiene que seguir aplicando a
     // todo el historico exactamente como antes.

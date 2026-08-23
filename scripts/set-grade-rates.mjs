@@ -219,10 +219,20 @@ async function main() {
             ? `${period.from || "inicio"}..${period.to || "vigente"}`
             : "sin fechas";
 
-        if (!cambios.length) {
+        // Tambien se reescribe si los valores ya estan pero falta la copia de
+        // compatibilidad en la raiz.
+        const faltaRaiz = Object.entries(RATES).some(([group, grades]) =>
+            Object.entries(grades).some(([grade, value]) =>
+                Number(raw?.[group]?.[grade]) !== value
+            )
+        );
+
+        if (!cambios.length && !faltaRaiz) {
             console.log(`  ${workspace.name.padEnd(28)} sin cambios`);
             continue;
         }
+
+        if (!cambios.length) cambios.push("solo copia de compatibilidad");
 
         changed++;
         console.log(
@@ -232,13 +242,22 @@ async function main() {
 
         if (!APPLY) continue;
 
+        // La tabla del periodo vigente va TAMBIEN en la raiz, con el formato
+        // antiguo: una version del app que aun no conoce los periodos lee de
+        // ahi, y sin eso caeria a los valores por defecto sin avisar.
+        const compatible = {
+            ...config,
+            professional: { ...period.professional },
+            general: { ...period.general }
+        };
+
         await api(CONFIG_PATH(workspace.id), {
             method: "PATCH",
             body: JSON.stringify({
                 fields: {
                     storageKey: asString("gradeHourConfig"),
                     moduleId: asString("hours"),
-                    value: asString(JSON.stringify(config)),
+                    value: asString(JSON.stringify(compatible)),
                     updatedAtISO: asString(new Date().toISOString()),
                     clientId: asString("script")
                 }

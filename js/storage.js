@@ -283,7 +283,11 @@ function monthKeyFromDate(date) {
  * cualquiera-, que es como se comportaba la tabla unica.
  */
 export function getGradeHourPeriodAt(date = null) {
-    const { periods } = getGradeHourConfig();
+    return gradeHourPeriodFrom(getGradeHourConfig(), date);
+}
+
+function gradeHourPeriodFrom(config, date = null) {
+    const periods = config?.periods || [];
 
     if (!periods.length) return null;
 
@@ -318,10 +322,19 @@ export function getGradeHourConfig() {
 }
 
 export function saveGradeHourConfig(config) {
-    setJSON(
-        "gradeHourConfig",
-        normalizeGradeHourConfig(config)
-    );
+    const normalized = normalizeGradeHourConfig(config);
+    const current = gradeHourPeriodFrom(normalized, new Date());
+
+    // Se guarda tambien la tabla del periodo VIGENTE en la raiz, con el formato
+    // antiguo. Una version del app que todavia no conoce los periodos lee
+    // "professional"/"general" de la raiz; si no estuvieran, no encontraria
+    // nada y caeria a los valores por defecto, mostrando cifras equivocadas sin
+    // avisar. Es lo que paso al escribir el primer periodo desde un script.
+    setJSON("gradeHourConfig", {
+        ...normalized,
+        professional: { ...(current?.professional || {}) },
+        general: { ...(current?.general || {}) }
+    });
 }
 
 export function getGradeHourValue(estamento, grade, date = null) {
