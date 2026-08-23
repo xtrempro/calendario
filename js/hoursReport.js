@@ -597,6 +597,7 @@ const MISSING_ENTRY_TITLE = "No existe registro de entrada";
 // esa hora no se marco en la fecha de la fila.
 const MOVED_EXIT_MARK = "*";
 const MOVED_EXIT_TITLE = "Marcado el";
+const ALL_MARKS_TITLE = "Marcas del turno:";
 
 /**
  * Clave del dia anterior, cruzando meses y anios.
@@ -636,17 +637,32 @@ function attendanceReportCells(profile, iso, day) {
         absent: day.absent
     });
     const meta = {};
+    // De un turno solo se muestran la primera entrada y la ultima salida. Las
+    // intermedias -salir y volver a entrar entre los dos tramos de un 24- no
+    // se pierden: van al hover, para no llenar la tabla.
+    const hidden = hiddenMarksTitle(cells);
 
     if (delay.missingEntry) {
         meta.entrada = {
             title: MISSING_ENTRY_TITLE,
             className: "report-cell--missing-entry"
         };
+    } else if (hidden) {
+        meta.entrada = { title: hidden, className: "report-cell--more-marks" };
     }
-    if (cells.salidaFrom) {
+    if (cells.salidaFrom || hidden) {
+        const lines = [
+            cells.salidaFrom
+                ? `${MOVED_EXIT_TITLE} ${formatDate(cells.salidaFrom)}`
+                : "",
+            hidden
+        ].filter(Boolean);
+
         meta.salida = {
-            title: `${MOVED_EXIT_TITLE} ${formatDate(cells.salidaFrom)}`,
-            className: "report-cell--moved-exit"
+            title: lines.join("\n"),
+            className: cells.salidaFrom
+                ? "report-cell--moved-exit"
+                : "report-cell--more-marks"
         };
     }
 
@@ -658,6 +674,21 @@ function attendanceReportCells(profile, iso, day) {
         atrasos: formatDelayCell(delay.minutes),
         ...(Object.keys(meta).length ? { __cells: meta } : {})
     };
+}
+
+/**
+ * Detalle de todas las marcas del turno, para el hover, cuando la fila esconde
+ * alguna. Si lo que se muestra ya es todo lo que hay, devuelve "".
+ */
+function hiddenMarksTitle(cells) {
+    const marks = cells.marks || [];
+    const shown = (cells.entrada ? 1 : 0) + (cells.salida ? 1 : 0);
+
+    if (marks.length <= shown) return "";
+
+    return `${ALL_MARKS_TITLE} ${marks
+        .map(mark => `${mark.time} ${mark.type === "out" ? "salida" : "entrada"}`)
+        .join(" · ")}`;
 }
 
 function baseWithSwapsForReport(profileName, keyDay) {

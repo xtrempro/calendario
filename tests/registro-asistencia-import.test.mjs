@@ -229,11 +229,17 @@ test("la identidad de una marca es su checksum", () => {
    Las celdas del reporte
 ========================================================= */
 
+function celdas(rut, iso, opciones) {
+    const { entrada, salida } = getAttendanceCells(rut, iso, opciones);
+
+    return { entrada, salida };
+}
+
 test("entrada y salida quedan en su columna", () => {
     sembrar();
 
     // Del archivo: 15-08 entrada 07:57:32 y salida 20:06:22.
-    assert.deepEqual(getAttendanceCells(RUT, "2026-08-15"), {
+    assert.deepEqual(celdas(RUT, "2026-08-15"), {
         entrada: "07:57",
         salida: "20:06"
     });
@@ -243,8 +249,9 @@ test("un turno de noche reparte sus marcas por dia", () => {
     sembrar();
 
     // El 13-08 tiene la salida del turno anterior (08:08) y la entrada del
-    // turno de noche (19:54). Las dos van en el dia en que se marcaron.
-    assert.deepEqual(getAttendanceCells(RUT, "2026-08-13"), {
+    // turno de noche (19:54). Sin decirle nada del turno, cada marca se queda
+    // en el dia en que el reloj la registro.
+    assert.deepEqual(celdas(RUT, "2026-08-13"), {
         entrada: "19:54",
         salida: "08:08"
     });
@@ -253,20 +260,18 @@ test("un turno de noche reparte sus marcas por dia", () => {
 test("un dia sin marcas devuelve celdas vacias", () => {
     sembrar();
 
-    assert.deepEqual(getAttendanceCells(RUT, "2026-08-25"), {
-        entrada: "",
-        salida: ""
-    });
+    assert.deepEqual(celdas(RUT, "2026-08-25"), { entrada: "", salida: "" });
     // Y un trabajador que no esta en el archivo tampoco rompe nada.
-    assert.deepEqual(getAttendanceCells("99.999.999-9", "2026-08-15"), {
+    assert.deepEqual(celdas("99.999.999-9", "2026-08-15"), {
         entrada: "",
         salida: ""
     });
 });
 
-test("varias marcas del mismo tipo se muestran TODAS", () => {
-    // Un trabajador puede salir y volver a entrar el mismo dia; esconder marcas
-    // seria perder justamente lo que se quiere revisar.
+test("de un turno se muestran la primera entrada y la ultima salida", () => {
+    // Dentro de un 24 se marca al pasar de un tramo al otro: entra 08:00, sale
+    // 20:00, vuelve a entrar 20:00 y sale 08:00. Mostrarlo todo llena la tabla
+    // sin aportar; queda la primera entrada y la ultima salida.
     localStorage.clear();
     mergeAttendanceMarks([
         { rut: "11111111-1", date: "2026-08-10", time: "08:00", type: "in", id: "a" },
@@ -275,10 +280,27 @@ test("varias marcas del mismo tipo se muestran TODAS", () => {
         { rut: "11111111-1", date: "2026-08-10", time: "18:00", type: "out", id: "d" }
     ]);
 
-    assert.deepEqual(getAttendanceCells("11111111-1", "2026-08-10"), {
-        entrada: "08:00 · 14:00",
-        salida: "13:00 · 18:00"
+    assert.deepEqual(celdas("11111111-1", "2026-08-10"), {
+        entrada: "08:00",
+        salida: "18:00"
     });
+});
+
+test("las intermedias no se pierden: viajan en marks para el hover", () => {
+    // Es la condicion para poder esconderlas en la tabla.
+    localStorage.clear();
+    mergeAttendanceMarks([
+        { rut: "11111111-1", date: "2026-08-10", time: "08:00", type: "in", id: "a" },
+        { rut: "11111111-1", date: "2026-08-10", time: "13:00", type: "out", id: "b" },
+        { rut: "11111111-1", date: "2026-08-10", time: "14:00", type: "in", id: "c" },
+        { rut: "11111111-1", date: "2026-08-10", time: "18:00", type: "out", id: "d" }
+    ]);
+
+    assert.deepEqual(
+        getAttendanceCells("11111111-1", "2026-08-10").marks
+            .map(marca => `${marca.time} ${marca.type}`),
+        ["08:00 in", "13:00 out", "14:00 in", "18:00 out"]
+    );
 });
 
 test("las marcas se ordenan por hora aunque lleguen desordenadas", () => {
@@ -288,9 +310,10 @@ test("las marcas se ordenan por hora aunque lleguen desordenadas", () => {
         { rut: "22222222-2", date: "2026-08-10", time: "08:00", type: "in", id: "a" }
     ]);
 
+    // La primera entrada es la de las 08:00, no la que llego primero al archivo.
     assert.equal(
         getAttendanceCells("22222222-2", "2026-08-10").entrada,
-        "08:00 · 18:00"
+        "08:00"
     );
 });
 

@@ -2816,7 +2816,8 @@ body[data-active-view="log"] .secondary-grid {
 
 /* Salida de un turno con noche, traida desde el dia siguiente. El asterisco
    avisa que esa hora no se marco en la fecha de la fila; el hover dice cual. */
-.report-table td.report-cell--moved-exit {
+.report-table td.report-cell--moved-exit,
+.report-table td.report-cell--more-marks {
     cursor: help;
 }
 

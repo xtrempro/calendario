@@ -476,9 +476,9 @@ test("el reporte marca la salida movida y dice de que dia viene", () => {
     assert.match(reporte, /const MOVED_EXIT_TITLE = "Marcado el";/);
     assert.match(
         reporte,
-        /title: `\$\{MOVED_EXIT_TITLE\} \$\{formatDate\(cells\.salidaFrom\)\}`/
+        /`\$\{MOVED_EXIT_TITLE\} \$\{formatDate\(cells\.salidaFrom\)\}`/
     );
-    assert.match(estilos, /\.report-table td\.report-cell--moved-exit \{/);
+    assert.match(estilos, /\.report-table td\.report-cell--moved-exit,/);
 });
 
 test("los tres constructores informan el turno de anoche", () => {
@@ -492,6 +492,95 @@ test("los tres constructores informan el turno de anoche", () => {
 
 test("el dia anterior se calcula cruzando meses", () => {
     assert.match(reporte, /previous\.setDate\(previous\.getDate\(\) - 1\);/);
+});
+
+/* =========================================================
+   El 24 con marcaje entre los dos tramos
+
+   Hay quien marca al pasar de la Larga a la Noche: sale 20:00 y vuelve a
+   entrar 20:00. Son cuatro marcas para un solo turno. En la tabla quedan la
+   primera entrada y la ultima salida; las otras, en el hover.
+========================================================= */
+
+function marcasDelVeinticuatro() {
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-20": [
+                { time: "08:00", type: "in" },
+                { time: "20:00", type: "out" },
+                { time: "20:00", type: "in" }
+            ],
+            "2026-08-21": [{ time: "08:00", type: "out" }]
+        }
+    }));
+}
+
+test("el 24 con marcaje intermedio muestra 08:00 y 08:00", () => {
+    marcasDelVeinticuatro();
+
+    const dia = getAttendanceCells("1-9", "2026-08-20", {
+        endsNextMorning: true
+    });
+
+    assert.equal(dia.entrada, "08:00");
+    assert.equal(dia.salida, "08:00");
+    assert.equal(dia.salidaFrom, "2026-08-21");
+});
+
+test("las cuatro marcas del 24 quedan disponibles, en orden", () => {
+    // La del dia siguiente va al final aunque su hora sea menor: cierra el
+    // turno. Ordenarlas por hora la pondria primera y mentiria.
+    marcasDelVeinticuatro();
+
+    const dia = getAttendanceCells("1-9", "2026-08-20", {
+        endsNextMorning: true
+    });
+
+    assert.deepEqual(
+        dia.marks.map(marca => `${marca.time} ${marca.type}`),
+        ["08:00 in", "20:00 out", "20:00 in", "08:00 out"]
+    );
+});
+
+test("el atraso del 24 se mide con la PRIMERA entrada", () => {
+    // Si tomara la de las 20:00 -la del segundo tramo- un turno puntual
+    // apareceria con doce horas de atraso.
+    marcasDelVeinticuatro();
+
+    assert.equal(getEntryMarkTime("1-9", "2026-08-20"), "08:00");
+});
+
+test("un turno normal sin marcas intermedias no arma hover", () => {
+    // Solo se esconde algo cuando hay algo que esconder.
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-20": [
+                { time: "07:58", type: "in" },
+                { time: "20:04", type: "out" }
+            ]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-20");
+
+    assert.equal(dia.marks.length, 2);
+    assert.equal(dia.entrada, "07:58");
+    assert.equal(dia.salida, "20:04");
+});
+
+test("el hover se arma solo cuando la fila esconde marcas", () => {
+    assert.match(reporte, /const ALL_MARKS_TITLE = "Marcas del turno:";/);
+    assert.match(reporte, /function hiddenMarksTitle\(cells\)/);
+    // La cuenta es contra lo que SE MUESTRA, no contra un numero fijo: un dia
+    // sin salida muestra una sola celda y con dos marcas ya esconde una.
+    assert.match(
+        reporte,
+        /const shown = \(cells\.entrada \? 1 : 0\) \+ \(cells\.salida \? 1 : 0\);/
+    );
+    assert.match(reporte, /if \(marks\.length <= shown\) return "";/);
+    assert.match(estilos, /\.report-table td\.report-cell--more-marks \{/);
 });
 
 /* =========================================================

@@ -233,32 +233,60 @@ export function getAttendanceCells(rut, iso, options = {}) {
         endsNextMorning = false,
         previousEndsNextMorning = false
     } = options;
-    const marks = getMarksFor(rut, iso);
-    const entrada = marks
-        .filter(mark => mark.type !== "out")
-        .map(mark => mark.time)
-        .join(" · ");
-
-    // Un turno con noche se cierra a la manana siguiente, asi que el reloj deja
-    // esa salida en el dia siguiente -normalmente un libre-. Se la trae a la
-    // fila del turno, que es donde se entiende.
-    if (endsNextMorning) {
-        const nextIso = shiftIsoDay(iso, 1);
-        const times = exitTimes(rut, nextIso);
-
-        return times[0]
-            ? { entrada, salida: times[0], salidaFrom: nextIso }
-            : { entrada, salida: "" };
-    }
-
-    const own = exitTimes(rut, iso);
+    const marks = shiftMarksFor(rut, iso, {
+        endsNextMorning,
+        previousEndsNextMorning
+    });
+    const entradas = marks.filter(mark => mark.type !== "out");
+    const salidas = marks.filter(mark => mark.type === "out");
+    // Un turno con noche se cierra a la manana siguiente: su salida es la que
+    // se trajo de ese dia, no una intermedia. Si no la marco, la celda queda
+    // vacia en vez de mostrar la de mitad de turno como si fuera el termino.
+    const cierre = endsNextMorning
+        ? salidas.find(mark => mark.iso)
+        : salidas[salidas.length - 1];
 
     return {
-        entrada,
-        // La primera salida del dia es la del turno de anoche, que ya la
-        // muestra en SU fila. Dejarla aqui tambien la contaria dos veces.
-        salida: (previousEndsNextMorning ? own.slice(1) : own).join(" · ")
+        entrada: entradas[0]?.time || "",
+        salida: cierre?.time || "",
+        ...(cierre?.iso ? { salidaFrom: cierre.iso } : {}),
+        marks
     };
+}
+
+/**
+ * Marcas que pertenecen al turno que empieza en `iso`, en orden.
+ *
+ * Un turno no cabe siempre dentro de su fecha: el que lleva noche se cierra a
+ * la manana siguiente, y esa salida el reloj la deja en el dia siguiente.
+ */
+function shiftMarksFor(rut, iso, { endsNextMorning, previousEndsNextMorning }) {
+    const own = getMarksFor(rut, iso)
+        .map(mark => ({
+            time: String(mark.time || ""),
+            type: mark.type === "out" ? "out" : "in"
+        }))
+        .filter(mark => mark.time)
+        .sort((a, b) => a.time.localeCompare(b.time));
+    // Si anoche hubo un turno con noche, la primera salida de hoy lo cierra a
+    // el y se muestra en SU fila. Dejarla aqui la contaria dos veces.
+    const first = previousEndsNextMorning
+        ? own.findIndex(mark => mark.type === "out")
+        : -1;
+    const marks = first === -1
+        ? own
+        : own.filter((mark, index) => index !== first);
+
+    if (!endsNextMorning) return marks;
+
+    const nextIso = shiftIsoDay(iso, 1);
+    const cierre = exitTimes(rut, nextIso)[0];
+
+    // Va al final y NO se reordena: es del dia siguiente, asi que cronologica-
+    // mente cierra la lista aunque su hora sea menor que las de la tarde.
+    return cierre
+        ? [...marks, { time: cierre, type: "out", iso: nextIso }]
+        : marks;
 }
 
 /**
