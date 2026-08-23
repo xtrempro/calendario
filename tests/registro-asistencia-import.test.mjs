@@ -310,6 +310,41 @@ test("el detalle de turnos trae las dos columnas nuevas", () => {
     );
 });
 
-test("las filas del reporte se llenan por RUT", () => {
-    assert.match(reportSource, /\.\.\.getAttendanceCells\(profile\.rut, iso\)/);
+test("TODOS los constructores de filas llenan las columnas", () => {
+    // Hay tres: sin asignacion de turno, con asignacion, y el de detalle. Al
+    // principio se parcharon dos y el reporte que mas se usa -el de turno
+    // asignado- quedo con las columnas vacias aunque el archivo se hubiera
+    // cargado bien. Este test cuenta que no falte ninguno.
+    const constructores = reportSource.match(/^function build\w*DayRows/gm) || [];
+    const llenados = reportSource.match(
+        /\.\.\.getAttendanceCells\(profile\.rut, iso\)/g
+    ) || [];
+
+    assert.equal(constructores.length, 3, "cambio la cantidad de constructores");
+    assert.equal(
+        llenados.length,
+        constructores.length,
+        "algun constructor de filas no llena Entrada/Salida"
+    );
+});
+
+test("cada constructor tiene el iso y el perfil que necesita", () => {
+    // getAttendanceCells se resuelve por RUT y fecha; si alguno de los dos no
+    // estuviera en el alcance, la columna saldria vacia en silencio.
+    ["buildNoAssignmentDayRows", "buildAssignedShiftDayRows", "buildDayRows"]
+        .forEach(nombre => {
+            const inicio = reportSource.indexOf(`function ${nombre}`);
+
+            assert.notEqual(inicio, -1, `falta ${nombre}`);
+
+            const cuerpo = reportSource.slice(inicio, inicio + 9000);
+            const hasta = cuerpo.indexOf("...getAttendanceCells");
+
+            assert.notEqual(hasta, -1, `${nombre} no llena las columnas`);
+            assert.match(
+                cuerpo.slice(0, hasta),
+                /const iso = isoFromKey\(keyDay\);/,
+                `${nombre} usa iso sin definirlo antes`
+            );
+        });
 });

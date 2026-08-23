@@ -1139,6 +1139,7 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
             diaHabil: isBusinessDay(date, holidays) ? "S\u00ed" : "No",
             turnoBase: turnoLabel(rawBase),
             turnoRealizado: absence?.label || turnoLabel(actual),
+            ...getAttendanceCells(profile.rut, iso),
             hheeDiurnas: formatExtraCell(extraHours.d),
             hheeNocturnas: formatExtraCell(extraHours.n),
             respaldo: details || (
