@@ -6,6 +6,7 @@
   "scripts": {
     "build": "node scripts/verify-obfuscated-engine.mjs && node build.mjs",
     "build:legible": "node build.mjs --legible",
+    "appcheck:estado": "node scripts/appcheck-estado.mjs",
     "verify:obfuscation": "node scripts/verify-obfuscated-engine.mjs",
     "bench:obfuscation": "node scripts/bench-obfuscation.mjs",
     "deploy": "node build.mjs && npm run deploy:hosting:production && npm run deploy:hosting:test",
@@ -63,6 +64,7 @@
     "test:registro-asistencia": "node --test tests/registro-asistencia-import.test.mjs",
     "test:modal-arrastre": "node --test tests/modal-arrastre-no-cierra.test.mjs",
     "test:sugerencias-orden": "node --test tests/sugerencias-orden.test.mjs",
+    "test:appcheck-recuperacion": "node --test tests/appcheck-recuperacion.test.mjs",
     "test:licencia-respaldo": "node --test tests/licencia-respaldo.test.mjs",
     "test:ofuscacion": "node --test tests/ofuscacion-motores.test.mjs",
     "test:unidad-espejo": "node --test tests/unidad-espejo.test.mjs",

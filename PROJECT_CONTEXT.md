@@ -421,6 +421,88 @@ CI / pruebas:
 - `.github/workflows/security.yml` ejecuta auditorias `npm audit --audit-level=high`, chequeos de sintaxis, `npm run test:state-modules`, pruebas de Security Rules con emuladores y `npm run build`.
 - `tests/security-rules.test.mjs` cubre acceso modular, Storage e invitaciones seguras. `tests/security-rules-test-mfa.test.mjs` repite la suite con las reglas Test y verifica que operaciones privilegiadas sin MFA queden bloqueadas.
 
+## App Check: cuando la PWA se queda sin datos
+
+Firestore exige App Check desde el 25-06-2026. Si un cliente no consigue token,
+Firestore le rechaza **todas** las lecturas y la PWA del trabajador muestra
+"No tienes permiso para leer..." en nueve pantallas distintas. El mensaje
+describe mal la causa: no es un problema de permisos ni de reglas.
+
+Incidente de referencia (21 y 22 de agosto de 2026): 308.677 lecturas
+rechazadas en dos rafagas de unas tres horas, con `security=INVALID` (el cliente
+enviaba token y era rechazado; los tokens ausentes fueron solo 24). Las reglas
+estaban intactas y la ofuscacion del bundle del supervisor no tenia relacion.
+
+Por que duraba horas y no segundos: el SDK, ante un error, espera cada vez mas
+antes de reintentar. `setBackoff` de `@firebase/app-check` bloquea **un dia
+entero** ante 403/404, y aplica backoff exponencial con tope de **4 horas** para
+el resto (incluido 401). La falla de fondo puede durar segundos y dejar la app
+muerta el resto de la tarde.
+
+### Que hace la app sola
+
+`js/app.js` de la PWA (carpeta hermana `APP TurnoPlus`) se recupera sin
+intervencion:
+
+1. Toda lectura rechazada pasa por `isPermissionDenied`, que arma
+   `recoverAppCheck()`.
+2. Se le pregunta a App Check si el token esta bloqueado, en vez de adivinar por
+   la forma del error: un rechazo legitimo tambien dice "permission denied".
+3. Si lo esta, se limpia `_throttleData` del proveedor y se pide token de nuevo.
+   Es campo privado del SDK, asi que se comprueba que exista antes de tocarlo.
+   Al recuperarlo se rearman las suscripciones (`resyncWorkerRealtimeSubscriptions`).
+4. Si eso falla, plan B: recarga controlada. Maximo 3 por hora, separadas 5
+   minutos, solo con la app a la vista y sin texto a medias sin enviar.
+5. Mientras dura, se muestra un aviso unico ("Reintentando verificar el
+   dispositivo") en lugar de los nueve errores de permisos.
+
+`tests/appcheck-recuperacion.test.mjs` verifica el mecanismo contra el SDK real
+instalado, y comprueba que la version de `node_modules` sea la misma que baja la
+PWA del CDN. Si una version futura renombra `_throttleData`, esa prueba falla:
+el codigo sigue funcionando por el plan B, pero conviene enterarse.
+
+### Diagnostico
+
+    npm run appcheck:estado                  produccion, ultimas 24 h
+    npm run appcheck:estado -- --horas=96
+    npm run appcheck:estado -- --entorno=test
+
+Muestra aceptadas y rechazadas por hora, y un veredicto. El fondo normal son 12
+a 38 rechazos por hora, con muchas horas en cero.
+
+### Que hacer cuando llega la alerta
+
+La decision depende de un solo dato: **si las verificaciones ACEPTADAS siguen
+normales**.
+
+| Lo que ves | Que significa | Que haces |
+| --- | --- | --- |
+| Aceptadas normales, rechazos altos | Uno o pocos dispositivos | Nada. La PWA se recupera sola. Si alguien reclama, que revise fecha y hora automaticas en su telefono |
+| Aceptadas caidas a casi cero | Estan todos afectados | Consola de Firebase, App Check, APIs, Cloud Firestore, dejar en **NO exigido**. Vuelve el servicio al instante. Devolverlo a exigido cuando pase |
+
+En el incidente de agosto las aceptadas nunca se cayeron: la respuesta correcta
+habria sido no hacer nada.
+
+### Alertas
+
+Son dos, y vigilan superficies distintas:
+
+- `TurnoPlus - App Check invalido` (existente desde el 26-06-2026) vigila
+  `cloud_run_revision`, o sea los callables de Functions. **No cubre Firestore**,
+  por eso no aviso nada en agosto.
+- `TurnoPlus - App Check rechaza lecturas de Firestore`, que crea
+  `scripts/appcheck-alerta.mjs`. Avisa sobre 500 rechazos sostenidos en 5
+  minutos y lleva el instructivo de arriba dentro del propio correo.
+
+Se aplica con `node scripts/appcheck-alerta.mjs --aplicar` (sin la opcion, solo
+simula). Es idempotente: si la politica ya existe, la actualiza.
+
+### Sospechoso no confirmado
+
+Falta la causa del 401 inicial: haria falta el cuerpo de esa respuesta y el
+error ya no se reproduce. El candidato principal es un desfase del reloj del
+dispositivo, que explicaria `INVALID` con `app_id UNKNOWN`.
+
 ## PWA de supervisores
 
 - `manifest.webmanifest` publica TurnoPlus como PWA instalable con iconos 192, 512 y maskable.
@@ -471,6 +553,14 @@ Antes de cambiar Firebase, revisar:
 - Para acciones auditables, usar `addAuditLog(category, action, details, meta)`.
 
 ## Comandos Utiles
+
+Estado de App Check (ver seccion App Check para interpretarlo):
+
+```powershell
+npm run appcheck:estado
+npm run appcheck:estado -- --horas=96
+```
+
 
 Listar archivos:
 
