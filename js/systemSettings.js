@@ -11,6 +11,9 @@ import {
     saveGradeHourConfig,
     getReplacementRequestConfig,
     saveReplacementRequestConfig,
+    getAdminDisplayName,
+    getAdminDisplayNames,
+    setAdminDisplayName,
     getReportSignatureConfig,
     saveReportSignatureConfig,
     getTurnChangeConfig,
@@ -89,6 +92,7 @@ let supervisorInviteSending = false;
 let supervisorInviteMessage = "";
 let supervisorInviteError = "";
 let supervisorInviteEmailDraft = "";
+let supervisorInviteNameDraft = "";
 let onSettingsSaved = null;
 
 function formatRate(value) {
@@ -454,6 +458,9 @@ function renderStaffingPanel() {
 
 function memberLabel(member) {
     return (
+        // El que puso el supervisor gana: el de la cuenta de Google suele ser
+        // un alias o directamente el correo.
+        getAdminDisplayName(member.email) ||
         member.displayName ||
         member.email ||
         member.uid ||
@@ -484,6 +491,17 @@ function renderSupervisorInviteBox() {
                 <span>Envía una invitación segura para administrar esta unidad.</span>
             </div>
             <div class="settings-user-invite__form">
+                <label class="settings-user-invite__field">
+                    <span>Nombre de la persona</span>
+                    <input
+                        type="text"
+                        autocomplete="name"
+                        data-settings-invite-name
+                        placeholder="Ej: Patricia Farías"
+                        value="${escapeHTML(supervisorInviteNameDraft)}"
+                        ${supervisorInviteSending ? "disabled" : ""}
+                    >
+                </label>
                 <label class="settings-user-invite__field">
                     <span>Correo para invitación</span>
                     <input
@@ -595,8 +613,16 @@ function renderUsersPanel() {
                         return `
                             <article class="settings-user-card">
                                 <div class="settings-user-card__head">
-                                    <span>
-                                        <strong>${escapeHTML(memberLabel(member))}</strong>
+                                    <span class="settings-user-card__id">
+                                        <input
+                                            class="settings-user-name"
+                                            type="text"
+                                            data-member-name="${escapeHTML(member.email || "")}"
+                                            value="${escapeHTML(memberLabel(member))}"
+                                            placeholder="Nombre de la persona"
+                                            aria-label="Nombre visible de este administrador"
+                                            ${member.email ? "" : "disabled"}
+                                        >
                                         <small>${escapeHTML(member.email || member.uid)}</small>
                                     </span>
                                     <div class="settings-user-card__actions">
@@ -1150,8 +1176,13 @@ async function sendSettingsSupervisorInvitation(backdrop, sourceButton) {
         ?.closest(".settings-user-invite")
         ?.querySelector("[data-settings-invite-email]");
     const email = normalizeEmailKey(emailInput?.value);
+    const nameInput = sourceButton
+        ?.closest(".settings-user-invite")
+        ?.querySelector("[data-settings-invite-name]");
+    const displayName = String(nameInput?.value || "").trim();
 
     supervisorInviteEmailDraft = email;
+    supervisorInviteNameDraft = displayName;
     supervisorInviteMessage = "";
     supervisorInviteError = "";
 
@@ -1183,6 +1214,15 @@ async function sendSettingsSupervisorInvitation(backdrop, sourceButton) {
         return;
     }
 
+    if (!displayName) {
+        // Es lo que va a ver esa persona al entrar. Sin nombre, el saludo cae
+        // en el de su cuenta de Google, que suele no servir.
+        supervisorInviteError =
+            "Ingresa el nombre de la persona que vas a invitar.";
+        rerenderSettings(backdrop, "[data-settings-invite-name]");
+        return;
+    }
+
     const permissions =
         await showSupervisorInvitePermissionsDialog({
             title: "Nueva invitación segura",
@@ -1204,8 +1244,14 @@ async function sendSettingsSupervisorInvitation(backdrop, sourceButton) {
             permissions
         );
 
+        // El nombre se guarda ANTES de que la persona acepte: cuando entre, el
+        // saludo ya la reconoce sin que nadie tenga que volver aca.
+        setAdminDisplayName(email, displayName);
+
         supervisorInviteEmailDraft = "";
-        supervisorInviteMessage = `Invitación enviada a ${email}.`;
+        supervisorInviteNameDraft = "";
+        supervisorInviteMessage =
+            `Invitación enviada a ${displayName} (${email}).`;
     } catch (error) {
         supervisorInviteError =
             error?.message || "No se pudo enviar la invitación.";
@@ -1227,6 +1273,19 @@ function rerenderHolidayList(backdrop) {
 
 function bindBackdrop(backdrop) {
     backdrop.addEventListener("change", event => {
+        // Nombre visible de un administrador. Se guarda al salir del campo (o
+        // al presionar Enter), no en cada tecla: escribir "Patricia" no puede
+        // disparar seis guardados y seis sincronizaciones.
+        const nameInput = event.target?.closest?.("[data-member-name]");
+
+        if (nameInput) {
+            setAdminDisplayName(
+                nameInput.dataset.memberName,
+                nameInput.value
+            );
+            return;
+        }
+
         if (
             event.target?.matches?.("[data-member-permission]")
         ) {

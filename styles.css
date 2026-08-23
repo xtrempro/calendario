@@ -1936,6 +1936,26 @@ body[data-active-view="home"] .secondary-grid {
 /* El modal ya no scrollea a lo ancho: si algo no cabe, se acomoda a lo alto. */
 .hm-modal--dotacion .hm-modal-body { overflow-x: hidden; }
 @media (max-width: 560px) { .hm-dot-cols { grid-template-columns: 1fr; } }
+/* Nombre visible de un administrador: editable ahi mismo, en la tarjeta donde
+   el supervisor ya ve quien tiene acceso. */
+.settings-user-card__id { display: grid; gap: 2px; min-width: 0; }
+
+.settings-user-name {
+    width: min(280px, 100%);
+    padding: 5px 9px;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-strong);
+    font: inherit;
+    font-weight: 800;
+    font-size: 0.95rem;
+}
+
+.settings-user-name:hover:not(:disabled) { border-color: var(--border); }
+.settings-user-name:focus { border-color: var(--accent); background: var(--panel); outline: none; }
+.settings-user-name:disabled { color: var(--text-muted); }
+
 /* Adjunto de un registro del perfil: se abre al tocarlo. Antes era texto suelto
    y el archivo subido quedaba inalcanzable. */
 .pf-rec-clip {

@@ -995,6 +995,76 @@ export function saveTurnChangeConfig(config) {
     );
 }
 
+/* =========================================================
+   Nombres de los administradores de la unidad
+
+   El saludo del inicio mostraba la firma del supervisor a TODOS los usuarios,
+   asi que un colaborador invitado veia el nombre de otra persona. El nombre que
+   trae el documento del miembro viene de su cuenta de Google y no siempre sirve
+   ("usuario123", el correo, o vacio).
+
+   Aca se guarda el nombre que el supervisor decide para cada administrador,
+   indexado por correo. Manda sobre el de la cuenta, y se puede corregir en
+   Ajustes sin tocar la cuenta de nadie.
+========================================================= */
+
+function normalizeAdminNameKey(email) {
+    return String(email || "").trim().toLowerCase();
+}
+
+export function getAdminDisplayNames() {
+    const stored = getJSON("adminDisplayNames", {});
+
+    if (!stored || typeof stored !== "object") return {};
+
+    return Object.entries(stored).reduce((map, [email, name]) => {
+        const key = normalizeAdminNameKey(email);
+        const clean = String(name || "").trim().slice(0, 80);
+
+        if (key && clean) map[key] = clean;
+
+        return map;
+    }, {});
+}
+
+export function saveAdminDisplayNames(names) {
+    setJSON("adminDisplayNames", getAdminDisplayNamesFrom(names));
+}
+
+function getAdminDisplayNamesFrom(names) {
+    if (!names || typeof names !== "object") return {};
+
+    return Object.entries(names).reduce((map, [email, name]) => {
+        const key = normalizeAdminNameKey(email);
+        const clean = String(name || "").trim().slice(0, 80);
+
+        if (key && clean) map[key] = clean;
+
+        return map;
+    }, {});
+}
+
+export function getAdminDisplayName(email) {
+    return getAdminDisplayNames()[normalizeAdminNameKey(email)] || "";
+}
+
+export function setAdminDisplayName(email, name) {
+    const key = normalizeAdminNameKey(email);
+
+    if (!key) return;
+
+    const names = getAdminDisplayNames();
+    const clean = String(name || "").trim().slice(0, 80);
+
+    if (clean) {
+        names[key] = clean;
+    } else {
+        delete names[key];
+    }
+
+    saveAdminDisplayNames(names);
+}
+
 export function getReportSignatureConfig() {
     return normalizeReportSignatureConfig(
         getJSON(

@@ -8,7 +8,10 @@
 // CSS global del app (que ya usa .panel, .list, .count, .stat, etc.).
 
 import { escapeHTML } from "./htmlUtils.js";
+import { getCurrentFirebaseUser } from "./firebaseClient.js";
+import { isWorkspaceOwner } from "./workspacePermissions.js";
 import {
+    getAdminDisplayName,
     getReportSignatureConfig,
     getProfiles,
     isProfileActive,
@@ -145,8 +148,26 @@ let requestsDetail = false;
 // alternar el switch de detalles).
 let coverageData = { uncovered: [], preassigned: [] };
 
+// Nombre para el saludo del inicio.
+//
+// Antes devolvia SIEMPRE la firma del supervisor, asi que un administrador
+// invitado entraba y veia el nombre de otra persona. Ahora cada usuario ve el
+// suyo: primero el nombre que el supervisor le puso en Ajustes, despues el de
+// su propia cuenta, y solo el dueño de la unidad cae en la firma.
 function getSupervisorName() {
+    const user = getCurrentFirebaseUser();
+    const asignado = getAdminDisplayName(user?.email);
+
+    if (asignado) return asignado;
+
+    if (!isWorkspaceOwner() && user) {
+        const propio = String(user.displayName || "").trim();
+
+        if (propio) return propio;
+    }
+
     const line = String(getReportSignatureConfig().lines?.[0] || "").trim();
+
     return line || SUPERVISOR_FALLBACK;
 }
 
