@@ -3189,6 +3189,16 @@ async function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
 
 // Carga del informe del reloj control. Llena las columnas Entrada y Salida del
 // detalle de turnos, buscando cada marca por RUT.
+// Las fechas del resumen se muestran como se leen en Chile. Internamente
+// viajan en ISO, que es lo que ordena bien, pero eso no tiene por que verse.
+function formatImportDate(iso) {
+    const [year, month, day] = String(iso || "").split("-");
+
+    return year && month && day
+        ? `${day}/${month}/${year}`
+        : String(iso || "");
+}
+
 function bindAttendanceImport() {
     const input = DOM.attendanceImportInput;
     const status = DOM.attendanceImportStatus;
@@ -3225,7 +3235,8 @@ function bindAttendanceImport() {
                     ? `${result.workers} trabajador(es)`
                     : "",
                 result.dates.length
-                    ? `del ${result.dates[0]} al ${result.dates.at(-1)}`
+                    ? `del ${formatImportDate(result.dates[0])} ` +
+                      `al ${formatImportDate(result.dates.at(-1))}`
                     : ""
             ].filter(Boolean);
 

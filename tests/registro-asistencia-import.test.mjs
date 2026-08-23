@@ -295,6 +295,25 @@ test("las marcas se ordenan por hora aunque lleguen desordenadas", () => {
 });
 
 /* =========================================================
+   El aviso de la carga
+========================================================= */
+
+test("el rango de fechas se muestra en formato chileno", async () => {
+    // Internamente las fechas viajan en ISO -que es lo que ordena bien- pero
+    // eso no tiene por que verse en pantalla.
+    const main = (await readFile(
+        new URL("../js/main.js", import.meta.url),
+        "utf8"
+    )).replace(/\r\n/g, "\n");
+
+    assert.match(main, /function formatImportDate\(iso\)/);
+    assert.match(main, /\$\{day\}\/\$\{month\}\/\$\{year\}/);
+    assert.match(main, /del \$\{formatImportDate\(result\.dates\[0\]\)\}/);
+    // Y ya no se muestra el ISO crudo.
+    assert.doesNotMatch(main, /del \$\{result\.dates\[0\]\}/);
+});
+
+/* =========================================================
    El reporte
 ========================================================= */
 
