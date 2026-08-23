@@ -23,6 +23,13 @@
 // Opcionales:
 //   --source <workspaceId>   unidad de origen (por defecto, Imagenologia)
 //   --project <projectId>    proyecto Firebase (por defecto, produccion)
+//   --reset                  BORRA lo que haya en el espejo antes de copiar
+//
+// Sobre --reset: sin el, el script se niega a escribir en un espejo que ya tenga
+// datos, para no mezclar dos fotos distintas. Con el, primero lo vacia. Antes de
+// borrar comprueba que el destino NO tenga trabajadores enlazados: una unidad
+// real siempre los tiene, un espejo nunca. Es el ultimo seguro contra vaciar la
+// unidad equivocada por un id mal copiado.
 
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -40,6 +47,7 @@ const PROJECT_ID = arg("--project") || "calendarioturnos-7c4d9";
 const SOURCE = arg("--source") || "Boh7mvO5ku9quFFsPcIq";
 const TARGET = arg("--target");
 const APPLY = args.includes("--apply");
+const RESET = args.includes("--reset");
 
 // Los modulos de estado que definen lo que se ve en la app (ver
 // js/firebaseStateModules.js). "system" queda fuera: es configuracion del dueño.
@@ -134,7 +142,18 @@ function plainValue(value) {
     return value;
 }
 
-async function listDocs(collectionPath, pageSize = 300) {
+// Documentos CRUDOS, con los campos tal como los devuelve Firestore.
+//
+// La copia usa esto y no la version "aplanada": una entrada de estado no tiene
+// un unico formato. Algunas guardan el estado como un texto JSON en "value",
+// pero la mayoria -las colecciones por trabajador, como las ausencias- lo
+// guardan en mapas ("items", "deletedItems") con una clave por fecha.
+//
+// La primera version de este script asumia el formato de "value" y descartaba
+// el resto en silencio: de 203 entradas de turnos copiaba 14, y el calendario
+// del espejo quedaba practicamente vacio. Copiando los campos verbatim funcionan
+// los dos formatos, y cualquier otro que aparezca despues.
+async function listRawDocs(collectionPath, pageSize = 300) {
     const docs = [];
     let pageToken = "";
 
@@ -144,19 +163,28 @@ async function listDocs(collectionPath, pageSize = 300) {
         const result = await api(collectionPath + query);
 
         (result.documents || []).forEach((doc) => {
-            const item = { id: doc.name.split("/").pop() };
-
-            Object.entries(doc.fields || {}).forEach(([key, value]) => {
-                item[key] = plainValue(value);
+            docs.push({
+                id: doc.name.split("/").pop(),
+                fields: doc.fields || {}
             });
-
-            docs.push(item);
         });
 
         pageToken = result.nextPageToken || "";
     } while (pageToken);
 
     return docs;
+}
+
+async function listDocs(collectionPath, pageSize = 300) {
+    return (await listRawDocs(collectionPath, pageSize)).map((doc) => {
+        const item = { id: doc.id };
+
+        Object.entries(doc.fields).forEach(([key, value]) => {
+            item[key] = plainValue(value);
+        });
+
+        return item;
+    });
 }
 
 const asString = (value) => ({ stringValue: String(value) });
@@ -184,19 +212,55 @@ async function main() {
         `  owner=${plainValue(target.fields?.ownerUid)}`
     );
 
-    // Salvaguarda: no se sobreescribe un espejo que ya tiene datos. Para
-    // refrescarlo hay que vaciarlo primero, a proposito.
+    const existingByModule = new Map();
+    let existingTotal = 0;
+
     for (const moduleId of MODULES) {
         const existing = await listDocs(
             `/workspaces/${TARGET}/stateModules/${moduleId}/entries`
         );
 
-        if (existing.length) {
+        existingByModule.set(moduleId, existing);
+        existingTotal += existing.length;
+    }
+
+    if (existingTotal && !RESET) {
+        // No se sobreescribe un espejo con datos: mezclaria dos fotos distintas.
+        console.error(
+            `\nABORTA: el destino ya tiene ${existingTotal} entradas. ` +
+            "Agrega --reset para vaciarlo antes de copiar."
+        );
+        process.exit(1);
+    }
+
+    if (existingTotal && RESET) {
+        // Ultimo seguro antes de borrar: una unidad REAL siempre tiene
+        // trabajadores enlazados a su PWA; un espejo, nunca. Si el id apuntara
+        // por error a una unidad de verdad, este chequeo lo detiene.
+        const links = await listDocs(`/workspaces/${TARGET}/workerLinks`);
+
+        if (links.length) {
             console.error(
-                `\nABORTA: el destino ya tiene ${existing.length} entradas en ` +
-                `"${moduleId}". Vacialo antes de volver a copiar.`
+                `\nABORTA: el destino tiene ${links.length} trabajadores ` +
+                "enlazados, asi que NO es un espejo. Revisa el --target."
             );
             process.exit(1);
+        }
+
+        console.log(`\nvaciando el espejo: ${existingTotal} entradas`);
+
+        if (APPLY) {
+            for (const moduleId of MODULES) {
+                for (const entry of existingByModule.get(moduleId)) {
+                    await api(
+                        `/workspaces/${TARGET}/stateModules/${moduleId}` +
+                        `/entries/${encodeURIComponent(entry.id)}`,
+                        { method: "DELETE" }
+                    );
+                }
+            }
+
+            console.log("espejo vacio.");
         }
     }
 
@@ -208,15 +272,23 @@ async function main() {
     let failed = 0;
 
     for (const moduleId of MODULES) {
-        const entries = await listDocs(
+        const entries = await listRawDocs(
             `/workspaces/${SOURCE}/stateModules/${moduleId}/entries`
         );
         let moduleCopied = 0;
 
         for (const entry of entries) {
-            if (entry.deleted || typeof entry.value !== "string") continue;
+            // Los campos se copian verbatim: es la unica forma de que funcionen
+            // los dos formatos de entrada (texto en "value" y mapas en "items").
+            // Solo se marca de donde vino, para poder distinguir un documento
+            // copiado de uno que el espejo escriba por su cuenta.
+            const fields = {
+                ...entry.fields,
+                clientId: asString("mirror"),
+                mirroredAtISO: asString(nowISO)
+            };
 
-            bytes += entry.value.length;
+            bytes += JSON.stringify(entry.fields).length;
             moduleCopied++;
 
             if (!APPLY) continue;
@@ -227,15 +299,7 @@ async function main() {
                     `/entries/${encodeURIComponent(entry.id)}`,
                     {
                         method: "PATCH",
-                        body: JSON.stringify({
-                            fields: {
-                                storageKey: asString(entry.storageKey),
-                                moduleId: asString(moduleId),
-                                value: asString(entry.value),
-                                updatedAtISO: asString(nowISO),
-                                clientId: asString("mirror")
-                            }
-                        })
+                        body: JSON.stringify({ fields })
                     }
                 );
             } catch (error) {
