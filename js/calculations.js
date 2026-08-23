@@ -1,5 +1,7 @@
 // calculations.js
 
+import { diurnoExtraDayHours } from "./overtimeRules.js";
+
 export function isWeekend(d){
     return [0,6].includes(d.getDay());
 }
@@ -115,6 +117,28 @@ export function calcHours(date,state,h){
     if(state===8) return calc18(date,h);
 
     return {d:0,n:0};
+}
+
+/**
+ * Horas de un turno hecho como EXTRA.
+ *
+ * Igual que calcHours salvo en el diurno: un turno diurno extra vale lo que dura
+ * ese dia -9 h de lunes a jueves, 8 el viernes-, no el promedio semanal de 8,8
+ * con el que se reparte la jornada contractual del mes.
+ *
+ * La usan las tres superficies que valoran un extra: el reporte, el panel de
+ * registros de HH.EE y el tope de horas de la cobertura automatica. Antes cada
+ * una llamaba a calcHours y mostraba 8,8.
+ */
+export function calcExtraHours(date, state, h = {}) {
+    if (Number(state) === 4) {
+        return {
+            d: diurnoExtraDayHours(date, day => isBusinessDay(day, h)),
+            n: 0
+        };
+    }
+
+    return calcHours(date, state, h);
 }
 
 // Cálculo puro de una celda. workerId forma parte de la API para que los

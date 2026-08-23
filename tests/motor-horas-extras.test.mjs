@@ -105,15 +105,27 @@ test("el motor de horas usa la regla, no un 8,8 suelto", async () => {
     );
 });
 
-test("el tope de 40 horas mide con la misma regla", async () => {
-    // Si midiera con calcHours daria 8,8 y el tope compararia contra un numero
-    // distinto del que el motor le va a acreditar al trabajador.
-    const calendar = await read("../js/calendar.js");
+test("las tres superficies del extra usan el mismo helper", async () => {
+    // calcExtraHours es el unico lugar donde se decide cuanto vale un turno
+    // hecho como extra. Si alguna volviera a calcHours, mostraria 8,8 mientras
+    // las otras muestran 9, que es justo el bug que se corrigio.
+    const [calculations, calendar, report, replacements] = await Promise.all([
+        read("../js/calculations.js"),
+        read("../js/calendar.js"),
+        read("../js/hoursReport.js"),
+        read("../js/replacements.js")
+    ]);
 
-    assert.match(
-        calendar,
-        /if \(Number\(neededTurn\) === TURNO\.DIURNO\) \{[\s\S]{0,200}diurnoExtraDayHours\(/
-    );
+    assert.match(calculations, /export function calcExtraHours\(date, state, h = \{\}\)/);
+    assert.match(calculations, /diurnoExtraDayHours\(date, day => isBusinessDay\(day, h\)\)/);
+    // Tope de la cobertura automatica.
+    assert.match(calendar, /calcExtraHours\(date, Number\(neededTurn\), holidays \|\| \{\}\)/);
+    // Reporte: solo el turno extra, no el realizado.
+    assert.match(report, /function extraNumberHours\(date, turno, holidays\)/);
+    assert.match(report, /calcExtraHours\(date, Number\(turno\) \|\| 0, holidays\)/);
+    assert.match(report, /extraNumberHours\(date, extraState, holidays\)/);
+    // Panel de registros de HH.EE.
+    assert.match(replacements, /savedHours \|\| calcExtraHours\(date, turno, holidays\)/);
 });
 
 test("el worker de proyeccion ya no tiene el numero suelto", async () => {

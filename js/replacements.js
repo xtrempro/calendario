@@ -30,7 +30,7 @@ import {
     turnoDesdeComponentes,
     tieneAusencia
 } from "./rulesEngine.js";
-import { calcHours, isBusinessDay } from "./calculations.js";
+import { calcExtraHours, calcHours, isBusinessDay } from "./calculations.js";
 import { getCachedHolidays } from "./holidays.js";
 import {
     getClockDeficitHours,
@@ -743,7 +743,7 @@ export function getReplacementOvertimeHours(
         return diurnoExtensionHours(date, holidays);
     }
 
-    return savedHours || calcHours(date, turno, holidays);
+    return savedHours || calcExtraHours(date, turno, holidays);
 }
 
 /**

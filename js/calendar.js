@@ -57,11 +57,11 @@ import {
 } from "./rulesEngine.js";
 import { fetchHolidays } from "./holidays.js";
 import {
+    calcExtraHours,
     calcHours,
     isBusinessDay,
     isWeekend
 } from "./calculations.js";
-import { diurnoExtraDayHours } from "./overtimeRules.js";
 import {
     turnoLabel,
     aplicarClaseTurno
@@ -4829,19 +4829,12 @@ export const MAX_MONTHLY_DIURNAL_OVERTIME = 40;
 // parciales -capacitacion, diurno cubriendo larga, media tarde- el candidato ya
 // trae calculado cuanto suma; para el resto es el turno completo.
 export function coverageOvertimeHours(candidate, date, neededTurn, holidays) {
-    if (candidate?.overtimeHours) return candidate.overtimeHours;
-
-    // Un diurno extra vale 9 h de lunes a jueves y 8 el viernes; calcHours
-    // devolveria el promedio de 8,8, y el tope quedaria comparando contra un
-    // numero distinto del que el motor le va a acreditar.
-    if (Number(neededTurn) === TURNO.DIURNO) {
-        return {
-            d: diurnoExtraDayHours(date, day => isBusinessDay(day, holidays || {})),
-            n: 0
-        };
-    }
-
-    return calcHours(date, Number(neededTurn), holidays || {});
+    // calcExtraHours aplica la regla del turno extra: un diurno vale 9 h de
+    // lunes a jueves y 8 el viernes, no el promedio de 8,8 que devolveria
+    // calcHours. Sin eso el tope compararia contra un numero distinto del que
+    // el motor le va a acreditar al trabajador.
+    return candidate?.overtimeHours ||
+        calcExtraHours(date, Number(neededTurn), holidays || {});
 }
 
 export function exceedsDiurnalOvertimeLimit(

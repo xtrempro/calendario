@@ -13,6 +13,7 @@ import {
 } from "./storage.js";
 import { fetchHolidays } from "./holidays.js";
 import { AVERAGE_DIURNAL_WORKDAY_HOURS } from "./overtimeRules.js";
+import { calcExtraHours } from "./calculations.js";
 import {
     calcularExtraDiurnoProgramadoDia,
     calcularHorasMesPerfil
@@ -300,6 +301,20 @@ function rowHours(date, turno, holidays) {
     return {
         d: formatHour(hours.d),
         n: formatHour(hours.n)
+    };
+}
+
+// Horas de un turno hecho como EXTRA. No se toca numberHours porque sus otros
+// llamadores valoran el turno REALIZADO, que no es lo mismo.
+function extraNumberHours(date, turno, holidays) {
+    const hours = calcExtraHours(date, Number(turno) || 0, holidays) || {
+        d: 0,
+        n: 0
+    };
+
+    return {
+        d: Number(hours.d) || 0,
+        n: Number(hours.n) || 0
     };
 }
 
@@ -1059,7 +1074,7 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
                 absence?.full ? TURNO.LIBRE : actual,
                 holidays
             )
-            : numberHours(date, extraState, holidays);
+            : extraNumberHours(date, extraState, holidays);
         const clockExtraHours = absence?.full
             ? { d: 0, n: 0 }
             : getClockExtraHours(
@@ -1177,7 +1192,7 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
         // La hora extra hay que SUMARLA en numerico (numberHours) y formatear
         // recien al final; sumar los strings concatenaba ("10" + 0 -> "100").
         const actualHoursNum = numberHours(date, actual, holidays);
-        const scheduleExtraHoursNum = numberHours(date, extraState, holidays);
+        const scheduleExtraHoursNum = extraNumberHours(date, extraState, holidays);
         // Extension horaria por MODIFICACION DE MARCAJE: la hora extra NETA del
         // marcaje (excedente trabajado menos deficit; la parte recuperada no
         // cuenta) es una extension aunque el turno base no sea "extra". El motor

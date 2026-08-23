@@ -130,7 +130,10 @@ test("las horas del detalle se suman en numerico y descuentan reducciones de mar
   // ser numerica (numberHours) y recien despues formatear. Si un turno extra no se
   // trabaja completo por marcaje, se publican las horas realmente trabajadas.
   const rows = grab("buildDayRows");
-  assert.match(rows, /numberHours\(date, extraState, holidays\)/);
+  // extraNumberHours, no numberHours: un turno EXTRA se valora con la regla del
+  // extra (un diurno vale 9 h de lunes a jueves y 8 el viernes), mientras que el
+  // turno realizado sigue valorandose con la jornada promedio.
+  assert.match(rows, /extraNumberHours\(date, extraState, holidays\)/);
   assert.match(rows, /workedScheduledExtraHours\(/);
   assert.match(rows, /scheduledExtraWorkedHours\.n \+ clockExtraHours\.n/);
   assert.match(rows, /isPartialExtra/);
