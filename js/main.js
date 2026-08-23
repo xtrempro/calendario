@@ -20,6 +20,7 @@ import {
 import { normalizeText, stripAccents, sanitizeDigits } from "./stringUtils.js";
 import { escapeHTML } from "./htmlUtils.js";
 import { importAttendanceFile } from "./attendanceImport.js";
+import { installModalBackdropGuard } from "./modalBackdropGuard.js";
 import { formatRut, getRutValidationMessage } from "./rutUtils.js";
 import {
     findDuplicateEmailProfile,
@@ -13595,6 +13596,9 @@ initNotificationsBell({
     onOpen: () => { void setActiveShortcut("workerRequestsPanel"); }
 });
 initPendingLeaveBlinkSync();
+// Un modal no se cierra si el mouse se suelta sobre su fondo pero el arrastre
+// empezo adentro (seleccionar texto en un campo, por ejemplo).
+installModalBackdropGuard();
 renderProfiles({ dashboard: false });
 renderBotones();
 bindAppNavigationHistory();
