@@ -710,12 +710,6 @@ function loadingHTML() {
 function dashboardShell(content = loadingHTML()) {
     return `
         <div class="dashboard-shell">
-            <div class="dashboard-head">
-                <div>
-                    <h2>Dashboard</h2>
-                    <p>Horas extras por trabajador y ranking de licencias m\u00e9dicas.</p>
-                </div>
-            </div>
             ${content}
         </div>
     `;

@@ -4777,7 +4777,6 @@ body.theme-dark .app-toast span {
     gap: 16px;
 }
 
-.dashboard-head,
 .dashboard-card {
     border: 1px solid var(--border);
     border-radius: 18px;
@@ -4785,22 +4784,12 @@ body.theme-dark .app-toast span {
     box-shadow: var(--shadow-soft);
 }
 
-.dashboard-head {
-    padding: 18px 20px;
-}
-
-.dashboard-head h2,
 .dashboard-card h3 {
     margin: 0;
     color: var(--text-strong);
     letter-spacing: 0;
 }
 
-.dashboard-head h2 {
-    font-size: 1.25rem;
-}
-
-.dashboard-head p,
 .dashboard-card p {
     margin: 6px 0 0;
     color: var(--text-muted);
@@ -5297,13 +5286,8 @@ body.theme-dark .history-action-toast span {
 }
 
 @media (max-width: 640px) {
-    .dashboard-head,
     .dashboard-card {
         border-radius: 16px;
-    }
-
-    .dashboard-head,
-    .dashboard-card {
         padding: 14px;
     }
 
