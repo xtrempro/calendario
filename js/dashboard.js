@@ -731,7 +731,7 @@ function renderCard(title, subtitle, chart, controls = "") {
             <div class="dashboard-card-head">
                 <div>
                     <h3>${title}</h3>
-                    <p>${subtitle}</p>
+                    ${subtitle ? `<p>${subtitle}</p>` : ""}
                 </div>
             </div>
             <div class="${layoutClass}">
@@ -834,8 +834,10 @@ export async function renderDashboardPanel() {
                     )
                     : ""}
                 ${renderCard(
-                    "Ranking de licencias m\u00e9dicas",
-                    `Top 15 trabajadores en los \u00faltimos ${dashboardState.licenseYears} a\u00f1o(s).`,
+                    "Licencias M\u00e9dicas",
+                    // Sin subtitulo: el filtro de a\u00f1os que va al lado ya dice el
+                    // periodo, y el "Top 15" es un detalle de implementacion.
+                    "",
                     renderLicenseRanking(licenseRows),
                     renderLicenseControls()
                 )}
