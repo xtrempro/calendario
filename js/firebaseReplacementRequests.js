@@ -95,6 +95,47 @@ function scheduleRequestUpload() {
     }, 650);
 }
 
+// Una solicitud solo avanza de "pending" a resuelta; nada la devuelve a
+// pendiente. Si el local ya la resolvio y el remoto la trae pendiente, el
+// remoto esta atrasado.
+//
+// Es el mismo defecto que se corrigio en las solicitudes de trabajador:
+// reemplazar la lista local por la remota perdia la resolucion recien hecha,
+// porque la subida va con 650 ms de retraso y cualquier snapshot que llegara en
+// esa ventana la revertia. Aca costaria una anulacion o una aceptacion.
+function mergeRemoteReplacementRequest(local, remote) {
+    if (!local) return remote;
+    if (!remote) return local;
+
+    return local.status !== "pending" && remote.status === "pending"
+        ? local
+        : remote;
+}
+
+export function mergeRemoteReplacementRequests(localRequests, remoteRequests) {
+    const localById = new Map(
+        (localRequests || []).map(request => [String(request.id), request])
+    );
+    const remoteIds = new Set(
+        (remoteRequests || []).map(request => String(request.id))
+    );
+    const merged = (remoteRequests || []).map(remote =>
+        mergeRemoteReplacementRequest(localById.get(String(remote.id)), remote)
+    );
+    // Las que solo existen aca todavia no se subieron: descartarlas las borraria
+    // antes de que la subida alcanzara a salir.
+    const localOnly = (localRequests || []).filter(request =>
+        !remoteIds.has(String(request.id))
+    );
+
+    return {
+        requests: [...merged, ...localOnly],
+        remoteIsBehind:
+            localOnly.length > 0 ||
+            merged.some((request, index) => request !== remoteRequests[index])
+    };
+}
+
 function applyRemoteSnapshot(snapshot) {
     const localRequests = getReplacementRequests();
     const remoteRequests = snapshot.docs
@@ -113,21 +154,26 @@ function applyRemoteSnapshot(snapshot) {
         return;
     }
 
+    const { requests, remoteIsBehind } = mergeRemoteReplacementRequests(
+        localRequests,
+        remoteRequests
+    );
+
     applyingRemoteRequests = true;
 
     try {
-        saveReplacementRequests(remoteRequests, { silent: true });
+        saveReplacementRequests(requests, { silent: true });
     } finally {
         applyingRemoteRequests = false;
     }
 
     const appliedAccepted = applyAcceptedReplacementRequests();
 
-    if (appliedAccepted) {
+    if (appliedAccepted || remoteIsBehind) {
         scheduleRequestUpload();
     }
 
-    onRequestsChanged(remoteRequests);
+    onRequestsChanged(requests);
 }
 
 export async function startFirebaseReplacementRequestSync(

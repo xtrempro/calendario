@@ -43,6 +43,8 @@ globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
 const { mergeRemoteRequests } =
     await import("../js/firebaseWorkerRequests.js");
+const { mergeRemoteReplacementRequests } =
+    await import("../js/firebaseReplacementRequests.js");
 
 const sync = (await readFile(
     new URL("../js/firebaseWorkerRequests.js", import.meta.url),
@@ -133,4 +135,39 @@ test("el snapshot ya no reemplaza la lista a ciegas", () => {
     // Y cuando el local gana, se empuja la subida para que el remoto se ponga
     // al dia en vez de quedar discrepando.
     assert.match(sync, /if \(remoteIsBehind\) scheduleWorkerRequestUpload\(\);/);
+});
+
+/* =========================================================
+   Las solicitudes de turno extra tenian el mismo defecto
+========================================================= */
+
+test("una solicitud de turno extra resuelta tampoco vuelve a pendiente", () => {
+    // Mismo mecanismo, otra coleccion: aca costaria una anulacion o una
+    // aceptacion de turno extra.
+    const local = [{ id: "r1", status: "canceled", canceledAt: "x" }];
+    const remoto = [{ id: "r1", status: "pending" }];
+    const { requests, remoteIsBehind } =
+        mergeRemoteReplacementRequests(local, remoto);
+
+    assert.equal(requests[0].status, "canceled");
+    assert.equal(remoteIsBehind, true);
+});
+
+test("el remoto sigue mandando en el resto", () => {
+    const { requests, remoteIsBehind } = mergeRemoteReplacementRequests(
+        [{ id: "r1", status: "pending" }],
+        [{ id: "r1", status: "accepted" }]
+    );
+
+    assert.equal(requests[0].status, "accepted");
+    assert.equal(remoteIsBehind, false);
+});
+
+test("una solicitud que solo existe local no se pierde", () => {
+    const { requests } = mergeRemoteReplacementRequests(
+        [{ id: "nueva", status: "pending" }],
+        [{ id: "vieja", status: "accepted" }]
+    );
+
+    assert.deepEqual(requests.map(r => r.id).sort(), ["nueva", "vieja"]);
 });
