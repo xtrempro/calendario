@@ -122,6 +122,32 @@ function extraTakesTheEntry(extraShift, baseEntryTime) {
 }
 
 /**
+ * .Falta el registro de una marca?
+ *
+ * Falta cuando ese dia se trabajo y no hay marca. No falta si el dia esta
+ * cubierto por una ausencia -no se esperaba que marcara- ni si el dia todavia
+ * no ocurre: en el reporte del mes en curso, los dias que quedan por delante
+ * no tienen nada pendiente todavia.
+ *
+ * @param {object} day
+ * @param {string} day.mark hora marcada, "" si no hay
+ * @param {number} day.workedShift turno realmente realizado
+ * @param {boolean} [day.absent]
+ * @param {boolean} [day.hasPassed] false si el dia aun no llega
+ * @returns {boolean}
+ */
+export function isMarkMissing({
+    mark,
+    workedShift,
+    absent = false,
+    hasPassed = true
+}) {
+    if (absent || !hasPassed) return false;
+
+    return !mark && Number(workedShift) > TURNO.LIBRE;
+}
+
+/**
  * Atraso de un dia del reporte.
  *
  * El turno que manda es el BASE con cambios ya aplicados: por eso un turno
@@ -143,6 +169,7 @@ export function entryDelayForDay({
     workedShift,
     entryTime = "",
     absent = false,
+    hasPassed = true,
     entryOverride = ""
 } = {}) {
     const vacio = { minutes: 0, scheduled: "", missingEntry: false };
@@ -153,8 +180,12 @@ export function entryDelayForDay({
     const scheduled = scheduledEntryTime(baseShift, entryOverride);
     // La cruz avisa que falta el registro de un turno que SI se trabajo, sea
     // base o extra. En un dia libre no hay nada que marcar.
-    const missingEntry =
-        !entryTime && Number(workedShift) > TURNO.LIBRE;
+    const missingEntry = isMarkMissing({
+        mark: entryTime,
+        workedShift,
+        absent,
+        hasPassed
+    });
 
     if (!scheduled) return { ...vacio, missingEntry };
     if (extraTakesTheEntry(extraShift, scheduled)) {

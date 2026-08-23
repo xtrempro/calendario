@@ -46,6 +46,7 @@ const {
     delayMinutes,
     entryDelayForDay,
     formatDelayCell,
+    isMarkMissing,
     minutesFromTime,
     scheduledEntryTime,
     shiftEndsNextMorning
@@ -316,6 +317,63 @@ test("un turno extra sin marca tambien lleva cruz", () => {
 
     assert.equal(dia.missingEntry, true);
     assert.equal(dia.minutes, 0);
+});
+
+test("la salida sin registro lleva la misma cruz que la entrada", () => {
+    // Misma regla, otra columna: se trabajo y no hay marca.
+    assert.equal(
+        isMarkMissing({ mark: "", workedShift: TURNO.NOCHE }),
+        true
+    );
+    assert.equal(
+        isMarkMissing({ mark: "08:08", workedShift: TURNO.NOCHE }),
+        false
+    );
+});
+
+test("un dia que TODAVIA no ocurre no tiene marcas que falten", () => {
+    // Sin esto, el reporte del mes en curso salia lleno de cruces de manana en
+    // adelante: turnos programados que nadie podia haber marcado aun.
+    assert.equal(
+        isMarkMissing({
+            mark: "",
+            workedShift: TURNO.LARGA,
+            hasPassed: false
+        }),
+        false
+    );
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.LARGA,
+            workedShift: TURNO.LARGA,
+            entryTime: "",
+            hasPassed: false
+        }).missingEntry,
+        false
+    );
+});
+
+test("con ausencia tampoco falta ninguna marca", () => {
+    assert.equal(
+        isMarkMissing({ mark: "", workedShift: TURNO.LARGA, absent: true }),
+        false
+    );
+});
+
+test("el reporte corta las cruces en el dia de hoy", () => {
+    assert.match(reporte, /function startOfToday\(\)/);
+    assert.match(reporte, /hasPassed: date < today,/);
+
+    const usos = reporte.match(/const today = startOfToday\(\);/g) || [];
+
+    assert.equal(usos.length, 3, "algun constructor no sabe que dia es hoy");
+});
+
+test("la cruz de salida usa el mismo estilo que la de entrada", () => {
+    assert.match(
+        reporte,
+        /title: MISSING_EXIT_TITLE,\s*\n\s*className: "report-cell--missing-entry"/
+    );
 });
 
 test("un dia libre sin marca NO lleva cruz", () => {
@@ -629,10 +687,14 @@ test("los tres constructores informan tambien el turno extra del dia", () => {
 });
 
 test("la cruz viaja con su explicacion", () => {
-    assert.match(reporte, /const MISSING_ENTRY_MARK = "\\u2715";/);
+    assert.match(reporte, /const MISSING_MARK = "\\u2715";/);
     assert.match(
         reporte,
         /const MISSING_ENTRY_TITLE = "No existe registro de entrada";/
+    );
+    assert.match(
+        reporte,
+        /const MISSING_EXIT_TITLE = "No existe registro de salida";/
     );
     // El renderizador escapa el texto de la celda, asi que el tooltip necesita
     // su propio soporte: sin esto el hover no existiria.

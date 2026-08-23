@@ -21,6 +21,7 @@ import {
 import {
     entryDelayForDay,
     formatDelayCell,
+    isMarkMissing,
     shiftEndsNextMorning
 } from "./attendanceDelay.js";
 import {
@@ -590,8 +591,21 @@ function movedBaseStateForReport(profileName, keyDay, fallbackBase) {
 
 // Cruz para el dia que se trabajo sin registro de entrada. Es un caracter y
 // no un icono para que sobreviva al escapado del texto de la celda.
-const MISSING_ENTRY_MARK = "\u2715";
+const MISSING_MARK = "\u2715";
 const MISSING_ENTRY_TITLE = "No existe registro de entrada";
+const MISSING_EXIT_TITLE = "No existe registro de salida";
+
+/**
+ * Comienzo del dia de hoy.
+ *
+ * Sirve para no marcar como "falta el registro" un dia que todavia no ocurre:
+ * el reporte del mes en curso saldria lleno de cruces de manana en adelante.
+ */
+function startOfToday() {
+    const now = new Date();
+
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
 
 // Asterisco de la salida traida desde el dia siguiente, para que se note que
 // esa hora no se marco en la fecha de la fila.
@@ -634,7 +648,15 @@ function attendanceReportCells(profile, iso, day) {
         extraShift: day.extraShift,
         workedShift: day.workedShift,
         entryTime: getEntryMarkTime(profile.rut, iso),
-        absent: day.absent
+        absent: day.absent,
+        hasPassed: day.hasPassed
+    });
+    // La salida lleva la misma cruz que la entrada cuando falta su registro.
+    const missingExit = isMarkMissing({
+        mark: cells.salida,
+        workedShift: day.workedShift,
+        absent: day.absent,
+        hasPassed: day.hasPassed
     });
     const meta = {};
     // De un turno solo se muestran la primera entrada y la ultima salida. Las
@@ -650,7 +672,12 @@ function attendanceReportCells(profile, iso, day) {
     } else if (hidden) {
         meta.entrada = { title: hidden, className: "report-cell--more-marks" };
     }
-    if (cells.salidaFrom || hidden) {
+    if (missingExit) {
+        meta.salida = {
+            title: MISSING_EXIT_TITLE,
+            className: "report-cell--missing-entry"
+        };
+    } else if (cells.salidaFrom || hidden) {
         const lines = [
             cells.salidaFrom
                 ? `${MOVED_EXIT_TITLE} ${formatDate(cells.salidaFrom)}`
@@ -667,10 +694,12 @@ function attendanceReportCells(profile, iso, day) {
     }
 
     return {
-        entrada: delay.missingEntry ? MISSING_ENTRY_MARK : cells.entrada,
-        salida: cells.salidaFrom
-            ? `${cells.salida} ${MOVED_EXIT_MARK}`
-            : cells.salida,
+        entrada: delay.missingEntry ? MISSING_MARK : cells.entrada,
+        salida: missingExit
+            ? MISSING_MARK
+            : cells.salidaFrom
+                ? `${cells.salida} ${MOVED_EXIT_MARK}`
+                : cells.salida,
         atrasos: formatDelayCell(delay.minutes),
         ...(Object.keys(meta).length ? { __cells: meta } : {})
     };
@@ -1034,6 +1063,7 @@ function buildNoAssignmentDayRows(
         month
     );
     const maps = getReportMaps(profileName);
+    const today = startOfToday();
     const rows = [];
     const rawTotals = { d: 0, n: 0 };
 
@@ -1123,6 +1153,7 @@ function buildNoAssignmentDayRows(
             ...attendanceReportCells(profile, iso, {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
+                hasPassed: date < today,
                 previousWorkedShift: actualStateForReport(
                     profileName,
                     data,
@@ -1179,6 +1210,7 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
         month
     );
     const maps = getReportMaps(profileName);
+    const today = startOfToday();
     const rows = [];
     const rawTotals = { d: 0, n: 0 };
 
@@ -1264,6 +1296,7 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
             ...attendanceReportCells(profile, iso, {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
+                hasPassed: date < today,
                 previousWorkedShift: actualStateForReport(
                     profileName,
                     data,
@@ -1299,6 +1332,7 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
         year,
         month
     );
+    const today = startOfToday();
     const rows = [];
 
     for (let day = 1; day <= days; day++) {
@@ -1406,6 +1440,7 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             ...attendanceReportCells(profile, iso, {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
+                hasPassed: date < today,
                 previousWorkedShift: actualStateForReport(
                     profileName,
                     data,
