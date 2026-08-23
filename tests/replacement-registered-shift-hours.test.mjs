@@ -74,6 +74,9 @@ function seedReplacement({ contractEndDay, overrides = {} }) {
     setJSON("data_" + PROFILE, overrides);
 }
 
+// La base del mes viene REDONDEADA a hora entera desde el motor
+// (roundMonthlyBusinessHours): es la cifra contra la que se miden las horas
+// extras, y el informe muestra ese mismo numero. Por eso 8,8 x 3 = 26, no 26,4.
 function horasHabiles() {
     const stats = calcularHorasMesPerfil(
         PROFILE,
@@ -97,7 +100,7 @@ beforeEach(() => {
 
 test("solo contrato Lun-Mié => 8,8 x 3", () => {
     seedReplacement({ contractEndDay: WED });
-    assert.equal(horasHabiles(), Math.round(8.8 * 3 * 10) / 10);
+    assert.equal(horasHabiles(), Math.round(8.8 * 3));
 });
 
 test("contrato Lun-Mié + turno de noche el jueves => 8,8 x 4", () => {
@@ -105,7 +108,7 @@ test("contrato Lun-Mié + turno de noche el jueves => 8,8 x 4", () => {
         contractEndDay: WED,
         overrides: { [dataKey(THU)]: TURNO.NOCHE }
     });
-    assert.equal(horasHabiles(), Math.round(8.8 * 4 * 10) / 10);
+    assert.equal(horasHabiles(), Math.round(8.8 * 4));
 });
 
 test("además un turno el miércoles siguiente => 8,8 x 5", () => {
@@ -116,7 +119,7 @@ test("además un turno el miércoles siguiente => 8,8 x 5", () => {
             [dataKey(NEXT_WED)]: TURNO.DIURNO
         }
     });
-    assert.equal(horasHabiles(), Math.round(8.8 * 5 * 10) / 10);
+    assert.equal(horasHabiles(), Math.round(8.8 * 5));
 });
 
 test("un LIBRE registrado fuera del contrato NO suma jornada", () => {
@@ -124,5 +127,5 @@ test("un LIBRE registrado fuera del contrato NO suma jornada", () => {
         contractEndDay: WED,
         overrides: { [dataKey(THU)]: TURNO.LIBRE }
     });
-    assert.equal(horasHabiles(), Math.round(8.8 * 3 * 10) / 10);
+    assert.equal(horasHabiles(), Math.round(8.8 * 3));
 });

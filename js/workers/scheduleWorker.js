@@ -1,5 +1,6 @@
 import {
-    AVERAGE_DIURNAL_WORKDAY_HOURS
+    AVERAGE_DIURNAL_WORKDAY_HOURS,
+    roundMonthlyBusinessHours
 } from "../overtimeRules.js";
 
 const TURN = Object.freeze({
@@ -188,7 +189,9 @@ export function calculateMonth(payload = {}) {
                 workerId: String(worker.workerId || worker.id || ""),
                 totalD: roundHour(totals.d + (Number(carryIn.d) || 0)),
                 totalN: roundHour(totals.n + (Number(carryIn.n) || 0)),
-                businessHours: roundHour(totals.base),
+                // Misma base redondeada que usa el motor: si la proyeccion
+                // dijera 167,2 y el informe 167, no cuadrarian.
+                businessHours: roundMonthlyBusinessHours(totals.base),
                 hheeDiurnas: roundExtra(
                     totals.d + (Number(carryIn.d) || 0) - totals.base
                 ),

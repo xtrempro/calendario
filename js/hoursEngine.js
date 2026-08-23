@@ -39,7 +39,10 @@ import {
     isReplacementProfile
 } from "./contracts.js";
 import { getShiftMoveMarkers } from "./shiftMoves.js";
-import { diurnoExtraDayHours } from "./overtimeRules.js";
+import {
+    diurnoExtraDayHours,
+    roundMonthlyBusinessHours
+} from "./overtimeRules.js";
 
 // Jornada diurna PROMEDIO. Reparte la jornada contractual del mes (horas
 // habiles esperadas, descuentos por permiso); no es lo que vale un turno
@@ -871,7 +874,10 @@ function calculateAdjustedBusinessHours(
             HORA_BASE_DIARIA;
     }
 
-    return Math.max(0, total);
+    // Se redondea aca, en el origen: es la cifra contra la que se miden las
+    // horas extras, asi que el numero que muestra el informe y el que usa el
+    // calculo tienen que ser el mismo.
+    return roundMonthlyBusinessHours(Math.max(0, total));
 }
 
 function calculateAggregateExtras(totalD, totalN, horasHabiles) {

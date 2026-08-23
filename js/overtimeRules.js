@@ -39,6 +39,24 @@ const DIURNO_EXTRA_HOURS_BY_WEEKDAY = {
 export const AVERAGE_DIURNAL_WORKDAY_HOURS = 8.8;
 
 /**
+ * Base de horas habiles del mes, redondeada a hora entera.
+ *
+ * El total sale de multiplicar los dias habiles por la jornada promedio de 8,8
+ * y descontar los permisos, asi que casi nunca da entero: 19 dias habiles dan
+ * 167,2. Se redondea porque es la cifra contra la que se miden las horas
+ * extras, y no tiene sentido perseguir decimas en la base.
+ *
+ * Importa que el redondeo ocurra UNA vez y en el origen: si se redondeara solo
+ * al mostrarlo, el informe diria 167 mientras el calculo usa 167,2.
+ *
+ * @param {number} total
+ * @returns {number}
+ */
+export function roundMonthlyBusinessHours(total) {
+    return Math.round(Number(total) || 0);
+}
+
+/**
  * Horas diurnas que aporta un turno diurno EXTRA en esa fecha.
  *
  * Devuelve 0 en sabado, domingo y feriado: en un dia inhabil la jornada no

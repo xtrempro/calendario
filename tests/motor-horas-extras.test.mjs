@@ -15,7 +15,8 @@ import { readFile } from "node:fs/promises";
 const {
     AVERAGE_DIURNAL_WORKDAY_HOURS,
     diurnoExtraDayHours,
-    diurnoExtraDayHoursWithHolidays
+    diurnoExtraDayHoursWithHolidays,
+    roundMonthlyBusinessHours
 } = await import("../js/overtimeRules.js");
 
 async function read(path) {
@@ -92,13 +93,55 @@ test("sin clasificador de dia habil solo manda el dia de la semana", () => {
 });
 
 /* =========================================================
+   Base de horas habiles del mes
+========================================================= */
+
+test("la base del mes se redondea a hora entera", () => {
+    // El caso de agosto de 2026: 19 dias habiles x 8,8 = 167,2 -> 167.
+    assert.equal(roundMonthlyBusinessHours(167.2), 167);
+    assert.equal(roundMonthlyBusinessHours(19 * 8.8), 167);
+});
+
+test("redondea hacia el lado que corresponde", () => {
+    assert.equal(roundMonthlyBusinessHours(167.4), 167);
+    assert.equal(roundMonthlyBusinessHours(167.5), 168);
+    assert.equal(roundMonthlyBusinessHours(167.6), 168);
+    // Y un mes sin dias habiles no rompe nada.
+    assert.equal(roundMonthlyBusinessHours(0), 0);
+    assert.equal(roundMonthlyBusinessHours(undefined), 0);
+});
+
+test("el redondeo ocurre en el origen, no al mostrar", () => {
+    // Si se redondeara solo en la vista, el informe diria 167 mientras las
+    // horas extras se miden contra 167,2. La base sale ya redondeada del motor.
+    return read("../js/hoursEngine.js").then(engine => {
+        assert.match(
+            engine,
+            /return roundMonthlyBusinessHours\(Math\.max\(0, total\)\);/
+        );
+    });
+});
+
+test("la proyeccion usa la misma base redondeada", () => {
+    return read("../js/workers/scheduleWorker.js").then(worker => {
+        assert.match(
+            worker,
+            /businessHours: roundMonthlyBusinessHours\(totals\.base\)/
+        );
+    });
+});
+
+/* =========================================================
    Que nadie vuelva a calcularlo por su cuenta
 ========================================================= */
 
 test("el motor de horas usa la regla, no un 8,8 suelto", async () => {
     const engine = await read("../js/hoursEngine.js");
 
-    assert.match(engine, /import \{ diurnoExtraDayHours \} from "\.\/overtimeRules\.js";/);
+    assert.match(
+        engine,
+        /diurnoExtraDayHours,[\s\S]{0,60}roundMonthlyBusinessHours[\s\S]{0,20}from "\.\/overtimeRules\.js";/
+    );
     assert.match(
         engine,
         /d: diurnoExtraDayHours\(date, day => isBusinessDay\(day, holidays\)\)/
