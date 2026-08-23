@@ -118,6 +118,87 @@ function formatDate(isoDate) {
     return `${day}-${month}-${year}`;
 }
 
+// Periodo de vigencia que se esta editando. Los valores por grado cambian una
+// vez al año, asi que la pestaña muestra un periodo a la vez.
+let gradePeriodIndex = 0;
+
+const MESES_LARGOS = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+];
+
+function gradePeriodLabel(period) {
+    const rotulo = month => {
+        const [year, mes] = String(month).split("-").map(Number);
+
+        return year && mes
+            ? `${MESES_LARGOS[mes - 1]} ${year}`
+            : "";
+    };
+    const desde = rotulo(period.from);
+    const hasta = rotulo(period.to);
+
+    if (!desde && !hasta) return "Todo el historico";
+    if (!desde) return `Hasta ${hasta}`;
+    if (!hasta) return `Desde ${desde}`;
+
+    return `${desde} a ${hasta}`;
+}
+
+function activeGradePeriod(config) {
+    const periods = config?.periods || [];
+
+    if (!periods.length) return null;
+
+    const index = Math.min(
+        Math.max(gradePeriodIndex, 0),
+        periods.length - 1
+    );
+
+    gradePeriodIndex = index;
+
+    return periods[index];
+}
+
+function renderGradePeriodBar(config) {
+    const periods = config?.periods || [];
+
+    return `
+        <div class="settings-grade-periods">
+            <div class="settings-grade-periods__list">
+                ${periods.map((period, index) => `
+                    <button class="settings-grade-period ${index === gradePeriodIndex ? "is-active" : ""}"
+                        type="button" data-grade-period="${index}">
+                        ${escapeHTML(gradePeriodLabel(period))}
+                    </button>
+                `).join("")}
+                <button class="settings-grade-period settings-grade-period--add"
+                    type="button" data-grade-period-add>+ Agregar periodo</button>
+            </div>
+            <div class="settings-grade-range">
+                <label>
+                    <span>Desde</span>
+                    <input type="month" data-grade-period-from
+                        value="${escapeHTML(periods[gradePeriodIndex]?.from || "")}">
+                </label>
+                <label>
+                    <span>Hasta</span>
+                    <input type="month" data-grade-period-to
+                        value="${escapeHTML(periods[gradePeriodIndex]?.to || "")}">
+                </label>
+                ${periods.length > 1 ? `
+                    <button class="settings-grade-period-remove" type="button"
+                        data-grade-period-remove="${gradePeriodIndex}">Eliminar periodo</button>
+                ` : ""}
+            </div>
+            <p class="settings-grade-periods__note">
+                Los valores se aplican por mes cerrado. Deja "Hasta" en blanco
+                para el periodo vigente.
+            </p>
+        </div>
+    `;
+}
+
 function renderRateRows(group, config) {
     return group.grades
         .map(grade => `
@@ -131,7 +212,7 @@ function renderRateRows(group, config) {
                             inputmode="decimal"
                             data-rate-group="${group.key}"
                             data-rate-grade="${escapeHTML(grade)}"
-                            value="${formatRate(config[group.key]?.[grade])}"
+                            value="${formatRate(activeGradePeriod(config)?.[group.key]?.[grade])}"
                         >
                     </label>
                 </td>
@@ -142,6 +223,7 @@ function renderRateRows(group, config) {
 
 function renderGradesPanel(config) {
     return `
+        ${renderGradePeriodBar(config)}
         <div class="settings-grade-grid">
             ${GROUPS.map(group => `
                 <section class="settings-card">
@@ -899,6 +981,18 @@ function readRateConfig(backdrop) {
         JSON.stringify(gradeConfigDraft || getGradeHourConfig())
     );
 
+    const period = activeGradePeriod(config);
+
+    if (!period) return config;
+
+    // El rango tambien se lee de la pantalla: si no, cambiar las fechas y
+    // guardar sin tocar ningun valor no guardaria nada.
+    const from = backdrop.querySelector("[data-grade-period-from]");
+    const to = backdrop.querySelector("[data-grade-period-to]");
+
+    if (from) period.from = String(from.value || "").trim();
+    if (to) period.to = String(to.value || "").trim();
+
     backdrop
         .querySelectorAll("[data-rate-group][data-rate-grade]")
         .forEach(input => {
@@ -908,7 +1002,7 @@ function readRateConfig(backdrop) {
                 DEFAULT_GRADE_HOUR_CONFIG[group]?.[grade] || 0;
             const value = parseRate(input.value);
 
-            config[group][grade] = value || fallback;
+            period[group][grade] = value || fallback;
         });
 
     return config;
@@ -1327,6 +1421,54 @@ function bindBackdrop(backdrop) {
             preserveActiveDraft(backdrop);
             activeTab = tab.dataset.settingsTab;
             backdrop.innerHTML = modalHTML();
+            return;
+        }
+
+        // Periodos de vigencia de los valores por grado. Cada accion guarda
+        // antes lo que hay en pantalla (preserveActiveDraft lee las tablas),
+        // para no perder lo que el usuario acaba de escribir.
+        const periodTab = event.target.closest("[data-grade-period]");
+        if (periodTab) {
+            preserveActiveDraft(backdrop);
+            gradePeriodIndex = Number(periodTab.dataset.gradePeriod) || 0;
+            backdrop.innerHTML = modalHTML();
+            return;
+        }
+
+        if (event.target.closest("[data-grade-period-add]")) {
+            preserveActiveDraft(backdrop);
+
+            const config = gradeConfigDraft || getGradeHourConfig();
+            const last = config.periods.at(-1);
+
+            // El periodo nuevo arranca copiando los valores del ultimo: casi
+            // siempre es un reajuste sobre la tabla vigente, no una tabla desde
+            // cero.
+            config.periods.push({
+                from: "",
+                to: "",
+                professional: { ...(last?.professional || {}) },
+                general: { ...(last?.general || {}) }
+            });
+            gradeConfigDraft = config;
+            gradePeriodIndex = config.periods.length - 1;
+            backdrop.innerHTML = modalHTML();
+            return;
+        }
+
+        const removePeriod = event.target.closest("[data-grade-period-remove]");
+        if (removePeriod) {
+            const config = gradeConfigDraft || getGradeHourConfig();
+
+            if (config.periods.length > 1) {
+                config.periods.splice(
+                    Number(removePeriod.dataset.gradePeriodRemove) || 0,
+                    1
+                );
+                gradeConfigDraft = config;
+                gradePeriodIndex = 0;
+                backdrop.innerHTML = modalHTML();
+            }
             return;
         }
 

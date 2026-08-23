@@ -196,17 +196,113 @@ function normalizeRateMap(map = {}, fallback = {}) {
     }, {});
 }
 
-function normalizeGradeHourConfig(config = {}) {
+/* =========================================================
+   Valores por grado, con vigencia
+
+   El valor de la hora por grado cambia una vez al año, asi que no puede haber
+   una sola tabla: un informe de 2025 tiene que seguir calculandose con los
+   valores de 2025 aunque hoy rijan otros.
+
+   La configuracion es una lista de PERIODOS, cada uno con su propia tabla:
+
+     [{ from: "2025-02", to: "2026-01", professional: {...}, general: {...} },
+      { from: "2026-02", to: "",       professional: {...}, general: {...} }]
+
+   Siempre a mes cerrado: "from" y "to" son meses, no fechas. Un "to" vacio
+   significa "hasta nuevo aviso", que es el periodo vigente.
+========================================================= */
+
+function normalizeGradeMonth(value) {
+    const match = String(value || "").trim().match(/^(\d{4})-(\d{1,2})/);
+
+    if (!match) return "";
+
+    const month = Number(match[2]);
+
+    if (month < 1 || month > 12) return "";
+
+    return `${match[1]}-${String(month).padStart(2, "0")}`;
+}
+
+function normalizeGradeHourPeriod(period = {}, index = 0) {
+    const from = normalizeGradeMonth(period.from);
+    const to = normalizeGradeMonth(period.to);
+
     return {
+        id: String(period.id || `periodo_${index}_${from || "inicio"}`),
+        from,
+        // Un "to" anterior al "from" es un error de tipeo: se descarta en vez de
+        // dejar un periodo imposible que nunca aplicaria.
+        to: to && from && to < from ? "" : to,
         professional: normalizeRateMap(
-            config.professional,
+            period.professional,
             DEFAULT_GRADE_HOUR_CONFIG.professional
         ),
         general: normalizeRateMap(
-            config.general,
+            period.general,
             DEFAULT_GRADE_HOUR_CONFIG.general
         )
     };
+}
+
+function normalizeGradeHourConfig(config = {}) {
+    // Compatibilidad: la configuracion vieja era UNA tabla sin fechas. Se migra
+    // a un unico periodo abierto, con lo que sigue aplicando a todo el historico
+    // exactamente como antes.
+    const rawPeriods = Array.isArray(config?.periods) && config.periods.length
+        ? config.periods
+        : [{
+            from: "",
+            to: "",
+            professional: config?.professional,
+            general: config?.general
+        }];
+
+    const periods = rawPeriods
+        .map(normalizeGradeHourPeriod)
+        .sort((a, b) => String(a.from).localeCompare(String(b.from)));
+
+    return { periods };
+}
+
+function monthKeyFromDate(date) {
+    const parsed = date instanceof Date ? date : new Date(date);
+
+    if (!parsed || Number.isNaN(parsed.getTime())) return "";
+
+    return `${parsed.getFullYear()}-` +
+        `${String(parsed.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * Periodo que aplica en esa fecha.
+ *
+ * Si ninguno la cubre NO se devuelve vacio: dejar el valor hora en cero
+ * silenciaria el pago de todo un mes. Se cae al periodo aplicable mas cercano
+ * -el ultimo que empieza antes, o el primero de todos si la fecha es anterior a
+ * cualquiera-, que es como se comportaba la tabla unica.
+ */
+export function getGradeHourPeriodAt(date = null) {
+    const { periods } = getGradeHourConfig();
+
+    if (!periods.length) return null;
+
+    const month = monthKeyFromDate(date || new Date());
+
+    if (!month) return periods[periods.length - 1];
+
+    const exact = periods.find(period =>
+        (!period.from || period.from <= month) &&
+        (!period.to || month <= period.to)
+    );
+
+    if (exact) return exact;
+
+    const previous = periods
+        .filter(period => !period.from || period.from <= month)
+        .at(-1);
+
+    return previous || periods[0];
 }
 
 function gradeHourGroup(estamento) {
@@ -228,11 +324,11 @@ export function saveGradeHourConfig(config) {
     );
 }
 
-export function getGradeHourValue(estamento, grade) {
+export function getGradeHourValue(estamento, grade, date = null) {
     const group = gradeHourGroup(estamento);
-    const config = getGradeHourConfig();
+    const period = getGradeHourPeriodAt(date);
 
-    return Number(config[group]?.[String(grade)] || 0);
+    return Number(period?.[group]?.[String(grade)] || 0);
 }
 
 function normalizeHistoryDate(value) {
@@ -1633,7 +1729,8 @@ export function getValorHora(profile = currentProfile, date = null){
     const configuredValue = profileData
         ? getGradeHourValue(
             profileData.estamento,
-            profileData.grade
+            profileData.grade,
+            date
         )
         : 0;
 

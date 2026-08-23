@@ -3123,115 +3123,66 @@ async function applyCalendarRotationChange(fecha) {
     });
 }
 
-function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
-    return new Promise(resolve => {
-        const backdrop = document.createElement("div");
-        const defaultDate = toInputDate(new Date());
-        const previousContract =
-            previousSnapshot?.contractType || "sin contrato";
-        const nextContract =
-            nextProfile?.contractType || "sin contrato";
-        const previousGrade = previousSnapshot?.grade || "sin grado";
-        const nextGrade = nextProfile?.grade || "sin grado";
-        const previousRole =
-            previousSnapshot?.estamento || "sin estamento";
-        const nextRole = nextProfile?.estamento || "sin estamento";
-        const contractChanged =
-            String(previousContract) !== String(nextContract);
-        const gradeChanged =
-            String(previousGrade) !== String(nextGrade) ||
-            String(previousRole) !== String(nextRole);
-        const title = contractChanged
-            ? "Vigencia del nuevo contrato"
-            : "Vigencia del nuevo grado";
-        const previousLabel = [
-            previousContract,
-            previousRole,
-            `grado ${previousGrade}`
-        ].filter(Boolean).join(" | ");
-        const nextLabel = [
-            nextContract,
-            nextRole,
-            `grado ${nextGrade}`
-        ].filter(Boolean).join(" | ");
-        const note = contractChanged
-            ? "Los calculos y beneficios anteriores a esta fecha mantendran el tipo de contrato previo."
-            : "Las horas extras anteriores a esta fecha mantendran el valor del grado anterior.";
+// Vigencia de un cambio de grado, estamento o tipo de contrato.
+//
+// Va a MES CERRADO, igual que la asignacion de turno. Antes se pedia una fecha
+// libre y un grado podia empezar a mitad de mes, lo que partia el mes en dos
+// valores hora distintos y hacia imposible cuadrar el pago: los valores por
+// grado tambien se definen por rangos de meses.
+//
+// Devuelve el dia 1 del mes elegido (o "" si se cancela), porque el historial
+// guarda fechas completas.
+async function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
+    const previousContract = previousSnapshot?.contractType || "sin contrato";
+    const nextContract = nextProfile?.contractType || "sin contrato";
+    const previousGrade = previousSnapshot?.grade || "sin grado";
+    const nextGrade = nextProfile?.grade || "sin grado";
+    const previousRole = previousSnapshot?.estamento || "sin estamento";
+    const nextRole = nextProfile?.estamento || "sin estamento";
+    const contractChanged = String(previousContract) !== String(nextContract);
+    const title = contractChanged
+        ? "Vigencia del nuevo contrato"
+        : "Vigencia del nuevo grado";
+    const previousLabel = [
+        previousContract,
+        previousRole,
+        `grado ${previousGrade}`
+    ].filter(Boolean).join(" | ");
+    const nextLabel = [
+        nextContract,
+        nextRole,
+        `grado ${nextGrade}`
+    ].filter(Boolean).join(" | ");
+    const note = contractChanged
+        ? "Los meses anteriores mantendran el tipo de contrato previo."
+        : "Los meses anteriores mantendran el valor del grado anterior.";
 
-        backdrop.className = "turn-change-dialog-backdrop";
-        document.body.appendChild(backdrop);
-
-        const close = value => {
-            backdrop.remove();
-            resolve(value);
-        };
-
-        backdrop.innerHTML = `
-            <div class="turn-change-dialog grade-effective-dialog" role="dialog" aria-modal="true">
-                <strong>${escapeHTML(title)}</strong>
-                <p>
-                    ${contractChanged && gradeChanged
-                        ? "El contrato y la base de calculo cambiaran"
-                        : contractChanged
-                            ? "El tipo de contrato cambiara"
-                            : "El grado/estamento cambiara"}
-                    de
-                    <b>${escapeHTML(previousLabel)}</b>
-                    a
-                    <b>${escapeHTML(nextLabel)}</b>.
-                    Indica desde que fecha se debe usar la nueva condicion para calcular horas y beneficios.
-                </p>
-
-                <label class="rotation-contract-field">
-                    <span>Fecha de inicio</span>
-                    <input data-grade-effective-date type="date" value="${defaultDate}">
-                </label>
-
-                <div class="firebase-dialog-note">
-                    ${escapeHTML(note)}
-                </div>
-
-                <div class="turn-change-dialog__actions">
-                    <button class="primary-button" type="button" data-action="save">Guardar vigencia</button>
-                    <button class="secondary-button" type="button" data-action="cancel">Cancelar</button>
-                </div>
-            </div>
-        `;
-
-        const dateInput =
-            backdrop.querySelector("[data-grade-effective-date]");
-
-        dateInput?.focus();
-
-        backdrop.addEventListener("click", event => {
-            if (event.target === backdrop) {
-                close(null);
-                return;
+    while (true) {
+        const value = await showPrompt(
+            `${contractChanged ? "El tipo de contrato" : "El grado/estamento"} ` +
+            `cambiara de "${previousLabel}" a "${nextLabel}".\n\n` +
+            "Selecciona el mes desde el cual rige la nueva condicion. " +
+            `El cambio regira desde el dia 1 de ese mes. ${note}`,
+            {
+                title,
+                tone: "info",
+                inputType: "month",
+                inputLabel: "Mes de inicio",
+                value: toMonthInputValue(new Date()),
+                confirmText: "Guardar vigencia"
             }
+        );
 
-            const action = event.target
-                ?.closest?.("[data-action]")
-                ?.dataset
-                ?.action;
+        if (value === null) return "";
 
-            if (!action) return;
+        const month = String(value || "").trim();
 
-            if (action === "cancel") {
-                close(null);
-                return;
-            }
+        if (/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+            return `${month}-01`;
+        }
 
-            const value = dateInput?.value || "";
-
-            if (!value) {
-                alert("Debes indicar la fecha de inicio de la nueva condicion contractual.");
-                dateInput?.focus();
-                return;
-            }
-
-            close(value);
-        });
-    });
+        alert("Selecciona un mes valido para la vigencia.");
+    }
 }
 
 function renderHheeReturnTransferControl(profile, year, month, stats) {

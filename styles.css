@@ -1936,6 +1936,62 @@ body[data-active-view="home"] .secondary-grid {
 /* El modal ya no scrollea a lo ancho: si algo no cabe, se acomoda a lo alto. */
 .hm-modal--dotacion .hm-modal-body { overflow-x: hidden; }
 @media (max-width: 560px) { .hm-dot-cols { grid-template-columns: 1fr; } }
+/* Periodos de vigencia de los valores por grado */
+.settings-grade-periods {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel-alt);
+}
+
+.settings-grade-periods__list { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.settings-grade-period {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text-soft);
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.settings-grade-period:hover { border-color: var(--accent); }
+.settings-grade-period.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.settings-grade-period--add { border-style: dashed; color: var(--accent); }
+
+.settings-grade-range { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.settings-grade-range label { display: grid; gap: 3px; }
+.settings-grade-range span { font-size: 0.72rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
+
+.settings-grade-range input {
+    padding: 7px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--field-border);
+    background: var(--field);
+    color: var(--text);
+    font: inherit;
+}
+
+.settings-grade-period-remove {
+    padding: 7px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(220, 38, 38, 0.35);
+    background: var(--panel);
+    color: #dc2626;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.settings-grade-periods__note { margin: 0; font-size: 0.76rem; color: var(--text-muted); }
+
 /* Nombre visible de un administrador: editable ahi mismo, en la tarjeta donde
    el supervisor ya ve quien tiene acceso. */
 .settings-user-card__id { display: grid; gap: 2px; min-width: 0; }

@@ -131,7 +131,13 @@ function loanOutCosts(year, month0, activeId) {
         const worker = byName.get(String(rep.worker || ""));
         if (!worker) return;
         const est = roleLabel(worker.estamento);
-        const valorHora = Number(getGradeHourValue(worker.estamento, worker.grade)) || 0;
+        // Con la fecha del reemplazo, no la de hoy: un informe de un mes
+        // pasado tiene que usar el valor por grado que regia entonces.
+        const valorHora = Number(getGradeHourValue(
+            worker.estamento,
+            worker.grade,
+            new Date(when.year, when.month0, 1)
+        )) || 0;
         const cost = Math.round(HORAS_POR_TURNO * turnFactor(rep.turno) * valorHora);
         if (cost <= 0) return;
 
