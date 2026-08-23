@@ -2821,6 +2821,14 @@ body[data-active-view="log"] .secondary-grid {
     cursor: help;
 }
 
+/* Marca cuyo tipo no calza con el turno: el trabajador apreto el boton
+   equivocado. La hora vale, pero se senala en ambar para poder revisarla. */
+.report-table td.report-cell--mark-incident {
+    color: #b45309;
+    font-weight: 600;
+    cursor: help;
+}
+
 .report-signature-footer {
     justify-self: end;
     width: min(320px, 42%);

@@ -14,14 +14,12 @@ import {
 import { fetchHolidays } from "./holidays.js";
 import { AVERAGE_DIURNAL_WORKDAY_HOURS } from "./overtimeRules.js";
 import { calcExtraHours } from "./calculations.js";
-import {
-    getAttendanceCells,
-    getEntryMarkTime
-} from "./attendanceImport.js";
+import { getAttendanceCells } from "./attendanceImport.js";
 import {
     entryDelayForDay,
     formatDelayCell,
     isMarkMissing,
+    scheduledEntryTime,
     shiftEndsNextMorning
 } from "./attendanceDelay.js";
 import {
@@ -613,6 +611,13 @@ const MOVED_EXIT_MARK = "*";
 const MOVED_EXIT_TITLE = "Marcado el";
 const ALL_MARKS_TITLE = "Marcas del turno:";
 
+// El reloj registra lo que el trabajador aprieta, y a veces aprieta el boton
+// equivocado. La marca vale igual -lo importante es que marco-, pero queda
+// senalada para que se note que el registro no calza con lo que hizo.
+const INCIDENT_MARK = "⚠";
+const ENTRY_INCIDENT_TITLE = "Incidencia: marco salida en vez de entrada";
+const EXIT_INCIDENT_TITLE = "Incidencia: marco entrada en vez de salida";
+
 /**
  * Clave del dia anterior, cruzando meses y anios.
  *
@@ -641,13 +646,18 @@ function previousDayKey(date) {
 function attendanceReportCells(profile, iso, day) {
     const cells = getAttendanceCells(profile.rut, iso, {
         endsNextMorning: shiftEndsNextMorning(day.workedShift),
-        previousEndsNextMorning: shiftEndsNextMorning(day.previousWorkedShift)
+        previousEndsNextMorning: shiftEndsNextMorning(day.previousWorkedShift),
+        workedShift: day.workedShift,
+        scheduledEntry: scheduledEntryTime(day.baseShift)
+            || scheduledEntryTime(day.workedShift)
     });
     const delay = entryDelayForDay({
         baseShift: day.baseShift,
         extraShift: day.extraShift,
         workedShift: day.workedShift,
-        entryTime: getEntryMarkTime(profile.rut, iso),
+        // La entrada resuelta, no la que dice la etiqueta del reloj: si marco
+        // "salida" al llegar, su atraso se mide igual.
+        entryTime: cells.entrada,
         absent: day.absent,
         hasPassed: day.hasPassed
     });
@@ -669,16 +679,24 @@ function attendanceReportCells(profile, iso, day) {
             title: MISSING_ENTRY_TITLE,
             className: "report-cell--missing-entry"
         };
-    } else if (hidden) {
-        meta.entrada = { title: hidden, className: "report-cell--more-marks" };
+    } else if (cells.entryIncident || hidden) {
+        meta.entrada = {
+            title: [cells.entryIncident ? ENTRY_INCIDENT_TITLE : "", hidden]
+                .filter(Boolean)
+                .join("\n"),
+            className: cells.entryIncident
+                ? "report-cell--mark-incident"
+                : "report-cell--more-marks"
+        };
     }
     if (missingExit) {
         meta.salida = {
             title: MISSING_EXIT_TITLE,
             className: "report-cell--missing-entry"
         };
-    } else if (cells.salidaFrom || hidden) {
+    } else if (cells.exitIncident || cells.salidaFrom || hidden) {
         const lines = [
+            cells.exitIncident ? EXIT_INCIDENT_TITLE : "",
             cells.salidaFrom
                 ? `${MOVED_EXIT_TITLE} ${formatDate(cells.salidaFrom)}`
                 : "",
@@ -687,22 +705,39 @@ function attendanceReportCells(profile, iso, day) {
 
         meta.salida = {
             title: lines.join("\n"),
-            className: cells.salidaFrom
-                ? "report-cell--moved-exit"
-                : "report-cell--more-marks"
+            className: cells.exitIncident
+                ? "report-cell--mark-incident"
+                : cells.salidaFrom
+                    ? "report-cell--moved-exit"
+                    : "report-cell--more-marks"
         };
     }
 
     return {
-        entrada: delay.missingEntry ? MISSING_MARK : cells.entrada,
+        entrada: delay.missingEntry
+            ? MISSING_MARK
+            : withMarks(cells.entrada, cells.entryIncident && INCIDENT_MARK),
         salida: missingExit
             ? MISSING_MARK
-            : cells.salidaFrom
-                ? `${cells.salida} ${MOVED_EXIT_MARK}`
-                : cells.salida,
+            : withMarks(
+                cells.salida,
+                cells.exitIncident && INCIDENT_MARK,
+                cells.salidaFrom && MOVED_EXIT_MARK
+            ),
         atrasos: formatDelayCell(delay.minutes),
         ...(Object.keys(meta).length ? { __cells: meta } : {})
     };
+}
+
+/**
+ * Hora con los simbolos que le correspondan, si es que hay hora.
+ */
+function withMarks(time, ...symbols) {
+    const shown = symbols.filter(Boolean);
+
+    if (!time || !shown.length) return time;
+
+    return `${time} ${shown.join(" ")}`;
 }
 
 /**

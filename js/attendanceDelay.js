@@ -122,6 +122,100 @@ function extraTakesTheEntry(extraShift, baseEntryTime) {
 }
 
 /**
+ * .Parece esta marca la entrada al turno?
+ *
+ * Solo hace falta cuando hay UNA sola marca: sin otra al lado, el orden no
+ * dice nada y hay que compararla con la hora de ingreso. De una hora antes a
+ * cuatro despues se toma como entrada; mas alla es la salida.
+ *
+ * Sin horario de ingreso conocido se respeta lo que anoto el reloj: adivinar
+ * seria peor que el dato original.
+ */
+function looksLikeEntry(mark, scheduledEntry) {
+    const marked = minutesFromTime(mark.time);
+    const scheduled = minutesFromTime(scheduledEntry);
+
+    if (marked === null || scheduled === null) return mark.type !== "out";
+
+    const difference = marked - scheduled;
+
+    return difference >= -60 && difference <= 240;
+}
+
+/**
+ * Decide cual marca fue la entrada y cual la salida.
+ *
+ * El reloj guarda lo que el trabajador aprieta, y a veces aprieta el boton
+ * equivocado: marca "salida" al llegar, o "entrada" al irse. Lo que manda es
+ * que ese dia tenia turno programado: si hay turno, la primera marca es la
+ * llegada y la ultima es la salida, diga lo que diga la etiqueta. La etiqueta
+ * equivocada no se corrige en silencio: se devuelve como incidencia.
+ *
+ * Sin turno ese dia no hay contra que corregir y se respeta el reloj.
+ *
+ * @param {Array<{time: string, type: string, iso?: string}>} marks en orden
+ * @param {object} [context]
+ * @param {number} [context.workedShift] turno realmente realizado
+ * @param {string} [context.scheduledEntry] hora de ingreso, "HH:MM"
+ * @param {boolean} [context.endsNextMorning] turno que cierra al dia siguiente
+ * @returns {{entry: object|null, exit: object|null,
+ *            entryIncident: boolean, exitIncident: boolean}}
+ */
+export function resolveShiftMarks(marks = [], context = {}) {
+    const {
+        workedShift = TURNO.LIBRE,
+        scheduledEntry = "",
+        endsNextMorning = false
+    } = context;
+    const list = (marks || []).filter(mark => mark?.time);
+    const vacio = {
+        entry: null,
+        exit: null,
+        entryIncident: false,
+        exitIncident: false
+    };
+
+    if (!list.length) return vacio;
+
+    // Sin turno no hay error involuntario que deducir: lo que dice el reloj.
+    if (!(Number(workedShift) > TURNO.LIBRE)) {
+        const entradas = list.filter(mark => mark.type !== "out");
+        const salidas = list.filter(mark => mark.type === "out");
+
+        return {
+            ...vacio,
+            entry: entradas[0] || null,
+            exit: salidas[salidas.length - 1] || null
+        };
+    }
+
+    if (list.length === 1 && !endsNextMorning) {
+        const only = list[0];
+
+        return looksLikeEntry(only, scheduledEntry)
+            ? { ...vacio, entry: only, entryIncident: only.type === "out" }
+            : { ...vacio, exit: only, exitIncident: only.type !== "out" };
+    }
+
+    // Un turno con noche se cierra con la marca traida del dia siguiente. Si no
+    // la marco, la celda queda vacia: una marca de mitad de turno no es el
+    // termino, y mostrarla como tal seria peor que dejarla en blanco.
+    const exit = endsNextMorning
+        ? list.find(mark => mark.iso) || null
+        : list[list.length - 1];
+    // La marca traida del dia siguiente nunca es la llegada de este turno.
+    const first = list[0];
+    const entry = first?.iso ? null : first;
+
+    return {
+        entry,
+        exit: exit === entry ? null : exit,
+        entryIncident: Boolean(entry) && entry.type === "out",
+        exitIncident: Boolean(exit) && exit.type !== "out"
+    };
+}
+
+/**
  * .Falta el registro de una marca?
  *
  * Falta cuando ese dia se trabajo y no hay marca. No falta si el dia esta

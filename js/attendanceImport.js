@@ -11,6 +11,7 @@
 
 import { getJSON, setJSON } from "./persistence.js";
 import { readXlsRows, dateFromExcelSerial } from "./xlsReader.js";
+import { resolveShiftMarks } from "./attendanceDelay.js";
 
 const STORAGE_KEY = "attendanceMarks";
 
@@ -223,10 +224,22 @@ export function getMarksFor(rut, iso) {
 /**
  * Horas de entrada y de salida de un dia, listas para la celda del reporte.
  *
- * Si hay mas de una marca del mismo tipo se muestran TODAS: un trabajador puede
- * salir y volver a entrar el mismo dia, y esconder marcas seria justamente
- * perder la informacion que se quiere revisar. Las marcas sin tipo se muestran
- * en Entrada, que es donde el reloj las deja cuando no lo especifica.
+ * De un turno se muestran solo la PRIMERA entrada y la ULTIMA salida: dentro de
+ * un 24 hay quien marca al pasar de un tramo al otro, y cuatro horas en dos
+ * celdas no se leen. Las intermedias no se pierden, viajan en `marks` para el
+ * hover.
+ *
+ * Cual marca fue la llegada y cual la salida lo decide el turno, no la etiqueta
+ * del reloj: ver resolveShiftMarks. Cuando la etiqueta no calza, se avisa en
+ * `entryIncident` / `exitIncident`.
+ *
+ * @param {string} rut
+ * @param {string} iso
+ * @param {object} [options]
+ * @param {boolean} [options.endsNextMorning] el turno cierra al dia siguiente
+ * @param {boolean} [options.previousEndsNextMorning] anoche hubo turno con noche
+ * @param {number} [options.workedShift] turno realizado ese dia
+ * @param {string} [options.scheduledEntry] hora de ingreso del turno
  */
 export function getAttendanceCells(rut, iso, options = {}) {
     const {
@@ -237,19 +250,20 @@ export function getAttendanceCells(rut, iso, options = {}) {
         endsNextMorning,
         previousEndsNextMorning
     });
-    const entradas = marks.filter(mark => mark.type !== "out");
-    const salidas = marks.filter(mark => mark.type === "out");
-    // Un turno con noche se cierra a la manana siguiente: su salida es la que
-    // se trajo de ese dia, no una intermedia. Si no la marco, la celda queda
-    // vacia en vez de mostrar la de mitad de turno como si fuera el termino.
-    const cierre = endsNextMorning
-        ? salidas.find(mark => mark.iso)
-        : salidas[salidas.length - 1];
+    // Que marca fue la llegada y cual la salida no lo decide la etiqueta del
+    // reloj sino el turno: ver resolveShiftMarks.
+    const resolved = resolveShiftMarks(marks, {
+        workedShift: options.workedShift,
+        scheduledEntry: options.scheduledEntry,
+        endsNextMorning
+    });
 
     return {
-        entrada: entradas[0]?.time || "",
-        salida: cierre?.time || "",
-        ...(cierre?.iso ? { salidaFrom: cierre.iso } : {}),
+        entrada: resolved.entry?.time || "",
+        salida: resolved.exit?.time || "",
+        ...(resolved.exit?.iso ? { salidaFrom: resolved.exit.iso } : {}),
+        entryIncident: resolved.entryIncident,
+        exitIncident: resolved.exitIncident,
         marks
     };
 }

@@ -502,12 +502,21 @@ test("un turno de dia no mueve nada", () => {
 });
 
 test("sin salida al dia siguiente la celda queda vacia", () => {
-    marcasDelEjemplo();
+    // Entro a su Noche y nunca marco el termino. La celda queda vacia -y con
+    // cruz en el reporte-: una marca de mitad de turno no es el termino, y
+    // mostrarla como tal seria peor que dejarla en blanco.
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": { "2026-08-10": [{ time: "19:55", type: "in" }] }
+    }));
 
-    const dia = getAttendanceCells("1-9", "2026-08-05", {
-        endsNextMorning: true
+    const dia = getAttendanceCells("1-9", "2026-08-10", {
+        endsNextMorning: true,
+        workedShift: TURNO.NOCHE,
+        scheduledEntry: "20:00"
     });
 
+    assert.equal(dia.entrada, "19:55");
     assert.equal(dia.salida, "");
     assert.equal(dia.salidaFrom, undefined);
 });
@@ -639,6 +648,173 @@ test("el hover se arma solo cuando la fila esconde marcas", () => {
     );
     assert.match(reporte, /if \(marks\.length <= shown\) return "";/);
     assert.match(estilos, /\.report-table td\.report-cell--more-marks \{/);
+});
+
+/* =========================================================
+   Cuando el trabajador aprieta el boton equivocado
+
+   El reloj guarda lo que apretaron, no lo que hicieron. Si ese dia tenia turno
+   programado, una "salida" a la hora de llegar fue un error involuntario: lo
+   importante es que marco. La hora vale y la etiqueta equivocada se reporta
+   como incidencia.
+========================================================= */
+
+const larga = { workedShift: TURNO.LARGA, scheduledEntry: "08:00" };
+
+function marcar(dia, marcas) {
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": { [dia]: marcas }
+    }));
+}
+
+test("marco salida al llegar y volvio a marcar: vale la PRIMERA", () => {
+    // El usuario fue explicito: se muestra el primer marcaje, el segundo al
+    // hover. Aunque la segunda sea la que dice "entrada".
+    marcar("2026-08-10", [
+        { time: "08:00", type: "out" },
+        { time: "08:02", type: "in" },
+        { time: "20:05", type: "out" }
+    ]);
+
+    const dia = getAttendanceCells("1-9", "2026-08-10", larga);
+
+    assert.equal(dia.entrada, "08:00");
+    assert.equal(dia.entryIncident, true);
+    assert.equal(dia.salida, "20:05");
+    assert.equal(dia.exitIncident, false);
+    // La segunda no se pierde: queda en marks, que alimenta el hover.
+    assert.equal(dia.marks.length, 3);
+});
+
+test("marco salida al llegar y NO volvio a marcar: vale igual", () => {
+    marcar("2026-08-10", [
+        { time: "08:00", type: "out" },
+        { time: "20:05", type: "out" }
+    ]);
+
+    const dia = getAttendanceCells("1-9", "2026-08-10", larga);
+
+    assert.equal(dia.entrada, "08:00");
+    assert.equal(dia.entryIncident, true);
+    assert.equal(dia.salida, "20:05");
+});
+
+test("marco entrada al irse: se registra como salida", () => {
+    marcar("2026-08-10", [
+        { time: "07:58", type: "in" },
+        { time: "20:05", type: "in" }
+    ]);
+
+    const dia = getAttendanceCells("1-9", "2026-08-10", larga);
+
+    assert.equal(dia.entrada, "07:58");
+    assert.equal(dia.entryIncident, false);
+    assert.equal(dia.salida, "20:05");
+    assert.equal(dia.exitIncident, true);
+});
+
+test("con una sola marca decide la hora, no la etiqueta", () => {
+    // A la hora de entrar es la entrada, aunque diga salida.
+    marcar("2026-08-10", [{ time: "08:03", type: "out" }]);
+    let dia = getAttendanceCells("1-9", "2026-08-10", larga);
+
+    assert.equal(dia.entrada, "08:03");
+    assert.equal(dia.entryIncident, true);
+    assert.equal(dia.salida, "");
+
+    // Doce horas despues es la salida, y ahi la etiqueta "salida" esta bien:
+    // lo que falta es la entrada.
+    marcar("2026-08-10", [{ time: "20:05", type: "out" }]);
+    dia = getAttendanceCells("1-9", "2026-08-10", larga);
+
+    assert.equal(dia.entrada, "");
+    assert.equal(dia.salida, "20:05");
+    assert.equal(dia.exitIncident, false);
+});
+
+test("un dia SIN turno no se corrige: manda el reloj", () => {
+    // La correccion se apoya en que habia turno programado. Sin turno no hay
+    // nada contra que contrastar y reinterpretar seria inventar.
+    marcar("2026-08-10", [{ time: "08:00", type: "out" }]);
+
+    const dia = getAttendanceCells("1-9", "2026-08-10");
+
+    assert.equal(dia.entrada, "");
+    assert.equal(dia.salida, "08:00");
+    assert.equal(dia.entryIncident, false);
+});
+
+test("sin horario de ingreso conocido y una sola marca, manda el reloj", () => {
+    // Turnos como 24h o D+N todavia no tienen hora de ingreso acordada.
+    marcar("2026-08-10", [{ time: "08:00", type: "out" }]);
+
+    const dia = getAttendanceCells("1-9", "2026-08-10", {
+        workedShift: TURNO.TURNO24
+    });
+
+    assert.equal(dia.entrada, "");
+    assert.equal(dia.salida, "08:00");
+});
+
+test("el atraso se mide con la entrada corregida", () => {
+    // Es la consecuencia que importa: si tomara solo las marcas con etiqueta
+    // "entrada", quien se equivoco al llegar apareceria sin marca y con cruz,
+    // en vez de con sus minutos de atraso.
+    marcar("2026-08-10", [
+        { time: "08:20", type: "out" },
+        { time: "20:05", type: "out" }
+    ]);
+
+    const dia = getAttendanceCells("1-9", "2026-08-10", larga);
+    const atraso = entryDelayForDay({
+        baseShift: TURNO.LARGA,
+        workedShift: TURNO.LARGA,
+        entryTime: dia.entrada
+    });
+
+    assert.equal(atraso.minutes, 20);
+    assert.equal(atraso.missingEntry, false);
+});
+
+test("si anoche hubo Noche, la salida temprana NO es una incidencia", () => {
+    // Encontrado al probar el reporte completo: con turno de noche el dia
+    // anterior, una "salida" a las 08:00 es su cierre, no un boton mal
+    // apretado. Gana el cierre del turno de anoche, que es lo unico que
+    // explica una salida a esa hora.
+    marcar("2026-08-10", [
+        { time: "08:00", type: "out" },
+        { time: "08:02", type: "in" },
+        { time: "20:05", type: "out" }
+    ]);
+
+    const dia = getAttendanceCells("1-9", "2026-08-10", {
+        ...larga,
+        previousEndsNextMorning: true
+    });
+
+    assert.equal(dia.entrada, "08:02");
+    assert.equal(dia.entryIncident, false);
+    // Y la de las 08:00 no aparece: se muestra en la fila del turno de anoche.
+    assert.equal(dia.marks.length, 2);
+});
+
+test("el reporte usa la entrada resuelta para el atraso", () => {
+    assert.match(reporte, /entryTime: cells\.entrada,/);
+    assert.doesNotMatch(reporte, /entryTime: getEntryMarkTime\(/);
+});
+
+test("la incidencia tiene simbolo, explicacion y estilo propios", () => {
+    assert.match(reporte, /const INCIDENT_MARK = "⚠";/);
+    assert.match(
+        reporte,
+        /const ENTRY_INCIDENT_TITLE =\s*\n?\s*"Incidencia: marco salida en vez de entrada";/
+    );
+    assert.match(
+        reporte,
+        /const EXIT_INCIDENT_TITLE =\s*\n?\s*"Incidencia: marco entrada en vez de salida";/
+    );
+    assert.match(estilos, /\.report-table td\.report-cell--mark-incident \{/);
 });
 
 /* =========================================================
