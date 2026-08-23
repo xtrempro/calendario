@@ -59,6 +59,16 @@ import {
 } from "./workerRequests.js";
 import { fetchHolidays, getCachedHolidays } from "./holidays.js";
 import { getActiveWorkspace } from "./workspaces.js";
+import {
+    addDays as addScheduleDays,
+    publishedWeeksOfMonth,
+    weekAttachment,
+    weekHeading,
+    weekNeedsImage,
+    weekStartMonday,
+    weeklyScheduleBody
+} from "./weeklySchedulePreview.js";
+import { openAttachmentFile } from "./attachmentUtils.js";
 
 // Nombre por defecto para entornos que aun no tienen "Nombre del supervisor"
 // cargado al crearse (entornos de prueba previos al requerimiento).
@@ -121,6 +131,9 @@ function todayISO() {
 // las flechas; se conserva entre repintados del panel.
 let birthdayYear = new Date().getFullYear();
 let birthdayMonth = new Date().getMonth();
+
+// Semana visible en el visor de programacion. Arranca en la de hoy.
+let weeklyScheduleWeek = weekStartMonday(new Date());
 
 // Calendario organizativo de tareas (se abre desde la fecha del encabezado).
 let taskCalYear = new Date().getFullYear();
@@ -589,6 +602,7 @@ const IC = {
     check: '<path d="M20 6 9 17l-5-5"/>',
     arrowRight: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     chevron: '<path d="M9 6l6 6-6 6"/>',
+    table: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14.5h18M9 9v11M15 9v11"/>',
     phone: '<rect x="5" y="2" width="14" height="20" rx="2.8"/><path d="M10.6 4.7h2.8"/><rect x="7.4" y="6.7" width="9.2" height="10.2" rx="1"/><circle cx="12" cy="19.6" r="1.15"/>',
     cake: '<path d="M4 21h16v-7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3z"/><path d="M4 16c1.5 1 2.5 1 4 0s2.5-1 4 0 2.5 1 4 0 2.5-1 4 0"/><path d="M12 8V5M9 8V6M15 8V6"/>',
     palm: '<path d="M12 2a7 7 0 0 1 7 7c0 4-7 13-7 13S5 13 5 9a7 7 0 0 1 7-7z"/>',
@@ -1125,6 +1139,118 @@ function absenceDetailRowHTML(item) {
         </div>`;
 }
 
+/* =========================================================
+   Programacion semanal publicada
+
+   Hasta ahora solo se veia en la PWA del trabajador: el menu de tareas la sube
+   pero no la dibuja. Aca se muestra igual que la ve el trabajador, sin poder
+   editarla, y con las semanas del mes a mano para no ir de a una buscando cual
+   tiene algo publicado.
+========================================================= */
+
+function weeklyScheduleModal() {
+    return `
+        <div class="hm-modal-backdrop" data-hm="weekly-modal" hidden>
+            <div class="hm-modal hm-modal--weekly" role="dialog" aria-modal="true" aria-label="Programación semanal">
+                <div class="hm-modal-head">
+                    <span class="hm-modal-ico">${svg(IC.table)}</span>
+                    <h3>Programación · <span data-hm="ws-heading"></span></h3>
+                    <div class="hm-bday-nav">
+                        <button type="button" data-hm="ws-prev" aria-label="Semana anterior">&#8249;</button>
+                        <button type="button" data-hm="ws-next" aria-label="Semana siguiente">&#8250;</button>
+                    </div>
+                    <button class="hm-btn-secondary hm-ws-today" type="button" data-hm="ws-today">Hoy</button>
+                    <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="hm-ws-weeks" data-hm="ws-weeks"></div>
+                <div class="hm-modal-body" data-hm="ws-body"></div>
+            </div>
+        </div>`;
+}
+
+// Atajos a las semanas del mes que SI tienen programacion. Sin esto habria que
+// avanzar de a una para descubrir cuales estan publicadas.
+function weeklyScheduleWeeksHTML() {
+    const semanas = publishedWeeksOfMonth(weeklyScheduleWeek);
+    const actual = weeklyScheduleWeek.getTime();
+
+    if (!semanas.length) {
+        return `<span class="hm-ws-weeks-empty">Sin programación publicada este mes.</span>`;
+    }
+
+    return semanas.map(week => `
+        <button class="hm-ws-week ${week.getTime() === actual ? "is-active" : ""}"
+            type="button" data-hm="ws-week" data-week="${week.getTime()}">
+            ${week.getDate()} ${MESES_ABR[week.getMonth()]}
+        </button>
+    `).join("");
+}
+
+function renderWeeklySchedule(panel, { imageUrl = "", loading = false } = {}) {
+    const modal = panel.querySelector('[data-hm="weekly-modal"]');
+
+    if (!modal) return;
+
+    modal.querySelector('[data-hm="ws-heading"]').textContent =
+        weekHeading(weeklyScheduleWeek);
+    modal.querySelector('[data-hm="ws-weeks"]').innerHTML =
+        weeklyScheduleWeeksHTML();
+    modal.querySelector('[data-hm="ws-body"]').innerHTML =
+        weeklyScheduleBody(weeklyScheduleWeek, { imageUrl, loading });
+}
+
+// Las programaciones subidas como imagen viven en Storage: hay que pedir su URL
+// de descarga, que es asincrono. Se pinta primero el "cargando" y se repinta al
+// llegar, comprobando que la semana no haya cambiado mientras tanto.
+async function loadWeeklyScheduleImage(panel) {
+    const semana = weeklyScheduleWeek.getTime();
+    const attachment = weekAttachment(weeklyScheduleWeek);
+
+    if (!attachment) return;
+
+    renderWeeklySchedule(panel, { loading: true });
+
+    try {
+        const url = await resolveAttachmentUrl(attachment);
+
+        if (weeklyScheduleWeek.getTime() !== semana) return;
+
+        renderWeeklySchedule(panel, { imageUrl: url });
+    } catch (error) {
+        console.warn("No se pudo cargar la programación publicada.", error);
+
+        if (weeklyScheduleWeek.getTime() === semana) {
+            renderWeeklySchedule(panel);
+        }
+    }
+}
+
+async function resolveAttachmentUrl(attachment) {
+    if (attachment.downloadURL) return attachment.downloadURL;
+    if (attachment.dataUrl) return attachment.dataUrl;
+    if (!attachment.storagePath) return "";
+
+    const { getFirebaseServices } = await import("./firebaseClient.js");
+    const { storage, storageModule } = await getFirebaseServices();
+
+    return storageModule.getDownloadURL(
+        storageModule.ref(storage, attachment.storagePath)
+    );
+}
+
+function showWeeklySchedule(panel) {
+    const modal = panel.querySelector('[data-hm="weekly-modal"]');
+
+    if (!modal) return;
+
+    renderWeeklySchedule(panel);
+    modal.hidden = false;
+
+    if (weekNeedsImage(weeklyScheduleWeek)) {
+        void loadWeeklyScheduleImage(panel);
+    }
+}
+
 function absenceModal() {
     return `
         <div class="hm-modal-backdrop" data-hm="absence-modal" hidden>
@@ -1632,6 +1758,12 @@ function homeHTML() {
                         <span><small>Hoy es</small><strong>${esc(todayLabel())}</strong></span>
                         <span class="hm-date-go">${svg(IC.chevron, 'stroke-width="2.4"')}</span>
                     </div>
+                    <button class="hm-hero-action" type="button" data-hm="open-weekly"
+                        title="Ver la programación semanal publicada">
+                        ${svg(IC.table)}
+                        <span>Programación semanal</span>
+                        ${svg(IC.chevron, 'stroke-width="2.4"')}
+                    </button>
                 </div>
             </section>
 
@@ -1664,6 +1796,7 @@ function homeHTML() {
         ${taskEditModal()}
         ${dotacionModal()}
         ${absenceModal()}
+        ${weeklyScheduleModal()}
         ${taskCalendarModal()}
         ${dayTasksModal()}`;
 }
@@ -1830,6 +1963,59 @@ function wire(panel) {
         dotModal.addEventListener("click", event => {
             if (event.target === dotModal || event.target.closest('[data-hm="close"]')) {
                 dotModal.hidden = true;
+            }
+        });
+    }
+
+    // --- Programacion semanal publicada ---
+    const weeklyModal = panel.querySelector('[data-hm="weekly-modal"]');
+
+    panel.querySelector('[data-hm="open-weekly"]')?.addEventListener("click", () => {
+        // Siempre abre en la semana de hoy, no donde quedo la vez anterior.
+        weeklyScheduleWeek = weekStartMonday(new Date());
+        showWeeklySchedule(panel);
+    });
+
+    if (weeklyModal) {
+        const irASemana = (week) => {
+            weeklyScheduleWeek = week;
+            renderWeeklySchedule(panel);
+
+            if (weekNeedsImage(weeklyScheduleWeek)) {
+                void loadWeeklyScheduleImage(panel);
+            }
+        };
+
+        weeklyModal.addEventListener("click", event => {
+            if (
+                event.target === weeklyModal ||
+                event.target.closest('[data-hm="close"]')
+            ) {
+                weeklyModal.hidden = true;
+                return;
+            }
+
+            const paso = event.target.closest('[data-hm="ws-prev"], [data-hm="ws-next"]');
+
+            if (paso) {
+                // De a una semana: es la unidad en que se publica. Avanzando se
+                // cruza de mes solo, y el titulo dice en cual se esta.
+                irASemana(addScheduleDays(
+                    weeklyScheduleWeek,
+                    paso.dataset.hm === "ws-next" ? 7 : -7
+                ));
+                return;
+            }
+
+            if (event.target.closest('[data-hm="ws-today"]')) {
+                irASemana(weekStartMonday(new Date()));
+                return;
+            }
+
+            const semana = event.target.closest('[data-hm="ws-week"]');
+
+            if (semana) {
+                irASemana(new Date(Number(semana.dataset.week)));
             }
         });
     }

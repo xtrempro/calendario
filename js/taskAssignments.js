@@ -144,7 +144,7 @@ function normalizeScheduleOcr(value) {
     };
 }
 
-function scheduleWeekStartISO(start = currentWeekStart) {
+export function scheduleWeekStartISO(start = currentWeekStart) {
     return isoFromDate(weekStartMonday(start));
 }
 
@@ -152,7 +152,7 @@ function scheduleWeekEndISO(start = currentWeekStart) {
     return isoFromDate(addDays(weekStartMonday(start), 6));
 }
 
-function scheduleWeekLabel(start = currentWeekStart) {
+export function scheduleWeekLabel(start = currentWeekStart) {
     const weekStart = weekStartMonday(start);
     const weekEnd = addDays(weekStart, 6);
 
@@ -280,7 +280,7 @@ function normalizeScheduleAttachmentMap(value) {
     );
 }
 
-function getScheduleAttachments() {
+export function getScheduleAttachments() {
     const attachments = normalizeScheduleAttachmentMap(
         getJSON(SCHEDULE_ATTACHMENTS_KEY, {})
     );
@@ -309,7 +309,7 @@ function saveScheduleAttachments(attachments) {
     syncLegacyScheduleAttachment(normalized);
 }
 
-function getScheduleAttachment(start = currentWeekStart) {
+export function getScheduleAttachment(start = currentWeekStart) {
     return getScheduleAttachments()[scheduleWeekStartISO(start)] || null;
 }
 

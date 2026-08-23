@@ -1911,21 +1911,188 @@ body[data-active-view="home"] .secondary-grid {
 .hm-modal-close:hover { color: var(--hm-red); }
 .hm-modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; }
 .hm-modal-sub { font-size: 0.76rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
-.hm-modal--dotacion { width: min(680px, 100%); }
+/* En pantalla grande el modal se ensancha hasta caber los nombres completos, en
+   vez de recortarlos y sacar una barra de scroll lateral. El limite de 100% deja
+   que en pantallas chicas siga entrando. */
+.hm-modal--dotacion { width: min(1080px, 100%); }
 .hm-dot-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+/* Sin esto las columnas de la grilla no pueden encoger por debajo de su
+   contenido y es el nombre largo el que empuja el modal a lo ancho. */
+.hm-dot-col { min-width: 0; }
 .hm-dot-colhead { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; font-weight: 800; color: var(--text); padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--border); }
 .hm-dot-colhead svg { width: 17px; height: 17px; color: var(--text-soft); }
 .hm-dot-colhead b { margin-left: auto; font-size: 0.78rem; font-weight: 800; color: var(--text-soft); background: var(--panel-alt); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
 .hm-dot-list { display: flex; flex-direction: column; gap: 6px; }
 .hm-dot-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; border-radius: 11px; background: var(--panel-alt); border: 1px solid var(--border); }
-.hm-dot-name { font-size: 0.86rem; font-weight: 700; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* El nombre completo, en dos lineas si hace falta: recortarlo con puntos
+   suspensivos era justamente lo que escondia informacion. */
+.hm-dot-name { font-size: 0.86rem; font-weight: 700; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
 .hm-dot-time { flex: none; font-size: 0.78rem; font-weight: 700; color: var(--text-soft); font-variant-numeric: tabular-nums; }
 .hm-dot-empty { padding: 14px; text-align: center; color: var(--text-muted); font-size: 0.8rem; border: 1px dashed var(--border-strong); border-radius: 11px; }
 .hm-modal--absence { width: min(720px, 100%); }
 .hm-absence-detail-list { display: flex; flex-direction: column; gap: 8px; }
 .hm-absence-worker { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-absence-detail-row .hm-cob-actions { margin-top: 6px; }
+/* El modal ya no scrollea a lo ancho: si algo no cabe, se acomoda a lo alto. */
+.hm-modal--dotacion .hm-modal-body { overflow-x: hidden; }
 @media (max-width: 560px) { .hm-dot-cols { grid-template-columns: 1fr; } }
+/* Adjunto de un registro del perfil: se abre al tocarlo. Antes era texto suelto
+   y el archivo subido quedaba inalcanzable. */
+.pf-rec-clip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+    padding: 3px 9px 3px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel-alt);
+    color: var(--text-soft);
+    font: inherit;
+    font-size: 0.74rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pf-rec-clip svg { width: 13px; height: 13px; flex: none; }
+.pf-rec-clip:hover { border-color: var(--accent); color: var(--accent); }
+.pf-rec-clip:disabled { opacity: 0.6; cursor: default; }
+
+/* Registros viejos que guardaron solo el nombre: no hay archivo que abrir. */
+.pf-rec-clip--gone { cursor: default; opacity: 0.7; }
+.pf-rec-clip--gone:hover { border-color: var(--border); color: var(--text-soft); }
+
+/* Boton de programacion semanal, bajo la fecha del encabezado */
+.hm-hero-action {
+    margin-top: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 16px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    box-shadow: var(--shadow-soft);
+    color: var(--text);
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s, transform .15s;
+}
+
+.hm-hero-action:hover {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-panel);
+    transform: translateY(-1px);
+}
+
+.hm-hero-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hm-hero-action svg:first-child { width: 20px; height: 20px; color: var(--accent); }
+.hm-hero-action svg:last-child { width: 16px; height: 16px; color: var(--text-muted); }
+
+/* Visor de la programacion semanal publicada.
+   Ocupa casi toda la pantalla porque la tabla tiene 7 columnas de dias mas la
+   de roles: en un modal angosto no se lee nada. */
+.hm-modal--weekly { width: min(1400px, 100%); }
+.hm-modal--weekly .hm-modal-body { padding-top: 8px; }
+.hm-ws-today { margin-left: 4px; padding: 6px 12px; font-size: 0.78rem; }
+
+.hm-ws-weeks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px 20px 0;
+}
+
+.hm-ws-week {
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel-alt);
+    color: var(--text-soft);
+    font: inherit;
+    font-size: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.hm-ws-week:hover { border-color: var(--accent); }
+.hm-ws-week.is-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.hm-ws-weeks-empty { font-size: 0.8rem; color: var(--text-muted); }
+
+/* La tabla scrollea dentro de SU caja, no arrastrando el modal entero. */
+.ws-table-scroll,
+.ws-image-scroll {
+    overflow: auto;
+    max-height: 70vh;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+}
+
+.ws-image-scroll img { display: block; max-width: 100%; height: auto; }
+
+.ws-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.ws-table th,
+.ws-table td {
+    border: 1px solid var(--border);
+    padding: 7px 9px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.ws-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--panel-alt);
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: var(--text-soft);
+    white-space: nowrap;
+}
+
+/* La columna de roles queda fija al hacer scroll horizontal: sin ella no se
+   sabe de quien es la fila que se esta mirando. */
+.ws-table .ws-role {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    min-width: 170px;
+    background: var(--panel);
+}
+
+.ws-table thead .ws-role { z-index: 3; background: var(--panel-alt); }
+.ws-table .ws-role strong { display: block; font-size: 0.78rem; font-weight: 800; color: var(--text); }
+.ws-table .ws-role span { display: block; font-size: 0.7rem; color: var(--text-muted); }
+.ws-cell { min-width: 108px; color: var(--text); }
+.ws-cell--weekend { background: var(--panel-alt); }
+.ws-cell--full { background: var(--accent-soft); font-weight: 700; }
+
+.ws-empty {
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.86rem;
+    border: 1px dashed var(--border-strong);
+    border-radius: 14px;
+}
+
+@media (max-width: 720px) {
+    .hm-ws-today { display: none; }
+    .ws-table { font-size: 0.72rem; }
+    .ws-table .ws-role { min-width: 120px; }
+    .ws-cell { min-width: 86px; }
+}
+
 /* Calendario organizativo de tareas (se abre desde la fecha del encabezado) */
 .hm-date[data-hm="open-taskcal"] { cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .15s; }
 .hm-date[data-hm="open-taskcal"]:hover { border-color: var(--accent); box-shadow: var(--shadow-panel); transform: translateY(-1px); }

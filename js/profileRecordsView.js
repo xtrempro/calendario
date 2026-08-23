@@ -16,15 +16,38 @@ export function getRecordYear(entry) {
     return source ? String(source).slice(0, 4) : "";
 }
 
+const CLIP_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.67 3.67 0 0 1 5.19 5.19l-9.2 9.19a1.83 1.83 0 0 1-2.59-2.59l8.49-8.48"/></svg>`;
+
 /**
- * Etiqueta del archivo adjunto de una entrada, si tiene.
- * @param {{file?: {name?: string}}} entry
+ * Archivo adjunto de una entrada.
+ *
+ * Antes era solo texto ("Clip: informe.doc"), asi que el archivo se subia y ya
+ * no habia forma de volver a abrirlo. Ahora es un boton, siempre que la entrada
+ * traiga el contenido: las mas viejas guardaron unicamente el nombre y de esas
+ * no hay nada que abrir, por eso esas siguen como texto.
+ *
+ * @param {{id?: string, file?: {name?: string, storagePath?: string, dataUrl?: string}}} entry
+ * @param {string} recordKey
  * @returns {string}
  */
-function renderAttachmentName(entry) {
-    return entry?.file?.name
-        ? `<small>Clip: ${escapeHTML(entry.file.name)}</small>`
-        : "";
+function renderAttachmentName(entry, recordKey = "") {
+    const file = entry?.file;
+
+    if (!file?.name) return "";
+
+    const abrible = Boolean(file.storagePath || file.dataUrl);
+
+    if (!abrible) {
+        return `<small class="pf-rec-clip pf-rec-clip--gone" title="Este registro guardó solo el nombre del archivo, no el archivo.">${CLIP_ICON}${escapeHTML(file.name)}</small>`;
+    }
+
+    return `
+        <button class="pf-rec-clip" type="button"
+            data-record-attachment="${escapeHTML(String(entry.id || ""))}"
+            data-record-key="${escapeHTML(recordKey)}"
+            title="Abrir ${escapeHTML(file.name)}">
+            ${CLIP_ICON}${escapeHTML(file.name)}
+        </button>`;
 }
 
 /**
@@ -132,7 +155,7 @@ export function renderRecordEntry(config, entry) {
             <div class="pf-rec-body">
                 <b>${escapeHTML(primary)}</b>
                 ${secondary ? `<small>${escapeHTML(secondary)}</small>` : ""}
-                ${renderAttachmentName(entry)}
+                ${renderAttachmentName(entry, config.key)}
             </div>
             ${tag}
         </article>

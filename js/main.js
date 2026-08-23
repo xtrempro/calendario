@@ -4104,6 +4104,33 @@ function renderProfileRecords(profile, editing) {
         .forEach(button => {
             button.onclick = () => startEditMode();
         });
+
+    // Abrir el archivo adjunto de un registro. Vale para todos los recuadros
+    // del perfil -evaluaciones, capacitaciones, titulos, experiencia...-, porque
+    // todos pintan sus entradas con el mismo renderRecordEntry.
+    DOM.profileRecordsPanel
+        .querySelectorAll("[data-record-attachment]")
+        .forEach(button => {
+            button.onclick = async () => {
+                const logs = getProfileLogs(profile.name);
+                const entry = (logs[button.dataset.recordKey] || []).find(item =>
+                    String(item.id) === button.dataset.recordAttachment
+                );
+
+                if (!entry?.file) return;
+
+                button.disabled = true;
+
+                try {
+                    await openAttachmentFile(entry.file, { newTab: true });
+                } catch (error) {
+                    console.warn("No se pudo abrir el adjunto del registro.", error);
+                    alert(error.message || "No se pudo abrir el archivo adjunto.");
+                } finally {
+                    button.disabled = false;
+                }
+            };
+        });
 }
 
 function formatAvailabilityHistoryDate(key) {
