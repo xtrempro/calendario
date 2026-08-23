@@ -10,7 +10,8 @@ import { existsSync } from "node:fs";
 
 const {
     PROTECTED_MODULES,
-    OBFUSCATOR_OPTIONS
+    OBFUSCATOR_OPTIONS,
+    optionsFor
 } = await import("../scripts/obfuscate-engine.mjs");
 
 async function read(path) {
@@ -63,12 +64,35 @@ test("no se rompe la depuracion de produccion", () => {
     assert.equal(OBFUSCATOR_OPTIONS.disableConsoleOutput, false);
 });
 
-test("los textos quedan fuera de la vista", () => {
-    // Es lo que de verdad estorba a quien lee: buscar un nombre de funcion o un
-    // literal en el bundle deja de encontrar nada.
+test("los textos quedan fuera de la vista donde sale barato", () => {
+    // hoursReport se arma bajo demanda y es el modulo con mas texto visible al
+    // usuario: ahi el arreglo de textos vale la pena.
     assert.equal(OBFUSCATOR_OPTIONS.stringArray, true);
     assert.equal(OBFUSCATOR_OPTIONS.stringArrayThreshold, 1);
     assert.deepEqual(OBFUSCATOR_OPTIONS.stringArrayEncoding, ["base64"]);
+    assert.equal(optionsFor("js/hoursReport.js").stringArray, true);
+});
+
+test("los motores que corren en bucle NO llevan arreglo de textos", () => {
+    // Medido con scripts/bench-obfuscation.mjs sobre calcHours: con arreglo de
+    // textos el codigo caliente corre 3,7 veces mas lento; sin el, 1,04. Y lo
+    // que se pierde es poco, porque sus literales son claves internas.
+    [
+        "js/hoursEngine.js",
+        "js/turnEngine.js",
+        "js/rulesEngine.js",
+        "js/calculations.js",
+        "js/overtimeRules.js"
+    ].forEach(module => {
+        assert.equal(
+            optionsFor(module).stringArray,
+            false,
+            `${module} no puede llevar arreglo de textos: es codigo caliente`
+        );
+        // Lo que si protege y sale gratis se conserva.
+        assert.equal(optionsFor(module).numbersToExpressions, true);
+        assert.equal(optionsFor(module).identifierNamesGenerator, "mangled");
+    });
 });
 
 test("los nombres exportados se conservan", () => {

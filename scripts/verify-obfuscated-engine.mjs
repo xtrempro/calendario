@@ -11,7 +11,7 @@ import obfuscator from "javascript-obfuscator";
 import { readFileSync, writeFileSync, mkdirSync, rmSync, cpSync } from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
-import { OBFUSCATOR_OPTIONS, PROTECTED_MODULES } from "./obfuscate-engine.mjs";
+import { optionsFor, PROTECTED_MODULES } from "./obfuscate-engine.mjs";
 
 // Los motores importan storage y utilidades que esperan un navegador. Se les da
 // lo minimo para poder cargarlos y comparar su superficie publica.
@@ -49,7 +49,8 @@ const WORK_JS = path.join(WORK_DIR, "js");
 
 function obfuscateToFile(sourcePath, targetPath) {
     const source = readFileSync(sourcePath, "utf8");
-    const result = obfuscator.obfuscate(source, OBFUSCATOR_OPTIONS);
+    // Las mismas opciones que usara el build para ese modulo, no unas genericas.
+    const result = obfuscator.obfuscate(source, optionsFor(sourcePath));
 
     writeFileSync(targetPath, result.getObfuscatedCode(), "utf8");
 }

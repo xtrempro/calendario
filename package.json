@@ -7,6 +7,7 @@
     "build": "node scripts/verify-obfuscated-engine.mjs && node build.mjs",
     "build:legible": "node build.mjs --legible",
     "verify:obfuscation": "node scripts/verify-obfuscated-engine.mjs",
+    "bench:obfuscation": "node scripts/bench-obfuscation.mjs",
     "deploy": "node build.mjs && npm run deploy:hosting:production && npm run deploy:hosting:test",
     "deploy:hosting:production": "firebase deploy --only hosting --project calendarioturnos-7c4d9",
     "deploy:hosting:test": "firebase deploy --only hosting --config firebase.test.json --project turnoplus-test-7c4d9",

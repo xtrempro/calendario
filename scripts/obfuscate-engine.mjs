@@ -30,6 +30,39 @@ export const PROTECTED_MODULES = [
     "js/hoursReport.js"
 ];
 
+// Modulos que corren EN BUCLE: la proyeccion del calendario y el timeline los
+// llaman una vez por celda, por trabajador y por dia.
+//
+// A estos se les apaga el arreglo de textos. Medido con
+// scripts/bench-obfuscation.mjs sobre calcHours (31 dias x 9 turnos):
+//
+//   original                  1,00x
+//   con arreglo de textos     3,71x   <- cada literal pasa por funcion + indice
+//   sin arreglo de textos     1,04x
+//
+// Y lo que se pierde es poco: los literales de estos modulos son claves
+// internas, no el valor del programa. Lo que si los protege -renombrado de
+// identificadores y numbersToExpressions, que esconde las constantes del
+// dominio como 8,8 o 12- se conserva y sale gratis.
+const HOT_ENGINE_MODULES = new Set([
+    "js/hoursEngine.js",
+    "js/turnEngine.js",
+    "js/rulesEngine.js",
+    "js/calculations.js",
+    "js/overtimeRules.js"
+]);
+
+/**
+ * Opciones para un modulo. hoursReport se arma bajo demanda, no en bucle, asi
+ * que ahi el arreglo de textos sale barato y vale la pena: es el modulo con mas
+ * texto visible al usuario.
+ */
+export function optionsFor(module) {
+    return HOT_ENGINE_MODULES.has(module)
+        ? { ...OBFUSCATOR_OPTIONS, stringArray: false }
+        : OBFUSCATOR_OPTIONS;
+}
+
 // Configuracion deliberadamente conservadora.
 //
 // controlFlowFlattening y deadCodeInjection quedan APAGADOS: son los que dan
@@ -92,7 +125,7 @@ export function buildObfuscatedTree(workDir) {
         }
 
         const source = readFileSync(target, "utf8");
-        const result = obfuscator.obfuscate(source, OBFUSCATOR_OPTIONS);
+        const result = obfuscator.obfuscate(source, optionsFor(relative));
 
         writeFileSync(target, result.getObfuscatedCode(), "utf8");
         obfuscated.push(relative);
