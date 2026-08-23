@@ -2212,8 +2212,13 @@ function announceAutomaticCoverage(result) {
     }
 
     if (result.status === "no-targets") {
+        // "Nadie puede cubrir" y "todos pasarian las 40 horas" son cosas
+        // distintas: la segunda se resuelve repartiendo el turno, no buscando
+        // mas gente.
         const motivo = !result.candidates
-            ? "No hay trabajadores que puedan cubrir ese turno."
+            ? (result.overLimit
+                ? `Los ${result.overLimit} candidatos superarían las 40 horas extras diurnas del mes con este turno.`
+                : "No hay trabajadores que puedan cubrir ese turno.")
             : result.alreadyPending
                 ? "Los candidatos con la app enlazada ya tienen una solicitud pendiente."
                 : "Ninguno de los candidatos tiene la app enlazada para recibir la solicitud.";
@@ -2223,6 +2228,9 @@ function announceAutomaticCoverage(result) {
     }
 
     const extra = [
+        result.overLimit
+            ? `${result.overLimit} superarían las 40 h extras diurnas`
+            : "",
         result.withoutApp ? `${result.withoutApp} sin app` : "",
         result.alreadyPending ? `${result.alreadyPending} ya tenían solicitud` : ""
     ].filter(Boolean).join(" · ");

@@ -57,6 +57,7 @@ import {
 } from "./rulesEngine.js";
 import { fetchHolidays } from "./holidays.js";
 import {
+    calcHours,
     isBusinessDay,
     isWeekend
 } from "./calculations.js";
@@ -4818,6 +4819,35 @@ async function getReplacementCandidates(
  *
  * Devuelve un resumen para que quien lo llama avise que paso.
  */
+// Tope mensual de horas extras DIURNAS. La cobertura automatica no le ofrece un
+// turno a quien quedaria por encima: seria pedirle que acepte algo que despues
+// no se le puede pagar.
+export const MAX_MONTHLY_DIURNAL_OVERTIME = 40;
+
+// Horas extras que le sumaria al candidato cubrir este turno. Para los casos
+// parciales -capacitacion, diurno cubriendo larga, media tarde- el candidato ya
+// trae calculado cuanto suma; para el resto es el turno completo.
+export function coverageOvertimeHours(candidate, date, neededTurn, holidays) {
+    return candidate?.overtimeHours ||
+        calcHours(date, Number(neededTurn), holidays || {});
+}
+
+export function exceedsDiurnalOvertimeLimit(
+    candidate,
+    date,
+    neededTurn,
+    holidays,
+    limit = MAX_MONTHLY_DIURNAL_OVERTIME
+) {
+    const accumulated = Number(candidate?.hheeDiurnas) || 0;
+    const adding = Number(
+        coverageOvertimeHours(candidate, date, neededTurn, holidays).d
+    ) || 0;
+
+    // Quedar EN el tope esta permitido; pasarlo, no.
+    return accumulated + adding > limit;
+}
+
 window.runAutomaticCoverage = async (profileName, keyDay) => {
     const name = String(profileName || "").trim();
 
@@ -4839,10 +4869,21 @@ window.runAutomaticCoverage = async (profileName, keyDay) => {
 
     // Un forzado no cumple el perfil del ausente y un dia bloqueado es una
     // peticion expresa del trabajador: ninguno entra en un envio masivo.
-    const eligible = candidates.filter(candidate =>
+    const compatible = candidates.filter(candidate =>
         !candidate.isForced &&
         !candidate.blockedDay &&
         !candidate.isLinked
+    );
+    // Y tampoco se le ofrece a quien pasaria el tope de horas extras diurnas
+    // del mes si acepta: la solicitud le llegaria al telefono para algo que
+    // despues habria que rechazarle.
+    const date = dateFromKeyDay(keyDay);
+    const holidays = await fetchHolidays(date.getFullYear());
+    const overLimit = compatible.filter(candidate =>
+        exceedsDiurnalOvertimeLimit(candidate, date, neededTurn, holidays)
+    );
+    const eligible = compatible.filter(candidate =>
+        !overLimit.includes(candidate)
     );
     const pending = new Set(
         getPendingReplacementRequestsForShift(name, keyDay, neededTurn)
@@ -4857,6 +4898,7 @@ window.runAutomaticCoverage = async (profileName, keyDay) => {
     const summary = {
         status: "ok",
         candidates: eligible.length,
+        overLimit: overLimit.length,
         withoutApp: eligible.length - withApp.length,
         alreadyPending: withApp.length - targets.length,
         sent: 0
