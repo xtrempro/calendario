@@ -11,17 +11,43 @@
 import * as esbuild from "esbuild";
 import { rmSync, mkdirSync, cpSync, readFileSync, writeFileSync, existsSync } from "fs";
 import path from "path";
+import { buildObfuscatedTree, PROTECTED_MODULES } from "./scripts/obfuscate-engine.mjs";
 
 const DIST = "dist";
+// Carpeta temporal con la copia de js/ que lleva los motores ofuscados. Vive
+// dentro de node_modules para que no la tome ninguna herramienta del proyecto.
+const OBF_DIR = path.join("node_modules", ".turnoplus-build");
+// Escotilla para depurar: "npm run build:legible" deja el bundle sin ofuscar.
+// No usarla para publicar.
+const OBFUSCATE = !process.argv.includes("--legible");
 
 // 1) Limpiar dist/
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(path.join(DIST, "assets"), { recursive: true });
 
+// 1.5) Preparar el arbol de fuentes desde el que se empaqueta. Con ofuscacion
+// activa es una copia de js/ con los motores transformados; el codigo fuente no
+// se toca nunca.
+let sourceRoot = "js";
+
+if (OBFUSCATE) {
+    const { obfuscated } = buildObfuscatedTree(OBF_DIR);
+
+    sourceRoot = path.join(OBF_DIR, "js");
+    console.log(
+        `Motores ofuscados (${obfuscated.length}): ` +
+        obfuscated.map(file => path.basename(file)).join(", ")
+    );
+} else {
+    console.warn("--legible: el bundle sale SIN ofuscar. No publicar asi.");
+}
+
+const entry = (relative) => path.join(sourceRoot, relative);
+
 // 2) Empaquetar el Web Worker por separado. Su URL con hash se inyecta luego
 // en el bundle principal para que el navegador lo cargue como módulo.
 const workerResult = await esbuild.build({
-    entryPoints: ["js/workers/scheduleWorker.js"],
+    entryPoints: [entry("workers/scheduleWorker.js")],
     bundle: true,
     minify: true,
     format: "esm",
@@ -45,7 +71,7 @@ const workerHref = "/assets/" + path.basename(workerOutput);
 
 // 3) Empaquetar + minificar el JS con hash de contenido en el nombre
 const result = await esbuild.build({
-    entryPoints: ["js/main.js"],
+    entryPoints: [entry("main.js")],
     bundle: true,
     minify: true,
     format: "esm",
@@ -106,9 +132,17 @@ if (!html.includes(before)) {
 html = html.replace(before, after);
 writeFileSync(path.join(DIST, "index.html"), html, "utf8");
 
+rmSync(OBF_DIR, { recursive: true, force: true });
+
 const sizeKb = (readFileSync(jsOutput).length / 1024).toFixed(0);
 const workerSizeKb = (readFileSync(workerOutput).length / 1024).toFixed(0);
 console.log(
     `\nOK: ${jsHref} (${sizeKb} KB) + ${workerHref} (${workerSizeKb} KB) ` +
     `+ index.html + styles.css + manifest.webmanifest + img/ + reports/ -> ${DIST}/`
 );
+
+if (OBFUSCATE) {
+    console.log(
+        `Protegidos: ${PROTECTED_MODULES.map(file => path.basename(file)).join(", ")}`
+    );
+}

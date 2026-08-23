@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node build.mjs",
+    "build": "node scripts/verify-obfuscated-engine.mjs && node build.mjs",
+    "build:legible": "node build.mjs --legible",
+    "verify:obfuscation": "node scripts/verify-obfuscated-engine.mjs",
     "deploy": "node build.mjs && npm run deploy:hosting:production && npm run deploy:hosting:test",
     "deploy:hosting:production": "firebase deploy --only hosting --project calendarioturnos-7c4d9",
     "deploy:hosting:test": "firebase deploy --only hosting --config firebase.test.json --project turnoplus-test-7c4d9",
@@ -54,6 +56,7 @@
     "test:mensajes-adjuntos": "node --test tests/mensajes-adjuntos.test.mjs",
     "test:tope-hhee-diurnas": "node --test tests/cobertura-tope-hhee-diurnas.test.mjs",
     "test:motor-horas-extras": "node --test tests/motor-horas-extras.test.mjs",
+    "test:ofuscacion": "node --test tests/ofuscacion-motores.test.mjs",
     "test:unidad-espejo": "node --test tests/unidad-espejo.test.mjs",
     "test:swap-receivers": "node --test tests/swap-receiver-filter.test.mjs",
     "test:swap-marker": "node --test tests/cambio-turno-marcador-proyeccion.test.mjs",
@@ -86,6 +89,7 @@
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0",
     "esbuild": "^0.28.1",
-    "firebase": "^12.15.0"
+    "firebase": "^12.15.0",
+    "javascript-obfuscator": "^5.5.1"
   }
 }
