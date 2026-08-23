@@ -21,6 +21,7 @@ import { normalizeText, stripAccents, sanitizeDigits } from "./stringUtils.js";
 import { escapeHTML } from "./htmlUtils.js";
 import { importAttendanceFile } from "./attendanceImport.js";
 import { installModalBackdropGuard } from "./modalBackdropGuard.js";
+import { leaveTypeNeedsDocument } from "./leaveAttachments.js";
 import { formatRut, getRutValidationMessage } from "./rutUtils.js";
 import {
     findDuplicateEmailProfile,
@@ -303,6 +304,7 @@ import { withBusyState } from "./busy.js";
 import {
     addAuditLog,
     AUDIT_CATEGORY,
+    getLeaveApplicationInfo,
     renderAuditLogPanel
 } from "./auditLog.js";
 import {
@@ -3191,6 +3193,43 @@ async function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
 // detalle de turnos, buscando cada marca por RUT.
 // Las fechas del resumen se muestran como se leen en Chile. Internamente
 // viajan en ISO, que es lo que ordena bien, pero eso no tiene por que verse.
+// Tras aplicar una licencia medica, ofrece adjuntar su respaldo.
+//
+// Solo para los tipos que lo llevan: un permiso administrativo o un feriado
+// legal no tienen documento que adjuntar.
+async function offerLeaveDocumentPrompt(fecha) {
+    if (!leaveTypeNeedsDocument(licenseType)) return;
+
+    const profile = getPerfilActual();
+    const keyDay = keyFromDate(fecha);
+    const info = getLeaveApplicationInfo(profile, keyDay);
+    const logId = String(info?.logId || "");
+
+    // Sin registro en el LOG no hay a que asociar el documento.
+    if (!profile || !logId) return;
+
+    const label = licenseType === "professional_license"
+        ? "LM Profesional"
+        : "Licencia Medica";
+    const confirmed = await showConfirm(
+        `Se aplico la ${label} de ${profile}. ` +
+        "¿Quieres adjuntar el documento de respaldo ahora?",
+        {
+            title: "Respaldo de la licencia",
+            confirmText: "Adjuntar documento",
+            cancelText: "Ahora no"
+        }
+    );
+
+    if (!confirmed) return;
+
+    window.openLeaveDocumentsDialog?.({
+        profile,
+        logId,
+        title: `${label} · respaldo`
+    });
+}
+
 function formatImportDate(iso) {
     const [year, month, day] = String(iso || "").split("-");
 
@@ -12771,6 +12810,11 @@ setCalendarSelectionHandler(async ({ cell: celda, date: fecha }) => {
             alert(
                 "No se pudo aplicar esta ausencia. Licencia M\u00e9dica, LM Profesional y Permiso Gremial solo pueden reemplazarse entre s\u00ed; el Permiso sin Goce no puede superponerse sobre licencias existentes."
             );
+        } else {
+            // Se pregunta por el respaldo AQUI, recien aplicada la licencia: es
+            // el momento en que el supervisor tiene el documento a mano. Si se
+            // deja para despues, casi nunca se sube.
+            await offerLeaveDocumentPrompt(fecha);
         }
 
         clearSelectionMode();

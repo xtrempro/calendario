@@ -145,6 +145,13 @@ service firebase.storage {
       return moduleId == "messages";
     }
 
+    // Respaldo de una licencia medica. No tiene permiso de menu propio: la
+    // licencia se aplica desde el calendario, asi que quien puede editar Turnos
+    // puede adjuntar su documento. Leerlo alcanza con ser miembro del entorno.
+    function isLeaveAttachment(moduleId) {
+      return moduleId == "leaves";
+    }
+
     // La mensajeria no tiene permiso de menu propio (el boton flotante esta
     // disponible para todo miembro), asi que adjuntar sigue la misma regla:
     // basta con ser miembro del entorno.
@@ -193,6 +200,7 @@ service firebase.storage {
       allow read: if isWorkspaceMember(workspaceId) &&
         (
           isMessageAttachment(moduleId) ||
+          isLeaveAttachment(moduleId) ||
           canViewModule(workspaceId, moduleId) ||
           resource.metadata.uploadedByUid == request.auth.uid
         ) ||
@@ -219,8 +227,14 @@ service firebase.storage {
             allowedMessageFile()
           ) ||
           (
+            isLeaveAttachment(moduleId) &&
+            canEditModule(workspaceId, "turnos") &&
+            allowedMessageFile()
+          ) ||
+          (
             moduleId != "tasks" &&
             !isMessageAttachment(moduleId) &&
+            !isLeaveAttachment(moduleId) &&
             !isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
             canEditModule(workspaceId, moduleId) &&
             allowedFile()
@@ -270,6 +284,10 @@ service firebase.storage {
           (
             isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
             canPublishScheduleAttachment(workspaceId)
+          ) ||
+          (
+            isLeaveAttachment(moduleId) &&
+            canEditModule(workspaceId, "turnos")
           ) ||
           canEditModule(workspaceId, moduleId) ||
           resource.metadata.uploadedByUid == request.auth.uid

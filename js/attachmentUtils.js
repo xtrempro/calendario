@@ -47,6 +47,9 @@ const STORAGE_MODULES = new Set([
     "weekly",
     "tasks",
     "requests",
+    // Respaldos de licencias medicas. El ownerId es el trabajador y el recordId
+    // el registro del LOG de esa licencia (ver leaveAttachments.js).
+    "leaves",
     // Adjuntos de la mensajeria con los trabajadores. El ownerId de la ruta es
     // el uid del destinatario: es lo que deja que su PWA lea el archivo sin ser
     // miembro del entorno (ver storage.rules).

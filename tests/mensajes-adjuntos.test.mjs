@@ -44,7 +44,7 @@ test("solo imagenes y PDF en los mensajes", () => {
 test("el modulo messages puede subir a Storage", () => {
     // Sin esto, storageContext devuelve null y el adjunto se guardaria como
     // dataUrl dentro del documento del mensaje.
-    assert.match(attachments, /const STORAGE_MODULES = new Set\(\[[\s\S]{0,400}"messages"/);
+    assert.match(attachments, /const STORAGE_MODULES = new Set\(\[[\s\S]{0,900}"messages"/);
 });
 
 /* =========================================================

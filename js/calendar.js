@@ -1,6 +1,15 @@
 import { escapeHTML } from "./htmlUtils.js";
 import { showConfirm } from "./dialogs.js";
 import {
+    LEAVE_ATTACHMENT_ACCEPT,
+    addLeaveAttachment,
+    getLeaveAttachments,
+    hasLeaveAttachments,
+    leaveTypeNeedsDocument,
+    openLeaveAttachment,
+    removeLeaveAttachment
+} from "./leaveAttachments.js";
+import {
     aplicarCambiosTurno,
     fusionarTurnos,
     getProtectedDirectEditTurn,
@@ -3746,6 +3755,191 @@ function leaveDateLabelFromKey(keyDay) {
     });
 }
 
+/* =========================================================
+   Respaldos de una licencia medica
+
+   Un mismo cuadro sirve para adjuntar y para ver, porque son la misma pantalla
+   en dos momentos distintos: si no hay documentos muestra el selector, y si los
+   hay muestra la lista con la opcion de agregar otro.
+========================================================= */
+
+function leaveAttachmentRowHTML(attachment) {
+    const size = Number(attachment.size) || 0;
+    const peso = size >= 1024 * 1024
+        ? `${(size / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.max(Math.round(size / 1024), 1)} KB`;
+
+    return `
+        <div class="leave-doc-row">
+            <button class="leave-doc-open" type="button"
+                data-open-leave-doc="${escapeHTML(String(attachment.id))}">
+                <span>
+                    <strong>${escapeHTML(attachment.name || "Documento")}</strong>
+                    <small>${escapeHTML(peso)}</small>
+                </span>
+            </button>
+            <button class="leave-doc-remove" type="button"
+                data-remove-leave-doc="${escapeHTML(String(attachment.id))}"
+                aria-label="Quitar documento">&times;</button>
+        </div>`;
+}
+
+/**
+ * Cuadro de respaldos de una licencia.
+ *
+ * @param {{profile: string, logId: string, title?: string, canEdit?: boolean}} options
+ */
+function openLeaveDocumentsDialog({
+    profile,
+    logId,
+    title = "Respaldo de la licencia",
+    canEdit = true
+}) {
+    if (!profile || !logId) {
+        alert(
+            "Esta licencia no tiene un registro que permita asociarle documentos."
+        );
+        return;
+    }
+
+    const backdrop = document.createElement("div");
+
+    backdrop.className = "turn-change-dialog-backdrop";
+
+    const render = () => {
+        const attachments = getLeaveAttachments(profile, logId);
+
+        backdrop.innerHTML = `
+            <section class="turn-change-dialog leave-detail-dialog" role="dialog" aria-modal="true">
+                <strong>${escapeHTML(title)}</strong>
+                <div class="leave-detail-rows">
+                    <div><span>Trabajador</span><b>${escapeHTML(profile)}</b></div>
+                </div>
+                ${attachments.length
+                    ? `<div class="leave-doc-list">${attachments.map(leaveAttachmentRowHTML).join("")}</div>`
+                    : `<p class="leave-detail-note">
+                        Aun no hay documentos adjuntos para esta licencia.
+                    </p>`}
+                ${canEdit ? `
+                    <label class="leave-doc-add">
+                        <input type="file" accept="${LEAVE_ATTACHMENT_ACCEPT}" data-leave-doc-input>
+                        <span>${attachments.length ? "Adjuntar otro documento" : "Adjuntar documento"}</span>
+                    </label>
+                    <p class="leave-detail-note">
+                        Imagen o PDF, hasta 10 MB. El archivo queda guardado y se
+                        puede volver a abrir desde aca.
+                    </p>
+                ` : ""}
+                <div class="turn-change-dialog__actions">
+                    <button class="ghost-button" type="button" data-action="close">Cerrar</button>
+                </div>
+            </section>
+        `;
+        bind();
+    };
+
+    const close = () => {
+        document.removeEventListener("keydown", onKeydown);
+        backdrop.remove();
+    };
+    const onKeydown = event => {
+        if (event.key === "Escape") close();
+    };
+
+    function bind() {
+        backdrop
+            .querySelector("[data-action='close']")
+            ?.addEventListener("click", close);
+
+        const input = backdrop.querySelector("[data-leave-doc-input]");
+
+        input?.addEventListener("change", async () => {
+            const file = input.files?.[0];
+
+            // Se limpia siempre: elegir DOS VECES el mismo archivo no dispara
+            // "change" y parece que no pasa nada.
+            input.value = "";
+
+            if (!file) return;
+
+            await withBusyState(async () => {
+                try {
+                    await addLeaveAttachment(profile, logId, file);
+                    render();
+                } catch (error) {
+                    console.warn("No se pudo adjuntar el documento.", error);
+                    alert(error?.message || "No se pudo adjuntar el documento.");
+                }
+            }, { label: "Subiendo documento..." });
+        });
+
+        backdrop
+            .querySelectorAll("[data-open-leave-doc]")
+            .forEach(button => {
+                button.addEventListener("click", async () => {
+                    const attachment = getLeaveAttachments(profile, logId)
+                        .find(item =>
+                            String(item.id) === button.dataset.openLeaveDoc
+                        );
+
+                    if (!attachment) return;
+
+                    button.disabled = true;
+
+                    try {
+                        await openLeaveAttachment(attachment);
+                    } catch (error) {
+                        console.warn("No se pudo abrir el documento.", error);
+                        alert(error?.message || "No se pudo abrir el documento.");
+                    } finally {
+                        button.disabled = false;
+                    }
+                });
+            });
+
+        backdrop
+            .querySelectorAll("[data-remove-leave-doc]")
+            .forEach(button => {
+                button.addEventListener("click", async () => {
+                    if (!canEdit) return;
+
+                    const confirmed = await showConfirm(
+                        "¿Quitar este documento de la licencia?",
+                        {
+                            title: "Quitar documento",
+                            confirmText: "Quitar",
+                            destructive: true
+                        }
+                    );
+
+                    if (!confirmed) return;
+
+                    try {
+                        await removeLeaveAttachment(
+                            profile,
+                            logId,
+                            button.dataset.removeLeaveDoc
+                        );
+                        render();
+                    } catch (error) {
+                        console.warn("No se pudo quitar el documento.", error);
+                        alert(error?.message || "No se pudo quitar el documento.");
+                    }
+                });
+            });
+    }
+
+    backdrop.addEventListener("click", event => {
+        if (event.target === backdrop) close();
+    });
+
+    render();
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(backdrop);
+}
+
+window.openLeaveDocumentsDialog = openLeaveDocumentsDialog;
+
 function openLeaveDetailDialog({
     profile,
     keyDay,
@@ -3781,6 +3975,20 @@ function openLeaveDetailDialog({
         : null;
     const noCoverageReason = noCoverage
         ? getNoCoverageReason(profile, keyDay)
+        : "";
+
+    // Respaldo del documento: solo para las licencias, que son las que lo
+    // llevan. El boton cambia segun si ya hay algo adjunto, para que se vea de
+    // una que falta subirlo.
+    const leaveLogId = String(info?.logId || "");
+    const supportsDocuments =
+        leaveTypeNeedsDocument(info?.leaveType) && Boolean(leaveLogId);
+    const hasDocuments =
+        supportsDocuments && hasLeaveAttachments(profile, leaveLogId);
+    const leaveDocsButton = supportsDocuments
+        ? `<button class="secondary-button" type="button" data-action="leave-docs">${
+            hasDocuments ? "Ver adjuntos" : "Adjuntar documento"
+        }</button>`
         : "";
 
     const backdrop = document.createElement("div");
@@ -3825,6 +4033,7 @@ function openLeaveDetailDialog({
                 ${canUndo
                     ? `<button class="leave-detail-undo" type="button" data-action="undo">Anular permiso</button>`
                     : ""}
+                ${leaveDocsButton}
                 <button class="ghost-button" type="button" data-action="close">Cerrar</button>
             </div>
         </section>
@@ -3844,6 +4053,17 @@ function openLeaveDetailDialog({
     backdrop
         .querySelector("[data-action='close']")
         ?.addEventListener("click", close);
+    backdrop
+        .querySelector("[data-action='leave-docs']")
+        ?.addEventListener("click", () => {
+            close();
+            openLeaveDocumentsDialog({
+                profile,
+                logId: leaveLogId,
+                title: `${label} · respaldo`,
+                canEdit: canEditTarget("calendarPanel")
+            });
+        });
     backdrop
         .querySelector("[data-action='require-coverage']")
         ?.addEventListener("click", async () => {
@@ -4972,6 +5192,20 @@ function replacementDialogHTML({
     optionsOpen = false,
     preassignMode = false
 }) {
+    // Respaldo de la licencia, junto a "Anular permiso": si todavia no hay
+    // documento el boton invita a subirlo, y si ya lo hay lo abre. Solo aparece
+    // en las licencias, que son las que llevan respaldo.
+    const leaveInfo = getLeaveApplicationInfo(profileName, keyDay);
+    const leaveLogId = String(leaveInfo?.logId || "");
+    const leaveDocsButton =
+        leaveTypeNeedsDocument(leaveInfo?.leaveType) && leaveLogId
+            ? `<button class="secondary-button" type="button" data-action="leave-docs">${
+                hasLeaveAttachments(profileName, leaveLogId)
+                    ? "Ver adjuntos"
+                    : "Adjuntar documento"
+            }</button>`
+            : "";
+
     const replacementConfig = getReplacementRequestConfig();
     const allowLinkedSuggestions =
         replacementConfig.enableLinkedUnitSuggestions !== false;
@@ -5286,6 +5520,7 @@ function replacementDialogHTML({
                 <button class="leave-detail-undo" type="button" data-action="cancel-leave">
                     Anular permiso
                 </button>
+                ${leaveDocsButton}
                 <button class="secondary-button" type="button" data-action="cancel">
                     Cancelar
                 </button>
@@ -5774,6 +6009,22 @@ async function openReplacementDialog(profileName, keyDay) {
             compatibleScopeButton.onclick = async () => {
                 scope = "compatible";
                 await renderContent();
+            };
+        }
+
+        const leaveDocsBtn =
+            backdrop.querySelector("[data-action='leave-docs']");
+        if (leaveDocsBtn) {
+            leaveDocsBtn.onclick = () => {
+                const info = getLeaveApplicationInfo(profileName, keyDay);
+
+                close();
+                openLeaveDocumentsDialog({
+                    profile: profileName,
+                    logId: String(info?.logId || ""),
+                    title: `${absenceType || "Licencia"} · respaldo`,
+                    canEdit: canEditTarget("calendarPanel")
+                });
             };
         }
 

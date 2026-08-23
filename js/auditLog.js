@@ -537,7 +537,11 @@ export function getLeaveApplicationInfo({
         actorName: actorName || "No registrado",
         keys: normalizeKeyList(log?.meta?.keys),
         amount: Number(log?.meta?.amount) || 0,
-        date: String(log?.meta?.date || "")
+        date: String(log?.meta?.date || ""),
+        // Que clase de permiso es. Lo necesita el calendario para saber si
+        // corresponde ofrecer adjuntar un documento de respaldo: una licencia
+        // medica lo lleva, un administrativo no.
+        leaveType: getLeaveUndoType(log)
     };
 }
 

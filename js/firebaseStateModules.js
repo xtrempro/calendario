@@ -28,6 +28,7 @@ const EXACT_KEY_MODULES = new Map([
     ["replacementRequests", "requests"],
     ["workerRequests", "requests"],
     ["replacementRequestConfig", "requests"],
+    ["leaveAttachments", "requests"],
     ["workerNotifications", "requests"],
     ["memos", "memos"],
     ["agenda_contacts", "agenda"],

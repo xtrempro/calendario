@@ -1936,6 +1936,70 @@ body[data-active-view="home"] .secondary-grid {
 /* El modal ya no scrollea a lo ancho: si algo no cabe, se acomoda a lo alto. */
 .hm-modal--dotacion .hm-modal-body { overflow-x: hidden; }
 @media (max-width: 560px) { .hm-dot-cols { grid-template-columns: 1fr; } }
+/* Respaldos de una licencia medica */
+.leave-doc-list { display: grid; gap: 6px; margin: 4px 0; }
+
+.leave-doc-row { display: flex; align-items: center; gap: 8px; }
+
+.leave-doc-open {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-alt);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.leave-doc-open:hover { border-color: var(--accent); }
+.leave-doc-open:disabled { opacity: 0.6; }
+.leave-doc-open span { display: grid; min-width: 0; }
+.leave-doc-open strong {
+    font-size: 0.86rem;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.leave-doc-open small { font-size: 0.74rem; color: var(--text-muted); }
+
+.leave-doc-remove {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text-soft);
+    font-size: 1.15rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.leave-doc-remove:hover { color: #dc2626; border-color: rgba(220, 38, 38, 0.35); }
+
+.leave-doc-add {
+    display: block;
+    margin-top: 4px;
+    padding: 11px 14px;
+    border: 1px dashed var(--accent);
+    border-radius: 12px;
+    color: var(--accent);
+    font-weight: 800;
+    font-size: 0.86rem;
+    text-align: center;
+    cursor: pointer;
+}
+
+.leave-doc-add:hover { background: var(--accent-soft); }
+.leave-doc-add input { display: none; }
+
 /* Candidato que superaria el tope de horas extras diurnas: queda al final de la
    lista y lo dice, para que se entienda por que. */
 .replacement-candidate--over-limit {
