@@ -287,6 +287,30 @@ export function searchReplacements(payload = {}) {
     if (payload.mode === "turnoplus-prepared") {
         return {
             candidates: [...candidates].sort((left, right) => {
+                // Los dos criterios que empujan al FINAL de la lista, en orden
+                // de peso. Van primero porque mandan sobre todo lo demas: no
+                // sirve que alguien aparezca arriba por su rotativa si aceptar
+                // el turno lo deja sobre el tope de horas.
+
+                // 1. Sobrepasaria las 40 horas extras diurnas del mes: ultimo
+                //    de todos, porque es un turno que despues no se le puede
+                //    pagar.
+                if (
+                    Boolean(left.exceedsDiurnalLimit) !==
+                    Boolean(right.exceedsDiurnalLimit)
+                ) {
+                    return left.exceedsDiurnalLimit ? 1 : -1;
+                }
+
+                // 2. Al dia siguiente tiene turno: trabajaria de noche y
+                //    seguiria sin dormir. Es la tarjeta amarilla.
+                if (
+                    Boolean(left.nextDayMorningShift) !==
+                    Boolean(right.nextDayMorningShift)
+                ) {
+                    return left.nextDayMorningShift ? 1 : -1;
+                }
+
                 if (
                     Boolean(left.isDiurnoLongCoverage) !==
                     Boolean(right.isDiurnoLongCoverage)

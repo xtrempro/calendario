@@ -62,6 +62,7 @@
     "test:grado-vigencia": "node --test tests/valores-grado-vigencia.test.mjs",
     "test:registro-asistencia": "node --test tests/registro-asistencia-import.test.mjs",
     "test:modal-arrastre": "node --test tests/modal-arrastre-no-cierra.test.mjs",
+    "test:sugerencias-orden": "node --test tests/sugerencias-orden.test.mjs",
     "test:ofuscacion": "node --test tests/ofuscacion-motores.test.mjs",
     "test:unidad-espejo": "node --test tests/unidad-espejo.test.mjs",
     "test:swap-receivers": "node --test tests/swap-receiver-filter.test.mjs",

@@ -1936,6 +1936,21 @@ body[data-active-view="home"] .secondary-grid {
 /* El modal ya no scrollea a lo ancho: si algo no cabe, se acomoda a lo alto. */
 .hm-modal--dotacion .hm-modal-body { overflow-x: hidden; }
 @media (max-width: 560px) { .hm-dot-cols { grid-template-columns: 1fr; } }
+/* Candidato que superaria el tope de horas extras diurnas: queda al final de la
+   lista y lo dice, para que se entienda por que. */
+.replacement-candidate--over-limit {
+    border-color: rgba(220, 38, 38, 0.32);
+    background: rgba(220, 38, 38, 0.06);
+}
+
+.replacement-candidate-over-limit {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: #b91c1c;
+}
+
 /* Carga del informe del reloj control, en Reportes */
 .attendance-import {
     display: flex;

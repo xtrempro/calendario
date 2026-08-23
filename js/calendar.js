@@ -4730,6 +4730,12 @@ async function getReplacementCandidates(
             const blockedDay =
                 getBlockedDayForProfile(profile.name, keyDay);
 
+            const nextDayMorningShift = nextDayMorningShiftAfterNight(
+                profile.name,
+                keyDay,
+                neededTurn
+            );
+
             candidates.push({
                 profile,
                 currentState,
@@ -4741,10 +4747,15 @@ async function getReplacementCandidates(
                 ),
                 isDiurnoLongCoverage,
                 overtimeHours,
-                nextDayMorningShift: nextDayMorningShiftAfterNight(
-                    profile.name,
-                    keyDay,
-                    neededTurn
+                nextDayMorningShift,
+                // Se calcula aca y viaja con el candidato: el worker que los
+                // ordena no tiene la fecha ni los feriados para resolverlo. Es
+                // el mismo tope que aplica la cobertura automatica del inicio.
+                exceedsDiurnalLimit: exceedsDiurnalOvertimeLimit(
+                    { overtimeHours, hheeDiurnas },
+                    date,
+                    neededTurn,
+                    holidays
                 ),
                 isForced:
                     !profileCanCoverProfile(profile, baseProfile),
@@ -4998,6 +5009,11 @@ function replacementDialogHTML({
                 selectedWorkers.has(candidate.profile.name);
             const warning = replacementCandidateWarning(candidate);
             const nextDayNote = candidateNextDayShiftNote(candidate);
+            // Sin este aviso, quien mira la lista no entiende por que esa
+            // persona quedo al final.
+            const limitNote = candidate.exceedsDiurnalLimit
+                ? `Superaria las ${MAX_MONTHLY_DIURNAL_OVERTIME} h extras diurnas del mes.`
+                : "";
             const candidateHours = candidate.isLinked
                 ? "<b>Disponible</b>"
                 : `
@@ -5025,7 +5041,7 @@ function replacementDialogHTML({
             if (isRequestMode) {
                 return `
                 ${openSlot}
-                <label class="replacement-candidate replacement-candidate--request ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${pendingRequest ? "is-disabled" : ""}">
+                <label class="replacement-candidate replacement-candidate--request ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${limitNote ? "replacement-candidate--over-limit" : ""} ${pendingRequest ? "is-disabled" : ""}">
                     <input
                         class="replacement-candidate-checkbox"
                         type="checkbox"
@@ -5041,6 +5057,7 @@ function replacementDialogHTML({
                         <small class="replacement-candidate-state">
                             ${escapeHTML(candidateStateLabel(candidate, pendingRequest))}
                             ${nextDayNote ? `<span class="replacement-candidate-next-shift">${escapeHTML(nextDayNote)}</span>` : ""}
+                            ${limitNote ? `<span class="replacement-candidate-over-limit">${escapeHTML(limitNote)}</span>` : ""}
                         </small>
                         ${warning ? `<small class="replacement-candidate-warning">${escapeHTML(warning)}</small>` : ""}
                     </span>
@@ -5071,7 +5088,7 @@ function replacementDialogHTML({
             ${unitHeading}
             ${openSlot}
             <button
-                class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.isLinked ? "replacement-candidate--linked" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${pendingRequest ? "is-disabled" : ""}"
+                class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.isLinked ? "replacement-candidate--linked" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${limitNote ? "replacement-candidate--over-limit" : ""} ${pendingRequest ? "is-disabled" : ""}"
                 type="button"
                 data-worker="${escapeHTML(candidate.profile.name)}"
                 data-worker-profile-id="${escapeHTML(candidate.profile.id || "")}"
@@ -5088,6 +5105,7 @@ function replacementDialogHTML({
                     <small class="replacement-candidate-state">
                         ${escapeHTML(candidateStateLabel(candidate, pendingRequest))}
                         ${nextDayNote ? `<span class="replacement-candidate-next-shift">${escapeHTML(nextDayNote)}</span>` : ""}
+                            ${limitNote ? `<span class="replacement-candidate-over-limit">${escapeHTML(limitNote)}</span>` : ""}
                     </small>
                     ${warning ? `<small class="replacement-candidate-warning">${escapeHTML(warning)}</small>` : ""}
                 </span>
