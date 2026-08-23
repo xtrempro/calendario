@@ -39,7 +39,12 @@ import {
     isReplacementProfile
 } from "./contracts.js";
 import { getShiftMoveMarkers } from "./shiftMoves.js";
+import { diurnoExtraDayHours } from "./overtimeRules.js";
 
+// Jornada diurna PROMEDIO. Reparte la jornada contractual del mes (horas
+// habiles esperadas, descuentos por permiso); no es lo que vale un turno
+// concreto. Para un turno diurno EXTRA la regla es otra y vive en
+// overtimeRules.js: 9 h de lunes a jueves y 8 h el viernes.
 const HORA_BASE_DIARIA = 8.8;
 
 function key(y, m, d) {
@@ -968,7 +973,12 @@ function diurnoExtraContribution(
     actualState,
     holidays
 ) {
-    const hours = { d: HORA_BASE_DIARIA, n: 0 };
+    // Un turno diurno extra vale lo que dura ese dia -9 de lunes a jueves, 8 el
+    // viernes-, no el promedio semanal.
+    const hours = {
+        d: diurnoExtraDayHours(date, day => isBusinessDay(day, holidays)),
+        n: 0
+    };
     const nightIntervals = intervalsWithoutDiurnoComponent(
         date,
         actualState,

@@ -1,3 +1,7 @@
+import {
+    AVERAGE_DIURNAL_WORKDAY_HOURS
+} from "../overtimeRules.js";
+
 const TURN = Object.freeze({
     FREE: 0,
     LONG: 1,
@@ -110,13 +114,17 @@ function dayHours(date, state, holidays = {}) {
     }
     if (turn === TURN.DAY) {
         return isBusinessDay(date, holidays)
-            ? { d: 8.8, n: 0 }
+            ? { d: AVERAGE_DIURNAL_WORKDAY_HOURS, n: 0 }
             : { d: 0, n: 0 };
     }
     if (turn === TURN.DAY_NIGHT) {
         const night = nightHours(date, holidays);
         return {
-            d: (isBusinessDay(date, holidays) ? 8.8 : 0) + night.d,
+            d: (
+                isBusinessDay(date, holidays)
+                    ? AVERAGE_DIURNAL_WORKDAY_HOURS
+                    : 0
+            ) + night.d,
             n: night.n
         };
     }
@@ -165,7 +173,7 @@ export function calculateMonth(payload = {}) {
                 sum.d += hours.d;
                 sum.n += hours.n;
                 if (date && isBusinessDay(date, holidays)) {
-                    sum.base += 8.8;
+                    sum.base += AVERAGE_DIURNAL_WORKDAY_HOURS;
                 }
                 return sum;
             }, { d: 0, n: 0, base: 0 });

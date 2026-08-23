@@ -12,6 +12,7 @@ import {
     getCompensationProfileAt
 } from "./storage.js";
 import { fetchHolidays } from "./holidays.js";
+import { AVERAGE_DIURNAL_WORKDAY_HOURS } from "./overtimeRules.js";
 import {
     calcularExtraDiurnoProgramadoDia,
     calcularHorasMesPerfil
@@ -1560,7 +1561,7 @@ function permissionRowsAndAdjustments(
 
         if (isBusiness) {
             adjustments.businessDays += 1;
-            adjustments.businessHours += 8.8;
+            adjustments.businessHours += AVERAGE_DIURNAL_WORKDAY_HOURS;
         }
 
         if (!absence) continue;
@@ -1569,7 +1570,11 @@ function permissionRowsAndAdjustments(
         const groupKey = permissionGroupKey(absence);
         const nuevoSaldo = balanceTracker.apply(absence, keyDay);
         const hours = isBusiness
-            ? (absence.full ? 8.8 : 4.4)
+            ? (
+                absence.full
+                    ? AVERAGE_DIURNAL_WORKDAY_HOURS
+                    : AVERAGE_DIURNAL_WORKDAY_HOURS / 2
+            )
             : 0;
 
         if (absence.category === "admin" && isBusiness) {
