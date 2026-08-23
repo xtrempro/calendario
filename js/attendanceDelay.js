@@ -84,6 +84,27 @@ export function delayMinutes(entryTime, scheduledTime) {
 }
 
 /**
+ * .Se llevo el turno extra la llegada del dia?
+ *
+ * Un extra que empieza ANTES que el base se lleva la marca de entrada: el
+ * trabajador entro por el extra y siguio de largo. Es el caso de quien tiene
+ * Noche de base y toma una Larga extra: hace un 24 y marca a las 8 para la
+ * Larga, no a las 20 para su Noche, asi que ahi no hay atraso que medir.
+ *
+ * Al reves si se mide: con Larga de base y Noche extra, la llegada de las 8 es
+ * la de su turno base.
+ *
+ * El horario personalizado del trabajador NO se le aplica al extra: rige para
+ * su turno, no para uno que tomo encima.
+ */
+function extraTakesTheEntry(extraShift, baseEntryTime) {
+    const extra = minutesFromTime(scheduledEntryTime(extraShift));
+    const base = minutesFromTime(baseEntryTime);
+
+    return extra !== null && base !== null && extra < base;
+}
+
+/**
  * Atraso de un dia del reporte.
  *
  * El turno que manda es el BASE con cambios ya aplicados: por eso un turno
@@ -92,6 +113,7 @@ export function delayMinutes(entryTime, scheduledTime) {
  *
  * @param {object} day
  * @param {number} day.baseShift turno base con cambios (baseWithSwaps)
+ * @param {number} [day.extraShift] turno extra agregado ese mismo dia
  * @param {number} day.workedShift turno realmente realizado
  * @param {string} day.entryTime hora de la marca de entrada, "" si no hay
  * @param {boolean} day.absent true si el dia esta cubierto por una ausencia
@@ -100,6 +122,7 @@ export function delayMinutes(entryTime, scheduledTime) {
  */
 export function entryDelayForDay({
     baseShift,
+    extraShift = TURNO.LIBRE,
     workedShift,
     entryTime = "",
     absent = false,
@@ -117,6 +140,9 @@ export function entryDelayForDay({
         !entryTime && Number(workedShift) > TURNO.LIBRE;
 
     if (!scheduled) return { ...vacio, missingEntry };
+    if (extraTakesTheEntry(extraShift, scheduled)) {
+        return { minutes: 0, scheduled, missingEntry };
+    }
     if (!entryTime) return { minutes: 0, scheduled, missingEntry };
 
     return {

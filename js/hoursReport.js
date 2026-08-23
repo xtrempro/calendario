@@ -603,6 +603,7 @@ function attendanceReportCells(profile, iso, day) {
     const cells = getAttendanceCells(profile.rut, iso);
     const delay = entryDelayForDay({
         baseShift: day.baseShift,
+        extraShift: day.extraShift,
         workedShift: day.workedShift,
         entryTime: getEntryMarkTime(profile.rut, iso),
         absent: day.absent
@@ -1056,6 +1057,7 @@ function buildNoAssignmentDayRows(
             turnoRealizado: absence?.label || turnoLabel(actual),
             ...attendanceReportCells(profile, iso, {
                 baseShift: baseWithSwaps,
+                extraShift: extraState,
                 workedShift: actual,
                 absent: Boolean(absence?.full)
             }),
@@ -1191,6 +1193,7 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
             turnoRealizado: absence?.label || turnoLabel(actual),
             ...attendanceReportCells(profile, iso, {
                 baseShift: baseWithSwaps,
+                extraShift: extraState,
                 workedShift: actual,
                 absent: Boolean(absence?.full)
             }),
@@ -1327,6 +1330,7 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             turnoRealizado: turnoLabel(actual),
             ...attendanceReportCells(profile, iso, {
                 baseShift: baseWithSwaps,
+                extraShift: extraState,
                 workedShift: actual,
                 absent: Boolean(dayAbsenceDetail(keyDay, maps)?.full)
             }),

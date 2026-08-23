@@ -180,6 +180,102 @@ test("un cambio de turno se mide en la fecha a la que se movio", () => {
     assert.equal(original.missingEntry, false);
 });
 
+/* =========================================================
+   Base y extra el mismo dia
+
+   Los cuatro casos, tal como los planteo el usuario. Lo que decide no es que
+   haya un extra, sino CUAL empieza primero: el que empieza antes se lleva la
+   llegada del dia.
+========================================================= */
+
+test("base Larga sola: se mide a las 8:00", () => {
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.LARGA,
+            extraShift: TURNO.LIBRE,
+            workedShift: TURNO.LARGA,
+            entryTime: "08:12"
+        }).minutes,
+        12
+    );
+});
+
+test("base Noche + extra Larga (hace un 24): NO se mide", () => {
+    // Entro a las 8 por la Larga extra y siguio de largo hasta su Noche. Su
+    // base empieza a las 20:00, pero a esa hora ya estaba adentro.
+    const dia = entryDelayForDay({
+        baseShift: TURNO.NOCHE,
+        extraShift: TURNO.LARGA,
+        workedShift: TURNO.TURNO24,
+        entryTime: "08:40"
+    });
+
+    assert.equal(dia.minutes, 0);
+    assert.equal(dia.missingEntry, false);
+});
+
+test("base Larga + extra Noche (tambien un 24): SI se mide, a las 8:05", () => {
+    // El mismo 24 horas, pero al reves: la llegada de la manana es la de su
+    // turno base, asi que el margen corre sobre las 8:00.
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.LARGA,
+            extraShift: TURNO.NOCHE,
+            workedShift: TURNO.TURNO24,
+            entryTime: "08:05"
+        }).minutes,
+        0
+    );
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.LARGA,
+            extraShift: TURNO.NOCHE,
+            workedShift: TURNO.TURNO24,
+            entryTime: "08:06"
+        }).minutes,
+        6
+    );
+});
+
+test("base Noche + extra Diurno tampoco se mide", () => {
+    // Mismo principio que el 24: el extra de la manana se lleva la llegada.
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.NOCHE,
+            extraShift: TURNO.DIURNO,
+            workedShift: TURNO.DIURNO_NOCHE,
+            entryTime: "08:30"
+        }).minutes,
+        0
+    );
+});
+
+test("base Diurno + extra Noche si se mide", () => {
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.DIURNO,
+            extraShift: TURNO.NOCHE,
+            workedShift: TURNO.DIURNO_NOCHE,
+            entryTime: "08:20"
+        }).minutes,
+        20
+    );
+});
+
+test("una extension horaria no se lleva la llegada", () => {
+    // Extension horaria alarga el turno por el otro extremo: la entrada sigue
+    // siendo la del turno base.
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.DIURNO,
+            extraShift: TURNO.MEDIA_TARDE,
+            workedShift: TURNO.LARGA,
+            entryTime: "08:15"
+        }).minutes,
+        15
+    );
+});
+
 test("una licencia no genera atraso ni cruz", () => {
     const dia = entryDelayForDay({
         baseShift: TURNO.DIURNO,
@@ -304,6 +400,15 @@ test("los tres constructores miden contra el turno base CON cambios", () => {
 
     assert.equal(usos.length, 3);
     assert.doesNotMatch(reporte, /baseShift: actual/);
+});
+
+test("los tres constructores informan tambien el turno extra del dia", () => {
+    // Sin esto, quien tiene Noche de base y toma una Larga extra apareceria
+    // con horas de atraso: su base empieza a las 20:00 pero entro a las 8.
+    const usos = reporte.match(/extraShift: extraState,/g) || [];
+
+    assert.equal(usos.length, 3);
+    assert.match(reporte, /extraShift: day\.extraShift,/);
 });
 
 test("la cruz viaja con su explicacion", () => {
