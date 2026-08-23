@@ -1936,6 +1936,50 @@ body[data-active-view="home"] .secondary-grid {
 /* El modal ya no scrollea a lo ancho: si algo no cabe, se acomoda a lo alto. */
 .hm-modal--dotacion .hm-modal-body { overflow-x: hidden; }
 @media (max-width: 560px) { .hm-dot-cols { grid-template-columns: 1fr; } }
+/* Carga del informe del reloj control, en Reportes */
+.attendance-import {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--panel-alt);
+}
+
+.attendance-import__copy { display: grid; gap: 3px; flex: 1; min-width: 220px; }
+.attendance-import__copy strong { font-size: 0.95rem; font-weight: 800; color: var(--text-strong); }
+.attendance-import__copy span { font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; }
+
+.attendance-import__button {
+    flex: none;
+    padding: 10px 18px;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 800;
+    font-size: 0.86rem;
+    cursor: pointer;
+}
+
+.attendance-import__button:hover { filter: brightness(1.06); }
+.attendance-import__button input { display: none; }
+
+.attendance-import__status {
+    margin: 0 0 12px;
+    padding: 9px 13px;
+    border-radius: 11px;
+    font-size: 0.84rem;
+    font-weight: 700;
+}
+
+.attendance-import__status.hidden { display: none; }
+.attendance-import__status--info { background: var(--panel-alt); color: var(--text-soft); }
+.attendance-import__status--ok { background: var(--hm-good-soft, #dcfce7); color: #15803d; }
+.attendance-import__status--error { background: var(--hm-red-soft, #fee2e2); color: #b91c1c; }
+
 /* Periodos de vigencia de los valores por grado */
 .settings-grade-periods {
     display: grid;

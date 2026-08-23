@@ -922,6 +922,24 @@
 
             <section id="reportsPanel" class="reports-view">
                 <section class="panel reports-detail-panel">
+                    <!-- Carga del informe del reloj control: llena las columnas
+                         Entrada y Salida del detalle de turnos. -->
+                    <div class="attendance-import">
+                        <div class="attendance-import__copy">
+                            <strong>Registros del reloj control</strong>
+                            <span>
+                                Adjunta el informe de asistencia (Excel) y las marcas
+                                de entrada y salida se agregan al detalle de turnos.
+                                Volver a subir un archivo ya cargado no duplica nada.
+                            </span>
+                        </div>
+                        <label class="attendance-import__button">
+                            <input id="attendanceImportInput" type="file" accept=".xls,.xlsx">
+                            <span>Adjuntar registro</span>
+                        </label>
+                    </div>
+                    <p id="attendanceImportStatus" class="attendance-import__status hidden"></p>
+
                     <div id="reportsSelectedInfo" class="hidden"></div>
 
                     <article id="report4TurnoNoAssignmentCard" class="report-download-card hidden">

@@ -105,6 +105,8 @@ export const DOM = {
     report4TurnoNoAssignmentPreview: document.getElementById("report4TurnoNoAssignmentPreview"),
     downloadNoAssignmentReportBtn: document.getElementById("downloadNoAssignmentReportBtn"),
     printReportPdfBtn: document.getElementById("printReportPdfBtn"),
+    attendanceImportInput: document.getElementById("attendanceImportInput"),
+    attendanceImportStatus: document.getElementById("attendanceImportStatus"),
     reportsUnavailableHint: document.getElementById("reportsUnavailableHint"),
     dashboardPanel: document.getElementById("dashboardPanel"),
     teamTimeline: document.getElementById("teamTimeline"),

@@ -19,6 +19,7 @@ import {
 } from "./dateUtils.js";
 import { normalizeText, stripAccents, sanitizeDigits } from "./stringUtils.js";
 import { escapeHTML } from "./htmlUtils.js";
+import { importAttendanceFile } from "./attendanceImport.js";
 import { formatRut, getRutValidationMessage } from "./rutUtils.js";
 import {
     findDuplicateEmailProfile,
@@ -3183,6 +3184,60 @@ async function requestGradeEffectiveDate(previousSnapshot, nextProfile) {
 
         alert("Selecciona un mes valido para la vigencia.");
     }
+}
+
+// Carga del informe del reloj control. Llena las columnas Entrada y Salida del
+// detalle de turnos, buscando cada marca por RUT.
+function bindAttendanceImport() {
+    const input = DOM.attendanceImportInput;
+    const status = DOM.attendanceImportStatus;
+
+    if (!input || input.dataset.bound === "1") return;
+
+    input.dataset.bound = "1";
+    input.addEventListener("change", async () => {
+        const file = input.files?.[0];
+
+        // Se limpia siempre: si no, volver a elegir el MISMO archivo no dispara
+        // "change" y parece que la app se quedo pegada.
+        input.value = "";
+
+        if (!file) return;
+
+        const show = (text, tone) => {
+            if (!status) return;
+
+            status.textContent = text;
+            status.className = `attendance-import__status attendance-import__status--${tone}`;
+        };
+
+        show(`Leyendo ${file.name}...`, "info");
+
+        try {
+            const result = await importAttendanceFile(file);
+            const partes = [
+                `${result.added} marca(s) nueva(s)`,
+                result.duplicated
+                    ? `${result.duplicated} ya estaban`
+                    : "",
+                result.workers
+                    ? `${result.workers} trabajador(es)`
+                    : "",
+                result.dates.length
+                    ? `del ${result.dates[0]} al ${result.dates.at(-1)}`
+                    : ""
+            ].filter(Boolean);
+
+            show(partes.join(" · "), result.added ? "ok" : "info");
+            refreshAll();
+        } catch (error) {
+            console.warn("No se pudo importar el registro de asistencia.", error);
+            show(
+                error?.message || "No se pudo leer el archivo.",
+                "error"
+            );
+        }
+    });
 }
 
 function renderHheeReturnTransferControl(profile, year, month, stats) {
@@ -6514,6 +6569,8 @@ async function renderReportsDetail() {
         DOM.printReportPdfBtn.onclick = () =>
             printSpecificReportPdf(profile, reportDate);
     }
+
+    bindAttendanceImport();
 
     if (DOM.report4TurnoNoAssignmentPreview) {
         DOM.report4TurnoNoAssignmentPreview.innerHTML =

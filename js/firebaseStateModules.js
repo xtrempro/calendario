@@ -39,6 +39,7 @@ const EXACT_KEY_MODULES = new Map([
     ["weekly_task_schedule_attachment", "tasks"],
     ["weekly_task_schedule_attachments", "tasks"],
     ["gradeHourConfig", "hours"],
+    ["attendanceMarks", "clockmarks"],
     ["reportSignatureConfig", "reports"],
     ["adminDisplayNames", "reports"],
     ["auditLog", "log"]

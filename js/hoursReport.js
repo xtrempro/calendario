@@ -14,6 +14,7 @@ import {
 import { fetchHolidays } from "./holidays.js";
 import { AVERAGE_DIURNAL_WORKDAY_HOURS } from "./overtimeRules.js";
 import { calcExtraHours } from "./calculations.js";
+import { getAttendanceCells } from "./attendanceImport.js";
 import {
     calcularExtraDiurnoProgramadoDia,
     calcularHorasMesPerfil
@@ -944,6 +945,8 @@ function buildNoAssignmentDayRows(
                 turnoBase: turnoLabel(rawBase),
                 turnoConCambios: "-",
                 turnoRealizado: "SIN CONTRATO",
+                entrada: "",
+                salida: "",
                 turnoExtra: "-",
                 horasDiurnas: "-",
                 horasNocturnas: "-",
@@ -1005,6 +1008,7 @@ function buildNoAssignmentDayRows(
             turnoBase: turnoLabel(rawBase),
             turnoConCambios: turnoLabel(baseWithSwaps),
             turnoRealizado: absence?.label || turnoLabel(actual),
+            ...getAttendanceCells(profile.rut, iso),
             turnoExtra: turnoLabel(extraState),
             horasDiurnas: formatHour(hours.d),
             horasNocturnas: formatHour(hours.n),
@@ -1265,6 +1269,7 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             turnoBase: turnoLabel(rawBase),
             turnoConCambios: turnoLabel(baseWithSwaps),
             turnoRealizado: turnoLabel(actual),
+            ...getAttendanceCells(profile.rut, iso),
             turnoExtra: turnoLabel(extraState),
             horasDiurnas: kind === "extra-only"
                 ? extraHours.d
@@ -2260,6 +2265,8 @@ function buildNoAssignmentReportHTML(model) {
                 { key: "fecha", label: "Fecha" },
                 { key: "turnoBase", label: "Turno Base" },
                 { key: "turnoRealizado", label: "Turno realizado" },
+                { key: "entrada", label: "Entrada" },
+                { key: "salida", label: "Salida" },
                 { key: "horasDiurnas", label: "Horas diurnas" },
                 { key: "horasNocturnas", label: "Horas nocturnas" },
                 { key: "respaldo", label: "Detalles" }
@@ -2311,6 +2318,8 @@ function buildAssignedShiftReportHTML(model) {
                 { key: "fecha", label: "Fecha" },
                 { key: "turnoBase", label: "Turno Base" },
                 { key: "turnoRealizado", label: "Turno realizado" },
+                { key: "entrada", label: "Entrada" },
+                { key: "salida", label: "Salida" },
                 { key: "hheeDiurnas", label: "HHEE diurnas" },
                 { key: "hheeNocturnas", label: "HHEE nocturnas" },
                 { key: "respaldo", label: "Detalles" }
