@@ -2805,6 +2805,15 @@ body[data-active-view="log"] .secondary-grid {
     background: rgba(248, 113, 113, 0.16);
 }
 
+/* Cruz del dia trabajado sin registro de entrada. El cursor de ayuda avisa que
+   hay algo que leer al pasar el mouse; sin el, el tooltip pasa desapercibido. */
+.report-table td.report-cell--missing-entry {
+    color: #dc2626;
+    font-weight: 700;
+    text-align: center;
+    cursor: help;
+}
+
 .report-signature-footer {
     justify-self: end;
     width: min(320px, 42%);

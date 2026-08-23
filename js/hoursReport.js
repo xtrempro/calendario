@@ -14,7 +14,14 @@ import {
 import { fetchHolidays } from "./holidays.js";
 import { AVERAGE_DIURNAL_WORKDAY_HOURS } from "./overtimeRules.js";
 import { calcExtraHours } from "./calculations.js";
-import { getAttendanceCells } from "./attendanceImport.js";
+import {
+    getAttendanceCells,
+    getEntryMarkTime
+} from "./attendanceImport.js";
+import {
+    entryDelayForDay,
+    formatDelayCell
+} from "./attendanceDelay.js";
 import {
     calcularExtraDiurnoProgramadoDia,
     calcularHorasMesPerfil
@@ -580,6 +587,44 @@ function movedBaseStateForReport(profileName, keyDay, fallbackBase) {
     return Number(move.destinationTurn) || fallbackBase;
 }
 
+// Cruz para el dia que se trabajo sin registro de entrada. Es un caracter y
+// no un icono para que sobreviva al escapado del texto de la celda.
+const MISSING_ENTRY_MARK = "\u2715";
+const MISSING_ENTRY_TITLE = "No existe registro de entrada";
+
+/**
+ * Celdas de marcaje del reporte: Entrada, Salida y Atrasos.
+ *
+ * Van juntas a proposito. El atraso se mide contra el turno BASE con cambios ya
+ * aplicados, que es lo que hace que un turno cambiado se mida en la fecha a la
+ * que se movio y que un turno extra no genere atraso aunque se llegue tarde.
+ */
+function attendanceReportCells(profile, iso, day) {
+    const cells = getAttendanceCells(profile.rut, iso);
+    const delay = entryDelayForDay({
+        baseShift: day.baseShift,
+        workedShift: day.workedShift,
+        entryTime: getEntryMarkTime(profile.rut, iso),
+        absent: day.absent
+    });
+
+    return {
+        ...cells,
+        entrada: delay.missingEntry ? MISSING_ENTRY_MARK : cells.entrada,
+        atrasos: formatDelayCell(delay.minutes),
+        ...(delay.missingEntry
+            ? {
+                __cells: {
+                    entrada: {
+                        title: MISSING_ENTRY_TITLE,
+                        className: "report-cell--missing-entry"
+                    }
+                }
+            }
+            : {})
+    };
+}
+
 function baseWithSwapsForReport(profileName, keyDay) {
     const baseWithSwaps = aplicarCambiosTurno(
         profileName,
@@ -947,6 +992,7 @@ function buildNoAssignmentDayRows(
                 turnoRealizado: "SIN CONTRATO",
                 entrada: "",
                 salida: "",
+                atrasos: "",
                 turnoExtra: "-",
                 horasDiurnas: "-",
                 horasNocturnas: "-",
@@ -1008,7 +1054,11 @@ function buildNoAssignmentDayRows(
             turnoBase: turnoLabel(rawBase),
             turnoConCambios: turnoLabel(baseWithSwaps),
             turnoRealizado: absence?.label || turnoLabel(actual),
-            ...getAttendanceCells(profile.rut, iso),
+            ...attendanceReportCells(profile, iso, {
+                baseShift: baseWithSwaps,
+                workedShift: actual,
+                absent: Boolean(absence?.full)
+            }),
             turnoExtra: turnoLabel(extraState),
             horasDiurnas: formatHour(hours.d),
             horasNocturnas: formatHour(hours.n),
@@ -1139,7 +1189,11 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
             diaHabil: isBusinessDay(date, holidays) ? "S\u00ed" : "No",
             turnoBase: turnoLabel(rawBase),
             turnoRealizado: absence?.label || turnoLabel(actual),
-            ...getAttendanceCells(profile.rut, iso),
+            ...attendanceReportCells(profile, iso, {
+                baseShift: baseWithSwaps,
+                workedShift: actual,
+                absent: Boolean(absence?.full)
+            }),
             hheeDiurnas: formatExtraCell(extraHours.d),
             hheeNocturnas: formatExtraCell(extraHours.n),
             respaldo: details || (
@@ -1160,6 +1214,7 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
     const profileName = profile.name;
     const data = getProfileData(profileName);
     const baseData = getBaseProfileData(profileName);
+    const maps = getReportMaps(profileName);
     const swaps = cambiosDelMes(year, month);
     const contracts = activeContractsForMonth(
         profileName,
@@ -1270,7 +1325,11 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             turnoBase: turnoLabel(rawBase),
             turnoConCambios: turnoLabel(baseWithSwaps),
             turnoRealizado: turnoLabel(actual),
-            ...getAttendanceCells(profile.rut, iso),
+            ...attendanceReportCells(profile, iso, {
+                baseShift: baseWithSwaps,
+                workedShift: actual,
+                absent: Boolean(dayAbsenceDetail(keyDay, maps)?.full)
+            }),
             turnoExtra: turnoLabel(extraState),
             horasDiurnas: kind === "extra-only"
                 ? extraHours.d
@@ -1891,6 +1950,28 @@ function table(title, columns, rows) {
     `;
 }
 
+/**
+ * Una celda de las tablas del reporte.
+ *
+ * El texto va escapado, asi que una celda no puede traer marcado propio. Para
+ * lo que necesita algo mas -hoy, la cruz de "sin entrada" y su explicacion al
+ * pasar el mouse- la fila adjunta metadatos en `__cells`.
+ */
+function cellHTML(row, column) {
+    const meta = row.__cells?.[column.key];
+    const title = meta?.title
+        ? ` title="${escapeHTML(meta.title)}"`
+        : "";
+    const className = meta?.className
+        ? ` class="${escapeHTML(meta.className)}"`
+        : "";
+    const text = escapeHTML(displayReportText(row[column.key] ?? ""));
+
+    return `
+                    <td${className}${title}>${text}</td>
+                `;
+}
+
 function reportTableRowsHTML(columns, rows, emptyText) {
     return rows.length
         ? rows.map(row => {
@@ -1901,9 +1982,7 @@ function reportTableRowsHTML(columns, rows, emptyText) {
 
             return `
             <tr${rowClass}>
-                ${columns.map(column => `
-                    <td>${escapeHTML(displayReportText(row[column.key] ?? ""))}</td>
-                `).join("")}
+                ${columns.map(column => cellHTML(row, column)).join("")}
             </tr>
         `;
         }).join("")
@@ -2268,6 +2347,7 @@ function buildNoAssignmentReportHTML(model) {
                 { key: "turnoRealizado", label: "Turno realizado" },
                 { key: "entrada", label: "Entrada" },
                 { key: "salida", label: "Salida" },
+                { key: "atrasos", label: "Atrasos" },
                 { key: "horasDiurnas", label: "Horas diurnas" },
                 { key: "horasNocturnas", label: "Horas nocturnas" },
                 { key: "respaldo", label: "Detalles" }
@@ -2321,6 +2401,7 @@ function buildAssignedShiftReportHTML(model) {
                 { key: "turnoRealizado", label: "Turno realizado" },
                 { key: "entrada", label: "Entrada" },
                 { key: "salida", label: "Salida" },
+                { key: "atrasos", label: "Atrasos" },
                 { key: "hheeDiurnas", label: "HHEE diurnas" },
                 { key: "hheeNocturnas", label: "HHEE nocturnas" },
                 { key: "respaldo", label: "Detalles" }

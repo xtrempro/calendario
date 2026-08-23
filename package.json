@@ -61,6 +61,7 @@
     "test:programacion-semanal": "node --test tests/inicio-programacion-semanal.test.mjs",
     "test:nombres-admin": "node --test tests/nombres-administradores.test.mjs",
     "test:grado-vigencia": "node --test tests/valores-grado-vigencia.test.mjs",
+    "test:atrasos": "node --test tests/atrasos.test.mjs",
     "test:registro-asistencia": "node --test tests/registro-asistencia-import.test.mjs",
     "test:modal-arrastre": "node --test tests/modal-arrastre-no-cierra.test.mjs",
     "test:sugerencias-orden": "node --test tests/sugerencias-orden.test.mjs",

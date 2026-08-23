@@ -244,6 +244,27 @@ export function getAttendanceCells(rut, iso) {
 }
 
 /**
+ * Hora de la marca de entrada de un dia, para medir el atraso.
+ *
+ * Usa el MISMO criterio que la celda "Entrada" del reporte (todo lo que no sea
+ * salida) y se queda con la mas temprana: es la llegada. Si las dos no
+ * coincidieran, la columna Atrasos contradiria a la de al lado.
+ *
+ * @param {string} rut
+ * @param {string} iso
+ * @returns {string} "HH:MM", o "" si ese dia no tiene entrada
+ */
+export function getEntryMarkTime(rut, iso) {
+    const times = getMarksFor(rut, iso)
+        .filter(mark => mark.type !== "out")
+        .map(mark => String(mark.time || ""))
+        .filter(Boolean)
+        .sort();
+
+    return times[0] || "";
+}
+
+/**
  * Lee un archivo del reloj control y guarda sus marcas.
  * @param {File} file
  */

@@ -317,15 +317,16 @@ test("el rango de fechas se muestra en formato chileno", async () => {
    El reporte
 ========================================================= */
 
-test("el detalle de turnos trae las dos columnas nuevas", () => {
+test("el detalle de turnos trae las columnas de marcaje", () => {
     // Entre "Turno realizado" y las horas, en las dos variantes del reporte.
+    // Atrasos va DESPUES de Salida: se lee la hora y al lado el minuto perdido.
     assert.match(
         reportSource,
-        /\{ key: "turnoRealizado", label: "Turno realizado" \},\s*\n\s*\{ key: "entrada", label: "Entrada" \},\s*\n\s*\{ key: "salida", label: "Salida" \},\s*\n\s*\{ key: "horasDiurnas"/
+        /\{ key: "turnoRealizado", label: "Turno realizado" \},\s*\n\s*\{ key: "entrada", label: "Entrada" \},\s*\n\s*\{ key: "salida", label: "Salida" \},\s*\n\s*\{ key: "atrasos", label: "Atrasos" \},\s*\n\s*\{ key: "horasDiurnas"/
     );
     assert.match(
         reportSource,
-        /\{ key: "turnoRealizado", label: "Turno realizado" \},\s*\n\s*\{ key: "entrada", label: "Entrada" \},\s*\n\s*\{ key: "salida", label: "Salida" \},\s*\n\s*\{ key: "hheeDiurnas"/
+        /\{ key: "turnoRealizado", label: "Turno realizado" \},\s*\n\s*\{ key: "entrada", label: "Entrada" \},\s*\n\s*\{ key: "salida", label: "Salida" \},\s*\n\s*\{ key: "atrasos", label: "Atrasos" \},\s*\n\s*\{ key: "hheeDiurnas"/
     );
 });
 
@@ -336,7 +337,7 @@ test("TODOS los constructores de filas llenan las columnas", () => {
     // cargado bien. Este test cuenta que no falte ninguno.
     const constructores = reportSource.match(/^function build\w*DayRows/gm) || [];
     const llenados = reportSource.match(
-        /\.\.\.getAttendanceCells\(profile\.rut, iso\)/g
+        /\.\.\.attendanceReportCells\(profile, iso, \{/g
     ) || [];
 
     assert.equal(constructores.length, 3, "cambio la cantidad de constructores");
@@ -357,7 +358,7 @@ test("cada constructor tiene el iso y el perfil que necesita", () => {
             assert.notEqual(inicio, -1, `falta ${nombre}`);
 
             const cuerpo = reportSource.slice(inicio, inicio + 9000);
-            const hasta = cuerpo.indexOf("...getAttendanceCells");
+            const hasta = cuerpo.indexOf("...attendanceReportCells");
 
             assert.notEqual(hasta, -1, `${nombre} no llena las columnas`);
             assert.match(
