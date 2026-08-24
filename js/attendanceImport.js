@@ -200,7 +200,19 @@ export function mergeAttendanceMarks(marks) {
         workers.add(mark.rut);
     });
 
-    if (added) saveAttendanceMarks(store);
+    if (added) {
+        saveAttendanceMarks(store);
+
+        // Los datos del reloj solo cambian al subir una planilla. Quien tenga
+        // algo calculado sobre ellos -el resumen de incidencias del inicio- se
+        // entera aqui, y asi no necesita rehacer la cuenta a cada rato.
+        if (typeof window !== "undefined" && window.dispatchEvent) {
+            window.dispatchEvent(new CustomEvent(
+                "proturnos:attendanceMarksChanged",
+                { detail: { added, dates: [...dates].sort() } }
+            ));
+        }
+    }
 
     return {
         added,
@@ -208,6 +220,44 @@ export function mergeAttendanceMarks(marks) {
         workers: workers.size,
         dates: [...dates].sort()
     };
+}
+
+/**
+ * Primer y ultimo dia con marcas cargadas.
+ *
+ * Es el periodo del que SI tenemos datos del reloj. Fuera de el, que no haya
+ * una marca no dice nada: lo mas probable es que la planilla de esos dias aun
+ * no se haya subido. Sin esta distincion, todos los dias posteriores a la
+ * ultima carga apareceran como "sin marcaje" y el resumen quedaria lleno de
+ * incidencias inventadas.
+ *
+ * Recorre todo el almacen, asi que conviene calcularlo UNA vez por reporte y
+ * pasarlo, no por dia.
+ *
+ * @returns {{from: string, to: string}} ISO, o cadenas vacias si no hay nada
+ */
+export function attendanceCoverage() {
+    let from = "";
+    let to = "";
+
+    Object.values(getAttendanceMarks()).forEach(byDate => {
+        Object.entries(byDate || {}).forEach(([iso, marks]) => {
+            if (!Array.isArray(marks) || !marks.length) return;
+            if (!from || iso < from) from = iso;
+            if (!to || iso > to) to = iso;
+        });
+    });
+
+    return { from, to };
+}
+
+/**
+ * .Hay datos del reloj para ese dia?
+ */
+export function isAttendanceCovered(iso, coverage) {
+    return Boolean(coverage?.from) &&
+        String(iso) >= coverage.from &&
+        String(iso) <= coverage.to;
 }
 
 /**

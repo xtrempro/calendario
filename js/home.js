@@ -1291,6 +1291,26 @@ let incidenciasMes = new Date();
 let incidenciasCache = null;
 let incidenciasRequest = 0;
 
+/**
+ * Lo calculado deja de valer cuando cambian los datos de los que salio: las
+ * marcas del reloj -que solo cambian al subir una planilla- y el marcaje
+ * autorizado, que mueve la hora de ingreso y de salida.
+ */
+if (typeof window !== "undefined") {
+    ["proturnos:attendanceMarksChanged", "proturnos:clockMarksChanged"]
+        .forEach(evento => {
+            window.addEventListener(evento, () => {
+                incidenciasCache = null;
+
+                const panel = document.getElementById("homePanel");
+
+                if (panel && document.body.dataset.activeView === "home") {
+                    void cargarIncidencias(panel);
+                }
+            });
+        });
+}
+
 function incidenciasMesLabel(date) {
     const texto = date.toLocaleDateString("es-CL", {
         month: "long",

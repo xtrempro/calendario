@@ -384,7 +384,13 @@ test("con ausencia tampoco falta ninguna marca", () => {
 
 test("el reporte corta las cruces en el dia de hoy", () => {
     assert.match(reporte, /function startOfToday\(\)/);
-    assert.match(reporte, /hasPassed: date < day\.today,/);
+    assert.match(reporte, /hasPassed: date < day\.today &&/);
+    // Y ademas exige tener datos del reloj para ese dia: sin la planilla
+    // cargada, que falte una marca no significa nada.
+    assert.match(
+        reporte,
+        /isAttendanceCovered\(isoFromKey\(keyDay\), day\.coverage\)/
+    );
 
     CONSTRUCTORES.forEach(nombre => {
         assert.match(

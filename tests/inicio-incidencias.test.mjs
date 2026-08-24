@@ -48,6 +48,10 @@ const home = (await readFile(
     new URL("../js/home.js", import.meta.url),
     "utf8"
 )).replace(/\r\n/g, "\n");
+const importacion = (await readFile(
+    new URL("../js/attendanceImport.js", import.meta.url),
+    "utf8"
+)).replace(/\r\n/g, "\n");
 
 const NOMBRE = "TRABAJADOR DE PRUEBA";
 const RUT = "17816632-8";
@@ -129,7 +133,13 @@ test("llegar tarde a un turno extra es entrada tardia, no atraso", async () => {
 });
 
 test("un turno sin marcas cuenta las dos que faltan", async () => {
-    sembrar({ [dia(6)]: 1 }, {});
+    // El dia 6 no tiene marcas, pero el periodo SI esta cargado: hay marcas
+    // el 3 y el 9, asi que la planilla de esos dias ya se subio y la falta del
+    // 6 es real.
+    sembrar({ [dia(6)]: 1 }, {
+        [iso(3)]: [{ time: "08:00", type: "in" }],
+        [iso(9)]: [{ time: "08:00", type: "in" }]
+    });
 
     const { events } = await buildAttendanceIncidents(PERFIL, new Date(A, M, 1));
     const delDia = events
@@ -138,6 +148,33 @@ test("un turno sin marcas cuenta las dos que faltan", async () => {
         .sort();
 
     assert.deepEqual(delDia, ["missingEntry", "missingExit"]);
+});
+
+test("sin planilla cargada NO se inventan faltas de marcaje", async () => {
+    // Los datos del reloj solo llegan al subir el .xls. Antes de eso, que no
+    // haya marcas no dice nada del trabajador: dice que falta el archivo.
+    // Sin esta regla, el resumen del mes en curso aparecia lleno de cruces.
+    sembrar({ [dia(6)]: 1 }, {});
+
+    const { totals } = await buildAttendanceIncidents(PERFIL, new Date(A, M, 1));
+
+    assert.equal(totals.missingEntry, 0);
+    assert.equal(totals.missingExit, 0);
+});
+
+test("fuera del periodo cargado tampoco", async () => {
+    // La planilla cubre hasta el dia 9; del 10 en adelante no sabemos nada
+    // todavia, aunque la fecha ya haya pasado.
+    sembrar({ [dia(9)]: 1, [dia(20)]: 1 }, {
+        [iso(9)]: [{ time: "08:00", type: "in" }, { time: "20:00", type: "out" }]
+    });
+
+    const { events } = await buildAttendanceIncidents(PERFIL, new Date(A, M, 1));
+
+    assert.equal(
+        events.filter(evento => evento.iso === iso(20)).length,
+        0
+    );
 });
 
 test("irse antes de hora es salida temprana", async () => {
@@ -223,6 +260,23 @@ test("el calculo no bloquea el inicio", () => {
     // una unidad completa: el inicio aparece y el resultado entra despues.
     assert.match(home, /Revisando el mes\.\.\./);
     assert.match(home, /void cargarIncidencias\(panel\);/);
+});
+
+test("lo calculado se descarta al subir una planilla nueva", () => {
+    // Los datos del reloj solo cambian ahi, asi que no hace falta recalcular a
+    // cada rato: basta con enterarse cuando cambian.
+    assert.match(home, /"proturnos:attendanceMarksChanged", "proturnos:clockMarksChanged"/);
+    assert.match(home, /incidenciasCache = null;/);
+});
+
+test("el aviso lo emite quien guarda las marcas", () => {
+    // Asi cubre cualquier via que cargue marcas, no solo el boton de importar.
+    assert.match(importacion, /proturnos:attendanceMarksChanged/);
+    assert.match(importacion, /if \(added\) \{/);
+});
+
+test("solo se recalcula si el inicio esta a la vista", () => {
+    assert.match(home, /document\.body\.dataset\.activeView === "home"/);
 });
 
 test("no se recalcula el mismo mes dos veces", () => {

@@ -15,8 +15,10 @@ import { fetchHolidays } from "./holidays.js";
 import { AVERAGE_DIURNAL_WORKDAY_HOURS } from "./overtimeRules.js";
 import { calcExtraHours } from "./calculations.js";
 import {
+    attendanceCoverage,
     CONTINUES_MARK,
-    getAttendanceCells
+    getAttendanceCells,
+    isAttendanceCovered
 } from "./attendanceImport.js";
 import {
     delayMinutes,
@@ -726,7 +728,11 @@ function attendanceDay(profileName, keyDay, date, holidays, data, day) {
         extraShift: day.extraShift,
         workedShift: day.workedShift,
         absent: day.absent,
-        hasPassed: date < day.today,
+        // Un dia solo "ya paso" para el marcaje si ademas hay datos del reloj
+        // que lo cubran: sin la planilla de esos dias, la falta de marca no
+        // dice nada.
+        hasPassed: date < day.today &&
+            isAttendanceCovered(isoFromKey(keyDay), day.coverage),
         scheduledEntry: scheduledEntryFromShift(
             profileName, keyDay, date, day.workedShift, holidays
         ),
@@ -885,6 +891,7 @@ export async function buildAttendanceIncidents(profiles, monthDate) {
     const days = new Date(year, month + 1, 0).getDate();
     const holidays = await fetchReportHolidays(year);
     const today = startOfToday();
+    const coverage = attendanceCoverage();
     const events = [];
 
     (profiles || []).forEach(profile => {
@@ -914,7 +921,8 @@ export async function buildAttendanceIncidents(profiles, monthDate) {
                         extraShift: getTurnoExtraAgregado(baseWithSwaps, actual),
                         workedShift: actual,
                         absent: Boolean(absence?.full),
-                        today
+                        today,
+                        coverage
                     })
                 )
             );
@@ -1448,6 +1456,7 @@ function buildNoAssignmentDayRows(
     );
     const maps = getReportMaps(profileName);
     const today = startOfToday();
+    const coverage = attendanceCoverage();
     const rows = [];
     const rawTotals = { d: 0, n: 0 };
 
@@ -1539,7 +1548,8 @@ function buildNoAssignmentDayRows(
                 extraShift: extraState,
                 workedShift: actual,
                 absent: Boolean(absence?.full),
-                today
+                today,
+                coverage
             })),
             turnoExtra: turnoLabel(extraState),
             horasDiurnas: formatHour(hours.d),
@@ -1590,6 +1600,7 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
     );
     const maps = getReportMaps(profileName);
     const today = startOfToday();
+    const coverage = attendanceCoverage();
     const rows = [];
     const rawTotals = { d: 0, n: 0 };
 
@@ -1677,7 +1688,8 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
                 extraShift: extraState,
                 workedShift: actual,
                 absent: Boolean(absence?.full),
-                today
+                today,
+                coverage
             })),
             hheeDiurnas: formatExtraCell(extraHours.d),
             hheeNocturnas: formatExtraCell(extraHours.n),
@@ -1707,6 +1719,7 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
         month
     );
     const today = startOfToday();
+    const coverage = attendanceCoverage();
     const rows = [];
 
     for (let day = 1; day <= days; day++) {
@@ -1819,7 +1832,8 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
                     extraShift: extraState,
                     workedShift: actual,
                     absent: Boolean(dayAbsenceDetail(keyDay, maps)?.full),
-                    today
+                    today,
+                    coverage
                 })
             ),
             turnoExtra: turnoLabel(extraState),
