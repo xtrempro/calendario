@@ -713,7 +713,48 @@ function previousDayKey(keyDay) {
  * aplicados, que es lo que hace que un turno cambiado se mida en la fecha a la
  * que se movio y que un turno extra no genere atraso aunque se llegue tarde.
  */
-function attendanceReportCells(profile, iso, day) {
+/**
+ * Los datos del dia que necesita el marcaje.
+ *
+ * Vive aparte porque lo usan los tres constructores de filas y ademas el
+ * resumen de incidencias del inicio. Tenerlo repetido seria tener cuatro
+ * criterios que se van separando de a poco.
+ */
+function attendanceDay(profileName, keyDay, date, holidays, data, day) {
+    return {
+        baseShift: day.baseShift,
+        extraShift: day.extraShift,
+        workedShift: day.workedShift,
+        absent: day.absent,
+        hasPassed: date < day.today,
+        scheduledEntry: scheduledEntryFromShift(
+            profileName, keyDay, date, day.workedShift, holidays
+        ),
+        baseScheduledEntry: scheduledEntryFromShift(
+            profileName, keyDay, date, day.baseShift, holidays
+        ),
+        scheduledExit: scheduledExitFromShift(
+            profileName, keyDay, date, day.workedShift, holidays
+        ),
+        exitMoved: hasModifiedExitTime(profileName, keyDay),
+        entryMoved: hasModifiedEntryTime(profileName, keyDay),
+        nextEntryMoved: hasModifiedEntryTime(profileName, nextDayKey(keyDay)),
+        nextWorkedShift: actualStateForReport(
+            profileName, data, nextDayKey(keyDay)
+        ),
+        previousWorkedShift: actualStateForReport(
+            profileName, data, previousDayKey(keyDay)
+        )
+    };
+}
+
+/**
+ * Que paso con el marcaje de ese dia, antes de decidir como se dibuja.
+ *
+ * Es la unica fuente: de aqui salen tanto las celdas del reporte como el
+ * resumen de incidencias del inicio, asi que los dos cuentan lo mismo.
+ */
+function attendanceDayFacts(profile, iso, day) {
     const cells = getAttendanceCells(profile.rut, iso, {
         endsNextMorning: shiftEndsNextMorning(day.workedShift),
         previousEndsNextMorning: shiftEndsNextMorning(day.previousWorkedShift),
@@ -741,31 +782,165 @@ function attendanceReportCells(profile, iso, day) {
         // habia nada que marcar, asi que ni cruz ni atraso.
         hasPassed: day.hasPassed && !cells.entryArrow
     });
-    // La salida lleva la misma cruz que la entrada cuando falta su registro.
-    const missingExit = isMarkMissing({
-        mark: cells.salida,
-        workedShift: day.workedShift,
-        absent: day.absent,
-        hasPassed: day.hasPassed && !cells.exitArrow
+
+    return {
+        cells,
+        delay,
+        // La salida lleva la misma cruz que la entrada cuando falta su registro.
+        missingExit: isMarkMissing({
+            mark: cells.salida,
+            workedShift: day.workedShift,
+            absent: day.absent,
+            hasPassed: day.hasPassed && !cells.exitArrow
+        }),
+        // Llego tarde a un turno que no es su base. No se mide atraso -los
+        // atrasos son de la rotativa propia-, pero queda senalado.
+        lateOnExtra: Boolean(
+            !delay.minutes &&
+            delayMinutes(cells.entrada, day.scheduledEntry)
+        ),
+        // Se fue antes de la hora que le tocaba. No cuenta si el supervisor le
+        // autorizo salir antes: esa reduccion esta permitida y ya queda
+        // registrada como tal.
+        earlyExit: Boolean(
+            cells.salida &&
+            day.scheduledExit &&
+            cells.salida < day.scheduledExit &&
+            !day.exitMoved
+        )
+    };
+}
+
+/**
+ * Los cinco tipos de incidencia de marcaje, en el orden en que se muestran.
+ */
+export const ATTENDANCE_INCIDENT_KINDS = [
+    { key: "atraso", label: "Atrasos" },
+    { key: "missingEntry", label: "Sin marcaje entrada" },
+    { key: "missingExit", label: "Sin marcaje salida" },
+    { key: "lateOnExtra", label: "Entrada tardía" },
+    { key: "earlyExit", label: "Salida temprana" }
+];
+
+function pushIncidents(events, profile, iso, facts) {
+    const base = { profile: profile.name, iso };
+    const { cells, delay } = facts;
+
+    if (delay.minutes) {
+        events.push({
+            ...base,
+            kind: "atraso",
+            detail: `${delay.minutes} min (entró ${cells.entrada}, `
+                + `le tocaba ${delay.scheduled})`
+        });
+    }
+
+    if (delay.missingEntry) {
+        events.push({
+            ...base,
+            kind: "missingEntry",
+            detail: "No hay marca de entrada"
+        });
+    }
+
+    if (facts.missingExit) {
+        events.push({
+            ...base,
+            kind: "missingExit",
+            detail: "No hay marca de salida"
+        });
+    }
+
+    if (facts.lateOnExtra) {
+        events.push({
+            ...base,
+            kind: "lateOnExtra",
+            detail: `Entró ${cells.entrada} en un turno que no es su base`
+        });
+    }
+
+    if (facts.earlyExit) {
+        events.push({
+            ...base,
+            kind: "earlyExit",
+            detail: `Salió ${cells.salida}`
+        });
+    }
+}
+
+/**
+ * Incidencias de marcaje de un mes, para todos los trabajadores.
+ *
+ * Sale de los MISMOS hechos que dibujan las celdas del reporte
+ * (attendanceDayFacts), asi que el resumen del inicio y el reporte no pueden
+ * decir cosas distintas.
+ *
+ * @param {Array<{name: string, rut: string}>} profiles
+ * @param {Date} monthDate
+ * @returns {Promise<{events: Array<Object>, totals: Object}>}
+ */
+export async function buildAttendanceIncidents(profiles, monthDate) {
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const days = new Date(year, month + 1, 0).getDate();
+    const holidays = await fetchReportHolidays(year);
+    const today = startOfToday();
+    const events = [];
+
+    (profiles || []).forEach(profile => {
+        const profileName = profile?.name;
+
+        if (!profileName) return;
+
+        const data = getProfileData(profileName);
+        const maps = getReportMaps(profileName);
+
+        for (let day = 1; day <= days; day++) {
+            const keyDay = key(year, month, day);
+            const date = parseKey(keyDay);
+            const baseWithSwaps = baseWithSwapsForReport(profileName, keyDay);
+            const actual = actualStateForReport(profileName, data, keyDay);
+            const absence = dayAbsenceDetail(keyDay, maps);
+
+            pushIncidents(
+                events,
+                profile,
+                isoFromKey(keyDay),
+                attendanceDayFacts(
+                    profile,
+                    isoFromKey(keyDay),
+                    attendanceDay(profileName, keyDay, date, holidays, data, {
+                        baseShift: baseWithSwaps,
+                        extraShift: getTurnoExtraAgregado(baseWithSwaps, actual),
+                        workedShift: actual,
+                        absent: Boolean(absence?.full),
+                        today
+                    })
+                )
+            );
+        }
     });
-    // Llego tarde a un turno que no es su base. No se mide atraso -los atrasos
-    // son de la rotativa propia-, pero que llegara tarde igual queda senalado.
-    //
-    // Cubre los dos casos: el turno extra suelto, y el 24 cuya base es la
-    // Noche, donde la llegada de la manana es del tramo extra.
-    const lateOnExtra = Boolean(
-        !delay.minutes &&
-        delayMinutes(cells.entrada, day.scheduledEntry)
-    );
-    // Se fue antes de la hora que le tocaba. No cuenta si el supervisor le
-    // autorizo salir antes: en ese caso la reduccion de jornada esta permitida
-    // y ya queda registrada como tal.
-    const earlyExit = Boolean(
-        cells.salida &&
-        day.scheduledExit &&
-        cells.salida < day.scheduledExit &&
-        !day.exitMoved
-    );
+
+    const totals = {};
+
+    ATTENDANCE_INCIDENT_KINDS.forEach(kind => {
+        totals[kind.key] = 0;
+    });
+    events.forEach(event => {
+        totals[event.kind] += 1;
+    });
+
+    return { events, totals };
+}
+
+function attendanceReportCells(profile, iso, day) {
+    const {
+        cells,
+        delay,
+        missingExit,
+        lateOnExtra,
+        earlyExit
+    } = attendanceDayFacts(profile, iso, day);
     const meta = {};
     // De un turno solo se muestran la primera entrada y la ultima salida. Las
     // intermedias -salir y volver a entrar entre los dos tramos de un 24- no
@@ -1359,38 +1534,13 @@ function buildNoAssignmentDayRows(
             turnoBase: turnoLabel(rawBase),
             turnoConCambios: turnoLabel(baseWithSwaps),
             turnoRealizado: absence?.label || turnoLabel(actual),
-            ...attendanceReportCells(profile, iso, {
+            ...attendanceReportCells(profile, iso, attendanceDay(profileName, keyDay, date, holidays, data, {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
-                hasPassed: date < today,
-                scheduledEntry: scheduledEntryFromShift(
-                    profileName, keyDay, date, actual, holidays
-                ),
-                baseScheduledEntry: scheduledEntryFromShift(
-                    profileName, keyDay, date, baseWithSwaps, holidays
-                ),
-                scheduledExit: scheduledExitFromShift(
-                    profileName, keyDay, date, actual, holidays
-                ),
-                exitMoved: hasModifiedExitTime(profileName, keyDay),
-                entryMoved: hasModifiedEntryTime(profileName, keyDay),
-                nextEntryMoved: hasModifiedEntryTime(
-                    profileName,
-                    nextDayKey(keyDay)
-                ),
-                nextWorkedShift: actualStateForReport(
-                    profileName,
-                    data,
-                    nextDayKey(keyDay)
-                ),
-                previousWorkedShift: actualStateForReport(
-                    profileName,
-                    data,
-                    previousDayKey(keyDay)
-                ),
                 workedShift: actual,
-                absent: Boolean(absence?.full)
-            }),
+                absent: Boolean(absence?.full),
+                today
+            })),
             turnoExtra: turnoLabel(extraState),
             horasDiurnas: formatHour(hours.d),
             horasNocturnas: formatHour(hours.n),
@@ -1522,38 +1672,13 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
             diaHabil: isBusinessDay(date, holidays) ? "S\u00ed" : "No",
             turnoBase: turnoLabel(rawBase),
             turnoRealizado: absence?.label || turnoLabel(actual),
-            ...attendanceReportCells(profile, iso, {
+            ...attendanceReportCells(profile, iso, attendanceDay(profileName, keyDay, date, holidays, data, {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
-                hasPassed: date < today,
-                scheduledEntry: scheduledEntryFromShift(
-                    profileName, keyDay, date, actual, holidays
-                ),
-                baseScheduledEntry: scheduledEntryFromShift(
-                    profileName, keyDay, date, baseWithSwaps, holidays
-                ),
-                scheduledExit: scheduledExitFromShift(
-                    profileName, keyDay, date, actual, holidays
-                ),
-                exitMoved: hasModifiedExitTime(profileName, keyDay),
-                entryMoved: hasModifiedEntryTime(profileName, keyDay),
-                nextEntryMoved: hasModifiedEntryTime(
-                    profileName,
-                    nextDayKey(keyDay)
-                ),
-                nextWorkedShift: actualStateForReport(
-                    profileName,
-                    data,
-                    nextDayKey(keyDay)
-                ),
-                previousWorkedShift: actualStateForReport(
-                    profileName,
-                    data,
-                    previousDayKey(keyDay)
-                ),
                 workedShift: actual,
-                absent: Boolean(absence?.full)
-            }),
+                absent: Boolean(absence?.full),
+                today
+            })),
             hheeDiurnas: formatExtraCell(extraHours.d),
             hheeNocturnas: formatExtraCell(extraHours.n),
             respaldo: details || (
@@ -1686,38 +1811,17 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
             turnoBase: turnoLabel(rawBase),
             turnoConCambios: turnoLabel(baseWithSwaps),
             turnoRealizado: turnoLabel(actual),
-            ...attendanceReportCells(profile, iso, {
-                baseShift: baseWithSwaps,
-                extraShift: extraState,
-                hasPassed: date < today,
-                scheduledEntry: scheduledEntryFromShift(
-                    profileName, keyDay, date, actual, holidays
-                ),
-                baseScheduledEntry: scheduledEntryFromShift(
-                    profileName, keyDay, date, baseWithSwaps, holidays
-                ),
-                scheduledExit: scheduledExitFromShift(
-                    profileName, keyDay, date, actual, holidays
-                ),
-                exitMoved: hasModifiedExitTime(profileName, keyDay),
-                entryMoved: hasModifiedEntryTime(profileName, keyDay),
-                nextEntryMoved: hasModifiedEntryTime(
-                    profileName,
-                    nextDayKey(keyDay)
-                ),
-                nextWorkedShift: actualStateForReport(
-                    profileName,
-                    data,
-                    nextDayKey(keyDay)
-                ),
-                previousWorkedShift: actualStateForReport(
-                    profileName,
-                    data,
-                    previousDayKey(keyDay)
-                ),
-                workedShift: actual,
-                absent: Boolean(dayAbsenceDetail(keyDay, maps)?.full)
-            }),
+            ...attendanceReportCells(
+                profile,
+                iso,
+                attendanceDay(profileName, keyDay, date, holidays, data, {
+                    baseShift: baseWithSwaps,
+                    extraShift: extraState,
+                    workedShift: actual,
+                    absent: Boolean(dayAbsenceDetail(keyDay, maps)?.full),
+                    today
+                })
+            ),
             turnoExtra: turnoLabel(extraState),
             horasDiurnas: kind === "extra-only"
                 ? extraHours.d

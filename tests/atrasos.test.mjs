@@ -68,6 +68,24 @@ const reporte = await leer("../js/hoursReport.js");
 const estilos = await leer("../styles.css");
 const marcajes = await leer("../js/clockMarks.js");
 
+// Los tres constructores de filas del reporte. Se miran uno por uno y no
+// contando ocurrencias sueltas: el resumen de incidencias del inicio usa las
+// mismas piezas, asi que un conteo global mezclaria a los cuatro.
+const CONSTRUCTORES = [
+    "buildNoAssignmentDayRows",
+    "buildAssignedShiftDayRows",
+    "buildDayRows"
+];
+
+function cuerpoDe(nombre) {
+    const inicio = reporte.indexOf(`function ${nombre}`);
+
+    assert.notEqual(inicio, -1, `falta ${nombre}`);
+
+    return reporte.slice(inicio, inicio + 9000);
+}
+
+
 /* =========================================================
    El margen de cortesia
 ========================================================= */
@@ -366,11 +384,15 @@ test("con ausencia tampoco falta ninguna marca", () => {
 
 test("el reporte corta las cruces en el dia de hoy", () => {
     assert.match(reporte, /function startOfToday\(\)/);
-    assert.match(reporte, /hasPassed: date < today,/);
+    assert.match(reporte, /hasPassed: date < day\.today,/);
 
-    const usos = reporte.match(/const today = startOfToday\(\);/g) || [];
-
-    assert.equal(usos.length, 3, "algun constructor no sabe que dia es hoy");
+    CONSTRUCTORES.forEach(nombre => {
+        assert.match(
+            cuerpoDe(nombre),
+            /const today = startOfToday\(\);/,
+            `${nombre} no sabe que dia es hoy`
+        );
+    });
 });
 
 test("la cruz de salida usa el mismo estilo que la de entrada", () => {
@@ -555,19 +577,19 @@ test("el reporte marca la salida movida y dice de que dia viene", () => {
 test("los tres constructores informan el turno de anoche", () => {
     // Sin el, la salida de un turno de noche saldria dos veces: en la fila del
     // turno y otra vez en el libre del dia siguiente.
-    const usos = reporte.match(/previousWorkedShift: actualStateForReport\(/g) || [];
-
-    assert.equal(usos.length, 3);
-    assert.match(reporte, /previousDayKey\(keyDay\)/);
+    assert.match(
+        reporte,
+        /previousWorkedShift: actualStateForReport\(\s*\n\s*profileName, data, previousDayKey\(keyDay\)\s*\n\s*\)/
+    );
 });
 
 test("los tres constructores informan tambien el turno de manana", () => {
     // Sin el no se puede saber si la noche continua en el turno siguiente, que
     // es lo que decide entre poner una flecha o una cruz.
-    const usos = reporte.match(/nextWorkedShift: actualStateForReport\(/g) || [];
-
-    assert.equal(usos.length, 3);
-    assert.match(reporte, /nextDayKey\(keyDay\)/);
+    assert.match(
+        reporte,
+        /nextWorkedShift: actualStateForReport\(\s*\n\s*profileName, data, nextDayKey\(keyDay\)\s*\n\s*\)/
+    );
 });
 
 test("los dias vecinos se calculan cruzando meses", () => {
@@ -1212,11 +1234,11 @@ test("la senal es que el marcaje autorizado trae hora de entrada", () => {
 test("los tres constructores miran hoy y manana", () => {
     // Hoy, para su propia flecha de entrada. Manana, para la flecha de salida
     // de la noche de hoy: la que se parte es la jornada del dia siguiente.
-    const hoy = reporte.match(/entryMoved: hasModifiedEntryTime\(profileName, keyDay\)/g) || [];
-    const manana = reporte.match(/nextEntryMoved: hasModifiedEntryTime\(/g) || [];
-
-    assert.equal(hoy.length, 3);
-    assert.equal(manana.length, 3);
+    assert.match(reporte, /entryMoved: hasModifiedEntryTime\(profileName, keyDay\)/);
+    assert.match(
+        reporte,
+        /nextEntryMoved: hasModifiedEntryTime\(profileName, nextDayKey\(keyDay\)\)/
+    );
 });
 
 /* =========================================================
@@ -1338,10 +1360,7 @@ test("el reporte toma la hora de ingreso del horario programado", () => {
     // reloj control. Si cambia el horario de un turno, el atraso cambia con el.
     assert.match(reporte, /function scheduledEntryFromShift\(/);
     assert.match(reporte, /entryOverride: day\.baseScheduledEntry,/);
-
-    const usos = reporte.match(/baseScheduledEntry: scheduledEntryFromShift\(/g) || [];
-
-    assert.equal(usos.length, 3);
+    assert.match(reporte, /baseScheduledEntry: scheduledEntryFromShift\(/);
 });
 
 /* =========================================================
@@ -1356,7 +1375,7 @@ test("llegar tarde a un extra no suma minutos pero si deja incidencia", () => {
     assert.match(reporte, /const LATE_EXTRA_TITLE = "Incidencia: llego despues de las";/);
     assert.match(
         reporte,
-        /const lateOnExtra = Boolean\(\s*\n\s*!delay\.minutes &&\s*\n\s*delayMinutes\(cells\.entrada, day\.scheduledEntry\)\s*\n\s*\);/
+        /lateOnExtra: Boolean\(\s*\n\s*!delay\.minutes &&\s*\n\s*delayMinutes\(cells\.entrada, day\.scheduledEntry\)\s*\n\s*\)/
     );
     // Se mide contra el turno que efectivamente hizo, no contra su base: en un
     // extra la base esta libre y no tiene hora de entrada.
@@ -1471,9 +1490,7 @@ test("no es incidencia si el supervisor autorizo salir antes", () => {
         /export function hasModifiedExitTime\(profile, keyDay\)/
     );
 
-    const usos = reporte.match(/exitMoved: hasModifiedExitTime\(/g) || [];
-
-    assert.equal(usos.length, 3);
+    assert.match(reporte, /exitMoved: hasModifiedExitTime\(profileName, keyDay\)/);
 });
 
 test("el simbolo de salir antes no se duplica con el de etiqueta equivocada", () => {
@@ -1532,9 +1549,13 @@ test("la columna va entre Salida y las horas, en las dos variantes", () => {
 test("los tres constructores miden contra el turno base CON cambios", () => {
     // Si pasaran "actual", un turno extra generaria atraso y un turno cambiado
     // se mediria en la fecha equivocada: las dos reglas del usuario, rotas.
-    const usos = reporte.match(/baseShift: baseWithSwaps,/g) || [];
-
-    assert.equal(usos.length, 3);
+    CONSTRUCTORES.forEach(nombre => {
+        assert.match(
+            cuerpoDe(nombre),
+            /baseShift: baseWithSwaps,/,
+            `${nombre} no mide contra la base con cambios`
+        );
+    });
     assert.doesNotMatch(reporte, /baseShift: actual/);
 });
 

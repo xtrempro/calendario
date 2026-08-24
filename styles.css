@@ -18390,3 +18390,19 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 @media (prefers-reduced-motion: reduce) {
     .hm-nota { transition: none; }
 }
+
+/* Incidencias de marcaje del mes, en el inicio. */
+.hm-inc-month {
+    margin: -4px 0 10px; font-size: 0.9rem; font-weight: 600;
+    color: var(--text-soft);
+}
+.hm-kv[disabled] { opacity: 0.55; cursor: default; }
+.hm-inc-detail { display: flex; flex-direction: column; gap: 2px; }
+.hm-inc-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+    padding: 8px 10px; border-radius: 10px;
+}
+.hm-inc-row:nth-child(odd) { background: rgba(148, 163, 184, 0.12); }
+.hm-inc-row b { font-size: 0.9rem; }
+.hm-inc-date { font-size: 0.85rem; color: var(--text-soft); white-space: nowrap; }
+.hm-inc-row small { grid-column: 1 / -1; color: var(--text-soft); }

@@ -73,6 +73,10 @@ import {
 } from "./weeklySchedulePreview.js";
 import { openAttachmentFile } from "./attachmentUtils.js";
 import { openScheduleAttachmentDialog } from "./taskAssignments.js";
+import {
+    ATTENDANCE_INCIDENT_KINDS,
+    buildAttendanceIncidents
+} from "./hoursReport.js";
 
 // Nombre por defecto para entornos que aun no tienen "Nombre del supervisor"
 // cargado al crearse (entornos de prueba previos al requerimiento).
@@ -1276,6 +1280,142 @@ function reRenderTaskCalendar(panel) {
     if (host) host.innerHTML = grid;
 }
 
+/* =========================================================
+   Incidencias de marcaje del mes
+========================================================= */
+
+// Mes que se esta mirando y lo ultimo calculado. Recorrer el mes de todos los
+// trabajadores toma del orden de 100 ms con una unidad completa, asi que no se
+// rehace en cada repintado del inicio: se calcula una vez por mes y se guarda.
+let incidenciasMes = new Date();
+let incidenciasCache = null;
+let incidenciasRequest = 0;
+
+function incidenciasMesLabel(date) {
+    const texto = date.toLocaleDateString("es-CL", {
+        month: "long",
+        year: "numeric"
+    });
+
+    return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+function incidenciasMesKey(date) {
+    return `${date.getFullYear()}-${date.getMonth()}`;
+}
+
+function incidenciasWidget() {
+    return `
+        <div class="hm-card hm-col-4">
+            ${panelHead(IC.clipboard, "Incidencias de marcaje", `
+                <div class="hm-bday-nav">
+                    <button type="button" data-hm="inc-prev" aria-label="Mes anterior">&#8249;</button>
+                    <button type="button" data-hm="inc-next" aria-label="Mes siguiente">&#8250;</button>
+                </div>`)}
+            <div class="hm-inc-month" data-hm="inc-month">${esc(incidenciasMesLabel(incidenciasMes))}</div>
+            <div class="hm-listcol" data-hm="inc-list">
+                <div class="hm-empty">Revisando el mes...</div>
+            </div>
+        </div>`;
+}
+
+function incidenciasListHTML(totals) {
+    const total = ATTENDANCE_INCIDENT_KINDS
+        .reduce((suma, kind) => suma + (totals[kind.key] || 0), 0);
+
+    if (!total) {
+        return `<div class="hm-empty">Sin incidencias de marcaje este mes.</div>`;
+    }
+
+    // Se listan las cinco siempre, incluso en cero: ver un "0" al lado de "Sin
+    // marcaje entrada" dice algo; que la fila desaparezca, no.
+    return ATTENDANCE_INCIDENT_KINDS.map(kind => {
+        const cantidad = totals[kind.key] || 0;
+
+        return `
+            <button class="hm-kv" type="button" data-hm="inc-kind"
+                data-kind="${esc(kind.key)}" ${cantidad ? "" : "disabled"}>
+                <span class="hm-kv-name">${esc(kind.label)}</span>
+                <span class="hm-kv-right">
+                    <span class="hm-kv-num ${cantidad ? "hm-amber" : ""}">${cantidad}</span>
+                </span>
+            </button>`;
+    }).join("");
+}
+
+/**
+ * Calcula las incidencias del mes en curso y pinta el recuadro.
+ *
+ * Va aparte del render porque tarda: el inicio aparece de inmediato con
+ * "Revisando el mes..." y el resultado entra cuando esta.
+ */
+async function cargarIncidencias(panel) {
+    const lista = panel.querySelector('[data-hm="inc-list"]');
+    const mes = panel.querySelector('[data-hm="inc-month"]');
+
+    if (!lista) return;
+
+    if (mes) mes.textContent = incidenciasMesLabel(incidenciasMes);
+
+    if (incidenciasCache?.key === incidenciasMesKey(incidenciasMes)) {
+        lista.innerHTML = incidenciasListHTML(incidenciasCache.totals);
+        return;
+    }
+
+    const requestId = ++incidenciasRequest;
+
+    lista.innerHTML = `<div class="hm-empty">Revisando el mes...</div>`;
+
+    try {
+        const resultado = await buildAttendanceIncidents(
+            getProfiles(),
+            incidenciasMes
+        );
+
+        // Si mientras tanto se cambio de mes, manda el ultimo pedido.
+        if (requestId !== incidenciasRequest) return;
+
+        incidenciasCache = {
+            key: incidenciasMesKey(incidenciasMes),
+            ...resultado
+        };
+        lista.innerHTML = incidenciasListHTML(resultado.totals);
+    } catch (error) {
+        if (requestId !== incidenciasRequest) return;
+
+        console.warn("No se pudieron calcular las incidencias.", error);
+        lista.innerHTML =
+            `<div class="hm-empty">No se pudieron calcular las incidencias.</div>`;
+    }
+}
+
+function incidenciasDetalleHTML(kind) {
+    const eventos = (incidenciasCache?.events || [])
+        .filter(evento => evento.kind === kind)
+        .sort((a, b) => a.iso.localeCompare(b.iso) ||
+            a.profile.localeCompare(b.profile));
+
+    if (!eventos.length) {
+        return `<div class="hm-empty">Sin eventos de este tipo.</div>`;
+    }
+
+    return `
+        <div class="hm-inc-detail">
+            ${eventos.map(evento => `
+                <div class="hm-inc-row">
+                    <b>${esc(evento.profile)}</b>
+                    <span class="hm-inc-date">${esc(formatIncidentDate(evento.iso))}</span>
+                    <small>${esc(evento.detail)}</small>
+                </div>`).join("")}
+        </div>`;
+}
+
+function formatIncidentDate(iso) {
+    const [year, month, day] = String(iso).split("-");
+
+    return `${day}/${month}/${year}`;
+}
+
 function ausenciasWidget() {
     const items = getTodayAbsences();
     const body = items.length
@@ -1901,6 +2041,16 @@ function dotBodyHTML(e) {
 
 function dotacionModal() {
     return `
+        <div class="hm-modal-backdrop" data-hm="inc-modal" hidden>
+            <div class="hm-modal hm-modal--dotacion" role="dialog" aria-modal="true" aria-label="Detalle de incidencias">
+                <div class="hm-modal-head">
+                    <span class="hm-modal-ico">${svg(IC.clipboard)}</span>
+                    <h3 data-hm="inc-title">Incidencias</h3>
+                    <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="hm-modal-body" data-hm="inc-body"></div>
+            </div>
+        </div>
         <div class="hm-modal-backdrop" data-hm="dotacion-modal" hidden>
             <div class="hm-modal hm-modal--dotacion" role="dialog" aria-modal="true" aria-label="Trabajadores en servicio">
                 <div class="hm-modal-head">
@@ -1952,6 +2102,7 @@ function homeHTML() {
                 ${tareasWidget()}
                 ${solicitudesWidget()}
                 ${ausenciasWidget()}
+                ${incidenciasWidget()}
             </section>
 
             <section class="hm-grid">
@@ -2124,6 +2275,47 @@ function wire(panel) {
     const stats = panel.querySelector(".hm-stats");
     const dotModal = panel.querySelector('[data-hm="dotacion-modal"]');
     iniciarNotas(panel);
+    void cargarIncidencias(panel);
+
+    // --- Incidencias de marcaje: navegacion por mes y detalle por tipo ---
+    const incCard = panel.querySelector('[data-hm="inc-list"]')?.closest(".hm-card");
+    const incModal = panel.querySelector('[data-hm="inc-modal"]');
+
+    incCard?.addEventListener("click", event => {
+        const paso = event.target.closest('[data-hm="inc-prev"], [data-hm="inc-next"]');
+
+        if (paso) {
+            const salto = paso.dataset.hm === "inc-next" ? 1 : -1;
+
+            incidenciasMes = new Date(
+                incidenciasMes.getFullYear(),
+                incidenciasMes.getMonth() + salto,
+                1
+            );
+            void cargarIncidencias(panel);
+            return;
+        }
+
+        const tipo = event.target.closest('[data-hm="inc-kind"]');
+
+        if (!tipo || !incModal) return;
+
+        const kind = tipo.dataset.kind;
+        const label = ATTENDANCE_INCIDENT_KINDS
+            .find(item => item.key === kind)?.label || "Incidencias";
+
+        panel.querySelector('[data-hm="inc-title"]').textContent =
+            `${label} · ${incidenciasMesLabel(incidenciasMes)}`;
+        panel.querySelector('[data-hm="inc-body"]').innerHTML =
+            incidenciasDetalleHTML(kind);
+        incModal.hidden = false;
+    });
+
+    incModal?.addEventListener("click", event => {
+        if (event.target === incModal || event.target.closest('[data-hm="close"]')) {
+            incModal.hidden = true;
+        }
+    });
 
     // La programacion semanal es otra tarjeta de la misma fila, asi que
     // comparte estos manejadores y con eso hereda el soporte de teclado.
