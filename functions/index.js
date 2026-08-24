@@ -612,27 +612,60 @@ function worksheetToScheduleSheetModel(ws) {
 // Elige la hoja de la semana pedida (por día + mes en el título, p. ej.
 // "17 AL 23 DE AGOSTO"). Si el libro trae una sola hoja, la usa; si no hay
 // coincidencia, cae a la última con datos (la más reciente).
-function pickScheduleWorksheet(workbook, weekStartISO) {
+// Busca la hoja de esa semana por su nombre: tiene que traer el dia Y el mes en
+// palabras. "18 AGOSTO" calza para la semana del 18 de agosto; "S34" o "17-08"
+// no, porque les falta el mes.
+function guessScheduleWorksheet(sheets, weekStartISO) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(weekStartISO || ""));
+
+  if (!m) return null;
+
+  const day = Number(m[3]);
+  const monthName = SCHEDULE_MONTHS_ES[Number(m[2]) - 1] || "";
+  const dayRe = new RegExp(`(^|\\D)0*${day}(\\D|$)`);
+
+  return sheets.find((ws) => {
+    const t = SCHEDULE_TEXT_NORM(ws.name);
+    return dayRe.test(t) && (!monthName || t.includes(monthName));
+  }) || null;
+}
+
+/**
+ * Que hoja del libro se publica.
+ *
+ * Antes, cuando la corazonada del nombre fallaba, se publicaba la ULTIMA hoja
+ * del libro sin avisar. Eso publicaba en silencio la semana equivocada -y en la
+ * PWA se veia como turnos que no corresponden-, asi que ahora ese caso se
+ * devuelve como ambiguo para que el supervisor elija.
+ *
+ * @returns {{worksheet?: object, sheets: object[], ambiguous?: boolean,
+ *            notFound?: boolean}}
+ */
+function pickScheduleWorksheet(workbook, weekStartISO, sheetName = "") {
   const sheets = (workbook.worksheets || []).filter(
     (ws) => ws && (ws.rowCount || 0) > 1
   );
 
-  if (!sheets.length) return null;
-  if (sheets.length === 1) return sheets[0];
+  if (!sheets.length) return { sheets: [] };
 
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(weekStartISO || ""));
-  if (m) {
-    const day = Number(m[3]);
-    const monthName = SCHEDULE_MONTHS_ES[Number(m[2]) - 1] || "";
-    const dayRe = new RegExp(`(^|\\D)0*${day}(\\D|$)`);
-    const match = sheets.find((ws) => {
-      const t = SCHEDULE_TEXT_NORM(ws.name);
-      return dayRe.test(t) && (!monthName || t.includes(monthName));
-    });
-    if (match) return match;
+  // Si el supervisor ya eligio, manda su eleccion.
+  const chosen = String(sheetName || "").trim();
+
+  if (chosen) {
+    const exact = sheets.find((ws) => String(ws.name).trim() === chosen);
+
+    return exact
+      ? { worksheet: exact, sheets }
+      : { sheets, notFound: true };
   }
 
-  return sheets[sheets.length - 1];
+  if (sheets.length === 1) return { worksheet: sheets[0], sheets };
+
+  const guess = guessScheduleWorksheet(sheets, weekStartISO);
+
+  return guess
+    ? { worksheet: guess, sheets }
+    : { sheets, ambiguous: true };
 }
 
 // Publica la programación desde un EXCEL (.xlsx). Reemplazo determinista del OCR
@@ -692,21 +725,45 @@ exports.uploadScheduleWorkbook = onCall(
     }
 
     const weekStartISO = cleanCallableText(request.data?.weekStartISO, 32);
+    const sheetName = cleanCallableText(request.data?.sheetName, 180);
     let grid;
+    let publishedSheet = "";
+    let choice = null;
 
     try {
       const ExcelJS = require("exceljs");
       const { scheduleGridFromSheet } = require("./engine/scheduleGridFromSheet.cjs");
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(buffer);
-      const ws = pickScheduleWorksheet(workbook, weekStartISO);
 
-      if (!ws) {
+      choice = pickScheduleWorksheet(workbook, weekStartISO, sheetName);
+
+      if (!choice.sheets.length) {
         throw new Error("El Excel no tiene hojas con datos.");
       }
 
-      grid = scheduleGridFromSheet(worksheetToScheduleSheetModel(ws));
+      if (choice.notFound) {
+        throw new HttpsError(
+          "invalid-argument",
+          `La hoja "${sheetName}" ya no esta en el archivo.`
+        );
+      }
+
+      // Varias hojas y ninguna calza con la semana: se pregunta en vez de
+      // publicar la que toque por descarte.
+      if (choice.ambiguous) {
+        return {
+          needsSheet: true,
+          sheets: choice.sheets.map((ws) => String(ws.name))
+        };
+      }
+
+      publishedSheet = String(choice.worksheet.name || "");
+      grid = scheduleGridFromSheet(
+        worksheetToScheduleSheetModel(choice.worksheet)
+      );
     } catch (error) {
+      if (error instanceof HttpsError) throw error;
       logger.error("uploadScheduleWorkbook: no se pudo parsear el Excel", {
         message: error?.message,
         workspaceId
@@ -731,6 +788,10 @@ exports.uploadScheduleWorkbook = onCall(
       mode: "grid",
       weekStartISO,
       addedAtISO: new Date().toISOString(),
+      // Que hoja se publico. Viaja de vuelta para poder decirlo en la
+      // confirmacion: asi, cuando la hoja la eligio el nombre y no el
+      // supervisor, una corazonada equivocada se ve en el momento.
+      sheetName: publishedSheet,
       grid
     };
   }

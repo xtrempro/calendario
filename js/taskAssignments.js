@@ -472,7 +472,87 @@ async function createScheduleAttachment(file) {
 // Publica la programación desde un EXCEL: manda el .xlsx a la Cloud Function
 // uploadScheduleWorkbook, que lo convierte al grid estructurado (sin OCR). El
 // attachment resultante lleva `grid` embebido; la PWA lo renderiza tal cual.
-async function createScheduleWorkbookAttachment(file, weekStart = currentWeekStart) {
+/**
+ * Pregunta en que hoja esta la programacion.
+ *
+ * Solo aparece cuando el servidor no pudo decidirla por el nombre. Devuelve la
+ * hoja elegida, o "" si el supervisor cancela.
+ *
+ * @param {string[]} sheets
+ * @param {string} weekLabel
+ * @returns {Promise<string>}
+ */
+function askScheduleSheet(sheets, weekLabel) {
+    return new Promise(resolve => {
+        const backdrop = document.createElement("div");
+
+        backdrop.className = "task-assignment-dialog-backdrop";
+        backdrop.innerHTML = `
+            <section class="task-assignment-dialog task-schedule-sheet-dialog">
+                <div class="task-assignment-dialog__head">
+                    <h3>¿En qué hoja está la programación?</h3>
+                </div>
+                <p class="task-schedule-sheet-hint">
+                    El archivo trae varias hojas y ninguna coincide con
+                    ${escapeHTML(weekLabel)}. Elige cuál publicar.
+                </p>
+                <div class="task-schedule-sheet-list">
+                    ${sheets.map((name, index) => `
+                        <label class="task-schedule-sheet-option">
+                            <input type="radio" name="scheduleSheet"
+                                value="${escapeHTML(name)}"
+                                ${index === 0 ? "checked" : ""}>
+                            <span>${escapeHTML(name)}</span>
+                        </label>`).join("")}
+                </div>
+                <div class="task-assignment-dialog__actions">
+                    <button class="ghost-button" type="button" data-sheet-cancel>
+                        Cancelar
+                    </button>
+                    <button class="primary-button" type="button" data-sheet-confirm>
+                        Publicar esta hoja
+                    </button>
+                </div>
+            </section>`;
+
+        document.body.appendChild(backdrop);
+
+        const finish = (value) => {
+            backdrop.remove();
+            resolve(value);
+        };
+
+        backdrop.querySelector("[data-sheet-confirm]").addEventListener(
+            "click",
+            () => finish(
+                backdrop.querySelector("input[name='scheduleSheet']:checked")
+                    ?.value || ""
+            )
+        );
+        backdrop.querySelector("[data-sheet-cancel]").addEventListener(
+            "click",
+            () => finish("")
+        );
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) finish("");
+        });
+    });
+}
+
+/**
+ * Publica la programacion de una semana desde un Excel.
+ *
+ * El servidor elige la hoja por su nombre. Cuando el libro trae varias y
+ * ninguna calza con la semana, en vez de publicar una por descarte devuelve
+ * `needsSheet` con la lista: ahi se le pregunta al supervisor y se reintenta
+ * con su eleccion. Preguntar solo en ese caso evita molestarlo cuando la hoja
+ * es evidente, que es casi siempre.
+ */
+async function createScheduleWorkbookAttachment(
+    file,
+    weekStart = currentWeekStart,
+    { onAskSheet = null } = {}
+) {
     const workspace = getActiveWorkspace();
     const dataUrl = await readFileAsDataURL(file);
     const normalizedWeekStart = weekStartMonday(weekStart);
@@ -481,7 +561,7 @@ async function createScheduleWorkbookAttachment(file, weekStart = currentWeekSta
         functions,
         "uploadScheduleWorkbook"
     );
-    const result = await upload({
+    const payload = {
         workspaceId: workspace?.id || "",
         name: file.name || "programacion.xlsx",
         type: file.type || "",
@@ -489,14 +569,27 @@ async function createScheduleWorkbookAttachment(file, weekStart = currentWeekSta
             ? scheduleWeekStartISO(normalizedWeekStart)
             : "",
         dataUrl
-    });
+    };
+
+    let result = await upload(payload);
+
+    if (result?.data?.needsSheet) {
+        const sheetName = onAskSheet
+            ? await onAskSheet(result.data.sheets || [])
+            : "";
+
+        if (!sheetName) return null;
+
+        result = await upload({ ...payload, sheetName });
+    }
+
     const attachment = normalizeScheduleAttachment(result.data, weekStart);
 
     if (!attachment || !attachment.grid) {
         throw new Error("No se pudo leer la programacion del Excel.");
     }
 
-    return attachment;
+    return { ...attachment, sheetName: result.data?.sheetName || "" };
 }
 
 // Reintenta el OCR de una programacion ya publicada (sin re-subir la imagen):
@@ -2609,8 +2702,18 @@ export function openScheduleAttachmentDialog(weekStart = currentWeekStart) {
 
                 const attachment = await createScheduleWorkbookAttachment(
                     file,
-                    dialogWeekStart
+                    dialogWeekStart,
+                    {
+                        onAskSheet: sheets => askScheduleSheet(sheets, weekLabel)
+                    }
                 );
+
+                // Cancelo al elegir la hoja: se deja el dialogo como estaba.
+                if (!attachment) {
+                    submit.disabled = false;
+                    submit.textContent = "Publicar programación";
+                    return;
+                }
 
                 saveScheduleAttachment({
                     ...attachment,
