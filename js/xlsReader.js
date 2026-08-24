@@ -32,6 +32,52 @@ function isOleFile(bytes) {
 }
 
 /**
+ * Numeros de los sectores que forman la FAT.
+ *
+ * Los primeros 109 estan en la cabecera. Un archivo mas grande -pasadas unas
+ * 7 MB con sectores de 512 bytes- continua la lista en la DIFAT: una cadena de
+ * sectores donde cada uno guarda mas numeros y, en sus ultimos 4 bytes, donde
+ * sigue la lista.
+ *
+ * Antes esto se daba por imposible ("un reloj control nunca llega a 7 MB") y la
+ * FAT quedaba a medias: los sectores que faltaban se leian como `undefined` y
+ * la lectura moria con "Offset is outside the bounds of the DataView". Con las
+ * marcas de una unidad entera si se llega.
+ */
+export function fatSectorNumbers(view, sectorSize, fatCount) {
+    const numbers = [];
+    const sectorOffset = (index) => (index + 1) * sectorSize;
+
+    for (let i = 0; i < Math.min(fatCount, 109); i++) {
+        numbers.push(view.getUint32(76 + i * 4, true));
+    }
+
+    const perSector = sectorSize / 4 - 1;
+    const difatCount = view.getUint32(72, true);
+    let difat = view.getUint32(68, true);
+    let guard = 0;
+
+    while (
+        numbers.length < fatCount &&
+        difat < END_OF_CHAIN &&
+        guard <= difatCount + 1
+    ) {
+        const base = sectorOffset(difat);
+
+        if (base + sectorSize > view.byteLength) break;
+
+        for (let i = 0; i < perSector && numbers.length < fatCount; i++) {
+            numbers.push(view.getUint32(base + i * 4, true));
+        }
+
+        difat = view.getUint32(base + perSector * 4, true);
+        guard++;
+    }
+
+    return numbers.filter(sector => sector < END_OF_CHAIN);
+}
+
+/**
  * Extrae el stream "Workbook" del compound file.
  * @param {Uint8Array} bytes
  * @returns {Uint8Array}
@@ -43,30 +89,37 @@ function readWorkbookStream(bytes) {
     const dirStart = view.getUint32(48, true);
     const sectorOffset = (index) => (index + 1) * sectorSize;
 
-    // La FAT encadena los sectores de cada stream. Los primeros 109 sectores de
-    // FAT van en la cabecera; un .xls de un reloj control nunca pasa de ahi
-    // (serian ~7 MB), asi que no se sigue la DIFAT.
+    // La FAT encadena los sectores de cada stream, y ella misma vive repartida
+    // en sectores. Los numeros de los primeros 109 van en la cabecera; de ahi
+    // en adelante siguen en la DIFAT.
     const fat = [];
 
-    for (let i = 0; i < Math.min(fatCount, 109); i++) {
-        const sector = view.getUint32(76 + i * 4, true);
-
-        if (sector >= END_OF_CHAIN) break;
-
+    fatSectorNumbers(view, sectorSize, fatCount).forEach(sector => {
         const base = sectorOffset(sector);
 
-        for (let offset = 0; offset < sectorSize; offset += 4) {
+        for (let offset = 0; offset + 4 <= sectorSize; offset += 4) {
+            if (base + offset + 4 > view.byteLength) return;
+
             fat.push(view.getUint32(base + offset, true));
         }
-    }
+    });
 
     const readChain = (start, size = 0) => {
         const parts = [];
         let sector = start;
         let guard = 0;
 
-        while (sector < END_OF_CHAIN && guard < 100000) {
+        while (
+            Number.isInteger(sector) &&
+            sector >= 0 &&
+            sector < END_OF_CHAIN &&
+            guard < 1000000
+        ) {
             const base = sectorOffset(sector);
+
+            // Un sector fuera del archivo significa cadena rota: se corta aqui
+            // en vez de reventar con un error del DataView.
+            if (base >= bytes.length) break;
 
             parts.push(bytes.subarray(base, base + sectorSize));
             sector = fat[sector];
