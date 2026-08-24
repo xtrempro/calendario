@@ -35,6 +35,7 @@
     "test:replacement-rotation": "node --test tests/replacement-rotation.test.mjs",
     "test:calendar-rotation-month": "node --test tests/calendar-rotation-month.test.mjs",
     "test:calendar-direct-edit": "node --test tests/calendar-direct-edit.test.mjs",
+    "test:permiso-sin-extra": "node --test tests/permiso-sin-turno-extra.test.mjs",
     "test:permisos-turnos": "node --test tests/permisos-solo-lectura-turnos.test.mjs",
     "test:plan-heredado": "node --test functions/test/billingAccount.test.js",
     "test:hhee-superficies": "node --test tests/hhee-superficies-coinciden.test.mjs",

@@ -350,6 +350,23 @@ export function esTurnoCapacitacionValido(state) {
     );
 }
 
+/**
+ * .Lleva este dia un turno extra encima de su base?
+ *
+ * Un P. Administrativo, un F. Legal o un F. Compensatorio dejan el dia libre
+ * COMPLETO: si el trabajador ademas tiene un turno extra, el permiso no
+ * corresponde. El caso que lo hacia evidente es el 24: la base es Larga y la
+ * Noche va como extra, asi que mirando solo la base el permiso pasaba y dejaba
+ * la Larga cubierta con el permiso y la Noche en pie.
+ *
+ * @param {number} baseState turno base del dia
+ * @param {number} actualState turno realmente programado
+ * @returns {boolean}
+ */
+export function tieneTurnoExtraAgregado(baseState, actualState) {
+    return getTurnoExtraAgregado(baseState, actualState) !== TURNO.LIBRE;
+}
+
 export function puedeAplicarAdministrativo(
     keyDay,
     state,
@@ -1047,6 +1064,15 @@ export function estaBloqueadoModo(
                 absences
             )
         );
+    }
+
+    // Un permiso deja el dia libre completo: con un turno extra encima no
+    // corresponde, aunque la base si admita el permiso.
+    if (
+        [MODO.ADMIN, "legal", "comp"].includes(selectionMode) &&
+        tieneTurnoExtraAgregado(state, actualState)
+    ) {
+        return true;
     }
 
     if (selectionMode === MODO.ADMIN) {

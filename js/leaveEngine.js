@@ -27,6 +27,7 @@ import {
     getCurrentProfile,
     getRotativa,
     getManualLeaveBalances,
+    getProfileData,
     saveManualLeaveBalances
 } from "./storage.js";
 
@@ -54,6 +55,7 @@ import {
     puedeAplicarCompensatorioDesde,
     puedeAplicarLegalDesde,
     puedeReemplazarAusencia,
+    tieneTurnoExtraAgregado,
     esTurnoCapacitacionValido
 } from "./rulesEngine.js";
 import { createLeaveMemoTask } from "./memos.js";
@@ -230,6 +232,25 @@ function contarHabiles(obj){
     });
 
     return total;
+}
+
+/**
+ * .Lleva alguno de estos dias un turno extra encima de su base?
+ *
+ * Un P. Administrativo, un F. Legal o un F. Compensatorio dejan el dia libre
+ * COMPLETO: sobre un dia con turno extra el permiso no corresponde.
+ *
+ * Mirar solo el turno base no alcanzaba. En un 24 la base es Larga y la Noche
+ * va como extra, asi que el permiso pasaba la validacion y dejaba la Larga
+ * cubierta con el permiso y la Noche en pie, que es justo lo que no puede ser.
+ */
+function algunDiaTieneTurnoExtra(profile, keys) {
+    const data = getProfileData(profile);
+
+    return keys.some(key => tieneTurnoExtraAgregado(
+        getTurnoBase(profile, key),
+        data[key]
+    ));
 }
 
 function validarRangoAusencias(fechas){
@@ -495,6 +516,8 @@ export async function aplicarAdministrativo(fecha, cantidad = 1){
         d.setDate(d.getDate()+1);
     }
 
+    if (algunDiaTieneTurnoExtra(currentProfile, keys)) return false;
+
     if (
         !await confirmAndCancelScheduleConflicts(
             currentProfile,
@@ -748,6 +771,8 @@ export async function aplicarLegal(fecha, cantidad){
 
     if(!validarRangoAusencias(nuevos)) return false;
 
+    if (algunDiaTieneTurnoExtra(getCurrentProfile(), nuevos)) return false;
+
     if (
         !await confirmAndCancelScheduleConflicts(
             getCurrentProfile(),
@@ -911,6 +936,8 @@ export async function aplicarComp(fecha, cantidad = 10){
 
         d.setDate(d.getDate()+1);
     }
+
+    if (algunDiaTieneTurnoExtra(getCurrentProfile(), nuevos)) return false;
 
     if (
         !await confirmAndCancelScheduleConflicts(
