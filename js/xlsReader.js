@@ -192,9 +192,16 @@ function readRecords(stream) {
 
             merged.set(previous.body, 0);
             merged.set(body, previous.body.length);
+            // Donde empieza cada trozo. La SST lo necesita: un texto puede
+            // quedar partido entre dos registros, y el segundo trozo arranca
+            // con un byte de bandera que dice como sigue codificado. Sin saber
+            // donde estan esos cortes, ese byte se lee como si fuera texto y
+            // desde ahi todo queda corrido.
+            previous.breaks = previous.breaks || [];
+            previous.breaks.push(previous.body.length);
             previous.body = merged;
         } else {
-            records.push({ opcode, body });
+            records.push({ opcode, body, breaks: [] });
         }
 
         position += 4 + length;
@@ -205,21 +212,22 @@ function readRecords(stream) {
 
 // Tabla de textos compartidos: las celdas de texto guardan un indice a esta
 // tabla, no la cadena.
-function readSharedStrings(records) {
+export function readSharedStrings(records) {
     const strings = [];
     const record = records.find(item => item.opcode === SST);
 
-    if (!record) return strings;
+    if (!record || record.body.length < 8) return strings;
 
     const { body } = record;
     const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+    const breaks = new Set(record.breaks || []);
     const count = view.getUint32(4, true);
     let position = 8;
 
     for (let i = 0; i < count && position + 3 <= body.length; i++) {
         const characters = view.getUint16(position, true);
         const flags = body[position + 2];
-        const wide = (flags & 0x01) === 1;
+        let wide = (flags & 0x01) === 1;
 
         position += 3;
 
@@ -229,31 +237,46 @@ function readSharedStrings(records) {
         let farEastSize = 0;
 
         if (flags & 0x08) {
+            if (position + 2 > body.length) break;
             richRuns = view.getUint16(position, true);
             position += 2;
         }
 
         if (flags & 0x04) {
+            if (position + 4 > body.length) break;
             farEastSize = view.getUint32(position, true);
             position += 4;
         }
 
         let text = "";
+        let read = 0;
+        let truncated = false;
 
-        if (wide) {
-            for (let c = 0; c < characters; c++) {
-                text += String.fromCharCode(view.getUint16(position + c * 2, true));
+        while (read < characters) {
+            // Al cruzar a un trozo nuevo, su primer byte dice como sigue
+            // codificado el resto del texto: puede cambiar de 8 a 16 bits a
+            // mitad de palabra.
+            if (breaks.has(position)) {
+                if (position + 1 > body.length) { truncated = true; break; }
+                wide = (body[position] & 0x01) === 1;
+                position += 1;
             }
-            position += characters * 2;
-        } else {
-            for (let c = 0; c < characters; c++) {
-                text += String.fromCharCode(body[position + c]);
-            }
-            position += characters;
+
+            const size = wide ? 2 : 1;
+
+            if (position + size > body.length) { truncated = true; break; }
+
+            text += String.fromCharCode(
+                wide ? view.getUint16(position, true) : body[position]
+            );
+            position += size;
+            read++;
         }
 
         position += richRuns * 4 + farEastSize;
         strings.push(text);
+
+        if (truncated) break;
     }
 
     return strings;
