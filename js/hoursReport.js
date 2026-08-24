@@ -616,6 +616,9 @@ const MOVED_EXIT_MARK = "*";
 const MOVED_EXIT_TITLE = "Marcado el";
 const ALL_MARKS_TITLE = "Marcas del turno:";
 
+// Dia sin turno: no habia nada que marcar.
+const IDLE_DAY_MARK = "-";
+
 // El reloj registra lo que el trabajador aprieta, y a veces aprieta el boton
 // equivocado. La marca vale igual -lo importante es que marco-, pero queda
 // senalada para que se note que el registro no calza con lo que hizo.
@@ -736,14 +739,39 @@ function attendanceReportCells(profile, iso, day) {
         });
     }
 
+    // Un dia sin turno no espera marcas. El guion lo dice; una celda en blanco
+    // se lee como un dato que falta.
+    const idle = Number(day.workedShift) <= TURNO.LIBRE;
+
+    if (idle) {
+        ["entrada", "salida"].forEach(side => {
+            meta[side] = {
+                title: meta[side]?.title || "",
+                className: [meta[side]?.className, "report-cell--idle-day"]
+                    .filter(Boolean)
+                    .join(" ")
+            };
+        });
+    }
+
     return {
         entrada: delay.missingEntry
             ? MISSING_MARK
-            : markCellText(cells, "entry"),
-        salida: missingExit ? MISSING_MARK : markCellText(cells, "exit"),
+            : orDash(markCellText(cells, "entry"), idle),
+        salida: missingExit
+            ? MISSING_MARK
+            : orDash(markCellText(cells, "exit"), idle),
         atrasos: formatDelayCell(delay.minutes),
         ...(Object.keys(meta).length ? { __cells: meta } : {})
     };
+}
+
+/**
+ * Guion para el dia sin turno que ademas no tiene marcas. Si llego a marcar
+ * -por error o por un turno que no quedo registrado- se muestra lo que marco.
+ */
+function orDash(text, idle) {
+    return !text && idle ? IDLE_DAY_MARK : text;
 }
 
 /**

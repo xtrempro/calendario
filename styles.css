@@ -18342,3 +18342,10 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
     white-space: pre-line;
     line-height: 1.5;
 }
+
+/* Dia sin turno: el guion dice que no habia nada que marcar. Centrado, para
+   que no se confunda con una hora alineada a la derecha. */
+.report-table td.report-cell--idle-day {
+    text-align: center;
+    color: var(--text-soft);
+}

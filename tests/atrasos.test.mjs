@@ -1139,6 +1139,28 @@ test("el cierre del dia siguiente no se confunde con la manana de hoy", () => {
 });
 
 /* =========================================================
+   El dia sin turno
+========================================================= */
+
+test("un dia libre muestra guion, no una celda en blanco", () => {
+    // Una celda vacia se lee como un dato que falta; el guion dice que no
+    // habia nada que marcar.
+    assert.match(reporte, /const IDLE_DAY_MARK = "-";/);
+    assert.match(
+        reporte,
+        /const idle = Number\(day\.workedShift\) <= TURNO\.LIBRE;/
+    );
+    assert.match(reporte, /function orDash\(text, idle\)/);
+    // Si llego a marcar, se muestra lo que marco y no el guion.
+    assert.match(reporte, /return !text && idle \? IDLE_DAY_MARK : text;/);
+    assert.match(estilos, /\.report-table td\.report-cell--idle-day \{/);
+    assert.match(
+        estilos,
+        /\.report-table td\.report-cell--idle-day \{\s*\n\s*text-align: center;/
+    );
+});
+
+/* =========================================================
    La celda
 ========================================================= */
 
