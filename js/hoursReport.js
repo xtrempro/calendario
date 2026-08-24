@@ -21,7 +21,7 @@ import {
     isAttendanceCovered
 } from "./attendanceImport.js";
 import {
-    getWorkerSchedule,
+    getWorkerScheduleAt,
     workerEntryTime,
     workerExitTime
 } from "./workerSchedule.js";
@@ -637,7 +637,7 @@ function scheduledEntryFromShift(profileName, keyDay, date, state, holidays) {
     )?.value?.entryTime;
 
     return authorized
-        || workerEntryTime(getWorkerSchedule(profileName), state)
+        || workerEntryTime(getWorkerScheduleAt(profileName, date), state)
         || formatClockTime(first.start);
 }
 
@@ -664,7 +664,7 @@ function scheduledExitFromShift(profileName, keyDay, date, state, holidays) {
     )?.value?.exitTime;
 
     return authorized
-        || workerExitTime(getWorkerSchedule(profileName), state, date)
+        || workerExitTime(getWorkerScheduleAt(profileName, date), state, date)
         || formatClockTime(last.end);
 }
 

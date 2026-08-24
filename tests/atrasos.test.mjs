@@ -1472,7 +1472,7 @@ test("el reporte lee la hora del marcaje autorizado", () => {
     // trabajador, y este sobre la hora del turno.
     assert.match(
         reporte,
-        /return authorized\s*\n\s*\|\| workerEntryTime\(getWorkerSchedule\(profileName\), state\)\s*\n\s*\|\| formatClockTime\(first\.start\);/
+        /return authorized\s*\n\s*\|\| workerEntryTime\(getWorkerScheduleAt\(profileName, date\), state\)\s*\n\s*\|\| formatClockTime\(first\.start\);/
     );
 });
 

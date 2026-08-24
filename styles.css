@@ -18421,3 +18421,15 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 .ws-field { display: flex; flex-direction: column; gap: 4px; }
 .ws-field span { font-size: 0.82rem; color: var(--text-soft); }
 .ws-note { margin: 6px 0 0; font-size: 0.82rem; color: var(--text-soft); }
+
+/* Periodos de vigencia del horario propio. */
+.ws-periods { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.ws-period {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 10px; border-radius: 10px;
+    background: rgba(148, 163, 184, 0.14);
+}
+.ws-period.is-open { background: rgba(13, 148, 136, 0.16); }
+.ws-period b { display: block; font-size: 0.86rem; }
+.ws-period small { color: var(--text-soft); font-size: 0.82rem; }
+.ws-validity legend { color: var(--text-soft); }

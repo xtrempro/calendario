@@ -1,16 +1,19 @@
 /**
- * Horario propio de un trabajador.
+ * Horario propio de un trabajador, por periodos.
  *
- * Algunos entran y salen a horas distintas de las del turno: un diurno que
- * entra 8:40 y sale 17:40, o alguien de tercer turno con la Larga de 7:30 a
- * 19:30. Sus atrasos y sus incidencias se miden contra ESE horario, no contra
- * el general, porque si no aparecerian llegando tarde todos los dias.
+ * Algunos entran y salen a horas distintas de las del turno: un diurno de 8:40
+ * a 17:40, o alguien de tercer turno con la Larga de 7:30 a 19:30. Sus atrasos
+ * y sus incidencias se miden contra ESE horario, no contra el general.
+ *
+ * Va por periodos con fecha de inicio y un termino opcional. Importa porque un
+ * acuerdo empieza un dia: al cambiarle el horario a alguien, lo nuevo rige de
+ * ahi en adelante y los meses ya revisados no se recalculan con un horario que
+ * entonces no existia.
  *
  * Es un acuerdo permanente, distinto de la modificacion de marcaje de un dia
  * suelto. Cuando ambos existen manda la del dia, que es la mas especifica.
  */
 import { getJSON, setJSON } from "./persistence.js";
-import { TURNO } from "./constants.js";
 import { getTurnoComponentes } from "./rulesEngine.js";
 
 const STORAGE_KEY = "workerSchedules";
@@ -54,9 +57,23 @@ function isTime(value) {
     return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ""));
 }
 
+function isDate(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
+export function isoFromDate(date) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0")
+    ].join("-");
+}
+
 /**
  * Deja solo horas validas: un campo a medio escribir no puede convertirse en
- * un horario que despues mida atrasos.
+ * un horario que despues mida atrasos contra una hora inventada.
  */
 function normalizeSegment(value) {
     if (!value || typeof value !== "object") return null;
@@ -70,16 +87,45 @@ function normalizeSegment(value) {
     return { entry, exit, exitFriday };
 }
 
-export function normalizeWorkerSchedule(value) {
-    const schedule = {};
+function normalizeSegments(value) {
+    const segments = {};
 
     Object.values(SEGMENT_KEYS).forEach(key => {
         const segment = normalizeSegment(value?.[key]);
 
-        if (segment) schedule[key] = segment;
+        if (segment) segments[key] = segment;
     });
 
-    return schedule;
+    return segments;
+}
+
+function normalizePeriod(value) {
+    const segments = normalizeSegments(value);
+
+    if (!Object.keys(segments).length) return null;
+
+    return {
+        from: isDate(value?.from) ? value.from : "",
+        to: isDate(value?.to) ? value.to : "",
+        ...segments
+    };
+}
+
+/**
+ * Acepta la forma con periodos y tambien la vieja -un solo horario sin fechas-,
+ * que se lee como un periodo sin inicio: lo que ya estaba configurado sigue
+ * valiendo igual que antes.
+ */
+export function normalizeWorkerSchedule(value) {
+    const raw = Array.isArray(value?.periods)
+        ? value.periods
+        : [value];
+    const periods = raw
+        .map(normalizePeriod)
+        .filter(Boolean)
+        .sort((a, b) => String(a.from).localeCompare(String(b.from)));
+
+    return periods.length ? { periods } : {};
 }
 
 function allSchedules() {
@@ -88,13 +134,14 @@ function allSchedules() {
     return stored && typeof stored === "object" ? stored : {};
 }
 
-/**
- * Horario propio de un trabajador. {} si no tiene nada configurado.
- */
 export function getWorkerSchedule(profile) {
     if (!profile) return {};
 
     return normalizeWorkerSchedule(allSchedules()[profile]);
+}
+
+export function getWorkerSchedulePeriods(profile) {
+    return getWorkerSchedule(profile).periods || [];
 }
 
 export function saveWorkerSchedule(profile, schedule) {
@@ -103,7 +150,7 @@ export function saveWorkerSchedule(profile, schedule) {
     const all = allSchedules();
     const normalized = normalizeWorkerSchedule(schedule);
 
-    if (Object.keys(normalized).length) {
+    if (normalized.periods?.length) {
         all[profile] = normalized;
     } else {
         delete all[profile];
@@ -113,7 +160,67 @@ export function saveWorkerSchedule(profile, schedule) {
 }
 
 export function hasWorkerSchedule(profile) {
-    return Object.keys(getWorkerSchedule(profile)).length > 0;
+    return getWorkerSchedulePeriods(profile).length > 0;
+}
+
+function dayBefore(iso) {
+    const [year, month, day] = String(iso).split("-").map(Number);
+    const date = new Date(year, month - 1, day - 1);
+
+    return isoFromDate(date);
+}
+
+/**
+ * Agrega un periodo nuevo y cierra el anterior el dia antes.
+ *
+ * Es lo que hace que lo nuevo rija de ahi en adelante sin tocar lo de atras:
+ * los meses ya revisados se siguen midiendo con el horario que tenian.
+ *
+ * @param {string} profile
+ * @param {{from: string, to?: string}} period con los tramos dentro
+ */
+export function addWorkerSchedulePeriod(profile, period) {
+    const nuevo = normalizePeriod(period);
+
+    if (!profile || !nuevo || !nuevo.from) return false;
+
+    const periods = getWorkerSchedulePeriods(profile)
+        .filter(existente => existente.from !== nuevo.from)
+        .map(existente => {
+            const abierto = !existente.to || existente.to >= nuevo.from;
+
+            return existente.from < nuevo.from && abierto
+                ? { ...existente, to: dayBefore(nuevo.from) }
+                : existente;
+        });
+
+    saveWorkerSchedule(profile, { periods: [...periods, nuevo] });
+    return true;
+}
+
+export function removeWorkerSchedulePeriod(profile, from) {
+    const periods = getWorkerSchedulePeriods(profile)
+        .filter(period => period.from !== from);
+
+    saveWorkerSchedule(profile, { periods });
+}
+
+/**
+ * El horario que regia en esa fecha, o {} si no habia ninguno.
+ *
+ * @param {string} profile
+ * @param {Date|string} date
+ */
+export function getWorkerScheduleAt(profile, date) {
+    const iso = date instanceof Date ? isoFromDate(date) : String(date || "");
+    const periods = getWorkerSchedulePeriods(profile);
+
+    if (!iso) return {};
+
+    return periods.find(period =>
+        (!period.from || period.from <= iso) &&
+        (!period.to || iso <= period.to)
+    ) || {};
 }
 
 /**
@@ -121,10 +228,6 @@ export function hasWorkerSchedule(profile) {
  *
  * La entrada la fija el PRIMER tramo del turno: en un 24 (Larga + Noche) se
  * entra por la Larga.
- *
- * @param {object} schedule
- * @param {number} shift
- * @returns {string} "HH:MM", o "" si no hay nada configurado
  */
 export function workerEntryTime(schedule, shift) {
     const [first] = getTurnoComponentes(shift);
@@ -138,11 +241,6 @@ export function workerEntryTime(schedule, shift) {
  * La salida la fija el ULTIMO tramo: en un 24 se sale por la Noche. Y el
  * diurno puede tener una hora distinta los viernes, que es cuando la jornada
  * termina antes.
- *
- * @param {object} schedule
- * @param {number} shift
- * @param {Date} [date] para saber si es viernes
- * @returns {string}
  */
 export function workerExitTime(schedule, shift, date = null) {
     const components = getTurnoComponentes(shift);
@@ -158,4 +256,3 @@ export function workerExitTime(schedule, shift, date = null) {
 
 export const WORKER_SCHEDULE_STORAGE_KEY = STORAGE_KEY;
 export const WORKER_SCHEDULE_SEGMENT_KEYS = SEGMENT_KEYS;
-export { TURNO };
