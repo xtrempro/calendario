@@ -898,6 +898,64 @@ function pushIncidents(events, profile, iso, facts) {
 }
 
 /**
+ * Lector de marcas de un trabajador, dia por dia.
+ *
+ * Devuelve lo MISMO que muestran las celdas del reporte -con la salida del
+ * turno de noche ya traida a su dia y las cruces de lo que falta-, para que el
+ * trabajador vea en su aplicacion exactamente lo que ve el supervisor.
+ *
+ * Es una fabrica y no una funcion suelta porque lo caro se calcula una vez por
+ * trabajador: sus datos, sus ausencias y el periodo que cubre el reloj.
+ *
+ * @param {{name: string, rut: string}} profile
+ * @returns {(keyDay: string, date: Date, holidays: object) => object|null}
+ */
+export function createAttendanceMarksReader(profile) {
+    const profileName = profile?.name;
+
+    if (!profileName) return () => null;
+
+    const data = getProfileData(profileName);
+    const maps = getReportMaps(profileName);
+    const coverage = attendanceCoverage();
+    const today = startOfToday();
+
+    return (keyDay, date, holidays) => {
+        const baseWithSwaps = baseWithSwapsForReport(profileName, keyDay);
+        const actual = actualStateForReport(profileName, data, keyDay);
+        const absence = dayAbsenceDetail(keyDay, maps);
+        const { cells, delay, missingExit } = attendanceDayFacts(
+            profile,
+            isoFromKey(keyDay),
+            attendanceDay(profileName, keyDay, date, holidays, data, {
+                baseShift: baseWithSwaps,
+                extraShift: getTurnoExtraAgregado(baseWithSwaps, actual),
+                workedShift: actual,
+                absent: Boolean(absence?.full),
+                today,
+                coverage
+            })
+        );
+
+        // Sin nada que decir no se manda nada: la proyeccion viaja a cada
+        // telefono y un campo vacio por dia la engorda sin aportar.
+        if (
+            !cells.entrada && !cells.salida &&
+            !delay.missingEntry && !missingExit
+        ) {
+            return null;
+        }
+
+        return {
+            entrada: cells.entrada,
+            salida: cells.salida,
+            ...(delay.missingEntry ? { missingEntry: true } : {}),
+            ...(missingExit ? { missingExit: true } : {})
+        };
+    };
+}
+
+/**
  * Incidencias de marcaje de un mes, para todos los trabajadores.
  *
  * Sale de los MISMOS hechos que dibujan las celdas del reporte
