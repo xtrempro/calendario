@@ -303,6 +303,24 @@ export function getActiveCoveredReplacementsForProfileRange(
 
 // Nombres de los trabajadores que cubren el turno del ausente ese dia (uno o
 // varios si el turno esta combinado). Sin duplicados.
+/**
+ * Reemplazos vigentes que cubren el turno de ese trabajador ese dia.
+ *
+ * getCoveringWorkersForShift devuelve solo los nombres; para poder anularlos
+ * hace falta el reemplazo entero. Son varios cuando el turno se repartio -un 24
+ * puede quedar en dos personas-, y al quitar la cobertura hay que sacarlos
+ * todos: dejar uno a medias deja el turno cubierto en parte y sin alerta.
+ */
+export function getActiveReplacementsForCoveredShift(profile, keyDay) {
+    const iso = isoFromKey(keyDay);
+
+    return getReplacements().filter(replacement =>
+        replacementActive(replacement) &&
+        replacement.replaced === profile &&
+        replacement.date === iso
+    );
+}
+
 export function getCoveringWorkersForShift(profile, keyDay) {
     const iso = isoFromKey(keyDay);
 

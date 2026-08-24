@@ -119,6 +119,7 @@ import {
     buildPendingRequestIndex,
     getPendingRequestsFromIndex,
     formatRequestTimeLeft,
+    getActiveReplacementsForCoveredShift,
     getCoveringWorkersForShift,
     getPendingReplacementRequestsForShift,
     getReplacementForCoveredShift,
@@ -3991,6 +3992,14 @@ function openLeaveDetailDialog({
         }</button>`
         : "";
 
+    // Quitar la cobertura sin anular el permiso: el permiso sigue, pero el
+    // turno vuelve a quedar pendiente de reemplazo.
+    const coveringReplacements =
+        getActiveReplacementsForCoveredShift(profile, keyDay);
+    const dropCoverButton = coveringReplacements.length
+        ? `<button class="secondary-button" type="button" data-action="drop-cover">Quitar reemplazo</button>`
+        : "";
+
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
     backdrop.innerHTML = `
@@ -4033,6 +4042,7 @@ function openLeaveDetailDialog({
                 ${canUndo
                     ? `<button class="leave-detail-undo" type="button" data-action="undo">Anular permiso</button>`
                     : ""}
+                ${dropCoverButton}
                 ${leaveDocsButton}
                 <button class="ghost-button" type="button" data-action="close">Cerrar</button>
             </div>
@@ -4084,6 +4094,60 @@ function openLeaveDetailDialog({
                 updateTimelineCells(profile, [keyDay]);
                 await updateVisibleCalendarDays({ updateSummary: true });
             }, { label: "Guardando..." });
+        });
+    backdrop
+        .querySelector("[data-action='drop-cover']")
+        ?.addEventListener("click", async event => {
+            const button = event.currentTarget;
+            const quienes = coveringReplacements
+                .map(replacement => String(replacement.worker || ""))
+                .filter(Boolean);
+            const confirmed = await showConfirm(
+                `Se le quitará el turno a ${quienes.join(", ")} y se le avisará `
+                + `por la aplicación. El permiso de ${profile} se mantiene, y `
+                + "el turno volverá a quedar pendiente de cobertura.",
+                {
+                    title: "Quitar reemplazo",
+                    tone: "danger",
+                    confirmText: "Quitar reemplazo",
+                    destructive: true
+                }
+            );
+
+            if (!confirmed) return;
+
+            button.disabled = true;
+            button.textContent = "Quitando...";
+
+            try {
+                // Se quitan TODOS los que cubrian: dejar uno a medias deja el
+                // turno cubierto en parte y sin la alerta que lo delata.
+                const quitados = coveringReplacements
+                    .map(replacement => cancelReplacementById(replacement.id, {
+                        reason: "coverage_removed",
+                        details:
+                            `El supervisor quito la cobertura de ${profile} `
+                            + `del ${leaveDateLabelFromKey(keyDay)}.`
+                    }))
+                    .filter(Boolean);
+
+                if (!quitados.length) {
+                    button.disabled = false;
+                    button.textContent = "Quitar reemplazo";
+                    alert(
+                        "No se pudo quitar el reemplazo. Es posible que ya no este vigente."
+                    );
+                    return;
+                }
+
+                close();
+                await updateVisibleCalendarDays({ updateSummary: true });
+            } catch (error) {
+                console.error(error);
+                button.disabled = false;
+                button.textContent = "Quitar reemplazo";
+                alert("Ocurrio un error al quitar el reemplazo.");
+            }
         });
     backdrop
         .querySelector("[data-action='undo']")

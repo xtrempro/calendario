@@ -44,6 +44,7 @@
     "test:reemplazo-noche": "node --test tests/reemplazo-noche-dia-siguiente.test.mjs",
     "test:honorarios-vacio": "node --test tests/honorarios-edicion-directa-vacio.test.mjs",
     "test:logo-actualiza": "node --test tests/logo-actualiza-app.test.mjs",
+    "test:quitar-reemplazo": "node --test tests/quitar-reemplazo.test.mjs",
     "test:anular-extra": "node --test tests/anular-turno-extra-manual.test.mjs",
     "test:marcaje-turno-extra": "node --test tests/marcaje-sobre-turno-extra.test.mjs",
     "test:cobertura-inicio": "node --test tests/cobertura-inicio-preasignados.test.mjs",
