@@ -21,6 +21,11 @@ import {
     isAttendanceCovered
 } from "./attendanceImport.js";
 import {
+    getWorkerSchedule,
+    workerEntryTime,
+    workerExitTime
+} from "./workerSchedule.js";
+import {
     delayMinutes,
     entryDelayForDay,
     formatDelayCell,
@@ -617,16 +622,23 @@ function scheduledEntryFromShift(profileName, keyDay, date, state, holidays) {
 
     if (!first?.start) return "";
 
-    // Si el supervisor movio la hora de ingreso con el boton de marcajes del
-    // reloj control, el atraso se mide desde ESA hora y no desde la del turno.
-    // De lo contrario, a quien le autorizaron entrar a las 10:00 se le
-    // contarian las dos horas anteriores como atraso.
+    // De lo mas especifico a lo mas general:
+    //
+    // 1. la hora que el supervisor fijo para ESE dia con el boton de marcajes;
+    // 2. el horario propio del trabajador, si tiene uno acordado;
+    // 3. la hora del turno.
+    //
+    // Sin el paso 1, a quien le autorizaron entrar a las 10:00 se le contarian
+    // las dos horas anteriores como atraso. Sin el 2, quien entra siempre a
+    // las 8:40 apareceria llegando tarde todos los dias.
     const authorized = findClockMarkEntry(
         getClockMarks(profileName)[keyDay],
         first
     )?.value?.entryTime;
 
-    return authorized || formatClockTime(first.start);
+    return authorized
+        || workerEntryTime(getWorkerSchedule(profileName), state)
+        || formatClockTime(first.start);
 }
 
 /**
@@ -642,7 +654,18 @@ function scheduledExitFromShift(profileName, keyDay, date, state, holidays) {
     );
     const last = segments[segments.length - 1];
 
-    return last?.end ? formatClockTime(last.end) : "";
+    if (!last?.end) return "";
+
+    // Misma precedencia que la entrada. El horario propio puede tener una hora
+    // distinta los viernes, que es cuando la jornada diurna termina antes.
+    const authorized = findClockMarkEntry(
+        getClockMarks(profileName)[keyDay],
+        last
+    )?.value?.exitTime;
+
+    return authorized
+        || workerExitTime(getWorkerSchedule(profileName), state, date)
+        || formatClockTime(last.end);
 }
 
 function scheduledSegments(profileName, keyDay, date, state, holidays) {

@@ -224,6 +224,11 @@ import { renderKanbanBoard } from "./kanban.js";
 import { renderAgendaPanel } from "./agenda.js";
 import { renderDashboardPanel } from "./dashboard.js";
 import { renderHomePanel, refreshHomeTasks } from "./home.js";
+import { scheduleSegmentsForRotativa } from "./workerSchedule.js";
+import {
+    openWorkerScheduleDialog,
+    workerScheduleSummary
+} from "./workerScheduleDialog.js";
 import {
     startHomeTasksSync,
     stopHomeTasksSync,
@@ -5075,6 +5080,61 @@ function exportProfileFichaPdf() {
     setTimeout(() => win.print(), 250);
 }
 
+/**
+ * Fila del horario propio en el perfil.
+ *
+ * Solo aparece cuando la rotativa tiene tramos configurables: un trabajador sin
+ * rotativa, o de reemplazo, no tiene contra que definirlo.
+ */
+function renderProfileScheduleRow(profile) {
+    const row = document.getElementById("profileScheduleRow");
+    const summary = document.getElementById("profileScheduleSummary");
+
+    if (!row || !summary) return;
+
+    const name = profile?.name || "";
+    const configurable = name &&
+        scheduleSegmentsForRotativa(getRotativa(name).type).length > 0;
+
+    row.classList.toggle("hidden", !configurable);
+
+    if (!configurable) return;
+
+    const resumen = workerScheduleSummary(name);
+
+    summary.textContent = resumen || "Usa el horario del turno";
+    summary.classList.toggle("pf-schedule-custom", Boolean(resumen));
+
+    const boton = document.getElementById("profileScheduleBtn");
+
+    if (!boton) return;
+
+    // Se reemplaza el nodo para no acumular manejadores: el perfil se repinta
+    // muchas veces y cada repintado volveria a enlazar el mismo boton.
+    const nuevo = boton.cloneNode(true);
+
+    boton.replaceWith(nuevo);
+    nuevo.addEventListener("click", async () => {
+        const guardado = await openWorkerScheduleDialog(name);
+
+        if (!guardado) return;
+
+        addAuditLog(
+            AUDIT_CATEGORY.CALENDAR,
+            "Modifico horario propio",
+            `${name}: ${workerScheduleSummary(name) || "sin horario propio"}.`,
+            { profile: name }
+        );
+        renderProfileScheduleRow(profile);
+        // El horario propio cambia los atrasos y las incidencias de todo el
+        // historial, asi que lo ya calculado deja de valer.
+        window.dispatchEvent(new CustomEvent("proturnos:clockMarksChanged", {
+            detail: { profile: name }
+        }));
+        refreshAll();
+    });
+}
+
 function renderDashboardState() {
     const profile = getPerfilActual();
     const data = getDisplayedProfileData();
@@ -5257,6 +5317,8 @@ function renderDashboardState() {
             !editing && !isHonorariaContract && !isReplacementContract
         );
     }
+
+    renderProfileScheduleRow(profile);
 
     // Condiciones como chips (modo ver): se ocultan los toggles y se muestran
     // los chips; en edicion, al reves (los toggles vuelven segun su logica).

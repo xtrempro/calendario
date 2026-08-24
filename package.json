@@ -60,6 +60,7 @@
     "test:mensajes-adjuntos": "node --test tests/mensajes-adjuntos.test.mjs",
     "test:tope-hhee-diurnas": "node --test tests/cobertura-tope-hhee-diurnas.test.mjs",
     "test:motor-horas-extras": "node --test tests/motor-horas-extras.test.mjs",
+    "test:horario-propio": "node --test tests/horario-propio.test.mjs",
     "test:incidencias": "node --test tests/inicio-incidencias.test.mjs",
     "test:notas-rrhh": "node --test tests/inicio-notas-rrhh.test.mjs",
     "test:hoja-programacion": "node --test tests/hoja-programacion.test.mjs",

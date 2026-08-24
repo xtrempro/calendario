@@ -1468,10 +1468,11 @@ test("el reporte lee la hora del marcaje autorizado", () => {
         reporte,
         /const authorized = findClockMarkEntry\(\s*\n\s*getClockMarks\(profileName\)\[keyDay\],\s*\n\s*first\s*\n\s*\)\?\.value\?\.entryTime;/
     );
-    // Y solo cae al horario del turno cuando no hay una hora fijada.
+    // Y la precedencia: la hora del dia manda sobre el horario propio del
+    // trabajador, y este sobre la hora del turno.
     assert.match(
         reporte,
-        /return authorized \|\| formatClockTime\(first\.start\);/
+        /return authorized\s*\n\s*\|\| workerEntryTime\(getWorkerSchedule\(profileName\), state\)\s*\n\s*\|\| formatClockTime\(first\.start\);/
     );
 });
 

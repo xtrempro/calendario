@@ -18406,3 +18406,18 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 .hm-inc-row b { font-size: 0.9rem; }
 .hm-inc-date { font-size: 0.85rem; color: var(--text-soft); white-space: nowrap; }
 .hm-inc-row small { grid-column: 1 / -1; color: var(--text-soft); }
+
+/* Horario propio del trabajador, en su perfil y en su editor. */
+.pf-schedule-value { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pf-schedule-custom { font-weight: 600; }
+.ws-dialog { max-width: 460px; }
+.ws-intro { margin: 2px 0 14px; color: var(--text-soft); font-size: 0.9rem; }
+.ws-segment {
+    border: 1px solid var(--border-soft, rgba(148, 163, 184, 0.35));
+    border-radius: 12px; padding: 10px 14px 14px; margin: 0 0 12px;
+}
+.ws-segment legend { padding: 0 6px; font-weight: 600; font-size: 0.9rem; }
+.ws-fields { display: flex; gap: 12px; flex-wrap: wrap; }
+.ws-field { display: flex; flex-direction: column; gap: 4px; }
+.ws-field span { font-size: 0.82rem; color: var(--text-soft); }
+.ws-note { margin: 6px 0 0; font-size: 0.82rem; color: var(--text-soft); }
