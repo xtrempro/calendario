@@ -1345,6 +1345,57 @@ test("el reporte toma la hora de ingreso del horario programado", () => {
 });
 
 /* =========================================================
+   Llegar tarde a un turno que no es el base
+
+   Los atrasos son de la rotativa propia. En un turno extra no se miden, pero
+   que haya llegado tarde igual queda senalado como incidencia, igual que
+   marcar la salida antes de hora.
+========================================================= */
+
+test("llegar tarde a un extra no suma minutos pero si deja incidencia", () => {
+    assert.match(reporte, /const LATE_EXTRA_TITLE = "Incidencia: llego despues de las";/);
+    assert.match(
+        reporte,
+        /const lateOnExtra = Boolean\(\s*\n\s*!delay\.minutes &&\s*\n\s*delayMinutes\(cells\.entrada, day\.scheduledEntry\)\s*\n\s*\);/
+    );
+    // Se mide contra el turno que efectivamente hizo, no contra su base: en un
+    // extra la base esta libre y no tiene hora de entrada.
+    assert.match(reporte, /lateOnExtra && !cells\.entryIncident && INCIDENT_MARK/);
+});
+
+test("la incidencia respeta el mismo margen de cortesia", () => {
+    // Llegar 20:03 a un turno extra de noche no es incidencia.
+    assert.equal(delayMinutes("20:03", "20:00"), 0);
+    assert.equal(delayMinutes("20:30", "20:00"), 30);
+});
+
+test("un 24 con base Larga SI mide atraso; con base Noche, no", () => {
+    // Con base Larga la llegada de la manana es la de su turno base.
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.LARGA,
+            extraShift: TURNO.NOCHE,
+            workedShift: TURNO.TURNO24,
+            entryTime: "08:20",
+            entryOverride: "08:00"
+        }).minutes,
+        20
+    );
+    // Con base Noche entro por el tramo extra y siguio de largo: no hay forma
+    // de que marque atraso sobre su Noche, que empieza a las 20:00.
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.NOCHE,
+            extraShift: TURNO.LARGA,
+            workedShift: TURNO.TURNO24,
+            entryTime: "08:40",
+            entryOverride: "20:00"
+        }).minutes,
+        0
+    );
+});
+
+/* =========================================================
    Salir antes de hora
 ========================================================= */
 

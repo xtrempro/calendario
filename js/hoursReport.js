@@ -19,10 +19,10 @@ import {
     getAttendanceCells
 } from "./attendanceImport.js";
 import {
+    delayMinutes,
     entryDelayForDay,
     formatDelayCell,
     isMarkMissing,
-    scheduledEntryTime,
     shiftEndsNextMorning,
     shiftHasSeparateSegments,
     shiftStartsInTheMorning
@@ -675,6 +675,7 @@ const INCIDENT_MARK = "⚠";
 const ENTRY_INCIDENT_TITLE = "Incidencia: marco salida en vez de entrada";
 const EXIT_INCIDENT_TITLE = "Incidencia: marco entrada en vez de salida";
 const EARLY_EXIT_TITLE = "Incidencia: salio antes de las";
+const LATE_EXTRA_TITLE = "Incidencia: llego despues de las";
 
 /**
  * Clave del dia anterior, cruzando meses y anios.
@@ -736,6 +737,15 @@ function attendanceReportCells(profile, iso, day) {
         absent: day.absent,
         hasPassed: day.hasPassed && !cells.exitArrow
     });
+    // Llego tarde a un turno que no es su base. No se mide atraso -los atrasos
+    // son de la rotativa propia-, pero que llegara tarde igual queda senalado.
+    //
+    // Cubre los dos casos: el turno extra suelto, y el 24 cuya base es la
+    // Noche, donde la llegada de la manana es del tramo extra.
+    const lateOnExtra = Boolean(
+        !delay.minutes &&
+        delayMinutes(cells.entrada, day.scheduledEntry)
+    );
     // Se fue antes de la hora que le tocaba. No cuenta si el supervisor le
     // autorizo salir antes: en ese caso la reduccion de jornada esta permitida
     // y ya queda registrada como tal.
@@ -756,12 +766,16 @@ function attendanceReportCells(profile, iso, day) {
             title: MISSING_ENTRY_TITLE,
             className: "report-cell--missing-entry"
         };
-    } else if (cells.entryIncident || hidden) {
+    } else if (cells.entryIncident || lateOnExtra || hidden) {
         meta.entrada = {
-            title: [cells.entryIncident ? ENTRY_INCIDENT_TITLE : "", hidden]
-                .filter(Boolean)
-                .join("\n"),
-            className: cells.entryIncident
+            title: [
+                cells.entryIncident ? ENTRY_INCIDENT_TITLE : "",
+                lateOnExtra
+                    ? `${LATE_EXTRA_TITLE} ${day.scheduledEntry}`
+                    : "",
+                hidden
+            ].filter(Boolean).join("\n"),
+            className: cells.entryIncident || lateOnExtra
                 ? "report-cell--mark-incident"
                 : "report-cell--more-marks"
         };
@@ -824,7 +838,13 @@ function attendanceReportCells(profile, iso, day) {
     return {
         entrada: delay.missingEntry
             ? MISSING_MARK
-            : orDash(markCellText(cells, "entry"), idle),
+            : orDash(
+                withMarks(
+                    markCellText(cells, "entry"),
+                    lateOnExtra && !cells.entryIncident && INCIDENT_MARK
+                ),
+                idle
+            ),
         salida: missingExit
             ? MISSING_MARK
             : orDash(
