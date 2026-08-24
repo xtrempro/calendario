@@ -2451,8 +2451,15 @@ function openWorkerDefaultDialog({ taskId, workerName, shift, keyDay }) {
     });
 }
 
-function openScheduleAttachmentDialog() {
-    const dialogWeekStart = new Date(currentWeekStart);
+/**
+ * Dialogo para publicar la programacion de una semana.
+ *
+ * Recibe la semana porque ahora se abre desde dos lugares: la pantalla de
+ * Tareas -donde manda la semana que se esta viendo alli- y el widget de
+ * inicio, que abre la semana que el supervisor tiene a la vista en el modal.
+ */
+export function openScheduleAttachmentDialog(weekStart = currentWeekStart) {
+    const dialogWeekStart = new Date(weekStart);
     const current = getScheduleAttachment(dialogWeekStart);
     const weekLabel = scheduleWeekLabel(dialogWeekStart);
     const linkedCount = getWorkerAppLinks()

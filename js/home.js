@@ -72,6 +72,7 @@ import {
     weeklyScheduleBody
 } from "./weeklySchedulePreview.js";
 import { openAttachmentFile } from "./attachmentUtils.js";
+import { openScheduleAttachmentDialog } from "./taskAssignments.js";
 
 // Nombre por defecto para entornos que aun no tienen "Nombre del supervisor"
 // cargado al crearse (entornos de prueba previos al requerimiento).
@@ -675,17 +676,95 @@ function dotacionCard(tone, label, dia, noche) {
         </article>`;
 }
 
-// Stat cards: una tarjeta por estamento en servicio hoy (colores en ciclo).
+/**
+ * Semanas con programacion publicada: la actual y la siguiente.
+ *
+ * Devuelve solo las que tienen algo adjunto. Si la lista queda vacia no hay
+ * nada que mostrar, y el widget no se dibuja.
+ */
+function programacionSemanas() {
+    const estaSemana = weekStartMonday(new Date());
+
+    return [
+        { label: "Esta semana", start: estaSemana },
+        { label: "Próxima semana", start: addScheduleDays(estaSemana, 7) }
+    ]
+        .map(semana => {
+            const adjunto = weekAttachment(semana.start);
+
+            return adjunto
+                ? { label: semana.label, ...actualizacion(adjunto) }
+                : null;
+        })
+        .filter(Boolean);
+}
+
+/**
+ * Cuando se actualizo por ultima vez esa programacion. La fecha va en la
+ * tarjeta y la hora exacta en el title, para no apretar la tarjeta.
+ */
+function actualizacion(adjunto) {
+    const fecha = new Date(adjunto.updatedAtISO || adjunto.addedAt || "");
+
+    if (Number.isNaN(fecha.getTime())) {
+        return { fecha: "sin fecha", exacta: "Sin fecha de actualización" };
+    }
+
+    return {
+        fecha: fecha.toLocaleDateString("es-CL", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric"
+        }),
+        exacta: `Actualizada el ${fecha.toLocaleString("es-CL", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit"
+        })}`
+    };
+}
+
+/**
+ * Widget de programacion semanal. Reemplaza al boton del encabezado y solo
+ * aparece cuando hay alguna semana publicada: sin nada adjunto, un acceso que
+ * lleva a una pantalla vacia solo estorba.
+ */
+function programacionWidget() {
+    const semanas = programacionSemanas();
+
+    if (!semanas.length) return "";
+
+    return `
+        <article class="hm-stat hm-stat--teal" data-hm="open-weekly" role="button"
+            tabindex="0" title="Ver la programación semanal publicada">
+            <span class="hm-stat-icon">${svg(IC.table)}</span>
+            <div class="hm-stat-label">Programación semanal</div>
+            <div class="hm-weeks">
+                ${semanas.map(semana => `
+                    <div class="hm-week" title="${esc(semana.exacta)}">
+                        <b>${esc(semana.label)}</b>
+                        <small>${esc(semana.fecha)}</small>
+                    </div>`).join("")}
+            </div>
+            <span class="hm-stat-go">${svg(IC.arrowRight, 'stroke-width="2.4"')}</span>
+        </article>`;
+}
+
+// Stat cards: una tarjeta por estamento en servicio hoy (colores en ciclo),
+// y al final la programacion semanal si esta publicada.
 function statsSection() {
     const dot = getDotacionHoy();
     const tones = ["violet", "blue", "green", "amber"];
-
-    return dot.estamentos.length
+    const dotacion = dot.estamentos.length
         ? dot.estamentos.map((est, i) => {
             const e = dot.byEstamento[est];
             return dotacionCard(tones[i % tones.length], est, e.dia, e.noche);
         }).join("")
         : statCard("violet", IC.users, "En servicio hoy", 0, "sin dotación hoy");
+
+    return dotacion + programacionWidget();
 }
 
 function panelHead(icon, title, extra = "") {
@@ -1181,6 +1260,8 @@ function weeklyScheduleModal() {
                         <button type="button" data-hm="ws-next" aria-label="Semana siguiente">&#8250;</button>
                     </div>
                     <button class="hm-btn-secondary hm-ws-today" type="button" data-hm="ws-today">Hoy</button>
+                    <button class="hm-btn-secondary hm-ws-attach" type="button"
+                        data-hm="ws-attach" title="Publicar la programación de esta semana">Adjuntar</button>
                     <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
                 </div>
                 <div class="hm-ws-weeks" data-hm="ws-weeks"></div>
@@ -1779,12 +1860,6 @@ function homeHTML() {
                         <span><small>Hoy es</small><strong>${esc(todayLabel())}</strong></span>
                         <span class="hm-date-go">${svg(IC.chevron, 'stroke-width="2.4"')}</span>
                     </div>
-                    <button class="hm-hero-action" type="button" data-hm="open-weekly"
-                        title="Ver la programación semanal publicada">
-                        ${svg(IC.table)}
-                        <span>Programación semanal</span>
-                        ${svg(IC.chevron, 'stroke-width="2.4"')}
-                    </button>
                 </div>
             </section>
 
@@ -1967,17 +2042,31 @@ function wire(panel) {
     // --- Dotación: click en una stat card -> modal con día/noche + horario ---
     const stats = panel.querySelector(".hm-stats");
     const dotModal = panel.querySelector('[data-hm="dotacion-modal"]');
+    // La programacion semanal es otra tarjeta de la misma fila, asi que
+    // comparte estos manejadores y con eso hereda el soporte de teclado.
+    const abrirTarjeta = (target) => {
+        const dotacion = target.closest('[data-hm="dotacion"]');
+
+        if (dotacion) {
+            openDotacion(panel, dotacion.dataset.est);
+            return true;
+        }
+
+        if (target.closest('[data-hm="open-weekly"]')) {
+            openWeeklySchedule(panel);
+            return true;
+        }
+
+        return false;
+    };
+
     if (stats) {
         stats.addEventListener("click", event => {
-            const card = event.target.closest('[data-hm="dotacion"]');
-            if (card) openDotacion(panel, card.dataset.est);
+            abrirTarjeta(event.target);
         });
         stats.addEventListener("keydown", event => {
             if (event.key !== "Enter" && event.key !== " ") return;
-            const card = event.target.closest('[data-hm="dotacion"]');
-            if (!card) return;
-            event.preventDefault();
-            openDotacion(panel, card.dataset.est);
+            if (abrirTarjeta(event.target)) event.preventDefault();
         });
     }
     if (dotModal) {
@@ -1991,11 +2080,13 @@ function wire(panel) {
     // --- Programacion semanal publicada ---
     const weeklyModal = panel.querySelector('[data-hm="weekly-modal"]');
 
-    panel.querySelector('[data-hm="open-weekly"]')?.addEventListener("click", () => {
+    // El acceso vive en la fila de widgets y lo enlaza el manejador de esa
+    // fila; aqui solo queda que hace al abrirse.
+    function openWeeklySchedule(target) {
         // Siempre abre en la semana de hoy, no donde quedo la vez anterior.
         weeklyScheduleWeek = weekStartMonday(new Date());
-        showWeeklySchedule(panel);
-    });
+        showWeeklySchedule(target);
+    }
 
     if (weeklyModal) {
         const irASemana = (week) => {
@@ -2030,6 +2121,13 @@ function wire(panel) {
 
             if (event.target.closest('[data-hm="ws-today"]')) {
                 irASemana(weekStartMonday(new Date()));
+                return;
+            }
+
+            // Publicar la programacion de la semana que se esta viendo, no la
+            // de hoy: se navega hasta la semana y se adjunta ahi.
+            if (event.target.closest('[data-hm="ws-attach"]')) {
+                openScheduleAttachmentDialog(weeklyScheduleWeek);
                 return;
             }
 

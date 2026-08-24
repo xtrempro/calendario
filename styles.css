@@ -1496,6 +1496,17 @@ body[data-active-view="home"] .secondary-grid {
 .hm-stat--blue { background: linear-gradient(140deg, var(--hm-blue-1), var(--hm-blue-2)); }
 .hm-stat--green { background: linear-gradient(140deg, var(--hm-green-1), var(--hm-green-2)); }
 .hm-stat--amber { background: linear-gradient(140deg, var(--hm-amber-1), var(--hm-amber-2)); }
+/* La programacion semanal comparte la fila con la dotacion, pero no es una
+   dotacion: el color distinto evita leerla como un estamento mas. */
+.hm-stat--teal { background: linear-gradient(140deg, #0f766e, #0d9488); }
+
+.hm-weeks { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.hm-week {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px; cursor: help;
+}
+.hm-week b { font-size: 0.86rem; font-weight: 600; }
+.hm-week small { font-size: 0.8rem; opacity: 0.85; white-space: nowrap; }
 .hm-stat-icon svg { width: 30px; height: 30px; opacity: 0.92; }
 .hm-stat-label { margin-top: 8px; font-size: 0.86rem; font-weight: 600; opacity: 0.94; }
 .hm-stat-value { font-size: 2.4rem; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
@@ -18349,3 +18360,6 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
     text-align: center;
     color: var(--text-soft);
 }
+
+/* Publicar la programacion de la semana que se esta viendo, desde el modal. */
+.hm-ws-attach { margin-left: 6px; }

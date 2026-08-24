@@ -76,14 +76,36 @@ test("avanzar de a siete dias cruza el mes solo", () => {
    El visor
 ========================================================= */
 
-test("el inicio tiene el boton y abre en la semana de hoy", () => {
+test("el acceso es un widget de la fila de dotacion y abre en la semana de hoy", () => {
+    // Dejo de ser un boton del encabezado: ahora es una tarjeta mas de la fila
+    // de widgets, junto a la dotacion.
     assert.match(home, /data-hm="open-weekly"/);
     assert.match(home, />Programación semanal</);
+    assert.match(home, /return dotacion \+ programacionWidget\(\);/);
     // No queda donde estaba la vez anterior: se entra por "hoy".
     assert.match(
         home,
-        /open-weekly[\s\S]{0,80}addEventListener\("click"[\s\S]{0,220}weeklyScheduleWeek = weekStartMonday\(new Date\(\)\)/
+        /function openWeeklySchedule\(target\) \{[\s\S]{0,200}weeklyScheduleWeek = weekStartMonday\(new Date\(\)\)/
     );
+});
+
+test("sin programacion adjunta el widget no aparece", () => {
+    // Un acceso que lleva a una pantalla vacia solo estorba.
+    assert.match(home, /if \(!semanas\.length\) return "";/);
+});
+
+test("el widget muestra cuando se actualizo cada semana", () => {
+    assert.match(home, /label: "Esta semana"/);
+    assert.match(home, /label: "Próxima semana", start: addScheduleDays\(estaSemana, 7\)/);
+    // Solo las que tienen algo adjunto.
+    assert.match(home, /return adjunto\s*\n\s*\? \{ label: semana\.label, \.\.\.actualizacion\(adjunto\) \}\s*\n\s*: null;/);
+    assert.match(home, /adjunto\.updatedAtISO \|\| adjunto\.addedAt/);
+});
+
+test("desde el modal se puede publicar la semana que se esta viendo", () => {
+    assert.match(home, /data-hm="ws-attach"/);
+    // La semana que se esta viendo, no la de hoy.
+    assert.match(home, /openScheduleAttachmentDialog\(weeklyScheduleWeek\);/);
 });
 
 test("se puede recorrer semana a semana y volver a hoy", () => {
