@@ -209,7 +209,16 @@ export function mergeAttendanceMarks(marks) {
         if (typeof window !== "undefined" && window.dispatchEvent) {
             window.dispatchEvent(new CustomEvent(
                 "proturnos:attendanceMarksChanged",
-                { detail: { added, dates: [...dates].sort() } }
+                {
+                    detail: {
+                        added,
+                        dates: [...dates].sort(),
+                        // Los RUT que trajo el archivo. Con ellos se republica
+                        // solo a esos trabajadores, en vez de a la unidad
+                        // entera.
+                        ruts: [...workers]
+                    }
+                }
             ));
         }
     }

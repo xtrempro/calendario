@@ -19,7 +19,10 @@ import {
 } from "./dateUtils.js";
 import { normalizeText, stripAccents, sanitizeDigits } from "./stringUtils.js";
 import { escapeHTML } from "./htmlUtils.js";
-import { importAttendanceFile } from "./attendanceImport.js";
+import {
+    importAttendanceFile,
+    normalizeRut
+} from "./attendanceImport.js";
 import { installModalBackdropGuard } from "./modalBackdropGuard.js";
 import { leaveTypeNeedsDocument } from "./leaveAttachments.js";
 import { formatRut, getRutValidationMessage } from "./rutUtils.js";
@@ -268,7 +271,6 @@ import {
 import {
     getWorkerAppLinkForProfile,
     notifyWorkerApp,
-    getWorkerAppLinks,
     scheduleWorkerAppDataPublish,
     startWorkerAppDataSync,
     stopWorkerAppDataSync
@@ -3244,48 +3246,9 @@ function formatImportDate(iso) {
         : String(iso || "");
 }
 
-/**
- * Reenvia a la aplicacion de cada trabajador lo que ya esta cargado.
- *
- * Las marcas viajan cuando algo dispara una publicacion, y eso ocurre al
- * cambiar algo del trabajador. Sin este boton, marcas que ya estan en el
- * sistema pueden tardar dias en llegar a un telefono cuyo turno no cambio.
- */
-function bindAttendanceRepublish() {
-    const button = document.getElementById("attendanceRepublishBtn");
-    const status = DOM.attendanceImportStatus;
-
-    if (!button || button.dataset.bound === "1") return;
-
-    button.dataset.bound = "1";
-    button.addEventListener("click", () => {
-        const names = getWorkerAppLinks()
-            .filter(item => item.uid && item.profile?.name)
-            .map(item => item.profile.name);
-
-        if (status) {
-            status.classList.remove("hidden");
-            status.className = "attendance-import__status " +
-                `attendance-import__status--${names.length ? "ok" : "info"}`;
-            status.textContent = names.length
-                ? `Enviando a ${names.length} trabajador(es) enlazado(s)...`
-                : "No hay trabajadores enlazados en esta unidad.";
-        }
-
-        if (!names.length) return;
-
-        // Sin espera: el supervisor acaba de pedirlo y quiere verlo.
-        scheduleWorkerAppDataPublish(0, names, null, {
-            requiresLocalStateFlush: true
-        });
-    });
-}
-
 function bindAttendanceImport() {
     const input = DOM.attendanceImportInput;
     const status = DOM.attendanceImportStatus;
-
-    bindAttendanceRepublish();
 
     if (!input || input.dataset.bound === "1") return;
 
@@ -13041,6 +13004,28 @@ window.addEventListener("proturnos:workerRequestsChanged", () => {
 // local no dispara el rebuild, así que forzamos el flush del estado
 // (clockMarks_<perfil>) antes del projectionRequest para que
 // buildWorkerAppProjection vea el marcaje fresco.
+// Subir una planilla del reloj cambia lo que ve el trabajador en su
+// aplicacion, asi que hay que republicarselo. Solo a los que venian en el
+// archivo: republicar la unidad entera por una planilla de tres personas es
+// trabajo y escrituras de mas.
+window.addEventListener("proturnos:attendanceMarksChanged", event => {
+    const ruts = new Set(
+        (event.detail?.ruts || []).map(rut => normalizeRut(rut)).filter(Boolean)
+    );
+
+    if (!ruts.size) return;
+
+    const names = getProfiles()
+        .filter(profile => ruts.has(normalizeRut(profile.rut)))
+        .map(profile => profile.name);
+
+    if (names.length) {
+        scheduleWorkerAppDataPublish(300, names, null, {
+            requiresLocalStateFlush: true
+        });
+    }
+});
+
 window.addEventListener("proturnos:clockMarksChanged", event => {
     const profile = event.detail?.profile;
 

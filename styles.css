@@ -18434,5 +18434,3 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 .ws-period small { color: var(--text-soft); font-size: 0.82rem; }
 .ws-validity legend { color: var(--text-soft); }
 
-/* Reenviar a los trabajadores lo ya cargado, sin esperar a que algo cambie. */
-#attendanceRepublishBtn { margin-left: 10px; white-space: nowrap; }

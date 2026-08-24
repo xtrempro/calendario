@@ -50,6 +50,11 @@ const html = (await readFile(
     "utf8"
 )).replace(/\r\n/g, "\n");
 
+const importacion = (await readFile(
+    new URL("../js/attendanceImport.js", import.meta.url),
+    "utf8"
+)).replace(/\r\n/g, "\n");
+
 const sync = (await readFile(
     new URL("../js/workerAppDataSync.js", import.meta.url),
     "utf8"
@@ -152,21 +157,36 @@ test("cada dia publicado lleva sus marcas cuando las tiene", () => {
 });
 
 /* =========================================================
-   Reenviar lo ya cargado
+   Subir la planilla es lo que las envia
+
+   Sin boton de por medio: cargar el archivo es el momento en que los datos
+   cambian, y es cuando tienen que llegar al telefono.
 ========================================================= */
 
-test("hay un boton para reenviar sin esperar a que algo cambie", () => {
-    // Las marcas viajan cuando algo dispara una publicacion, y eso ocurre al
-    // cambiar algo del trabajador. Marcas ya cargadas podian tardar dias en
-    // llegar a un telefono cuyo turno no cambio.
-    assert.match(html, /id="attendanceRepublishBtn"/);
-    assert.match(main, /function bindAttendanceRepublish\(\)/);
-    // Sin espera: el supervisor acaba de pedirlo.
-    assert.match(main, /scheduleWorkerAppDataPublish\(0, names, null, \{/);
-    // Solo a los que tienen aplicacion enlazada.
-    assert.match(main, /\.filter\(item => item\.uid && item\.profile\?\.name\)/);
+test("no hay un boton para esto: ocurre solo", () => {
+    assert.doesNotMatch(html, /attendanceRepublishBtn/);
+    assert.doesNotMatch(main, /bindAttendanceRepublish/);
 });
 
-test("sin enlaces lo dice en vez de quedarse callado", () => {
-    assert.match(main, /No hay trabajadores enlazados en esta unidad\./);
+test("subir una planilla republica a los trabajadores que trae", () => {
+    // Lo que ve el trabajador en su aplicacion cambia con la planilla: si no
+    // se republica, las marcas recien cargadas no llegan a su telefono hasta
+    // que algo mas de ese trabajador cambie.
+    assert.match(
+        main,
+        /addEventListener\("proturnos:attendanceMarksChanged"[\s\S]{0,700}scheduleWorkerAppDataPublish\(300, names, null/
+    );
+});
+
+test("solo a los que venian en el archivo, no a la unidad entera", () => {
+    // Republicar 42 trabajadores por una planilla de tres es trabajo y
+    // escrituras de mas.
+    assert.match(
+        main,
+        /\.filter\(profile => ruts\.has\(normalizeRut\(profile\.rut\)\)\)/
+    );
+});
+
+test("el archivo informa que RUT trajo", () => {
+    assert.match(importacion, /ruts: \[\.\.\.workers\]/);
 });
