@@ -79,7 +79,8 @@ import {
     getClockMarks,
     getClockScheduleState,
     getScheduledSegmentsForProfile,
-    getWorkedIntervalsForState
+    getWorkedIntervalsForState,
+    hasModifiedEntryTime
 } from "./clockMarks.js";
 import {
     classifyClockMarkSegment,
@@ -658,6 +659,8 @@ function attendanceReportCells(profile, iso, day) {
         startsInTheMorning: shiftStartsInTheMorning(day.workedShift),
         nextStartsInTheMorning: shiftStartsInTheMorning(day.nextWorkedShift),
         splitSegments: shiftHasSeparateSegments(day.workedShift),
+        entryMoved: day.entryMoved,
+        nextEntryMoved: day.nextEntryMoved,
         workedShift: day.workedShift,
         scheduledEntry: scheduledEntryTime(day.baseShift)
             || scheduledEntryTime(day.workedShift)
@@ -1257,6 +1260,11 @@ function buildNoAssignmentDayRows(
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
                 hasPassed: date < today,
+                entryMoved: hasModifiedEntryTime(profileName, keyDay),
+                nextEntryMoved: hasModifiedEntryTime(
+                    profileName,
+                    nextDayKey(keyDay)
+                ),
                 nextWorkedShift: actualStateForReport(
                     profileName,
                     data,
@@ -1405,6 +1413,11 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
                 hasPassed: date < today,
+                entryMoved: hasModifiedEntryTime(profileName, keyDay),
+                nextEntryMoved: hasModifiedEntryTime(
+                    profileName,
+                    nextDayKey(keyDay)
+                ),
                 nextWorkedShift: actualStateForReport(
                     profileName,
                     data,
@@ -1554,6 +1567,11 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
                 hasPassed: date < today,
+                entryMoved: hasModifiedEntryTime(profileName, keyDay),
+                nextEntryMoved: hasModifiedEntryTime(
+                    profileName,
+                    nextDayKey(keyDay)
+                ),
                 nextWorkedShift: actualStateForReport(
                     profileName,
                     data,

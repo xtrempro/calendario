@@ -883,6 +883,28 @@ export function hasSevereClockIncident(profile, keyDay) {
     );
 }
 
+/**
+ * .Se movio a mano la hora de entrada de este dia?
+ *
+ * Importa para la continuidad entre turnos. Una noche termina a las 8 y el
+ * turno de la manana empieza a las 8, asi que normalmente el trabajador sigue
+ * de largo y no hay nada que marcar. Pero si el supervisor le autorizo entrar
+ * mas tarde -por ejemplo a las 13:00-, la jornada se parte: el trabajador tuvo
+ * que marcar la salida de su noche, irse, y volver a marcar su entrada. Ahi las
+ * dos marcas son obligatorias y no corresponde la flecha de continuidad.
+ *
+ * @param {string} profile
+ * @param {string} keyDay
+ * @returns {boolean}
+ */
+export function hasModifiedEntryTime(profile, keyDay) {
+    const mark = getClockMark(profile, keyDay);
+
+    if (!mark?.segments) return false;
+
+    return Object.values(mark.segments).some(segment => segment?.entryTime);
+}
+
 export function hasSimpleClockIncident(profile, keyDay) {
     const mark = getClockMark(profile, keyDay);
 

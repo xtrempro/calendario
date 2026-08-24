@@ -253,6 +253,8 @@ export function getAttendanceCells(rut, iso, options = {}) {
         startsInTheMorning = false,
         nextStartsInTheMorning = false,
         splitSegments = false,
+        entryMoved = false,
+        nextEntryMoved = false,
         workedShift,
         scheduledEntry
     } = options;
@@ -275,14 +277,23 @@ export function getAttendanceCells(rut, iso, options = {}) {
 
     // Viene de un turno de noche que nadie cerro y hoy entra por la manana: no
     // hubo que marcar, siguio de largo. Lo mismo al reves con la salida.
+    //
+    // Salvo que la entrada se haya movido a mano: si al trabajador le
+    // autorizaron entrar mas tarde, la jornada se parte y las dos marcas pasan
+    // a ser obligatorias. Ahi no hay continuidad que mostrar, hay marcas que
+    // faltan, y corresponde la cruz.
     first.entryArrow = Boolean(
         previousEndsNextMorning &&
         !previousClosed &&
         startsInTheMorning &&
+        !entryMoved &&
         !first.entry
     );
     last.exitArrow = Boolean(
-        endsNextMorning && !closing && nextStartsInTheMorning
+        endsNextMorning &&
+        !closing &&
+        nextStartsInTheMorning &&
+        !nextEntryMoved
     );
 
     return {

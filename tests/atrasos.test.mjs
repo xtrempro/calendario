@@ -66,6 +66,7 @@ async function leer(ruta) {
 const motor = await leer("../js/attendanceDelay.js");
 const reporte = await leer("../js/hoursReport.js");
 const estilos = await leer("../styles.css");
+const marcajes = await leer("../js/clockMarks.js");
 
 /* =========================================================
    El margen de cortesia
@@ -1136,6 +1137,86 @@ test("el cierre del dia siguiente no se confunde con la manana de hoy", () => {
     ]);
 
     assert.equal(events.length, 2);
+});
+
+/* =========================================================
+   La jornada partida por una entrada movida a mano
+
+   Una noche continua en la Larga de la manana siguiente y por eso lleva
+   flecha. Pero si el supervisor autorizo entrar mas tarde -13:00-, la jornada
+   se parte: el trabajador tuvo que marcar la salida de su noche, irse, y
+   volver a marcar su entrada. Las dos marcas pasan a ser obligatorias, asi que
+   lo que falta no es continuidad sino registro: cruz, no flecha.
+========================================================= */
+
+test("con la entrada movida, la noche pierde su flecha de salida", () => {
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": { "2026-08-20": [{ time: "20:00", type: "in" }] }
+    }));
+
+    const conFlecha = getAttendanceCells("1-9", "2026-08-20", {
+        ...noche,
+        nextStartsInTheMorning: true
+    });
+
+    assert.equal(conFlecha.salida, CONTINUES_MARK);
+
+    const partida = getAttendanceCells("1-9", "2026-08-20", {
+        ...noche,
+        nextStartsInTheMorning: true,
+        nextEntryMoved: true
+    });
+
+    assert.equal(partida.salida, "");
+    assert.equal(partida.exitArrow, false);
+});
+
+test("y la Larga del dia siguiente pierde su flecha de entrada", () => {
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": { "2026-08-21": [] }
+    }));
+
+    const comun = {
+        workedShift: TURNO.LARGA,
+        scheduledEntry: "08:00",
+        previousEndsNextMorning: true,
+        startsInTheMorning: true
+    };
+
+    assert.equal(
+        getAttendanceCells("1-9", "2026-08-21", comun).entrada,
+        CONTINUES_MARK
+    );
+    assert.equal(
+        getAttendanceCells("1-9", "2026-08-21", {
+            ...comun,
+            entryMoved: true
+        }).entrada,
+        ""
+    );
+});
+
+test("la senal es que el marcaje autorizado trae hora de entrada", () => {
+    assert.match(
+        marcajes,
+        /export function hasModifiedEntryTime\(profile, keyDay\)/
+    );
+    assert.match(
+        marcajes,
+        /segments\)\.some\(segment => segment\?\.entryTime\)/
+    );
+});
+
+test("los tres constructores miran hoy y manana", () => {
+    // Hoy, para su propia flecha de entrada. Manana, para la flecha de salida
+    // de la noche de hoy: la que se parte es la jornada del dia siguiente.
+    const hoy = reporte.match(/entryMoved: hasModifiedEntryTime\(profileName, keyDay\)/g) || [];
+    const manana = reporte.match(/nextEntryMoved: hasModifiedEntryTime\(/g) || [];
+
+    assert.equal(hoy.length, 3);
+    assert.equal(manana.length, 3);
 });
 
 /* =========================================================
