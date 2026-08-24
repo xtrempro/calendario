@@ -77,6 +77,18 @@ export function shiftHasSeparateSegments(shift) {
 }
 
 /**
+ * .Esta hecho este turno de dos tramos?
+ *
+ * Un 24 es Larga + Noche y un 18 horas es Extension + Noche. Son continuos -no
+ * hace falta marcar al pasar de uno al otro-, pero si el trabajador marca ese
+ * traspaso, sus dos tramos se pueden mostrar por separado igual que un D+N.
+ * Sin esas marcas intermedias no hay nada que separar y se resume en una linea.
+ */
+export function shiftHasTwoParts(shift) {
+    return getTurnoComponentes(shift).length >= 2;
+}
+
+/**
  * Convierte "HH:MM" en minutos desde medianoche.
  * @param {string} time
  * @returns {number|null} null si no es una hora legible

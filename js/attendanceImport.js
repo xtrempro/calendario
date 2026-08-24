@@ -303,6 +303,7 @@ export function getAttendanceCells(rut, iso, options = {}) {
         startsInTheMorning = false,
         nextStartsInTheMorning = false,
         splitSegments = false,
+        canSplitOnMarks = false,
         entryMoved = false,
         nextEntryMoved = false,
         workedShift,
@@ -315,7 +316,13 @@ export function getAttendanceCells(rut, iso, options = {}) {
         nextStartsInTheMorning
     });
     const closing = marks.find(mark => mark.iso) || null;
-    const segments = splitSegments
+    // Un D+N va siempre en dos tramos: son dos presencias con horas de por
+    // medio. Un 24 o un 18 horas son continuos y se resumen en uno, salvo que
+    // el trabajador haya marcado el traspaso: si lo marco, se muestran los dos.
+    const marcoElTraspaso =
+        canSplitOnMarks &&
+        marks.filter(mark => !mark.iso).length >= 3;
+    const segments = (splitSegments || marcoElTraspaso)
         ? splitShiftSegments(marks, closing)
         : [singleShiftSegment(marks, closing, {
             endsNextMorning,
@@ -399,22 +406,31 @@ function singleShiftSegment(marks, closing, context) {
  * se equivoque de boton, que es justamente lo que no se puede dar por bueno.
  */
 function splitShiftSegments(marks, closing) {
-    // Por momentos, no por marcas sueltas: si marco dos veces al llegar, esas
+    const own = marks.filter(mark => !mark.iso);
+    // La llegada sale del primer momento: si marco dos veces al llegar, esas
     // dos son una sola llegada y vale la primera.
-    const events = groupMarkEvents(marks.filter(mark => !mark.iso));
-    const at = index => events[index]?.[0] || null;
-    const segment = (entry, exit) => ({
-        entry: entry || null,
-        exit: exit || null,
-        entryIncident: Boolean(entry) && entry.type === "out",
-        exitIncident: Boolean(exit) && exit.type !== "out",
+    const entry = groupMarkEvents(own)[0]?.[0] || null;
+    const tras = entry ? own.slice(own.indexOf(entry) + 1) : [];
+    // El cierre del primer tramo es la primera SALIDA posterior. Aqui no se
+    // agrupa por cercania: en un 24 la salida de la Larga y la entrada de la
+    // Noche pueden ir con un minuto de diferencia, y son el cambio de tramo,
+    // no una remarcacion.
+    const exit = tras.find(mark => mark.type === "out") || tras[0] || null;
+    const second = exit
+        ? tras.slice(tras.indexOf(exit) + 1)[0] || null
+        : null;
+    const segment = (from, to) => ({
+        entry: from || null,
+        exit: to || null,
+        entryIncident: Boolean(from) && from.type === "out",
+        exitIncident: Boolean(to) && to.type !== "out",
         entryArrow: false,
         exitArrow: false
     });
 
     return [
-        segment(at(0), at(1)),
-        segment(at(2), closing)
+        segment(entry, exit),
+        segment(second, closing)
     ];
 }
 

@@ -52,6 +52,7 @@ const {
     scheduledEntryTime,
     shiftEndsNextMorning,
     shiftHasSeparateSegments,
+    shiftHasTwoParts,
     shiftStartsInTheMorning
 } = await import("../js/attendanceDelay.js");
 const { CONTINUES_MARK, getAttendanceCells, getEntryMarkTime } =
@@ -1035,7 +1036,66 @@ test("caso 4: el D+N que continua deja flecha en la noche", () => {
     assert.equal(dia.exitArrow, true);
 });
 
-test("un 24 NO se parte en dos lineas: es continuo", () => {
+test("un 24 se parte en dos SI marco el traspaso", () => {
+    // Es continuo -no hace falta marcar al cambiar de tramo-, pero si marco,
+    // esas horas se muestran: arriba la Larga y abajo la Noche.
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-20": [
+                { time: "08:00", type: "in" },
+                { time: "20:00", type: "out" },
+                { time: "20:02", type: "in" }
+            ],
+            "2026-08-21": [{ time: "08:05", type: "out" }]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-20", {
+        workedShift: TURNO.TURNO24,
+        endsNextMorning: true,
+        canSplitOnMarks: true
+    });
+
+    assert.equal(dia.multiline, true);
+    assert.equal(dia.entrada, "08:00\n20:02");
+    assert.equal(dia.salida, "20:00\n08:05");
+});
+
+test("y sigue en una sola linea si NO lo marco", () => {
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-20": [{ time: "08:00", type: "in" }],
+            "2026-08-21": [{ time: "08:05", type: "out" }]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-20", {
+        workedShift: TURNO.TURNO24,
+        endsNextMorning: true,
+        canSplitOnMarks: true
+    });
+
+    assert.equal(dia.multiline, false);
+    assert.equal(dia.entrada, "08:00");
+    assert.equal(dia.salida, "08:05");
+});
+
+test("el cambio de tramo no se confunde con una remarcacion", () => {
+    // La salida de la Larga y la entrada de la Noche pueden ir con un minuto
+    // de diferencia. Agruparlas por cercania las tomaria por una sola marca.
+    assert.match(
+        reporte,
+        /canSplitOnMarks: shiftHasTwoParts\(day\.workedShift\)/
+    );
+    assert.equal(shiftHasTwoParts(TURNO.TURNO24), true);
+    assert.equal(shiftHasTwoParts(TURNO.TURNO18), true);
+    assert.equal(shiftHasTwoParts(TURNO.LARGA), false);
+    assert.equal(shiftHasTwoParts(TURNO.NOCHE), false);
+});
+
+test("un D+N se parte SIEMPRE, con traspaso marcado o sin el", () => {
     // La diferencia con el D+N no es capricho: en un 24 el trabajador nunca se
     // va, en un D+N si.
     assert.equal(shiftHasSeparateSegments(TURNO.TURNO24), false);

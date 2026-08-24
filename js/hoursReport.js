@@ -32,6 +32,7 @@ import {
     isMarkMissing,
     shiftEndsNextMorning,
     shiftHasSeparateSegments,
+    shiftHasTwoParts,
     shiftStartsInTheMorning
 } from "./attendanceDelay.js";
 import {
@@ -790,6 +791,7 @@ function attendanceDayFacts(profile, iso, day) {
         startsInTheMorning: shiftStartsInTheMorning(day.workedShift),
         nextStartsInTheMorning: shiftStartsInTheMorning(day.nextWorkedShift),
         splitSegments: shiftHasSeparateSegments(day.workedShift),
+        canSplitOnMarks: shiftHasTwoParts(day.workedShift),
         entryMoved: day.entryMoved,
         nextEntryMoved: day.nextEntryMoved,
         workedShift: day.workedShift,
