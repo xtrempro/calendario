@@ -81,7 +81,10 @@ test("el acceso es un widget de la fila de dotacion y abre en la semana de hoy",
     // de widgets, junto a la dotacion.
     assert.match(home, /data-hm="open-weekly"/);
     assert.match(home, />Programación semanal</);
-    assert.match(home, /return dotacion \+ programacionWidget\(\);/);
+    assert.match(
+        home,
+        /return dotacion \+ programacionWidget\(\) \+ notasWidget\(\);/
+    );
     // No queda donde estaba la vez anterior: se entra por "hoy".
     assert.match(
         home,

@@ -752,6 +752,87 @@ function programacionWidget() {
         </article>`;
 }
 
+/**
+ * Recordatorios de RRHH que rotan en el inicio.
+ *
+ * Son las reglas que mas se preguntan y que no estan a la vista en ninguna
+ * pantalla: el orden de FC y FL, en que dias se puede pedir cada permiso, y a
+ * que hora entra quien pide medio administrativo.
+ */
+const NOTAS_RRHH = [
+    "💡 Recuerda: el orden recomendado es FC primero y luego FL.",
+    "⏳ Si solicitas FL primero, deberán pasar 90 días desde el último FL para poder solicitar FC.",
+    "⏰ Los atrasos solo se miden en los turnos base, no en los turnos extra.",
+    "🚫 Si un funcionario solicita un PA, no puede hacer ningún turno ese día, ni siquiera noche.",
+    "📅 Los funcionarios sin asignación de turno no pueden solicitar PA en días inhábiles.",
+    "📦 Los FC se pueden acumular por razones de buen servicio.",
+    "🗓️ Si acumulas los FC, deberás tomar el bloque completo al año siguiente: los 20 días continuos.",
+    "🔟 Cada año hay que reservar un bloque de 10 FL continuos; el resto se puede parcializar.",
+    "❌ No se puede pedir un FL en un día inhábil.",
+    "▶️ Los FL y los FC deben comenzar siempre en un día hábil.",
+    "✅ Los PA sí pueden pedirse en días inhábiles, siempre que el funcionario tenga asignación de turno.",
+    "🕛 Los 1/2 PA de mañana permiten que el funcionario ingrese a la mitad de su jornada.",
+    "🕧 Un funcionario diurno que pide 1/2 PA mañana marca su entrada a las 12:30 (12:00 los viernes).",
+    "🕑 Un funcionario de turno que pide 1/2 PA mañana marca su entrada a las 14:00."
+];
+
+// Lo justo para leer la nota mas larga sin quedarse esperando la siguiente.
+const NOTA_MS = 6000;
+
+// El ciclo vive fuera del render: cada repintado reemplaza el panel entero, y
+// un intervalo del render anterior se quedaria escribiendo en nodos ya sueltos.
+let notasTimer = null;
+
+/**
+ * Arranca la rotacion de notas. Se detiene con el mouse encima, para poder
+ * terminar de leer una nota larga sin que se escape.
+ */
+function iniciarNotas(panel) {
+    if (notasTimer) {
+        clearInterval(notasTimer);
+        notasTimer = null;
+    }
+
+    const tarjeta = panel.querySelector('[data-hm="notas"]');
+    const texto = tarjeta?.querySelector('[data-hm="nota"]');
+
+    if (!tarjeta || !texto) return;
+
+    let detenido = false;
+
+    tarjeta.addEventListener("mouseenter", () => { detenido = true; });
+    tarjeta.addEventListener("mouseleave", () => { detenido = false; });
+
+    notasTimer = setInterval(() => {
+        if (detenido || !texto.isConnected) return;
+
+        const siguiente =
+            (Number(tarjeta.dataset.index) + 1) % NOTAS_RRHH.length;
+
+        tarjeta.dataset.index = String(siguiente);
+        texto.classList.add("is-fading");
+
+        window.setTimeout(() => {
+            texto.textContent = NOTAS_RRHH[siguiente];
+            texto.classList.remove("is-fading");
+        }, 200);
+    }, NOTA_MS);
+}
+
+function notasWidget() {
+    // Arranca en una nota al azar: entrando y saliendo del inicio, empezar
+    // siempre por la primera haria que las ultimas no se vieran nunca.
+    const inicio = Math.floor(Math.random() * NOTAS_RRHH.length);
+
+    return `
+        <article class="hm-stat hm-stat--indigo hm-notas" data-hm="notas"
+            data-index="${inicio}" title="Pasa el mouse para que no cambie">
+            <span class="hm-stat-icon">${svg(IC.megaphone)}</span>
+            <div class="hm-stat-label">¿Sabías que...?</div>
+            <p class="hm-nota" data-hm="nota">${esc(NOTAS_RRHH[inicio])}</p>
+        </article>`;
+}
+
 // Stat cards: una tarjeta por estamento en servicio hoy (colores en ciclo),
 // y al final la programacion semanal si esta publicada.
 function statsSection() {
@@ -764,7 +845,7 @@ function statsSection() {
         }).join("")
         : statCard("violet", IC.users, "En servicio hoy", 0, "sin dotación hoy");
 
-    return dotacion + programacionWidget();
+    return dotacion + programacionWidget() + notasWidget();
 }
 
 function panelHead(icon, title, extra = "") {
@@ -2042,6 +2123,8 @@ function wire(panel) {
     // --- Dotación: click en una stat card -> modal con día/noche + horario ---
     const stats = panel.querySelector(".hm-stats");
     const dotModal = panel.querySelector('[data-hm="dotacion-modal"]');
+    iniciarNotas(panel);
+
     // La programacion semanal es otra tarjeta de la misma fila, asi que
     // comparte estos manejadores y con eso hereda el soporte de teclado.
     const abrirTarjeta = (target) => {

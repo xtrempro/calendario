@@ -18376,3 +18376,17 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
     padding: 8px 10px; border-radius: 10px; cursor: pointer;
 }
 .task-schedule-sheet-option:hover { background: rgba(148, 163, 184, 0.16); }
+
+/* Notas de RRHH que rotan en el inicio. Van en la fila de widgets, con color
+   propio para que no se lean como una dotacion mas. */
+.hm-stat--indigo { background: linear-gradient(140deg, #4338ca, #6366f1); }
+.hm-notas { cursor: default; }
+.hm-nota {
+    margin: 10px 0 0; font-size: 0.86rem; line-height: 1.45;
+    transition: opacity 0.2s ease;
+}
+.hm-nota.is-fading { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+    .hm-nota { transition: none; }
+}
