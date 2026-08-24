@@ -1,10 +1,7 @@
 import { TURNO, TURNO_LABEL } from "./constants.js";
 import { isBusinessDay } from "./calculations.js";
 import { getJSON, setJSON } from "./persistence.js";
-import {
-    getRotativa,
-    getShiftAssigned
-} from "./storage.js";
+import { getRotativa } from "./storage.js";
 import { getHourReturn } from "./hourReturns.js";
 import { createClockMemoTask } from "./memos.js";
 import {
@@ -217,9 +214,24 @@ export function getClockScheduleState(profile, keyDay, state) {
     return Number(state) || TURNO.LIBRE;
 }
 
-function usesAssignedHalfAdminSchedule(profile, date) {
-    return getShiftAssigned(profile, date) &&
-        getRotativa(profile).type !== "diurno";
+/**
+ * .Se parte la jornada de este trabajador a las 14:00?
+ *
+ * Un 1/2 ADM es la mitad de la jornada, asi que donde queda el corte depende de
+ * cuanto dura el turno base, y eso lo fija la ROTATIVA:
+ *
+ * - 3er y 4to turno tienen base Larga, de 08:00 a 20:00. La mitad son 6 horas,
+ *   asi que el corte va a las 14:00.
+ * - Diurno es de 08:00 a 17:00 (16:00 los viernes). La mitad son 4,5 horas y el
+ *   corte va a las 12:30 (12:00 los viernes).
+ *
+ * Antes esto ademas exigia tener asignacion de turno, y por eso un trabajador
+ * de 3er o 4to turno SIN asignacion salia con el corte del diurno: entrando a
+ * las 12:30 en vez de las 14:00, y retirandose a las 12:30 en vez de las 14:00
+ * en un 1/2 ADM tarde. La asignacion no cambia la duracion de su turno base.
+ */
+function usesAssignedHalfAdminSchedule(profile) {
+    return ["3turno", "4turno"].includes(getRotativa(profile).type);
 }
 
 function halfAdminDiurnoSplit(date) {
@@ -236,10 +248,7 @@ function halfAdminDiurnoSplit(date) {
 
 function getHalfAdminScheduledSegments(profile, keyDay, date) {
     const admin = getJSON(`admin_${profile}`, {});
-    const assignedSchedule = usesAssignedHalfAdminSchedule(
-        profile,
-        date
-    );
+    const assignedSchedule = usesAssignedHalfAdminSchedule(profile);
 
     if (admin[keyDay] === "0.5M") {
         const split = halfAdminDiurnoSplit(date);
@@ -903,6 +912,20 @@ export function hasModifiedEntryTime(profile, keyDay) {
     if (!mark?.segments) return false;
 
     return Object.values(mark.segments).some(segment => segment?.entryTime);
+}
+
+/**
+ * .Se movio a mano la hora de salida de este dia?
+ *
+ * Si el supervisor autorizo salir antes -una reduccion de jornada-, irse
+ * temprano no es una incidencia: estaba permitido.
+ */
+export function hasModifiedExitTime(profile, keyDay) {
+    const mark = getClockMark(profile, keyDay);
+
+    if (!mark?.segments) return false;
+
+    return Object.values(mark.segments).some(segment => segment?.exitTime);
 }
 
 export function hasSimpleClockIncident(profile, keyDay) {

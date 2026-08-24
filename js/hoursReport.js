@@ -80,7 +80,8 @@ import {
     getClockScheduleState,
     getScheduledSegmentsForProfile,
     getWorkedIntervalsForState,
-    hasModifiedEntryTime
+    hasModifiedEntryTime,
+    hasModifiedExitTime
 } from "./clockMarks.js";
 import {
     classifyClockMarkSegment,
@@ -600,6 +601,53 @@ const MISSING_ENTRY_TITLE = "No existe registro de entrada";
 const MISSING_EXIT_TITLE = "No existe registro de salida";
 
 /**
+ * Hora de ingreso real del dia, tomada del horario programado.
+ *
+ * No hay una tabla propia de horarios: se usa la que ya define los segmentos de
+ * cada turno, que es la misma que alimenta el boton de marcajes del reloj
+ * control. Asi el 24h entra a las 8, el 18 horas a las 14, el D+N a las 8, un
+ * 1/2 ADM a las 12:30 o a las 14:00 segun la rotativa, y una Extension horaria
+ * a la hora que el supervisor le haya configurado a mano. Una sola fuente: si
+ * cambia el horario de un turno, el atraso cambia con el.
+ */
+function scheduledEntryFromShift(profileName, keyDay, date, state, holidays) {
+    const [first] = scheduledSegments(profileName, keyDay, date, state, holidays);
+
+    return first?.start ? formatClockTime(first.start) : "";
+}
+
+/**
+ * Hora a la que le corresponde terminar, del mismo horario programado.
+ */
+function scheduledExitFromShift(profileName, keyDay, date, state, holidays) {
+    const segments = scheduledSegments(
+        profileName,
+        keyDay,
+        date,
+        state,
+        holidays
+    );
+    const last = segments[segments.length - 1];
+
+    return last?.end ? formatClockTime(last.end) : "";
+}
+
+function scheduledSegments(profileName, keyDay, date, state, holidays) {
+    return getScheduledSegmentsForProfile(
+        profileName,
+        keyDay,
+        date,
+        getClockScheduleState(profileName, keyDay, state),
+        holidays
+    );
+}
+
+function formatClockTime(date) {
+    return `${String(date.getHours()).padStart(2, "0")}:`
+        + `${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
  * Comienzo del dia de hoy.
  *
  * Sirve para no marcar como "falta el registro" un dia que todavia no ocurre:
@@ -626,6 +674,7 @@ const IDLE_DAY_MARK = "-";
 const INCIDENT_MARK = "⚠";
 const ENTRY_INCIDENT_TITLE = "Incidencia: marco salida en vez de entrada";
 const EXIT_INCIDENT_TITLE = "Incidencia: marco entrada en vez de salida";
+const EARLY_EXIT_TITLE = "Incidencia: salio antes de las";
 
 /**
  * Clave del dia anterior, cruzando meses y anios.
@@ -662,8 +711,7 @@ function attendanceReportCells(profile, iso, day) {
         entryMoved: day.entryMoved,
         nextEntryMoved: day.nextEntryMoved,
         workedShift: day.workedShift,
-        scheduledEntry: scheduledEntryTime(day.baseShift)
-            || scheduledEntryTime(day.workedShift)
+        scheduledEntry: day.scheduledEntry
     });
     const delay = entryDelayForDay({
         baseShift: day.baseShift,
@@ -672,6 +720,10 @@ function attendanceReportCells(profile, iso, day) {
         // La entrada resuelta, no la que dice la etiqueta del reloj: si marco
         // "salida" al llegar, su atraso se mide igual.
         entryTime: cells.entrada,
+        // La hora de ingreso sale del horario programado del turno base, no de
+        // una tabla aparte: asi un 1/2 ADM se mide contra las 12:30 o las
+        // 14:00 segun la rotativa, y un 24h contra las 8.
+        entryOverride: day.baseScheduledEntry,
         absent: day.absent,
         // Una flecha no es una marca que falte: el turno viene de largo y no
         // habia nada que marcar, asi que ni cruz ni atraso.
@@ -684,6 +736,15 @@ function attendanceReportCells(profile, iso, day) {
         absent: day.absent,
         hasPassed: day.hasPassed && !cells.exitArrow
     });
+    // Se fue antes de la hora que le tocaba. No cuenta si el supervisor le
+    // autorizo salir antes: en ese caso la reduccion de jornada esta permitida
+    // y ya queda registrada como tal.
+    const earlyExit = Boolean(
+        cells.salida &&
+        day.scheduledExit &&
+        cells.salida < day.scheduledExit &&
+        !day.exitMoved
+    );
     const meta = {};
     // De un turno solo se muestran la primera entrada y la ultima salida. Las
     // intermedias -salir y volver a entrar entre los dos tramos de un 24- no
@@ -710,9 +771,12 @@ function attendanceReportCells(profile, iso, day) {
             title: MISSING_EXIT_TITLE,
             className: "report-cell--missing-entry"
         };
-    } else if (cells.exitIncident || cells.salidaFrom || hidden) {
+    } else if (cells.exitIncident || earlyExit || cells.salidaFrom || hidden) {
         const lines = [
             cells.exitIncident ? EXIT_INCIDENT_TITLE : "",
+            earlyExit
+                ? `${EARLY_EXIT_TITLE} ${day.scheduledExit}`
+                : "",
             cells.salidaFrom
                 ? `${MOVED_EXIT_TITLE} ${formatDate(cells.salidaFrom)}`
                 : "",
@@ -721,7 +785,7 @@ function attendanceReportCells(profile, iso, day) {
 
         meta.salida = {
             title: lines.join("\n"),
-            className: cells.exitIncident
+            className: cells.exitIncident || earlyExit
                 ? "report-cell--mark-incident"
                 : cells.salidaFrom
                     ? "report-cell--moved-exit"
@@ -763,7 +827,15 @@ function attendanceReportCells(profile, iso, day) {
             : orDash(markCellText(cells, "entry"), idle),
         salida: missingExit
             ? MISSING_MARK
-            : orDash(markCellText(cells, "exit"), idle),
+            : orDash(
+                withMarks(
+                    markCellText(cells, "exit"),
+                    // El simbolo de "se fue antes" va una sola vez, al final:
+                    // si ya lo puso la etiqueta equivocada, no se repite.
+                    earlyExit && !cells.exitIncident && INCIDENT_MARK
+                ),
+                idle
+            ),
         atrasos: formatDelayCell(delay.minutes),
         ...(Object.keys(meta).length ? { __cells: meta } : {})
     };
@@ -1260,6 +1332,16 @@ function buildNoAssignmentDayRows(
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
                 hasPassed: date < today,
+                scheduledEntry: scheduledEntryFromShift(
+                    profileName, keyDay, date, actual, holidays
+                ),
+                baseScheduledEntry: scheduledEntryFromShift(
+                    profileName, keyDay, date, baseWithSwaps, holidays
+                ),
+                scheduledExit: scheduledExitFromShift(
+                    profileName, keyDay, date, actual, holidays
+                ),
+                exitMoved: hasModifiedExitTime(profileName, keyDay),
                 entryMoved: hasModifiedEntryTime(profileName, keyDay),
                 nextEntryMoved: hasModifiedEntryTime(
                     profileName,
@@ -1413,6 +1495,16 @@ function buildAssignedShiftDayRows(profile, year, month, days, holidays) {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
                 hasPassed: date < today,
+                scheduledEntry: scheduledEntryFromShift(
+                    profileName, keyDay, date, actual, holidays
+                ),
+                baseScheduledEntry: scheduledEntryFromShift(
+                    profileName, keyDay, date, baseWithSwaps, holidays
+                ),
+                scheduledExit: scheduledExitFromShift(
+                    profileName, keyDay, date, actual, holidays
+                ),
+                exitMoved: hasModifiedExitTime(profileName, keyDay),
                 entryMoved: hasModifiedEntryTime(profileName, keyDay),
                 nextEntryMoved: hasModifiedEntryTime(
                     profileName,
@@ -1567,6 +1659,16 @@ function buildDayRows(profile, year, month, days, holidays, kind) {
                 baseShift: baseWithSwaps,
                 extraShift: extraState,
                 hasPassed: date < today,
+                scheduledEntry: scheduledEntryFromShift(
+                    profileName, keyDay, date, actual, holidays
+                ),
+                baseScheduledEntry: scheduledEntryFromShift(
+                    profileName, keyDay, date, baseWithSwaps, holidays
+                ),
+                scheduledExit: scheduledExitFromShift(
+                    profileName, keyDay, date, actual, holidays
+                ),
+                exitMoved: hasModifiedExitTime(profileName, keyDay),
                 entryMoved: hasModifiedEntryTime(profileName, keyDay),
                 nextEntryMoved: hasModifiedEntryTime(
                     profileName,

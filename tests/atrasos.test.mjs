@@ -1220,6 +1220,161 @@ test("los tres constructores miran hoy y manana", () => {
 });
 
 /* =========================================================
+   Los horarios salen del turno programado, no de una tabla aparte
+========================================================= */
+
+const { getClockScheduleState, getScheduledSegmentsForProfile } =
+    await import("../js/clockMarks.js");
+
+function horario(rotativa, turno, dia, permiso) {
+    localStorage.clear();
+    localStorage.setItem(
+        "rotativa_X",
+        JSON.stringify({ type: rotativa, start: "2026-08-01" })
+    );
+    if (permiso) {
+        localStorage.setItem("admin_X", JSON.stringify({ [dia.key]: permiso }));
+    }
+
+    const hhmm = fecha => `${String(fecha.getHours()).padStart(2, "0")}:`
+        + `${String(fecha.getMinutes()).padStart(2, "0")}`;
+
+    return getScheduledSegmentsForProfile(
+        "X",
+        dia.key,
+        dia.date,
+        getClockScheduleState("X", dia.key, turno),
+        {}
+    ).map(segmento => `${hhmm(segmento.start)}-${hhmm(segmento.end)}`);
+}
+
+const LUNES = { key: "2026-7-17", date: new Date(2026, 7, 17) };
+const VIERNES = { key: "2026-7-21", date: new Date(2026, 7, 21) };
+
+test("cada turno entra a la hora que dijo el usuario", () => {
+    assert.deepEqual(horario("4turno", TURNO.TURNO24, LUNES), ["08:00-08:00"]);
+    assert.deepEqual(horario("4turno", TURNO.TURNO18, LUNES), ["14:00-08:00"]);
+    assert.deepEqual(
+        horario("4turno", TURNO.DIURNO_NOCHE, LUNES),
+        ["08:00-17:00", "20:00-08:00"]
+    );
+});
+
+test("el diurno del D+N sale a las 16:00 los viernes", () => {
+    assert.deepEqual(
+        horario("4turno", TURNO.DIURNO_NOCHE, VIERNES),
+        ["08:00-16:00", "20:00-08:00"]
+    );
+});
+
+/* =========================================================
+   1/2 ADM: el corte depende de la ROTATIVA, no de la asignacion
+
+   Un 1/2 ADM es media jornada, asi que donde cae el corte lo fija cuanto dura
+   el turno base. 3er y 4to turno tienen base Larga (12 h) y cortan a las
+   14:00; el diurno dura 9 h y corta a las 12:30.
+========================================================= */
+
+test("3er y 4to turno cortan a las 14:00 aunque NO tengan asignacion", () => {
+    // Es el defecto que reporto el usuario: sin asignacion salian con el
+    // horario del diurno, entrando a las 12:30 en vez de las 14:00.
+    ["3turno", "4turno"].forEach(rotativa => {
+        assert.deepEqual(
+            horario(rotativa, TURNO.LARGA, LUNES, "0.5M"),
+            ["14:00-20:00"],
+            `${rotativa} manana`
+        );
+        assert.deepEqual(
+            horario(rotativa, TURNO.LARGA, LUNES, "0.5T"),
+            ["08:00-14:00"],
+            `${rotativa} tarde`
+        );
+    });
+});
+
+test("la rotativa diurno mantiene su corte a las 12:30", () => {
+    assert.deepEqual(
+        horario("diurno", TURNO.DIURNO, LUNES, "0.5M"),
+        ["12:30-17:00"]
+    );
+    assert.deepEqual(
+        horario("diurno", TURNO.DIURNO, LUNES, "0.5T"),
+        ["08:00-12:30"]
+    );
+});
+
+test("y los viernes corre media hora, porque el diurno sale a las 16:00", () => {
+    // El viernes la jornada dura 8 h en vez de 9, asi que la mitad cae a las
+    // 12:00 y no a las 12:30.
+    assert.deepEqual(
+        horario("diurno", TURNO.DIURNO, VIERNES, "0.5M"),
+        ["12:00-16:00"]
+    );
+    assert.deepEqual(
+        horario("diurno", TURNO.DIURNO, VIERNES, "0.5T"),
+        ["08:00-12:00"]
+    );
+});
+
+test("el viernes NO corre el corte de 3er y 4to turno", () => {
+    // Su base es Larga, de 08:00 a 20:00 todos los dias: la mitad son siempre
+    // las 14:00.
+    assert.deepEqual(
+        horario("4turno", TURNO.LARGA, VIERNES, "0.5M"),
+        ["14:00-20:00"]
+    );
+});
+
+test("la asignacion de turno ya no entra en la decision", () => {
+    assert.match(
+        marcajes,
+        /function usesAssignedHalfAdminSchedule\(profile\) \{\s*\n\s*return \["3turno", "4turno"\]\.includes\(getRotativa\(profile\)\.type\);/
+    );
+    assert.doesNotMatch(marcajes, /getShiftAssigned/);
+});
+
+test("el reporte toma la hora de ingreso del horario programado", () => {
+    // Sin tabla propia: la misma fuente que alimenta el boton de marcajes del
+    // reloj control. Si cambia el horario de un turno, el atraso cambia con el.
+    assert.match(reporte, /function scheduledEntryFromShift\(/);
+    assert.match(reporte, /entryOverride: day\.baseScheduledEntry,/);
+
+    const usos = reporte.match(/baseScheduledEntry: scheduledEntryFromShift\(/g) || [];
+
+    assert.equal(usos.length, 3);
+});
+
+/* =========================================================
+   Salir antes de hora
+========================================================= */
+
+test("marcar la salida antes de la hora del turno es una incidencia", () => {
+    assert.match(reporte, /function scheduledExitFromShift\(/);
+    assert.match(
+        reporte,
+        /const EARLY_EXIT_TITLE = "Incidencia: salio antes de las";/
+    );
+    assert.match(reporte, /cells\.salida < day\.scheduledExit &&/);
+});
+
+test("no es incidencia si el supervisor autorizo salir antes", () => {
+    // Una reduccion de jornada autorizada ya queda registrada como tal.
+    assert.match(reporte, /!day\.exitMoved/);
+    assert.match(
+        marcajes,
+        /export function hasModifiedExitTime\(profile, keyDay\)/
+    );
+
+    const usos = reporte.match(/exitMoved: hasModifiedExitTime\(/g) || [];
+
+    assert.equal(usos.length, 3);
+});
+
+test("el simbolo de salir antes no se duplica con el de etiqueta equivocada", () => {
+    assert.match(reporte, /earlyExit && !cells\.exitIncident && INCIDENT_MARK/);
+});
+
+/* =========================================================
    El dia sin turno
 ========================================================= */
 
