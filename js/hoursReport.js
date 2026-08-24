@@ -613,7 +613,18 @@ const MISSING_EXIT_TITLE = "No existe registro de salida";
 function scheduledEntryFromShift(profileName, keyDay, date, state, holidays) {
     const [first] = scheduledSegments(profileName, keyDay, date, state, holidays);
 
-    return first?.start ? formatClockTime(first.start) : "";
+    if (!first?.start) return "";
+
+    // Si el supervisor movio la hora de ingreso con el boton de marcajes del
+    // reloj control, el atraso se mide desde ESA hora y no desde la del turno.
+    // De lo contrario, a quien le autorizaron entrar a las 10:00 se le
+    // contarian las dos horas anteriores como atraso.
+    const authorized = findClockMarkEntry(
+        getClockMarks(profileName)[keyDay],
+        first
+    )?.value?.entryTime;
+
+    return authorized || formatClockTime(first.start);
 }
 
 /**

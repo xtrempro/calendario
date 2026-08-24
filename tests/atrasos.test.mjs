@@ -1396,6 +1396,61 @@ test("un 24 con base Larga SI mide atraso; con base Noche, no", () => {
 });
 
 /* =========================================================
+   La hora de ingreso que fija el supervisor
+
+   Si con el boton de marcajes del reloj control se mueve la entrada, el atraso
+   se mide desde esa hora y no desde la del turno.
+========================================================= */
+
+test("el atraso se mide desde la hora autorizada, no la del turno", () => {
+    // Un diurno entra a las 8:00, pero le autorizaron entrar a las 10:00. Si
+    // llega 10:06 son 6 minutos, no las dos horas anteriores.
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.DIURNO,
+            workedShift: TURNO.DIURNO,
+            entryTime: "10:06",
+            entryOverride: "10:00"
+        }).minutes,
+        6
+    );
+    // Sin autorizacion, la misma llegada si es un atraso largo.
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.DIURNO,
+            workedShift: TURNO.DIURNO,
+            entryTime: "10:06",
+            entryOverride: "08:00"
+        }).minutes,
+        126
+    );
+});
+
+test("el margen de cortesia corre sobre la hora autorizada", () => {
+    assert.equal(
+        entryDelayForDay({
+            baseShift: TURNO.DIURNO,
+            workedShift: TURNO.DIURNO,
+            entryTime: "10:05",
+            entryOverride: "10:00"
+        }).minutes,
+        0
+    );
+});
+
+test("el reporte lee la hora del marcaje autorizado", () => {
+    assert.match(
+        reporte,
+        /const authorized = findClockMarkEntry\(\s*\n\s*getClockMarks\(profileName\)\[keyDay\],\s*\n\s*first\s*\n\s*\)\?\.value\?\.entryTime;/
+    );
+    // Y solo cae al horario del turno cuando no hay una hora fijada.
+    assert.match(
+        reporte,
+        /return authorized \|\| formatClockTime\(first\.start\);/
+    );
+});
+
+/* =========================================================
    Salir antes de hora
 ========================================================= */
 
