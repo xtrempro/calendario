@@ -150,6 +150,53 @@ function extraTakesTheEntry(extraShift, baseEntryTime) {
     return extra !== null && base !== null && extra < base;
 }
 
+// Dos marcas separadas por menos de esto son el mismo momento. Quien se da
+// cuenta de que apreto el boton equivocado vuelve a marcar en el acto, y eso
+// son dos marcas de una sola llegada. Ningun par de momentos distintos de un
+// turno queda tan cerca: lo mas ajustado es el D+N, con casi tres horas entre
+// la salida del diurno y la entrada de la noche.
+const EVENT_WINDOW_MINUTES = 30;
+
+function absoluteMinutes(mark) {
+    const minutes = minutesFromTime(mark?.time);
+
+    if (minutes === null) return null;
+
+    // La marca traida del dia siguiente ocurre 24 horas mas tarde: sin esto,
+    // un cierre a las 08:01 pareceria anterior a una entrada de las 19:57.
+    return mark.iso ? minutes + 24 * 60 : minutes;
+}
+
+/**
+ * Agrupa en un mismo evento las marcas que son el mismo momento.
+ *
+ * De cada evento vale la PRIMERA marca, tanto al entrar como al salir: es la
+ * hora en que efectivamente llego o se fue. Las demas quedan para el hover.
+ *
+ * @param {Array<{time: string, iso?: string}>} marks en orden
+ * @returns {Array<Array<object>>}
+ */
+export function groupMarkEvents(marks = []) {
+    const events = [];
+    let previous = null;
+
+    (marks || []).forEach(mark => {
+        const at = absoluteMinutes(mark);
+
+        if (at === null) return;
+
+        if (previous !== null && at - previous < EVENT_WINDOW_MINUTES) {
+            events[events.length - 1].push(mark);
+        } else {
+            events.push([mark]);
+        }
+
+        previous = at;
+    });
+
+    return events;
+}
+
 /**
  * .Parece esta marca la entrada al turno?
  *
@@ -218,8 +265,12 @@ export function resolveShiftMarks(marks = [], context = {}) {
         };
     }
 
-    if (list.length === 1 && !endsNextMorning) {
-        const only = list[0];
+    // De cada momento vale la primera marca: si marco dos veces al llegar o dos
+    // veces al salir, la hora buena es la primera de cada tanda.
+    const events = groupMarkEvents(list);
+
+    if (events.length === 1 && !endsNextMorning) {
+        const only = events[0][0];
 
         return looksLikeEntry(only, scheduledEntry)
             ? { ...vacio, entry: only, entryIncident: only.type === "out" }
@@ -231,9 +282,9 @@ export function resolveShiftMarks(marks = [], context = {}) {
     // termino, y mostrarla como tal seria peor que dejarla en blanco.
     const exit = endsNextMorning
         ? list.find(mark => mark.iso) || null
-        : list[list.length - 1];
+        : events[events.length - 1][0];
     // La marca traida del dia siguiente nunca es la llegada de este turno.
-    const first = list[0];
+    const first = events[0][0];
     const entry = first?.iso ? null : first;
 
     return {

@@ -46,6 +46,7 @@ const {
     delayMinutes,
     entryDelayForDay,
     formatDelayCell,
+    groupMarkEvents,
     isMarkMissing,
     minutesFromTime,
     scheduledEntryTime,
@@ -1030,6 +1031,111 @@ test("la flecha no cuenta como marca que falta ni genera atraso", () => {
     assert.match(reporte, /hasPassed: day\.hasPassed && !cells\.exitArrow/);
     assert.match(estilos, /\.report-table td\.report-cell--stacked \{/);
     assert.match(estilos, /white-space: pre-line;/);
+});
+
+/* =========================================================
+   Marcar dos veces el mismo momento
+
+   Vale la PRIMERA de cada tanda, tanto al entrar como al salir: es la hora en
+   que efectivamente llego o se fue. Las demas van al hover.
+========================================================= */
+
+test("dos marcas al salir: vale la primera", () => {
+    // Antes se tomaba la ultima del dia y la salida quedaba en 20:04.
+    marcar("2026-08-10", [
+        { time: "08:00", type: "in" },
+        { time: "20:00", type: "out" },
+        { time: "20:04", type: "out" }
+    ]);
+
+    const dia = getAttendanceCells("1-9", "2026-08-10", larga);
+
+    assert.equal(dia.entrada, "08:00");
+    assert.equal(dia.salida, "20:00");
+    // Ninguna se pierde.
+    assert.equal(dia.marks.length, 3);
+});
+
+test("dos marcas al entrar: vale la primera", () => {
+    marcar("2026-08-10", [
+        { time: "07:58", type: "in" },
+        { time: "08:01", type: "in" },
+        { time: "20:00", type: "out" }
+    ]);
+
+    assert.equal(
+        getAttendanceCells("1-9", "2026-08-10", larga).entrada,
+        "07:58"
+    );
+});
+
+test("dos marcas y ademas confundio los botones: primera, con incidencia", () => {
+    marcar("2026-08-10", [
+        { time: "08:00", type: "out" },
+        { time: "08:02", type: "in" },
+        { time: "20:00", type: "in" },
+        { time: "20:03", type: "out" }
+    ]);
+
+    const dia = getAttendanceCells("1-9", "2026-08-10", larga);
+
+    assert.equal(dia.entrada, "08:00");
+    assert.equal(dia.entryIncident, true);
+    assert.equal(dia.salida, "20:00");
+    assert.equal(dia.exitIncident, true);
+});
+
+test("lo que marque en mitad de un 24 no se toma por salida", () => {
+    // El 24 pasa de largo: si marca al cambiar de tramo, esa marca es
+    // informativa y va al hover, no a la celda.
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-10": [
+                { time: "07:58", type: "in" },
+                { time: "20:00", type: "out" },
+                { time: "20:02", type: "in" }
+            ],
+            "2026-08-11": [{ time: "08:05", type: "out" }]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-10", {
+        workedShift: TURNO.TURNO24,
+        endsNextMorning: true,
+        nextStartsInTheMorning: false
+    });
+
+    assert.equal(dia.entrada, "07:58");
+    assert.equal(dia.salida, "08:05");
+    // Una sola linea: el 24 es continuo, a diferencia del D+N.
+    assert.equal(dia.multiline, false);
+    assert.equal(dia.marks.length, 4);
+});
+
+test("las tandas se agrupan por cercania, no por cantidad", () => {
+    const events = groupMarkEvents([
+        { time: "08:00" },
+        { time: "08:02" },
+        { time: "17:00" },
+        { time: "19:57" },
+        { time: "08:01", iso: "2026-08-11" }
+    ]);
+
+    assert.deepEqual(
+        events.map(evento => evento.map(marca => marca.time)),
+        [["08:00", "08:02"], ["17:00"], ["19:57"], ["08:01"]]
+    );
+});
+
+test("el cierre del dia siguiente no se confunde con la manana de hoy", () => {
+    // Sin sumarle 24 horas, un cierre a las 08:01 pareceria anterior a una
+    // entrada de las 19:57 y se agruparia con la llegada de la manana.
+    const events = groupMarkEvents([
+        { time: "08:00" },
+        { time: "08:10", iso: "2026-08-11" }
+    ]);
+
+    assert.equal(events.length, 2);
 });
 
 /* =========================================================

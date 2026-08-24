@@ -11,7 +11,10 @@
 
 import { getJSON, setJSON } from "./persistence.js";
 import { readXlsRows, dateFromExcelSerial } from "./xlsReader.js";
-import { resolveShiftMarks } from "./attendanceDelay.js";
+import {
+    groupMarkEvents,
+    resolveShiftMarks
+} from "./attendanceDelay.js";
 
 const STORAGE_KEY = "attendanceMarks";
 
@@ -224,10 +227,10 @@ export function getMarksFor(rut, iso) {
 /**
  * Horas de entrada y de salida de un dia, listas para la celda del reporte.
  *
- * De un turno se muestran solo la PRIMERA entrada y la ULTIMA salida: dentro de
- * un 24 hay quien marca al pasar de un tramo al otro, y cuatro horas en dos
- * celdas no se leen. Las intermedias no se pierden, viajan en `marks` para el
- * hover.
+ * De cada momento del turno se muestra la PRIMERA marca: si marco dos veces al
+ * llegar, o dos veces al salir, vale la primera de cada tanda, que es la hora
+ * en que efectivamente entro o se fue. Lo demas -incluido lo que marque en
+ * mitad de un 24- no se pierde: viaja en `marks` para el hover.
  *
  * Cual marca fue la llegada y cual la salida lo decide el turno, no la etiqueta
  * del reloj: ver resolveShiftMarks. Cuando la etiqueta no calza, se avisa en
@@ -335,7 +338,10 @@ function singleShiftSegment(marks, closing, context) {
  * se equivoque de boton, que es justamente lo que no se puede dar por bueno.
  */
 function splitShiftSegments(marks, closing) {
-    const own = marks.filter(mark => !mark.iso);
+    // Por momentos, no por marcas sueltas: si marco dos veces al llegar, esas
+    // dos son una sola llegada y vale la primera.
+    const events = groupMarkEvents(marks.filter(mark => !mark.iso));
+    const at = index => events[index]?.[0] || null;
     const segment = (entry, exit) => ({
         entry: entry || null,
         exit: exit || null,
@@ -346,8 +352,8 @@ function splitShiftSegments(marks, closing) {
     });
 
     return [
-        segment(own[0], own[1]),
-        segment(own[2], closing)
+        segment(at(0), at(1)),
+        segment(at(2), closing)
     ];
 }
 
