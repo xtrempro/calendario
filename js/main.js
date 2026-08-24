@@ -7202,6 +7202,11 @@ async function renderClockMarksPanel() {
 
 window.renderClockMarksPanel = renderClockMarksPanel;
 
+// refreshAll repinta la vista activa; el reporte necesita este puente para
+// enterarse de que cambiaron las marcas o el marcaje autorizado. Sin el, las
+// horas recien cargadas solo aparecian al cambiar de mes y volver.
+window.renderReportsDetail = renderReportsDetail;
+
 function getTopSearchProfiles() {
     const showInactive =
         DOM.showInactiveProfiles?.checked ?? false;
@@ -12941,6 +12946,14 @@ window.addEventListener("proturnos:clockMarksChanged", event => {
         scheduleWorkerAppDataPublish(300, profile, null, {
             requiresLocalStateFlush: true
         });
+    }
+
+    // El reporte usa el marcaje autorizado para medir el atraso y para decidir
+    // si una salida temprana es incidencia. Si esta a la vista hay que
+    // repintarlo; si no, ya se arma al entrar. Va aqui y no en el dialogo
+    // porque asi cubre cualquier via que modifique un marcaje.
+    if (document.body.dataset.activeView === "reports") {
+        void renderReportsDetail();
     }
 });
 
