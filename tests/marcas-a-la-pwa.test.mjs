@@ -40,6 +40,16 @@ globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 const { createAttendanceMarksReader } =
     await import("../js/hoursReport.js");
 
+const main = (await readFile(
+    new URL("../js/main.js", import.meta.url),
+    "utf8"
+)).replace(/\r\n/g, "\n");
+
+const html = (await readFile(
+    new URL("../index.html", import.meta.url),
+    "utf8"
+)).replace(/\r\n/g, "\n");
+
 const sync = (await readFile(
     new URL("../js/workerAppDataSync.js", import.meta.url),
     "utf8"
@@ -139,4 +149,24 @@ test("el publicador arma el lector UNA vez por trabajador", () => {
 test("cada dia publicado lleva sus marcas cuando las tiene", () => {
     assert.match(sync, /const marks = ctx\.readMarks\(/);
     assert.match(sync, /return marks \? \{ marks \} : \{\};/);
+});
+
+/* =========================================================
+   Reenviar lo ya cargado
+========================================================= */
+
+test("hay un boton para reenviar sin esperar a que algo cambie", () => {
+    // Las marcas viajan cuando algo dispara una publicacion, y eso ocurre al
+    // cambiar algo del trabajador. Marcas ya cargadas podian tardar dias en
+    // llegar a un telefono cuyo turno no cambio.
+    assert.match(html, /id="attendanceRepublishBtn"/);
+    assert.match(main, /function bindAttendanceRepublish\(\)/);
+    // Sin espera: el supervisor acaba de pedirlo.
+    assert.match(main, /scheduleWorkerAppDataPublish\(0, names, null, \{/);
+    // Solo a los que tienen aplicacion enlazada.
+    assert.match(main, /\.filter\(item => item\.uid && item\.profile\?\.name\)/);
+});
+
+test("sin enlaces lo dice en vez de quedarse callado", () => {
+    assert.match(main, /No hay trabajadores enlazados en esta unidad\./);
 });

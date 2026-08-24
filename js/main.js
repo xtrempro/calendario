@@ -268,6 +268,7 @@ import {
 import {
     getWorkerAppLinkForProfile,
     notifyWorkerApp,
+    getWorkerAppLinks,
     scheduleWorkerAppDataPublish,
     startWorkerAppDataSync,
     stopWorkerAppDataSync
@@ -3243,9 +3244,48 @@ function formatImportDate(iso) {
         : String(iso || "");
 }
 
+/**
+ * Reenvia a la aplicacion de cada trabajador lo que ya esta cargado.
+ *
+ * Las marcas viajan cuando algo dispara una publicacion, y eso ocurre al
+ * cambiar algo del trabajador. Sin este boton, marcas que ya estan en el
+ * sistema pueden tardar dias en llegar a un telefono cuyo turno no cambio.
+ */
+function bindAttendanceRepublish() {
+    const button = document.getElementById("attendanceRepublishBtn");
+    const status = DOM.attendanceImportStatus;
+
+    if (!button || button.dataset.bound === "1") return;
+
+    button.dataset.bound = "1";
+    button.addEventListener("click", () => {
+        const names = getWorkerAppLinks()
+            .filter(item => item.uid && item.profile?.name)
+            .map(item => item.profile.name);
+
+        if (status) {
+            status.classList.remove("hidden");
+            status.className = "attendance-import__status " +
+                `attendance-import__status--${names.length ? "ok" : "info"}`;
+            status.textContent = names.length
+                ? `Enviando a ${names.length} trabajador(es) enlazado(s)...`
+                : "No hay trabajadores enlazados en esta unidad.";
+        }
+
+        if (!names.length) return;
+
+        // Sin espera: el supervisor acaba de pedirlo y quiere verlo.
+        scheduleWorkerAppDataPublish(0, names, null, {
+            requiresLocalStateFlush: true
+        });
+    });
+}
+
 function bindAttendanceImport() {
     const input = DOM.attendanceImportInput;
     const status = DOM.attendanceImportStatus;
+
+    bindAttendanceRepublish();
 
     if (!input || input.dataset.bound === "1") return;
 
