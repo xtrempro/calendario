@@ -49,9 +49,11 @@ const {
     isMarkMissing,
     minutesFromTime,
     scheduledEntryTime,
-    shiftEndsNextMorning
+    shiftEndsNextMorning,
+    shiftHasSeparateSegments,
+    shiftStartsInTheMorning
 } = await import("../js/attendanceDelay.js");
-const { getAttendanceCells, getEntryMarkTime } =
+const { CONTINUES_MARK, getAttendanceCells, getEntryMarkTime } =
     await import("../js/attendanceImport.js");
 
 async function leer(ruta) {
@@ -554,11 +556,25 @@ test("los tres constructores informan el turno de anoche", () => {
     const usos = reporte.match(/previousWorkedShift: actualStateForReport\(/g) || [];
 
     assert.equal(usos.length, 3);
-    assert.match(reporte, /previousDayKey\(date\)/);
+    assert.match(reporte, /previousDayKey\(keyDay\)/);
 });
 
-test("el dia anterior se calcula cruzando meses", () => {
-    assert.match(reporte, /previous\.setDate\(previous\.getDate\(\) - 1\);/);
+test("los tres constructores informan tambien el turno de manana", () => {
+    // Sin el no se puede saber si la noche continua en el turno siguiente, que
+    // es lo que decide entre poner una flecha o una cruz.
+    const usos = reporte.match(/nextWorkedShift: actualStateForReport\(/g) || [];
+
+    assert.equal(usos.length, 3);
+    assert.match(reporte, /nextDayKey\(keyDay\)/);
+});
+
+test("los dias vecinos se calculan cruzando meses", () => {
+    // parseKey/setDate cruzan mes y anio solos; construir la clave a mano
+    // fallaria el dia 1 y el ultimo de cada mes.
+    assert.match(
+        reporte,
+        /function previousDayKey\(keyDay\) \{\s*\n\s*const date = parseKey\(keyDay\);\s*\n\s*\n\s*date\.setDate\(date\.getDate\(\) - 1\);/
+    );
 });
 
 /* =========================================================
@@ -815,6 +831,205 @@ test("la incidencia tiene simbolo, explicacion y estilo propios", () => {
         /const EXIT_INCIDENT_TITLE =\s*\n?\s*"Incidencia: marco entrada en vez de salida";/
     );
     assert.match(estilos, /\.report-table td\.report-cell--mark-incident \{/);
+});
+
+/* =========================================================
+   El turno que continua sin marcaje
+
+   Una noche termina a las 8 y el turno de la manana empieza a las 8: el
+   trabajador no sale, asi que no hay nada que marcar. La celda lleva una
+   flecha, no una cruz, y no se mide atraso.
+========================================================= */
+
+const noche = {
+    workedShift: TURNO.NOCHE,
+    scheduledEntry: "20:00",
+    endsNextMorning: true
+};
+
+test("caso 1: no marca la salida de la noche ni la entrada de la Larga", () => {
+    marcar("2026-08-15", [{ time: "20:08", type: "in" }]);
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-15": [{ time: "20:08", type: "in" }],
+            "2026-08-16": [{ time: "20:00", type: "out" }]
+        }
+    }));
+
+    const laNoche = getAttendanceCells("1-9", "2026-08-15", {
+        ...noche,
+        nextStartsInTheMorning: true
+    });
+
+    assert.equal(laNoche.entrada, "20:08");
+    assert.equal(laNoche.salida, CONTINUES_MARK);
+    assert.equal(laNoche.exitArrow, true);
+
+    const laLarga = getAttendanceCells("1-9", "2026-08-16", {
+        workedShift: TURNO.LARGA,
+        scheduledEntry: "08:00",
+        previousEndsNextMorning: true,
+        startsInTheMorning: true
+    });
+
+    assert.equal(laLarga.entrada, CONTINUES_MARK);
+    assert.equal(laLarga.entryArrow, true);
+    // Y su salida de las 20:00 NO se la lleva el turno de anoche.
+    assert.equal(laLarga.salida, "20:00");
+});
+
+test("caso 2: no marca la salida pero si la entrada del diurno", () => {
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-18": [{ time: "20:00", type: "in" }],
+            "2026-08-19": [
+                { time: "08:00", type: "in" },
+                { time: "17:00", type: "out" }
+            ]
+        }
+    }));
+
+    const laNoche = getAttendanceCells("1-9", "2026-08-18", {
+        ...noche,
+        nextStartsInTheMorning: true
+    });
+
+    // La entrada del diurno no se confunde con el cierre de la noche: ese dia
+    // empieza turno por la manana, asi que la etiqueta manda.
+    assert.equal(laNoche.salida, CONTINUES_MARK);
+
+    const elDiurno = getAttendanceCells("1-9", "2026-08-19", {
+        workedShift: TURNO.DIURNO,
+        scheduledEntry: "08:00",
+        previousEndsNextMorning: true,
+        startsInTheMorning: true
+    });
+
+    // Aqui NO va flecha: si marco su entrada.
+    assert.equal(elDiurno.entrada, "08:00");
+    assert.equal(elDiurno.entryArrow, false);
+    assert.equal(elDiurno.salida, "17:00");
+});
+
+test("si el dia siguiente es libre, la salida sin marcar es una falta", () => {
+    // La flecha significa que el turno continua. Sin turno al que continuar,
+    // lo que hay es un registro que falta.
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": { "2026-08-18": [{ time: "20:00", type: "in" }] }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-18", {
+        ...noche,
+        nextStartsInTheMorning: false
+    });
+
+    assert.equal(dia.salida, "");
+    assert.equal(dia.exitArrow, false);
+});
+
+test("con el dia siguiente libre, la etiqueta equivocada no estorba", () => {
+    // Es la pregunta del usuario: si se equivoca al cerrar la noche, se mira
+    // su programacion. Ese dia no empieza turno, asi que una marca temprana
+    // solo puede ser el cierre, diga entrada o salida.
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-18": [{ time: "20:00", type: "in" }],
+            "2026-08-19": [{ time: "08:05", type: "in" }]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-18", {
+        ...noche,
+        nextStartsInTheMorning: false
+    });
+
+    assert.equal(dia.salida, "08:05");
+    assert.equal(dia.salidaFrom, "2026-08-19");
+    assert.equal(dia.exitIncident, true);
+});
+
+/* =========================================================
+   D+N: dos tramos, dos lineas
+
+   Un 24 es continuo -la Larga termina a las 20 y la Noche empieza a las 20- y
+   por eso se resume en una linea. Un D+N no: el diurno termina a las 17 y la
+   noche empieza a las 20. Son dos llegadas y dos salidas.
+========================================================= */
+
+test("caso 3: el D+N muestra el diurno arriba y la noche abajo", () => {
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-21": [
+                { time: "08:00", type: "in" },
+                { time: "17:00", type: "out" },
+                { time: "19:57", type: "in" }
+            ],
+            "2026-08-22": [{ time: "08:01", type: "out" }]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-21", {
+        workedShift: TURNO.DIURNO_NOCHE,
+        endsNextMorning: true,
+        splitSegments: true,
+        nextStartsInTheMorning: true
+    });
+
+    assert.equal(dia.multiline, true);
+    assert.equal(dia.entrada, "08:00\n19:57");
+    assert.equal(dia.salida, "17:00\n08:01");
+    assert.equal(dia.salidaFrom, "2026-08-22");
+});
+
+test("caso 4: el D+N que continua deja flecha en la noche", () => {
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-24": [
+                { time: "08:01", type: "in" },
+                { time: "17:00", type: "out" },
+                { time: "19:54", type: "in" }
+            ],
+            "2026-08-25": [{ time: "17:00", type: "out" }]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-24", {
+        workedShift: TURNO.DIURNO_NOCHE,
+        endsNextMorning: true,
+        splitSegments: true,
+        nextStartsInTheMorning: true
+    });
+
+    assert.equal(dia.entrada, "08:01\n19:54");
+    assert.equal(dia.salida, `17:00\n${CONTINUES_MARK}`);
+    assert.equal(dia.exitArrow, true);
+});
+
+test("un 24 NO se parte en dos lineas: es continuo", () => {
+    // La diferencia con el D+N no es capricho: en un 24 el trabajador nunca se
+    // va, en un D+N si.
+    assert.equal(shiftHasSeparateSegments(TURNO.TURNO24), false);
+    assert.equal(shiftHasSeparateSegments(TURNO.DIURNO_NOCHE), true);
+    assert.equal(shiftHasSeparateSegments(TURNO.NOCHE), false);
+});
+
+test("que turnos empiezan por la manana sale del modelo", () => {
+    [TURNO.LARGA, TURNO.DIURNO, TURNO.TURNO24, TURNO.DIURNO_NOCHE,
+        TURNO.MEDIA_MANANA]
+        .forEach(turno => {
+            assert.equal(shiftStartsInTheMorning(turno), true, `turno ${turno}`);
+        });
+    [TURNO.LIBRE, TURNO.NOCHE, TURNO.MEDIA_TARDE, TURNO.TURNO18]
+        .forEach(turno => {
+            assert.equal(shiftStartsInTheMorning(turno), false, `turno ${turno}`);
+        });
+});
+
+test("la flecha no cuenta como marca que falta ni genera atraso", () => {
+    assert.match(reporte, /hasPassed: day\.hasPassed && !cells\.entryArrow/);
+    assert.match(reporte, /hasPassed: day\.hasPassed && !cells\.exitArrow/);
+    assert.match(estilos, /\.report-table td\.report-cell--stacked \{/);
+    assert.match(estilos, /white-space: pre-line;/);
 });
 
 /* =========================================================

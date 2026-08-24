@@ -18334,3 +18334,11 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 @keyframes app-reload-pulse {
     50% { opacity: 0.9; }
 }
+
+/* Un turno D+N ocupa dos lineas en las celdas de marcaje: arriba el diurno y
+   abajo la noche. Son dos presencias con horas de por medio, no un turno
+   corrido, y verlas en una sola linea confundiria una con otra. */
+.report-table td.report-cell--stacked {
+    white-space: pre-line;
+    line-height: 1.5;
+}

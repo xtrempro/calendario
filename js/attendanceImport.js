@@ -246,26 +246,155 @@ export function getAttendanceCells(rut, iso, options = {}) {
         endsNextMorning = false,
         previousEndsNextMorning = false
     } = options;
-    const marks = shiftMarksFor(rut, iso, {
+    const {
+        startsInTheMorning = false,
+        nextStartsInTheMorning = false,
+        splitSegments = false,
+        workedShift,
+        scheduledEntry
+    } = options;
+    const { marks, previousClosed } = shiftMarksFor(rut, iso, {
         endsNextMorning,
-        previousEndsNextMorning
+        previousEndsNextMorning,
+        startsInTheMorning,
+        nextStartsInTheMorning
     });
-    // Que marca fue la llegada y cual la salida no lo decide la etiqueta del
-    // reloj sino el turno: ver resolveShiftMarks.
-    const resolved = resolveShiftMarks(marks, {
-        workedShift: options.workedShift,
-        scheduledEntry: options.scheduledEntry,
-        endsNextMorning
-    });
+    const closing = marks.find(mark => mark.iso) || null;
+    const segments = splitSegments
+        ? splitShiftSegments(marks, closing)
+        : [singleShiftSegment(marks, closing, {
+            endsNextMorning,
+            workedShift,
+            scheduledEntry
+        })];
+    const first = segments[0];
+    const last = segments[segments.length - 1];
+
+    // Viene de un turno de noche que nadie cerro y hoy entra por la manana: no
+    // hubo que marcar, siguio de largo. Lo mismo al reves con la salida.
+    first.entryArrow = Boolean(
+        previousEndsNextMorning &&
+        !previousClosed &&
+        startsInTheMorning &&
+        !first.entry
+    );
+    last.exitArrow = Boolean(
+        endsNextMorning && !closing && nextStartsInTheMorning
+    );
 
     return {
-        entrada: resolved.entry?.time || "",
-        salida: resolved.exit?.time || "",
-        ...(resolved.exit?.iso ? { salidaFrom: resolved.exit.iso } : {}),
-        entryIncident: resolved.entryIncident,
-        exitIncident: resolved.exitIncident,
+        entrada: cellText(segments, "entry"),
+        salida: cellText(segments, "exit"),
+        ...(closing ? { salidaFrom: closing.iso } : {}),
+        entryIncident: segments.some(segment => segment.entryIncident),
+        exitIncident: segments.some(segment => segment.exitIncident),
+        entryArrow: first.entryArrow,
+        exitArrow: last.exitArrow,
+        multiline: segments.length > 1,
+        segments,
         marks
     };
+}
+
+/**
+ * Texto de una celda: una linea por tramo, en el orden en que ocurrieron.
+ */
+function cellText(segments, side) {
+    return segments
+        .map(segment => segment[`${side}Arrow`]
+            ? CONTINUES_MARK
+            : segment[side]?.time || "")
+        .join("\n")
+        .replace(/\n+$/, "");
+}
+
+/**
+ * Un turno de un solo tramo.
+ */
+function singleShiftSegment(marks, closing, context) {
+    const resolved = resolveShiftMarks(marks, context);
+
+    return {
+        entry: resolved.entry,
+        exit: resolved.exit,
+        entryIncident: resolved.entryIncident,
+        exitIncident: resolved.exitIncident,
+        entryArrow: false,
+        exitArrow: false
+    };
+}
+
+/**
+ * Los dos tramos de un D+N.
+ *
+ * Se emparejan en orden: la primera marca abre el diurno, la segunda lo cierra,
+ * la tercera abre la noche. El cierre de la noche es siempre la marca traida
+ * del dia siguiente, este donde este en la lista.
+ *
+ * No se usan horas de corte: el orden basta, y ademas aguanta que el trabajador
+ * se equivoque de boton, que es justamente lo que no se puede dar por bueno.
+ */
+function splitShiftSegments(marks, closing) {
+    const own = marks.filter(mark => !mark.iso);
+    const segment = (entry, exit) => ({
+        entry: entry || null,
+        exit: exit || null,
+        entryIncident: Boolean(entry) && entry.type === "out",
+        exitIncident: Boolean(exit) && exit.type !== "out",
+        entryArrow: false,
+        exitArrow: false
+    });
+
+    return [
+        segment(own[0], own[1]),
+        segment(own[2], closing)
+    ];
+}
+
+// Una salida antes del mediodia solo puede cerrar el turno de anoche: ningun
+// turno de los que se usan termina tan temprano. Sirve para no confundirla con
+// la salida propia del dia, que es a las 17 o a las 20.
+const MORNING_EXIT_LIMIT = "12:00";
+
+// Flecha de continuidad: el turno sigue en el turno de al lado sin que haya
+// nada que marcar. La noche termina a las 8 y el turno de la manana empieza a
+// las 8, asi que el trabajador nunca sale.
+export const CONTINUES_MARK = "→";
+
+/**
+ * Marcas de un dia, ordenadas y normalizadas.
+ */
+function ownMarksFor(rut, iso) {
+    return getMarksFor(rut, iso)
+        .map(mark => ({
+            time: String(mark.time || ""),
+            type: mark.type === "out" ? "out" : "in"
+        }))
+        .filter(mark => mark.time)
+        .sort((a, b) => a.time.localeCompare(b.time));
+}
+
+/**
+ * La marca con que se cerro un turno de noche, entre las marcas de la manana
+ * siguiente.
+ *
+ * Tiene que ser de la manana: ningun turno de los que se usan termina antes del
+ * mediodia, asi que una marca temprana no puede ser la salida propia del dia.
+ *
+ * Que la etiqueta importe o no depende de la PROGRAMACION de esa manana:
+ *
+ * - si ese dia no empieza turno por la manana (libre, o una noche), la marca
+ *   temprana solo puede ser el cierre de la noche, diga entrada o salida. Es el
+ *   caso de quien se equivoca de boton al salir;
+ * - si ese dia SI empieza turno por la manana, una "entrada" temprana es su
+ *   llegada y no el cierre de la noche. Ahi la etiqueta es lo unico que las
+ *   distingue, asi que se respeta.
+ */
+function morningClosing(marks, { labelMatters }) {
+    return marks.find(mark =>
+        mark.time < MORNING_EXIT_LIMIT &&
+        (!labelMatters || mark.type === "out")
+    ) || null;
 }
 
 /**
@@ -274,33 +403,35 @@ export function getAttendanceCells(rut, iso, options = {}) {
  * Un turno no cabe siempre dentro de su fecha: el que lleva noche se cierra a
  * la manana siguiente, y esa salida el reloj la deja en el dia siguiente.
  */
-function shiftMarksFor(rut, iso, { endsNextMorning, previousEndsNextMorning }) {
-    const own = getMarksFor(rut, iso)
-        .map(mark => ({
-            time: String(mark.time || ""),
-            type: mark.type === "out" ? "out" : "in"
-        }))
-        .filter(mark => mark.time)
-        .sort((a, b) => a.time.localeCompare(b.time));
-    // Si anoche hubo un turno con noche, la primera salida de hoy lo cierra a
-    // el y se muestra en SU fila. Dejarla aqui la contaria dos veces.
-    const first = previousEndsNextMorning
-        ? own.findIndex(mark => mark.type === "out")
-        : -1;
-    const marks = first === -1
-        ? own
-        : own.filter((mark, index) => index !== first);
+function shiftMarksFor(rut, iso, options) {
+    const {
+        endsNextMorning,
+        previousEndsNextMorning,
+        startsInTheMorning,
+        nextStartsInTheMorning
+    } = options;
+    const own = ownMarksFor(rut, iso);
+    // La marca con que cerro el turno de anoche se muestra en SU fila; dejarla
+    // aqui tambien la contaria dos veces.
+    const previous = previousEndsNextMorning
+        ? morningClosing(own, { labelMatters: startsInTheMorning })
+        : null;
+    const marks = previous ? own.filter(mark => mark !== previous) : own;
+    const previousClosed = Boolean(previous);
 
-    if (!endsNextMorning) return marks;
+    if (!endsNextMorning) return { marks, previousClosed };
 
     const nextIso = shiftIsoDay(iso, 1);
-    const cierre = exitTimes(rut, nextIso)[0];
+    const cierre = morningClosing(ownMarksFor(rut, nextIso), {
+        labelMatters: nextStartsInTheMorning
+    });
 
     // Va al final y NO se reordena: es del dia siguiente, asi que cronologica-
     // mente cierra la lista aunque su hora sea menor que las de la tarde.
-    return cierre
-        ? [...marks, { time: cierre, type: "out", iso: nextIso }]
-        : marks;
+    return {
+        previousClosed,
+        marks: cierre ? [...marks, { ...cierre, iso: nextIso }] : marks
+    };
 }
 
 /**

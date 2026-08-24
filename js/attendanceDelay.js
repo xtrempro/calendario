@@ -47,6 +47,35 @@ export function shiftEndsNextMorning(shift) {
     return getTurnoComponentes(shift).includes("N");
 }
 
+// Un turno que empieza por la manana: Larga, Diurno, 24h, D+N y 1/2M. Los que
+// arrancan de tarde (Extension horaria, 18 horas) o de noche, no.
+const MORNING_SEGMENTS = ["L", "D", "HM"];
+
+/**
+ * .Empieza este turno por la manana?
+ *
+ * Es lo que permite saber si el trabajador sigue de largo desde su turno de
+ * noche: la noche termina a las 8 y el turno de la manana empieza a las 8, asi
+ * que entre los dos no hay nada que marcar.
+ */
+export function shiftStartsInTheMorning(shift) {
+    const [first] = getTurnoComponentes(shift);
+
+    return MORNING_SEGMENTS.includes(first);
+}
+
+/**
+ * .Son los dos tramos de este turno presencias separadas?
+ *
+ * Solo D+N. Un 24 (Larga + Noche) es continuo: la Larga termina a las 20 y la
+ * Noche empieza a las 20, el trabajador nunca se va. En cambio en un D+N el
+ * diurno termina a las 17 y la noche empieza a las 20: se va y vuelve, son dos
+ * llegadas y dos salidas y por eso la fila muestra dos lineas.
+ */
+export function shiftHasSeparateSegments(shift) {
+    return Number(shift) === TURNO.DIURNO_NOCHE;
+}
+
 /**
  * Convierte "HH:MM" en minutos desde medianoche.
  * @param {string} time
