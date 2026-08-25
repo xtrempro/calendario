@@ -1521,7 +1521,10 @@ body[data-active-view="home"] .secondary-grid {
 .hm-dn2-txt small { font-size: 0.72rem; opacity: 0.9; }
 
 /* Grid + cards */
-.hm-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
+/* align-items: start es lo que hace que el tablero se lea como la maqueta: sin
+   el, las tres tarjetas de una fila se estiran a la altura de la mas alta y
+   "Tareas diarias" queda con medio panel en blanco al lado de "Cobertura". */
+.hm-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .hm-col-4 { grid-column: span 4; }
 .hm-col-5 { grid-column: span 5; }
 .hm-col-6 { grid-column: span 6; }
@@ -1534,11 +1537,28 @@ body[data-active-view="home"] .secondary-grid {
 .hm-head { display: flex; align-items: center; gap: 10px; }
 .hm-head-icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none; background: var(--accent-soft); color: var(--accent); }
 .hm-head-icon svg { width: 19px; height: 19px; }
-.hm-head h3 { margin: 0; font-size: 1.02rem; font-weight: 800; letter-spacing: -0.01em; color: var(--text); }
+.hm-head h3 { margin: 0; min-width: 0; font-size: 1.02rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; color: var(--text); }
 .hm-count { margin-left: auto; min-width: 24px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 0.76rem; font-weight: 800; display: grid; place-items: center; }
+/* "Ver detalles" comparte fila con el titulo (antes ocupaba una fila propia
+   debajo). Se ancla a la derecha y no se deja apretar: quien cede ancho es el
+   titulo, que puede partirse en dos lineas sin perderse. */
+.hm-head-toggle { flex: none; margin-left: auto; }
+.hm-head-toggle + .hm-count { margin-left: 0; }
 
 .hm-listcol { display: flex; flex-direction: column; gap: 2px; }
 .hm-listcol--gap { gap: 9px; }
+
+/* Listas que pueden crecer sin techo (tareas del dia, cumpleanos del mes y los
+   dos detalles que se abren con el interruptor). En el tablero de tres columnas
+   una sola de estas estirando su fila deja las otras dos tarjetas flotando en
+   medio metro de blanco: cada una scrollea dentro de su propia tarjeta y la
+   fila conserva la altura de la maqueta. El padding es para que el foco del
+   teclado no quede cortado contra la barra de scroll. */
+.hm-scroller { overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+.hm-tasks-list { max-height: 330px; }
+.hm-bday-list { max-height: 330px; }
+.hm-req-list.hm-scroller,
+.hm-cob-list.hm-scroller { max-height: 460px; }
 
 .hm-gear { margin-left: auto; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel-alt); color: var(--text-soft); display: grid; place-items: center; cursor: pointer; }
 .hm-gear:hover { color: var(--accent); border-color: var(--accent); }
@@ -1578,8 +1598,8 @@ body[data-active-view="home"] .secondary-grid {
 .hm-kv-ico.hm-good { background: var(--hm-good-soft); color: var(--hm-good); }
 .hm-kv-ico.hm-info { background: var(--hm-info-soft); color: var(--hm-info); }
 .hm-kv-ico.hm-warn { background: var(--hm-warn-soft); color: var(--hm-warn); }
-.hm-kv-name { font-size: 0.9rem; font-weight: 600; color: var(--text); }
-.hm-kv-right { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+.hm-kv-name { min-width: 0; font-size: 0.9rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.hm-kv-right { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
 .hm-kv-num { min-width: 26px; height: 24px; padding: 0 8px; border-radius: 8px; display: grid; place-items: center; font-size: 0.82rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .hm-kv-num.hm-crit { background: var(--hm-red-soft); color: var(--hm-red); }
 .hm-kv-num.hm-good { background: var(--hm-good-soft); color: var(--hm-good); }
@@ -1668,10 +1688,12 @@ body[data-active-view="home"] .secondary-grid {
 .hm-swap { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 6px; border-radius: 10px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .hm-swap:hover, .hm-swap:focus-visible { background: var(--panel-alt); }
 .hm-swap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.hm-swap-tag { font-size: 0.82rem; font-weight: 700; color: var(--text-soft); background: var(--panel-alt); border: 1px solid var(--border); padding: 4px 9px; border-radius: 8px; white-space: nowrap; }
+.hm-swap-tag { min-width: 0; font-size: 0.82rem; font-weight: 700; color: var(--text-soft); background: var(--panel-alt); border: 1px solid var(--border); padding: 4px 9px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hm-swap-arrow { color: var(--accent); flex: none; display: grid; }
 .hm-swap-arrow svg { width: 16px; height: 16px; }
-.hm-swap-count { margin-left: auto; color: var(--text-muted); font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
+/* "Larga - 13 Ago" es el dato que identifica el cambio: se mantiene entero y
+   quien se achica es el nombre, que ademas se puede leer completo al abrirlo. */
+.hm-swap-count { flex: none; margin-left: auto; padding-left: 4px; font-size: 0.8rem; white-space: nowrap; color: var(--text-muted); font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
 .hm-swap-dialog { width: min(480px, 100%); }
 .hm-swap-dialog__meta { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
 .hm-swap-dialog__meta span:first-child,
@@ -1681,7 +1703,6 @@ body[data-active-view="home"] .secondary-grid {
 .hm-swap-dialog__note { margin-top: -4px; }
 
 /* Cobertura */
-.hm-cob-controls { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .hm-segmented { display: inline-flex; background: var(--panel-alt); border: 1px solid var(--border); border-radius: 11px; padding: 3px; gap: 2px; }
 .hm-seg { border: none; background: transparent; color: var(--text-soft); font: inherit; font-size: 0.8rem; font-weight: 700; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
 .hm-seg:hover { color: var(--text); }
@@ -1692,9 +1713,11 @@ body[data-active-view="home"] .secondary-grid {
 .hm-toggle input:checked { background: var(--accent); }
 .hm-toggle input:checked::after { transform: translateX(15px); }
 
-.hm-cob-summary { display: flex; gap: 10px; flex-wrap: wrap; }
+/* Apilados, igual que los del resumen de solicitudes: en una tarjeta de un
+   tercio los dos chips lado a lado dejaban "Preasignados" cortado a la mitad. */
+.hm-cob-summary { display: flex; flex-direction: column; gap: 8px; }
 .hm-cob-summary[hidden], .hm-cob-list[hidden] { display: none; }
-.hm-cob-chip { flex: 1; min-width: 150px; display: flex; align-items: center; gap: 12px; padding: 13px 15px; border-radius: 13px; background: var(--panel-alt); border: 1px solid var(--border); }
+.hm-cob-chip { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 13px; background: var(--panel-alt); border: 1px solid var(--border); }
 .hm-cob-chip-ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none; }
 .hm-cob-chip-ico svg { width: 19px; height: 19px; }
 .hm-cob-chip--crit .hm-cob-chip-ico { background: var(--hm-red-soft); color: var(--hm-red); }
@@ -1729,8 +1752,8 @@ body[data-active-view="home"] .secondary-grid {
 
 .hm-cob-list { display: flex; flex-direction: column; gap: 8px; }
 .hm-cob-row { padding: 11px 13px; border-radius: 13px; border: 1px solid var(--border); background: var(--panel-alt); display: flex; flex-direction: column; gap: 5px; }
-.hm-cob-top { display: flex; align-items: center; gap: 9px; }
-.hm-cob-date { font-size: 0.86rem; font-weight: 700; color: var(--text); }
+.hm-cob-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.hm-cob-date { min-width: 0; font-size: 0.86rem; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
 .hm-cob-status { margin-left: auto; font-size: 0.71rem; font-weight: 800; padding: 3px 10px; border-radius: 999px; }
 .hm-cob-status--sincubrir { background: var(--hm-red-soft); color: var(--hm-red); }
 .hm-cob-status--preasignado { background: var(--accent-soft); color: var(--accent); }
@@ -1784,20 +1807,30 @@ body[data-active-view="home"] .secondary-grid {
 .request-wait-left.is-expired { color: var(--hm-red); background: var(--hm-red-soft); }
 
 /* Confirmar / cancelar un turno preasignado desde la tarjeta de cobertura. */
+/* En un tercio de ancho "COBERTURA AUTOMATICA" y "VER EN CALENDARIO" ya no
+   caben lado a lado: con base 130px se reparten la fila cuando hay espacio y
+   se apilan cuando no, en vez de desbordar la tarjeta. El texto centrado en
+   dos lineas es por lo mismo, para que el boton crezca y no recorte. */
 .hm-cob-actions {
     display: flex;
     gap: 8px;
     margin-top: 8px;
+    flex-wrap: wrap;
 }
 
 .hm-cob-btn {
-    flex: 1;
+    flex: 1 1 130px;
     min-height: 34px;
-    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 6px 12px;
     border-radius: 9px;
     border: 1px solid transparent;
     font-size: 0.74rem;
     font-weight: 800;
+    line-height: 1.2;
     letter-spacing: 0.4px;
     cursor: pointer;
     transition: filter 0.15s ease;
@@ -18392,10 +18425,6 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 }
 
 /* Incidencias de marcaje del mes, en el inicio. */
-.hm-inc-month {
-    margin: -4px 0 10px; font-size: 0.9rem; font-weight: 600;
-    color: var(--text-soft);
-}
 .hm-kv[disabled] { opacity: 0.55; cursor: default; }
 .hm-inc-detail { display: flex; flex-direction: column; gap: 2px; }
 .hm-inc-row {

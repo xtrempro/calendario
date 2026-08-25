@@ -51,11 +51,17 @@ globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
 const { buildRequestSummary, buildTaskCalendarCells, getTasksForDay } =
     await import("../js/home.js");
-const { isTaskActiveOn, isTaskDoneOn, toggleTaskDoneOn } =
+const { applyDoneMap, isTaskActiveOn, isTaskDoneOn, toggleTaskDoneOn } =
     await import("../js/homeTasks.js");
 
 const home = (await readFile(new URL("../js/home.js", import.meta.url), "utf8"))
     .replace(/\r\n/g, "\n");
+const homeTasks = (await readFile(
+    new URL("../js/homeTasks.js", import.meta.url), "utf8"
+)).replace(/\r\n/g, "\n");
+const persistence = (await readFile(
+    new URL("../js/persistence.js", import.meta.url), "utf8"
+)).replace(/\r\n/g, "\n");
 
 // Agosto de 2026: el dia 1 cae sabado.
 const ANIO = 2026;
@@ -382,9 +388,12 @@ test("el visto viejo de una sola fecha no se pierde", () => {
 
 test("desde el calendario el visto se marca contra el dia abierto", () => {
     // No contra hoy: se cierra el 27 estando parado en el 20.
-    assert.match(home, /toggleTaskDoneOn\(tasks\[index\], openDayIso\)/);
+    assert.match(home, /toggleTaskDone\(toggle\.dataset\.id, openDayIso\)/);
     // Y en la tarjeta del inicio, contra hoy.
-    assert.match(home, /toggleTaskDoneOn\(tasks\[index\], todayISO\(\)\)/);
+    assert.match(home, /toggleTaskDone\(toggle\.dataset\.id, todayISO\(\)\)/);
+    // Ninguna de las dos superficies guarda la lista completa para marcar: eso
+    // era lo que borraba el visto.
+    assert.doesNotMatch(home, /toggleTaskDoneOn\(tasks\[index\]/);
 });
 
 test("desde el calendario se puede modificar la tarea", () => {
@@ -410,4 +419,105 @@ test("modificar una tarea repinta las tres superficies", () => {
         home,
         /const refreshTasks = \(\) => \{[\s\S]{0,400}tasksListHTML\(\);[\s\S]{0,120}reRenderTaskCalendar\(panel\);[\s\S]{0,60}renderDayTasks\(panel\);/
     );
+});
+
+/* =========================================================
+   El visto se guarda aparte de la lista
+   ---------------------------------------------------------
+   Bug: el supervisor marcaba una tarea diaria y horas despues volvia a
+   aparecer sin hacer. El visto vivia DENTRO de la tarea, asi que se guardaba
+   reescribiendo la lista entera; cualquier guardado hecho desde una copia
+   vieja (la del arranque, antes de la primera respuesta del servidor, o la de
+   otra pestaña) devolvia la lista sin el visto.
+========================================================= */
+
+test("el visto guardado aparte manda sobre la lista", () => {
+    // La lista que llego es una copia VIEJA, sin el visto; homeTaskDone si lo
+    // tiene. La tarea tiene que seguir marcada.
+    const [tarea] = applyDoneMap(
+        [{ id: "t1", name: "la del 20", time: "18:00", doneDates: [] }],
+        { t1: ["2026-08-24"] }
+    );
+
+    assert.equal(isTaskDoneOn(tarea, "2026-08-24"), true);
+});
+
+test("una tarea sin visto aparte conserva el que traia adentro", () => {
+    // Formato viejo: nunca se marco desde esta version, el visto vive dentro de
+    // la tarea y no se puede perder al separarlo.
+    const [tarea] = applyDoneMap(
+        [{ id: "t1", name: "vieja", doneDate: "2026-08-20" }],
+        {}
+    );
+
+    assert.equal(isTaskDoneOn(tarea, "2026-08-20"), true);
+});
+
+test("desmarcar gana aunque la lista siga trayendo el visto viejo", () => {
+    const [tarea] = applyDoneMap(
+        [{ id: "t1", name: "la del 20", doneDates: ["2026-08-24"] }],
+        { t1: [] }
+    );
+
+    assert.equal(isTaskDoneOn(tarea, "2026-08-24"), false);
+});
+
+test("marcar el visto escribe solo ese dia de esa tarea", () => {
+    // Con arrayUnion/arrayRemove dos pestañas no se pisan y ningun guardado de
+    // la lista completa puede borrar un visto ya marcado.
+    assert.match(homeTasks, /homeTaskDone: \{ \[id\]: value \}/);
+    assert.match(homeTasks, /firestoreModule\.arrayUnion\(day\)/);
+    assert.match(homeTasks, /firestoreModule\.arrayRemove\(day\)/);
+});
+
+test("marcar el visto no reescribe la lista completa", () => {
+    // Era el nudo del bug: para poner un visto se subia el arreglo entero, asi
+    // que una copia vieja se llevaba puestos los vistos que ya estaban.
+    assert.match(
+        homeTasks,
+        /export async function toggleTaskDone\([\s\S]{0,1800}homeTaskDone: \{ \[id\]: value \}/
+    );
+    assert.doesNotMatch(
+        homeTasks,
+        /export async function toggleTaskDone\([\s\S]{0,2200}homeTasks: cache/
+    );
+});
+
+test("la lista completa no se sube antes de la primera respuesta del servidor", () => {
+    // Al abrir la app la copia local puede venir vieja o vaciada: subirla sin
+    // esperar al servidor era la via por la que el visto volvia atras.
+    assert.match(
+        homeTasks,
+        /export async function saveHomeTasks\([\s\S]{0,600}await whenHydrated\(\);/
+    );
+});
+
+test("guardar la lista no borra tareas que solo conoce el servidor", () => {
+    // Una tarea solo desaparece si se pidio borrarla.
+    assert.match(homeTasks, /const rescued = remoteTasks\.filter\(/);
+    assert.match(homeTasks, /export async function deleteHomeTask\(taskId\)/);
+    assert.match(home, /void deleteHomeTask\(editingTaskId\);/);
+});
+
+test("si la sincronizacion se cae, se vuelve a enganchar", () => {
+    // Con el listener muerto la copia local se congela y el siguiente guardado
+    // subiria datos viejos.
+    assert.match(homeTasks, /scheduleResubscribe\(\);/);
+    assert.match(homeTasks, /retryTimer = setTimeout\(/);
+});
+
+test("un visto que no se pudo guardar no queda marcado en pantalla", () => {
+    // Si la escritura falla y la pantalla lo deja marcado, el supervisor lo da
+    // por hecho y lo encuentra sin marcar mas tarde: es el mismo sintoma.
+    assert.match(homeTasks, /const revertedMap = \{ \.\.\.doneMap \};/);
+    assert.match(homeTasks, /doneDates: previousDates/);
+    assert.match(homeTasks, /showTasksIssue\("No se pudo guardar el visto/);
+});
+
+test("las tareas del inicio no viajan por el estado compartido de la unidad", () => {
+    // Son de UN usuario: en el estado compartido las verian los demas
+    // supervisores y replaceLocalSnapshot podria borrarlas o devolverlas a una
+    // version vieja.
+    assert.match(persistence, /"homeTasks_",/);
+    assert.match(persistence, /"homeTasksDone_",/);
 });

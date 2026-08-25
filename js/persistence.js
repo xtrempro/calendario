@@ -16,6 +16,13 @@ const INTERNAL_KEY_PREFIXES = [
     "firebase-",
     "kanban_private_",
     "holidaysCache_",
+    // Copia local de las tareas del inicio. Son de UN usuario (viven en
+    // users/{uid}/workspaces/{wid}), asi que no pueden viajar por el estado
+    // compartido de la unidad: alli las verian los demas supervisores y, peor,
+    // replaceLocalSnapshot las borraria o las devolveria a una version vieja
+    // segun lo ultimo que hubiera subido cualquier otro equipo.
+    "homeTasks_",
+    "homeTasksDone_",
     "proturnos_ui_cache_"
 ];
 

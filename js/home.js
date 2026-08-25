@@ -52,9 +52,10 @@ import { TURNO_LABEL, ESTAMENTO, TURNO } from "./constants.js";
 import {
     getHomeTasks,
     saveHomeTasks,
+    deleteHomeTask,
     isTaskActiveOn,
     isTaskDoneOn,
-    toggleTaskDoneOn
+    toggleTaskDone
 } from "./homeTasks.js";
 import {
     acceptWorkerRequestById,
@@ -890,7 +891,7 @@ function tareasWidget() {
     return `
         <div class="hm-card hm-col-4">
             ${panelHead(IC.checkClip, "Tareas diarias", addBtn)}
-            <div class="hm-listcol" data-hm="tasks-list">${tasksListHTML()}</div>
+            <div class="hm-listcol hm-tasks-list hm-scroller" data-hm="tasks-list">${tasksListHTML()}</div>
         </div>`;
 }
 
@@ -1045,16 +1046,18 @@ function solicitudesWidget() {
 
     return `
         <div class="hm-card hm-col-4">
-            ${panelHead(IC.megaphone, "Resumen de solicitudes", `<span class="hm-count">${summary.total}</span>`)}
-            <div class="hm-cob-controls">
-                <label class="hm-toggle"><input type="checkbox" data-hm="req-detail" ${requestsDetail ? "checked" : ""}> Ver detalles</label>
-            </div>
+            ${panelHead(
+                IC.megaphone,
+                "Resumen de solicitudes",
+                `<label class="hm-toggle hm-head-toggle"><input type="checkbox" data-hm="req-detail" ${requestsDetail ? "checked" : ""}> Ver detalles</label>
+                <span class="hm-count">${summary.total}</span>`
+            )}
             <div class="hm-req-summary" ${requestsDetail ? "hidden" : ""}>
                 ${requestSummaryChipHTML("leave", IC.file, summary.leave.length, "Vacaciones / permisos")}
                 ${requestSummaryChipHTML("swap", IC.swap, summary.swap.length, "Cambios de turno")}
                 ${requestSummaryChipHTML("clock", IC.clock, summary.clock.length, "Incidencias marcaje")}
             </div>
-            <div class="hm-req-list" ${requestsDetail ? "" : "hidden"}>
+            <div class="hm-req-list hm-scroller" ${requestsDetail ? "" : "hidden"}>
                 ${list}
                 <div class="hm-req-actions">
                     <button class="hm-cob-btn hm-cob-btn--ver" type="button" data-hm="req-open">REVISAR SOLICITUDES</button>
@@ -1324,15 +1327,35 @@ function incidenciasMesKey(date) {
     return `${date.getFullYear()}-${date.getMonth()}`;
 }
 
+/**
+ * El mes tal como va DENTRO del titulo ("Incidencias de marcaje de Agosto").
+ *
+ * Es la misma forma que usan los cumpleanos, y ahorra la fila que antes
+ * repetia el mes debajo del encabezado. El año solo aparece cuando no es el
+ * actual: navegando por el mes propio, repetirlo siempre es ruido.
+ *
+ * incidenciasMesLabel() sigue existiendo para el titulo del modal, donde el
+ * mes va suelto y si necesita el año completo.
+ */
+function incidenciasMesTitulo(date) {
+    const mes = MESES[date.getMonth()];
+
+    return date.getFullYear() === new Date().getFullYear()
+        ? mes
+        : `${mes} ${date.getFullYear()}`;
+}
+
 function incidenciasWidget() {
     return `
         <div class="hm-card hm-col-4">
-            ${panelHead(IC.clipboard, "Incidencias de marcaje", `
-                <div class="hm-bday-nav">
+            ${panelHead(
+                IC.clipboard,
+                `Incidencias de marcaje de <span data-hm="inc-month">${esc(incidenciasMesTitulo(incidenciasMes))}</span>`,
+                `<div class="hm-bday-nav">
                     <button type="button" data-hm="inc-prev" aria-label="Mes anterior">&#8249;</button>
                     <button type="button" data-hm="inc-next" aria-label="Mes siguiente">&#8250;</button>
-                </div>`)}
-            <div class="hm-inc-month" data-hm="inc-month">${esc(incidenciasMesLabel(incidenciasMes))}</div>
+                </div>`
+            )}
             <div class="hm-listcol" data-hm="inc-list">
                 <div class="hm-empty">Revisando el mes...</div>
             </div>
@@ -1375,7 +1398,7 @@ async function cargarIncidencias(panel) {
 
     if (!lista) return;
 
-    if (mes) mes.textContent = incidenciasMesLabel(incidenciasMes);
+    if (mes) mes.textContent = incidenciasMesTitulo(incidenciasMes);
 
     if (incidenciasCache?.key === incidenciasMesKey(incidenciasMes)) {
         lista.innerHTML = incidenciasListHTML(incidenciasCache.totals);
@@ -1710,7 +1733,7 @@ function cumpleanosWidget() {
                 </div>
                 <span class="hm-count" data-hm="bday-count">${count}</span>`
             )}
-            <div class="hm-listcol hm-bday-list" data-hm="bday-list">${list}</div>
+            <div class="hm-listcol hm-bday-list hm-scroller" data-hm="bday-list">${list}</div>
         </div>`;
 }
 
@@ -1756,7 +1779,7 @@ function cambiosWidget() {
         }).join("")
         : `<div class="hm-empty">Sin cambios de turno este mes.</div>`;
     return `
-        <div class="hm-card hm-col-5">
+        <div class="hm-card hm-col-4">
             ${panelHead(IC.swap, "Cambios de turno", `<span class="hm-count">${swaps.length}</span>`)}
             <div class="hm-listcol">${body}</div>
         </div>`;
@@ -1956,13 +1979,15 @@ function coberturaWidget() {
     coverageData = getCoverageData();
     const { total, summary, list } = coberturaBody();
     return `
-        <div class="hm-card hm-col-7">
-            ${panelHead(IC.shield, "Cobertura de turnos", `<span class="hm-count">${total}</span>`)}
-            <div class="hm-cob-controls">
-                <label class="hm-toggle"><input type="checkbox" data-hm="cob-detail" ${coverageDetail ? "checked" : ""}> Ver detalles</label>
-            </div>
+        <div class="hm-card hm-col-4">
+            ${panelHead(
+                IC.shield,
+                "Cobertura de turnos",
+                `<label class="hm-toggle hm-head-toggle"><input type="checkbox" data-hm="cob-detail" ${coverageDetail ? "checked" : ""}> Ver detalles</label>
+                <span class="hm-count">${total}</span>`
+            )}
             <div class="hm-cob-summary" ${coverageDetail ? "hidden" : ""}>${summary}</div>
-            <div class="hm-cob-list" ${coverageDetail ? "" : "hidden"}>${list}</div>
+            <div class="hm-cob-list hm-scroller" ${coverageDetail ? "" : "hidden"}>${list}</div>
         </div>`;
 }
 
@@ -2118,20 +2143,25 @@ function homeHTML() {
                 ${statsSection()}
             </section>
 
+            <!--
+                Tablero unico de 3 columnas (antes eran tres filas sueltas con
+                anchos distintos). Cada fila responde una pregunta:
+                  1. Que hay que hacer hoy   -> tareas, solicitudes, resumen
+                  2. Que falta hoy           -> ausencias, marcaje, cobertura
+                  3. Que viene este mes      -> cambios, cumpleanos
+                La casilla de abajo a la derecha queda libre a proposito: es el
+                lugar de la proxima tarjeta, sin tener que rearmar el tablero.
+            -->
             <section class="hm-grid">
                 ${tareasWidget()}
                 ${solicitudesWidget()}
+                ${resumenWidget()}
+
                 ${ausenciasWidget()}
                 ${incidenciasWidget()}
-            </section>
-
-            <section class="hm-grid">
-                ${cambiosWidget()}
                 ${coberturaWidget()}
-            </section>
 
-            <section class="hm-grid">
-                ${resumenWidget()}
+                ${cambiosWidget()}
                 ${cumpleanosWidget()}
             </section>
 
@@ -2195,14 +2225,10 @@ function wire(panel) {
         tasksList.addEventListener("click", event => {
             const toggle = event.target.closest('[data-hm="task-toggle"]');
             if (toggle) {
-                const id = toggle.dataset.id;
-                const tasks = getHomeTasks();
-                const index = tasks.findIndex(t => t.id === id);
-                if (index >= 0) {
-                    tasks[index] = toggleTaskDoneOn(tasks[index], todayISO());
-                    saveHomeTasks(tasks);
-                    refreshTasks();
-                }
+                // El visto se guarda solo (toggleTaskDone escribe ese dia de esa
+                // tarea, no la lista entera) y pinta al instante.
+                void toggleTaskDone(toggle.dataset.id, todayISO());
+                refreshTasks();
                 return;
             }
             const row = event.target.closest('[data-hm="task-row"]');
@@ -2247,7 +2273,9 @@ function wire(panel) {
             }
             if (event.target.closest('[data-hm="delete-task"]')) {
                 if (editingTaskId) {
-                    saveHomeTasks(getHomeTasks().filter(t => t.id !== editingTaskId));
+                    // Borrar es la UNICA via por la que una tarea desaparece del
+                    // documento: guardar una lista sin ella no la borra.
+                    void deleteHomeTask(editingTaskId);
                     refreshTasks();
                 }
                 editModal.hidden = true;
@@ -2636,14 +2664,8 @@ function wire(panel) {
             if (toggle) {
                 // El visto se marca CONTRA EL DIA ABIERTO, no contra hoy: desde
                 // el calendario se cierra el 27 estando parado en el 20.
-                const tasks = getHomeTasks();
-                const index = tasks.findIndex(task => task.id === toggle.dataset.id);
-
-                if (index >= 0) {
-                    tasks[index] = toggleTaskDoneOn(tasks[index], openDayIso);
-                    saveHomeTasks(tasks);
-                    refreshTasks();
-                }
+                void toggleTaskDone(toggle.dataset.id, openDayIso);
+                refreshTasks();
                 return;
             }
 
@@ -2853,7 +2875,10 @@ function reRenderBirthdays(panel) {
 }
 
 function reRenderCoverage(panel) {
-    const card = panel.querySelector(".hm-card.hm-col-7");
+    // Por el interruptor, no por el ancho: la tarjeta cambio de columnas al
+    // pasar al tablero de tres y un selector por .hm-col-N vuelve a romperse
+    // en el proximo ajuste de layout.
+    const card = panel.querySelector('[data-hm="cob-detail"]')?.closest(".hm-card");
     if (!card) return;
     const summary = card.querySelector(".hm-cob-summary");
     const list = card.querySelector(".hm-cob-list");
