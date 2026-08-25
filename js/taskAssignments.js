@@ -795,14 +795,44 @@ function normalizeTaskShift(value) {
     return "day";
 }
 
+// El catalogo de tareas es unico para los dos tableros, pero el detalle es
+// propio de cada turno: lo que se anota en diurna no debe aparecer en noche.
+// `detail` (plano) es el formato viejo; se sigue escribiendo con el valor
+// diurno para que un cliente sin actualizar no lea el campo vacio.
+function normalizeTaskDetails(task) {
+    const legacy = cleanTaskDetail(task?.detail);
+    const stored = task?.details && typeof task.details === "object"
+        ? task.details
+        : null;
+
+    return {
+        day: stored ? cleanTaskDetail(stored.day) : legacy,
+        night: stored ? cleanTaskDetail(stored.night) : ""
+    };
+}
+
+function cleanTaskDetail(value) {
+    return String(value || "").trim().slice(0, TASK_DETAIL_MAX_LENGTH);
+}
+
+function taskDetailForShift(task, shift) {
+    const details = normalizeTaskDetails(task);
+
+    return shift === "night"
+        ? details.night
+        : details.day;
+}
+
 function normalizeStoredTask(task, index) {
     const defaultWorkerRules = normalizeTaskDefaultRules(task);
+    const details = normalizeTaskDetails(task);
 
     return {
         id: String(task?.id || `task_${Date.now()}_${index}`),
         shift: normalizeTaskShift(task?.shift),
         title: String(task?.title || "").trim(),
-        detail: String(task?.detail || "").trim().slice(0, TASK_DETAIL_MAX_LENGTH),
+        details,
+        detail: details.day,
         order: Number.isFinite(Number(task?.order))
             ? Number(task.order)
             : index,
@@ -1879,7 +1909,7 @@ function absenceProfiles(date) {
 // nombres de los perfiles el primer apellido es la penultima palabra (3
 // palabras -> la 2a, 4 -> la 3a, 5 -> la 4a, 6 -> la 5a). El nombre completo
 // se conserva en los data-* y en el title del chip.
-function shortWorkerName(fullName) {
+function shortWorkerName(fullName, { compact = false } = {}) {
     const words = String(fullName || "").trim().split(/\s+/).filter(Boolean);
 
     if (!words.length) return "";
@@ -1889,7 +1919,9 @@ function shortWorkerName(fullName) {
         ? words[words.length - 2]
         : words[1];
 
-    return `${words[0].charAt(0)}. ${surname}`;
+    // La tabla publicada encadena los nombres con guion ("J.CORNEJO-B.ESCOBAR")
+    // y ahi el espacio despues del punto se lee como separacion entre personas.
+    return `${words[0].charAt(0)}.${compact ? "" : " "}${surname}`;
 }
 
 function renderWorkerChip(profileName, task, keyDay) {
@@ -1956,7 +1988,7 @@ function renderTaskControl(task) {
                 </span>
             </div>
             <input type="text" value="${escapeHTML(task.title)}" data-task-title="${escapeHTML(task.id)}" aria-label="Nombre de tarea">
-            <input class="task-assignment-task-detail" type="text" maxlength="${TASK_DETAIL_MAX_LENGTH}" value="${escapeHTML(task.detail || "")}" data-task-detail="${escapeHTML(task.id)}" placeholder="Detalle" aria-label="Detalle de tarea">
+            <input class="task-assignment-task-detail" type="text" maxlength="${TASK_DETAIL_MAX_LENGTH}" value="${escapeHTML(taskDetailForShift(task, task.shift))}" data-task-detail="${escapeHTML(task.id)}" data-task-detail-shift="${escapeHTML(task.shift)}" placeholder="Detalle" aria-label="Detalle de tarea">
         </div>
     `;
 }
@@ -2113,6 +2145,7 @@ function renderShell(holidays = {}) {
                     <button class="secondary-button secondary-button--small" type="button" data-task-week-prev>Anterior</button>
                     <button class="secondary-button secondary-button--small" type="button" data-task-week-current>Semana actual</button>
                     <button class="secondary-button secondary-button--small" type="button" data-task-week-next>Siguiente</button>
+                    <button class="secondary-button secondary-button--small" type="button" data-task-schedule-preview>Ver programaci&oacute;n</button>
                     <button class="primary-button secondary-button--small" type="button" data-task-export>Descargar Excel</button>
                 </span>
                 ${renderScheduleAttachmentStatus()}
@@ -2136,6 +2169,7 @@ function addTask(title) {
         id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         shift: GENERIC_TASK_SHIFT,
         title: cleanTitle,
+        details: { day: "", night: "" },
         detail: "",
         order,
         createdAt: new Date().toISOString()
@@ -2164,18 +2198,29 @@ function updateTaskTitle(taskId, title) {
     publishTaskAssignmentChanges(affectedWorkers);
 }
 
-function updateTaskDetail(taskId, detail) {
-    const cleanDetail = String(detail || "").trim().slice(0, TASK_DETAIL_MAX_LENGTH);
+function updateTaskDetail(taskId, shift, detail) {
+    const cleanShift = shift === "night" ? "night" : "day";
+    const cleanDetail = cleanTaskDetail(detail);
     const currentTask = getTasks().find(task => task.id === taskId);
 
-    if (!currentTask || currentTask.detail === cleanDetail) return;
+    if (
+        !currentTask ||
+        taskDetailForShift(currentTask, cleanShift) === cleanDetail
+    ) {
+        return;
+    }
 
     saveTasks(
-        getTasks().map(task =>
-            task.id === taskId
-                ? { ...task, detail: cleanDetail }
-                : task
-        )
+        getTasks().map(task => {
+            if (task.id !== taskId) return task;
+
+            const details = {
+                ...normalizeTaskDetails(task),
+                [cleanShift]: cleanDetail
+            };
+
+            return { ...task, details, detail: details.day };
+        })
     );
 }
 
@@ -2803,6 +2848,11 @@ function bindShellEvents(root) {
         renderTaskAssignmentsPanel();
     });
     root.querySelector("[data-task-export]")?.addEventListener("click", exportTaskAssignmentsExcel);
+    root.querySelector("[data-task-schedule-preview]")?.addEventListener("click", async () => {
+        const { openTaskSchedulePreview } = await import("./taskSchedulePreview.js");
+
+        openTaskSchedulePreview();
+    });
     root.querySelector("[data-task-schedule-attach]")?.addEventListener("click", openScheduleAttachmentDialog);
 
     root
@@ -2828,8 +2878,12 @@ function bindShellEvents(root) {
         .querySelectorAll("[data-task-detail]")
         .forEach(input => {
             input.onchange = () => {
-                updateTaskDetail(input.dataset.taskDetail, input.value);
-                input.value = input.value.trim().slice(0, TASK_DETAIL_MAX_LENGTH);
+                updateTaskDetail(
+                    input.dataset.taskDetail,
+                    input.dataset.taskDetailShift,
+                    input.value
+                );
+                input.value = cleanTaskDetail(input.value);
             };
         });
 
@@ -3379,6 +3433,69 @@ function eventsExcelTable(days) {
             </tbody>
         </table>
     `;
+}
+
+// La asignacion de tareas vista como la programacion que lee el trabajador:
+// una fila por tarea y una columna por dia. Devuelve datos planos para que el
+// visor (taskSchedulePreview.js) solo se ocupe de dibujar.
+//
+// Se omiten las tareas sin nadie asignado en toda la semana y los turnos que
+// quedan enteros vacios: en el tablero las filas vacias sirven para soltar
+// trabajadores, pero en la tabla publicada solo son ruido.
+export function getTaskScheduleWeek() {
+    const days = weekDays();
+    const tasks = getTasks();
+    const assignments = cleanAssignmentsForWeek(days, tasks);
+
+    const sections = SHIFT_TYPES.map(shift => ({
+        shift,
+        label: SHIFT_CONFIG[shift].label,
+        rows: tasks
+            .map(task => taskForShift(task, shift))
+            .map(task => ({
+                title: task.title,
+                detail: taskDetailForShift(task, shift),
+                cells: days.map(day => {
+                    const entry = getCellEntry(
+                        assignments,
+                        shift,
+                        task.id,
+                        keyFromDate(day)
+                    );
+
+                    return {
+                        workers: assignmentWorkers(entry)
+                            .map(name => shortWorkerName(name, { compact: true }))
+                            .filter(Boolean),
+                        note: String(entry.note || "").trim()
+                    };
+                })
+            }))
+            .filter(row =>
+                row.cells.some(cell => cell.workers.length || cell.note)
+            )
+    })).filter(section => section.rows.length);
+
+    return {
+        weekStart: new Date(currentWeekStart),
+        days: days.map(day => ({
+            keyDay: keyFromDate(day),
+            weekday: formatWeekday(day),
+            shortDate: formatShortDate(day),
+            dayNumber: day.getDate()
+        })),
+        sections
+    };
+}
+
+export function moveTaskScheduleWeek(offsetDays) {
+    currentWeekStart = addDays(currentWeekStart, offsetDays);
+    renderTaskAssignmentsPanel();
+}
+
+export function goToTaskScheduleToday() {
+    currentWeekStart = weekStartMonday(new Date());
+    renderTaskAssignmentsPanel();
 }
 
 function exportTaskAssignmentsExcel() {
