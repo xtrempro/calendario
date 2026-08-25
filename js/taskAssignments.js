@@ -76,11 +76,13 @@ const SHIFT_CONFIG = {
     day: {
         label: "Tareas diurnas",
         shortLabel: "Diurno",
+        dutyLabel: "TURNO DIA",
         className: "day"
     },
     night: {
         label: "Tareas de noche",
         shortLabel: "Noche",
+        dutyLabel: "TURNO NOCHE",
         className: "night"
     }
 };
@@ -1909,19 +1911,46 @@ function absenceProfiles(date) {
 // nombres de los perfiles el primer apellido es la penultima palabra (3
 // palabras -> la 2a, 4 -> la 3a, 5 -> la 4a, 6 -> la 5a). El nombre completo
 // se conserva en los data-* y en el title del chip.
-function shortWorkerName(fullName, { compact = false } = {}) {
+function workerNameParts(fullName) {
     const words = String(fullName || "").trim().split(/\s+/).filter(Boolean);
 
-    if (!words.length) return "";
-    if (words.length === 1) return words[0];
+    if (!words.length) return null;
+    if (words.length === 1) return { first: words[0], surname: "" };
 
-    const surname = words.length >= 3
-        ? words[words.length - 2]
-        : words[1];
+    return {
+        first: words[0],
+        surname: words.length >= 3 ? words[words.length - 2] : words[1]
+    };
+}
+
+function shortWorkerName(fullName, { compact = false } = {}) {
+    const parts = workerNameParts(fullName);
+
+    if (!parts) return "";
+    if (!parts.surname) return parts.first;
 
     // La tabla publicada encadena los nombres con guion ("J.CORNEJO-B.ESCOBAR")
     // y ahi el espacio despues del punto se lee como separacion entre personas.
-    return `${words[0].charAt(0)}.${compact ? "" : " "}${surname}`;
+    return `${parts.first.charAt(0)}.${compact ? "" : " "}${parts.surname}`;
+}
+
+// Los dias sin tareas listan a TODA la gente de turno, asi que ahi ni la
+// abreviatura corta alcanza: la programacion publicada usa solo las dos
+// iniciales ("P.ARMIJO" -> "PA").
+function workerInitials(fullName) {
+    const parts = workerNameParts(fullName);
+
+    if (!parts) return "";
+
+    return `${parts.first.charAt(0)}${parts.surname.charAt(0)}`;
+}
+
+function onShiftInitials(shift, keyDay) {
+    return getProfiles()
+        .filter(profile => isAvailableForShift(profile, keyDay, shift))
+        .sort((a, b) => a.name.localeCompare(b.name, "es"))
+        .map(profile => workerInitials(profile.name))
+        .filter(Boolean);
 }
 
 function renderWorkerChip(profileName, task, keyDay) {
@@ -3475,6 +3504,26 @@ export function getTaskScheduleWeek() {
                 row.cells.some(cell => cell.workers.length || cell.note)
             )
     })).filter(section => section.rows.length);
+
+    // Un dia sin una sola asignacion en todo el turno no necesita una celda por
+    // tarea: se fusiona la columna entera y en su lugar va quien esta de turno,
+    // que es lo que hace la programacion que sube el supervisor con el fin de
+    // semana.
+    sections.forEach(section => {
+        section.merged = days.map((day, index) => {
+            const vacio = section.rows.every(row =>
+                !row.cells[index].workers.length && !row.cells[index].note
+            );
+
+            if (!vacio) return null;
+
+            const initials = onShiftInitials(section.shift, keyFromDate(day));
+
+            return initials.length
+                ? `${SHIFT_CONFIG[section.shift].dutyLabel}: ${initials.join("-")}`
+                : "";
+        });
+    });
 
     return {
         weekStart: new Date(currentWeekStart),

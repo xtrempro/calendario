@@ -36,14 +36,33 @@ function cellHTML(cell) {
         : "&nbsp;";
 }
 
+// Una columna fusionada se emite UNA vez, en la primera fila, con el rowspan
+// completo; las filas de abajo no vuelven a emitir esa columna o se correrian
+// todas de lugar. Es la misma mecanica del visor de programacion publicada.
+function rowCellsHTML(row, section, isFirstRow) {
+    return row.cells.map((cell, index) => {
+        const merged = section.merged?.[index];
+
+        if (merged === null || merged === undefined) {
+            return `<td class="ws-cell">${cellHTML(cell)}</td>`;
+        }
+
+        if (!isFirstRow) return "";
+
+        return `<td class="ws-cell ws-cell--weekend tsp-cell--duty" rowspan="${section.rows.length}">${
+            merged ? escapeHTML(merged) : "&nbsp;"
+        }</td>`;
+    }).join("");
+}
+
 function sectionHTML(section, days) {
-    const rows = section.rows.map(row => `
+    const rows = section.rows.map((row, index) => `
         <tr>
             <th scope="row" class="ws-role">
                 <strong>${escapeHTML(row.title)}</strong>
                 ${row.detail ? `<span>${escapeHTML(row.detail)}</span>` : ""}
             </th>
-            ${row.cells.map(cell => `<td class="ws-cell">${cellHTML(cell)}</td>`).join("")}
+            ${rowCellsHTML(row, section, index === 0)}
         </tr>`).join("");
 
     return `

@@ -2352,6 +2352,14 @@ body[data-active-view="home"] .secondary-grid {
 
 /* Con los dos turnos abiertos, cada tabla se queda con la mitad del alto para
    que el rotulo del segundo turno no caiga fuera de la pantalla. */
+/* Columna fusionada de un dia sin tareas: lleva la lista de quien esta de
+   turno, que es larga, asi que se deja partir donde sea antes que ensanchar la
+   tabla entera. */
+.tsp-cell--duty {
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
 .tsp-section + .tsp-section .ws-table-scroll { max-height: 38vh; }
 .tsp-section:has(+ .tsp-section) .ws-table-scroll { max-height: 38vh; }
 
