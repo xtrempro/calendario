@@ -1874,6 +1874,24 @@ function absenceProfiles(date) {
         );
 }
 
+// En el tablero el chip muestra el nombre abreviado para que quepan mas
+// trabajadores por celda: inicial del primer nombre + primer apellido. En los
+// nombres de los perfiles el primer apellido es la penultima palabra (3
+// palabras -> la 2a, 4 -> la 3a, 5 -> la 4a, 6 -> la 5a). El nombre completo
+// se conserva en los data-* y en el title del chip.
+function shortWorkerName(fullName) {
+    const words = String(fullName || "").trim().split(/\s+/).filter(Boolean);
+
+    if (!words.length) return "";
+    if (words.length === 1) return words[0];
+
+    const surname = words.length >= 3
+        ? words[words.length - 2]
+        : words[1];
+
+    return `${words[0].charAt(0)}. ${surname}`;
+}
+
 function renderWorkerChip(profileName, task, keyDay) {
     const profile = profileByName(profileName);
     const configuredClass = taskDefaultWorkers(task).includes(profileName)
@@ -1892,8 +1910,8 @@ function renderWorkerChip(profileName, task, keyDay) {
     }
 
     return `
-        <span class="task-assignment-worker-chip" draggable="true" data-worker-drag="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="Arrastrar a otra tarea del mismo turno y d&iacute;a">
-            <span class="task-assignment-worker-chip__name">${escapeHTML(profileName)}</span>
+        <span class="task-assignment-worker-chip" draggable="true" data-worker-drag="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="${escapeHTML(profileName)} | Arrastrar a otra tarea del mismo turno y d&iacute;a">
+            <span class="task-assignment-worker-chip__name">${escapeHTML(shortWorkerName(profileName))}</span>
             <button class="task-assignment-worker-edit${configuredClass}" type="button" data-worker-default-config="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="Editar trabajador predefinido" aria-label="Editar trabajador predefinido">
                 &#9998;
             </button>
