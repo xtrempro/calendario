@@ -36,6 +36,21 @@ function cellHTML(cell) {
         : "&nbsp;";
 }
 
+// Una casilla fusionada se emite UNA vez, en la fila de su tarea de arriba,
+// con el rowspan de todo el grupo; las filas que quedan tapadas no vuelven a
+// emitir esa columna o se correrian todas de lugar.
+function rowCellsHTML(row) {
+    return row.cells.map(cell => {
+        if (cell.covered) return "";
+
+        if (cell.rowSpan > 1) {
+            return `<td class="ws-cell tsp-cell--merged" rowspan="${cell.rowSpan}">${cellHTML(cell)}</td>`;
+        }
+
+        return `<td class="ws-cell">${cellHTML(cell)}</td>`;
+    }).join("");
+}
+
 function sectionHTML(section, days) {
     const rows = section.rows.map(row => `
         <tr>
@@ -43,7 +58,7 @@ function sectionHTML(section, days) {
                 <strong>${escapeHTML(row.title)}</strong>
                 ${row.detail ? `<span>${escapeHTML(row.detail)}</span>` : ""}
             </th>
-            ${row.cells.map(cell => `<td class="ws-cell">${cellHTML(cell)}</td>`).join("")}
+            ${rowCellsHTML(row)}
         </tr>`).join("");
 
     return `

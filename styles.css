@@ -2352,6 +2352,15 @@ body[data-active-view="home"] .secondary-grid {
 
 /* Con los dos turnos abiertos, cada tabla se queda con la mitad del alto para
    que el rotulo del segundo turno no caiga fuera de la pantalla. */
+/* Casilla que el supervisor fusiono en el tablero: se marca el borde y se
+   centra el contenido para que se lea como un puesto compartido entre varias
+   tareas y no como la celda de la primera. */
+.tsp-cell--merged {
+    vertical-align: middle;
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+}
+
 .tsp-section + .tsp-section .ws-table-scroll { max-height: 38vh; }
 .tsp-section:has(+ .tsp-section) .ws-table-scroll { max-height: 38vh; }
 

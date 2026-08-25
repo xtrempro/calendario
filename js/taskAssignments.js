@@ -3880,6 +3880,7 @@ export function getTaskScheduleWeek() {
         rows: tasks
             .map(task => taskForShift(task, shift))
             .map(task => ({
+                taskId: task.id,
                 title: task.title,
                 detail: taskDetailForShift(task, shift),
                 cells: days.map(day => {
@@ -3905,6 +3906,39 @@ export function getTaskScheduleWeek() {
                 row.cells.some(cell => cell.workers.length || cell.note)
             )
     })).filter(section => section.rows.length);
+
+    // Las casillas que el supervisor unio en el tablero se dibujan tambien
+    // unidas aca: una sola celda para todo el grupo, con el rowspan de sus
+    // tareas. Si no, la misma lista de gente se repetiria fila por fila y no se
+    // entenderia que es un solo puesto compartido.
+    sections.forEach(section => {
+        days.forEach((day, dayIndex) => {
+            columnGroups(assignments, section.shift, tasks, keyFromDate(day))
+                .filter(group => group.taskIds.length > 1)
+                .forEach(group => {
+                    const indexes = group.taskIds
+                        .map(id => section.rows.findIndex(
+                            row => row.taskId === id
+                        ))
+                        .filter(index => index !== -1);
+
+                    // Las filas de un grupo son contiguas por construccion; si
+                    // alguna vez no lo fueran, el rowspan pisaria celdas de
+                    // otras tareas, asi que se deja sin fusionar.
+                    const contiguas = indexes.length > 1 &&
+                        indexes[indexes.length - 1] - indexes[0] ===
+                            indexes.length - 1;
+
+                    if (!contiguas) return;
+
+                    section.rows[indexes[0]].cells[dayIndex].rowSpan =
+                        indexes.length;
+                    indexes.slice(1).forEach(index => {
+                        section.rows[index].cells[dayIndex].covered = true;
+                    });
+                });
+        });
+    });
 
     return {
         weekStart: new Date(currentWeekStart),
