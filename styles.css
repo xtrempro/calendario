@@ -11838,11 +11838,99 @@ body.theme-light .task-assignment-event-day--inhabil {
 }
 
 .task-assignment-cell {
+    position: relative;
     display: grid;
     gap: 7px;
     align-content: start;
     min-height: 96px;
     padding: 9px;
+}
+
+/* Fusion de casillas de una columna.
+
+   Los puntos del borde izquierdo son el gesto: se arrastra el de abajo de una
+   casilla hasta el de arriba de la siguiente. El circulo se ve chico a
+   proposito -no debe competir con los chips- pero el area que recibe el mouse
+   es bastante mayor, porque si no habria que tener punteria de cirujano. */
+.task-assignment-merge-port {
+    position: absolute;
+    left: -7px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    cursor: grab;
+    z-index: 2;
+}
+
+.task-assignment-merge-port::after {
+    content: "";
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    border: 2px solid var(--panel);
+    background: var(--accent);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.25);
+    transition: transform .12s ease;
+}
+
+.task-assignment-merge-port--top { top: -7px; }
+.task-assignment-merge-port--bottom { bottom: -7px; }
+.task-assignment-merge-port:active { cursor: grabbing; }
+.task-assignment-merge-port:hover::after { transform: scale(1.35); }
+.task-assignment-merge-port.is-dragging::after { transform: scale(1.35); }
+
+/* La linea que queda cuando el grupo esta fusionado. Es tambien el boton para
+   separarlo, asi que ocupa todo el alto del bloque entre los dos puntos. */
+.task-assignment-merge-line {
+    position: absolute;
+    /* Angosta y corrida hacia el borde: si invade la zona de los chips, les
+       roba el arrastre por el costado izquierdo. */
+    left: -2px;
+    top: 4px;
+    bottom: 4px;
+    width: 12px;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    z-index: 1;
+}
+
+.task-assignment-merge-line::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+}
+
+.task-assignment-merge-line:hover::after {
+    width: 3px;
+    left: 5px;
+}
+
+.task-assignment-cell--merged {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px rgba(var(--brand-blue-rgb), 0.18);
+}
+
+/* El blanco valido mientras se arrastra un punto: se marca la casilla entera,
+   que es lo que de verdad se va a unir. */
+.task-assignment-cell.is-merge-target,
+.task-assignment-merge-port.is-merge-target::after {
+    border-color: var(--accent);
+}
+
+.task-assignment-cell.is-merge-target {
+    box-shadow: inset 0 0 0 3px rgba(var(--brand-blue-rgb), 0.28);
+}
+
+.task-assignment-merge-port.is-merge-target::after {
+    transform: scale(1.5);
 }
 
 .task-assignment-add {

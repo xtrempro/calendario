@@ -94,6 +94,7 @@ let openTaskFilterGroup = "";
 let unbindTaskFilterOutside = null;
 let draggedTask = null;
 let draggedWorker = null;
+let draggedMergePort = null;
 let renderToken = 0;
 
 function fileExtension(name) {
@@ -1549,11 +1550,21 @@ function applyDefaultAssignments(days, tasks, assignments) {
                         !isAvailableForShift(profile, keyDay, shift)
                     ) return;
 
-                    const cellKey = assignmentKey(shift, task.id, keyDay);
+                    // Si la casilla esta fusionada, el predefinido entra en
+                    // la de arriba del grupo: es la unica que se dibuja.
+                    const group = groupForTask(
+                        assignments,
+                        shift,
+                        tasks,
+                        task.id,
+                        keyDay
+                    );
+                    const ownerId = group?.taskIds[0] || task.id;
+                    const cellKey = assignmentKey(shift, ownerId, keyDay);
                     const entry = getCellEntry(
                         assignments,
                         shift,
-                        task.id,
+                        ownerId,
                         keyDay
                     );
                     const workers = assignmentWorkers(entry);
@@ -1591,6 +1602,21 @@ function cleanAssignmentsForWeek(days, tasks) {
             return;
         }
 
+        // El enlace apunta por id: si la tarea de abajo ya no es esa -se
+        // reordeno o se borro- la fusion deja de tener sentido.
+        if (entry?.mergedNextTaskId) {
+            const index = tasks.findIndex(task => task.id === taskId);
+            const next = tasks[index + 1];
+
+            if (!next || next.id !== entry.mergedNextTaskId) {
+                changed = true;
+                persistEntryOrDelete(assignments, cellKey, {
+                    ...entry,
+                    mergedNextTaskId: ""
+                });
+            }
+        }
+
         if (!days.some(day => keyFromDate(day) === keyDay)) return;
 
         const availableWorkers = assignmentWorkers(entry)
@@ -1623,8 +1649,148 @@ function getCellEntry(assignments, shift, taskId, keyDay) {
     return assignments[assignmentKey(shift, taskId, keyDay)] || {
         workers: [],
         note: "",
-        removedDefaults: []
+        removedDefaults: [],
+        mergedNextTaskId: ""
     };
+}
+
+// ---------------------------------------------------------------------------
+// Fusion de casillas dentro de una columna (mismo turno y mismo dia).
+//
+// El enlace se guarda en la casilla de ARRIBA y apunta POR ID a la tarea de
+// abajo. Guardar el id -y no un simple "va unida con la siguiente"- es lo que
+// deja que la fusion se invalide sola cuando el supervisor reordena o borra
+// tareas: si la de abajo ya no es esa, el enlace se ignora y despues se limpia.
+//
+// Un grupo es una cadena maxima de enlaces. Los trabajadores viven todos en la
+// casilla de arriba del grupo, que es la unica que se dibuja; las de abajo no
+// se emiten y su fila la ocupa la de arriba.
+// ---------------------------------------------------------------------------
+
+function mergedNextIdOf(assignments, shift, taskId, keyDay) {
+    return String(
+        getCellEntry(assignments, shift, taskId, keyDay).mergedNextTaskId || ""
+    );
+}
+
+function isMergedWithNext(assignments, shift, tasks, index, keyDay) {
+    const current = tasks[index];
+    const next = tasks[index + 1];
+
+    if (!current || !next) return false;
+
+    return mergedNextIdOf(assignments, shift, current.id, keyDay) === next.id;
+}
+
+function columnGroups(assignments, shift, tasks, keyDay) {
+    const groups = [];
+    let current = null;
+
+    tasks.forEach((task, index) => {
+        if (!current) current = { start: index, taskIds: [task.id] };
+
+        if (isMergedWithNext(assignments, shift, tasks, index, keyDay)) {
+            current.taskIds.push(tasks[index + 1].id);
+            return;
+        }
+
+        groups.push(current);
+        current = null;
+    });
+
+    if (current) groups.push(current);
+
+    return groups;
+}
+
+function groupForTask(assignments, shift, tasks, taskId, keyDay) {
+    return columnGroups(assignments, shift, tasks, keyDay)
+        .find(group => group.taskIds.includes(taskId)) || null;
+}
+
+// Al fusionar, los trabajadores de las casillas de abajo suben a la de arriba,
+// que pasa a ser la unica visible. Si se quedaran donde estan desaparecerian de
+// la vista sin haberse borrado.
+function collapseGroupWorkers(assignments, shift, tasks, taskId, keyDay) {
+    const group = groupForTask(assignments, shift, tasks, taskId, keyDay);
+
+    if (!group || group.taskIds.length < 2) return;
+
+    const [ownerId, ...others] = group.taskIds;
+    const owner = getCellEntry(assignments, shift, ownerId, keyDay);
+    const workers = [...assignmentWorkers(owner)];
+    const notes = [String(owner.note || "").trim()];
+    const removed = [...assignmentRemovedDefaults(owner)];
+
+    others.forEach(id => {
+        const entry = getCellEntry(assignments, shift, id, keyDay);
+
+        workers.push(...assignmentWorkers(entry));
+        notes.push(String(entry.note || "").trim());
+        removed.push(...assignmentRemovedDefaults(entry));
+
+        persistEntryOrDelete(assignments, assignmentKey(shift, id, keyDay), {
+            workers: [],
+            note: "",
+            removedDefaults: [],
+            mergedNextTaskId: entry.mergedNextTaskId
+        });
+    });
+
+    persistEntryOrDelete(assignments, assignmentKey(shift, ownerId, keyDay), {
+        ...owner,
+        workers: uniqueValues(workers),
+        note: uniqueValues(notes).join(" | "),
+        removedDefaults: uniqueValues(removed)
+    });
+}
+
+function groupOwnerEntry(assignments, shift, tasks, taskId, keyDay) {
+    const group = groupForTask(assignments, shift, tasks, taskId, keyDay);
+
+    return getCellEntry(assignments, shift, group?.taskIds[0] || taskId, keyDay);
+}
+
+function mergeCellWithNext(shift, keyDay, upperTaskId) {
+    const assignments = getWeekAssignments();
+    const tasks = getTasks();
+    const index = tasks.findIndex(task => task.id === upperTaskId);
+    const next = tasks[index + 1];
+
+    if (index === -1 || !next) return false;
+
+    persistEntryOrDelete(
+        assignments,
+        assignmentKey(shift, upperTaskId, keyDay),
+        {
+            ...getCellEntry(assignments, shift, upperTaskId, keyDay),
+            mergedNextTaskId: next.id
+        }
+    );
+    collapseGroupWorkers(assignments, shift, tasks, upperTaskId, keyDay);
+    saveWeekAssignments(assignments);
+    publishTaskAssignmentChanges();
+    return true;
+}
+
+// Al separar, los trabajadores no se mueven: ya estaban todos en la casilla de
+// arriba, que es justo donde el supervisor los espera para repartirlos a mano.
+function splitCellGroup(shift, keyDay, taskId) {
+    const assignments = getWeekAssignments();
+    const tasks = getTasks();
+    const group = groupForTask(assignments, shift, tasks, taskId, keyDay);
+
+    if (!group || group.taskIds.length < 2) return false;
+
+    group.taskIds.forEach(id => {
+        persistEntryOrDelete(assignments, assignmentKey(shift, id, keyDay), {
+            ...getCellEntry(assignments, shift, id, keyDay),
+            mergedNextTaskId: ""
+        });
+    });
+    saveWeekAssignments(assignments);
+    publishTaskAssignmentChanges();
+    return true;
 }
 
 function workerHasOtherTask(
@@ -1959,7 +2125,31 @@ function renderWorkerChip(profileName, task, keyDay) {
     `;
 }
 
-function renderAssignmentCell(assignments, task, day, holidays = {}) {
+// Los puntos del borde izquierdo son el gesto para fusionar: se arrastra el de
+// abajo de una casilla hasta el de arriba de la siguiente (o al reves). Cuando
+// el grupo ya esta fusionado, el punto de arriba y el de abajo quedan unidos por
+// una linea, y esa linea es el boton para separarlo.
+function renderMergePorts(task, keyDay, { taskIndex, size, taskCount }) {
+    const shift = escapeHTML(task.shift);
+    const day = escapeHTML(keyDay);
+    const hasAbove = taskIndex > 0;
+    const hasBelow = taskIndex + size < taskCount;
+    const merged = size > 1;
+
+    return `
+        ${merged ? `
+            <button class="task-assignment-merge-line" type="button" data-merge-split="${escapeHTML(task.id)}" data-shift="${shift}" data-day="${day}" title="Separar las casillas" aria-label="Separar las casillas"></button>
+        ` : ""}
+        ${hasAbove ? `
+            <span class="task-assignment-merge-port task-assignment-merge-port--top" draggable="true" data-merge-port="top" data-merge-task="${escapeHTML(task.id)}" data-shift="${shift}" data-day="${day}" title="Unir con la casilla de arriba"></span>
+        ` : ""}
+        ${hasBelow ? `
+            <span class="task-assignment-merge-port task-assignment-merge-port--bottom" draggable="true" data-merge-port="bottom" data-merge-task="${escapeHTML(task.lastTaskId || task.id)}" data-shift="${shift}" data-day="${day}" title="Unir con la casilla de abajo"></span>
+        ` : ""}
+    `;
+}
+
+function renderAssignmentCell(assignments, task, day, holidays, placement) {
     const keyDay = keyFromDate(day);
     const entry = getCellEntry(
         assignments,
@@ -1970,9 +2160,13 @@ function renderAssignmentCell(assignments, task, day, holidays = {}) {
     const workers = assignmentWorkers(entry)
         .map(profileName => renderWorkerChip(profileName, task, keyDay))
         .filter(Boolean);
+    const { dayIndex, taskIndex, size } = placement;
+    // Fila y columna explicitas: con una casilla que ocupa varias filas, dejar
+    // que la grilla las acomode sola correria las de abajo de lugar.
+    const area = `grid-column: ${dayIndex + 2}; grid-row: ${taskIndex + 2} / span ${size};`;
 
     return `
-        <div class="task-assignment-cell${inhabilClass(day, holidays, "task-assignment-cell--inhabil")}" data-task-cell="${escapeHTML(task.id)}" data-shift="${escapeHTML(task.shift)}" data-day="${escapeHTML(keyDay)}">
+        <div class="task-assignment-cell${size > 1 ? " task-assignment-cell--merged" : ""}${inhabilClass(day, holidays, "task-assignment-cell--inhabil")}" style="${area}" data-task-cell="${escapeHTML(task.id)}" data-shift="${escapeHTML(task.shift)}" data-day="${escapeHTML(keyDay)}" data-merge-size="${size}">
             <button class="task-assignment-add" type="button" title="Asignar trabajadores">
                 +
             </button>
@@ -1980,6 +2174,7 @@ function renderAssignmentCell(assignments, task, day, holidays = {}) {
                 ${workers.join("")}
             </div>
             ${entry.note ? `<p>${escapeHTML(entry.note)}</p>` : ""}
+            ${renderMergePorts(task, keyDay, placement)}
         </div>
     `;
 }
@@ -2047,6 +2242,23 @@ function renderScheduleAttachmentStatus() {
 function renderBoard(shift, tasks, days, assignments, holidays = {}) {
     const config = SHIFT_CONFIG[shift];
     const sectionTasks = tasks.map(task => taskForShift(task, shift));
+    // Cada dia se agrupa por su cuenta: la misma tarea puede ir fusionada el
+    // sabado y suelta el lunes.
+    const columns = days.map(day => {
+        const groups = columnGroups(assignments, shift, tasks, keyFromDate(day));
+        const owner = new Map();
+        const covered = new Set();
+
+        groups.forEach(group => {
+            owner.set(group.start, group);
+
+            for (let offset = 1; offset < group.taskIds.length; offset += 1) {
+                covered.add(group.start + offset);
+            }
+        });
+
+        return { day, owner, covered };
+    });
 
     return `
         <section class="task-assignment-section task-assignment-section--${escapeHTML(config.className)}">
@@ -2054,32 +2266,48 @@ function renderBoard(shift, tasks, days, assignments, holidays = {}) {
                 ${escapeHTML(config.label)}
             </div>
             <div class="task-assignment-board">
-                <div class="task-assignment-task-head task-assignment-task-head--label">
+                <div class="task-assignment-task-head task-assignment-task-head--label" style="grid-column: 1; grid-row: 1;">
                     Tareas
                 </div>
-                ${days.map(day => `
-                    <div class="task-assignment-day-head${inhabilClass(day, holidays, "task-assignment-day-head--inhabil")}">
+                ${days.map((day, dayIndex) => `
+                    <div class="task-assignment-day-head${inhabilClass(day, holidays, "task-assignment-day-head--inhabil")}" style="grid-column: ${dayIndex + 2}; grid-row: 1;">
                         <strong>${escapeHTML(formatWeekday(day))}</strong>
                         <span>${escapeHTML(formatShortDate(day))}</span>
                     </div>
                 `).join("")}
                 ${
                     sectionTasks.length
-                        ? sectionTasks.map(task => `
-                            <div class="task-assignment-task-cell" data-task-drop="${escapeHTML(task.id)}" data-shift="${escapeHTML(shift)}">
+                        ? sectionTasks.map((task, taskIndex) => `
+                            <div class="task-assignment-task-cell" style="grid-column: 1; grid-row: ${taskIndex + 2};" data-task-drop="${escapeHTML(task.id)}" data-shift="${escapeHTML(shift)}">
                                 ${renderTaskControl(task)}
                             </div>
-                            ${days.map(day =>
-                                renderAssignmentCell(
+                            ${columns.map((column, dayIndex) => {
+                                if (column.covered.has(taskIndex)) return "";
+
+                                const group = column.owner.get(taskIndex);
+                                const size = group?.taskIds.length || 1;
+
+                                return renderAssignmentCell(
                                     assignments,
-                                    task,
-                                    day,
-                                    holidays
-                                )
-                            ).join("")}
+                                    {
+                                        ...task,
+                                        lastTaskId: group
+                                            ? group.taskIds[size - 1]
+                                            : task.id
+                                    },
+                                    column.day,
+                                    holidays,
+                                    {
+                                        dayIndex,
+                                        taskIndex,
+                                        size,
+                                        taskCount: sectionTasks.length
+                                    }
+                                );
+                            }).join("")}
                         `).join("")
                         : `
-                            <div class="task-assignment-empty-row">
+                            <div class="task-assignment-empty-row" style="grid-column: 1 / -1; grid-row: 2;">
                                 Sin tareas registradas.
                             </div>
                         `
@@ -2477,12 +2705,16 @@ function persistEntryOrDelete(assignments, cellKey, entry) {
     const workers = assignmentWorkers(entry);
     const note = String(entry?.note || "").trim();
     const removedDefaults = assignmentRemovedDefaults(entry);
+    // Una casilla fusionada sigue existiendo aunque este vacia: el enlace vive
+    // en ella y borrarla desharia la fusion sola.
+    const mergedNextTaskId = String(entry?.mergedNextTaskId || "");
 
-    if (workers.length || note || removedDefaults.length) {
+    if (workers.length || note || removedDefaults.length || mergedNextTaskId) {
         assignments[cellKey] = {
             workers,
             note,
-            removedDefaults
+            removedDefaults,
+            ...(mergedNextTaskId ? { mergedNextTaskId } : {})
         };
         return;
     }
@@ -2839,6 +3071,153 @@ export function openScheduleAttachmentDialog(weekStart = currentWeekStart) {
     backdrop.querySelector("input[type='file']")?.focus();
 }
 
+// Dos puntos se pueden unir solo si son de la misma columna y de casillas
+// pegadas: uno tiene que ser el borde de abajo de una y el otro el borde de
+// arriba de la que sigue en el catalogo. Da igual desde cual se arrastre.
+function mergePairFor(from, to) {
+    if (!from || !to) return null;
+    if (from.shift !== to.shift || from.day !== to.day) return null;
+    if (from.mergePort === to.mergePort) return null;
+
+    const upper = from.mergePort === "bottom" ? from : to;
+    const lower = from.mergePort === "bottom" ? to : from;
+    const tasks = getTasks();
+    const upperIndex = tasks.findIndex(task => task.id === upper.mergeTask);
+
+    if (upperIndex === -1) return null;
+    if (tasks[upperIndex + 1]?.id !== lower.mergeTask) return null;
+
+    return {
+        shift: upper.shift,
+        keyDay: upper.day,
+        upperTaskId: upper.mergeTask
+    };
+}
+
+async function confirmMergeCells(pair) {
+    if (!pair) return;
+
+    if (
+        !await showConfirm(
+            "Las dos casillas quedaran unidas y compartiran los mismos trabajadores.",
+            {
+                title: "Combinar casillas",
+                confirmText: "Combinar"
+            }
+        )
+    ) {
+        return;
+    }
+
+    if (mergeCellWithNext(pair.shift, pair.keyDay, pair.upperTaskId)) {
+        renderTaskAssignmentsPanel();
+    }
+}
+
+async function confirmSplitCells(shift, keyDay, taskId) {
+    if (
+        !await showConfirm(
+            "Las casillas se separaran y todos los trabajadores quedaran en la de arriba.",
+            {
+                title: "Separar casillas",
+                confirmText: "Separar"
+            }
+        )
+    ) {
+        return;
+    }
+
+    if (splitCellGroup(shift, keyDay, taskId)) {
+        renderTaskAssignmentsPanel();
+    }
+}
+
+// La casilla como blanco: se prueba contra sus dos bordes, porque cual de los
+// dos toca depende de si el punto que viene en vuelo es el de arriba o el de
+// abajo.
+function mergePortPairForCell(cell) {
+    const size = Number(cell.dataset.mergeSize) || 1;
+    const tasks = getTasks();
+    const firstIndex = tasks.findIndex(
+        task => task.id === cell.dataset.taskCell
+    );
+
+    if (firstIndex === -1) return null;
+
+    const base = {
+        shift: cell.dataset.shift,
+        day: cell.dataset.day
+    };
+
+    return mergePairFor(draggedMergePort, {
+        ...base,
+        mergePort: "top",
+        mergeTask: cell.dataset.taskCell
+    }) || mergePairFor(draggedMergePort, {
+        ...base,
+        mergePort: "bottom",
+        mergeTask: tasks[firstIndex + size - 1]?.id || cell.dataset.taskCell
+    });
+}
+
+function bindMergeEvents(root) {
+    root
+        .querySelectorAll("[data-merge-port]")
+        .forEach(port => {
+            port.ondragstart = event => {
+                // El chip de trabajador y la tarjeta de tarea tambien son
+                // arrastrables: sin esto el gesto lo tomaria la de mas afuera.
+                event.stopPropagation();
+                draggedMergePort = { ...port.dataset };
+                event.dataTransfer.effectAllowed = "link";
+                event.dataTransfer.setData("text/plain", "merge-port");
+                port.classList.add("is-dragging");
+            };
+            port.ondragend = () => {
+                draggedMergePort = null;
+                port.classList.remove("is-dragging");
+                root
+                    .querySelectorAll(".is-merge-target")
+                    .forEach(node => node.classList.remove("is-merge-target"));
+            };
+            port.ondragover = event => {
+                if (!mergePairFor(draggedMergePort, port.dataset)) return;
+
+                event.preventDefault();
+                event.stopPropagation();
+                event.dataTransfer.dropEffect = "link";
+                port.classList.add("is-merge-target");
+            };
+            port.ondragleave = () => {
+                port.classList.remove("is-merge-target");
+            };
+            port.ondrop = event => {
+                const pair = mergePairFor(draggedMergePort, port.dataset);
+
+                port.classList.remove("is-merge-target");
+
+                if (!pair) return;
+
+                event.preventDefault();
+                event.stopPropagation();
+                draggedMergePort = null;
+                void confirmMergeCells(pair);
+            };
+        });
+
+    root
+        .querySelectorAll("[data-merge-split]")
+        .forEach(line => {
+            line.onclick = () => {
+                void confirmSplitCells(
+                    line.dataset.shift,
+                    line.dataset.day,
+                    line.dataset.mergeSplit
+                );
+            };
+        });
+}
+
 function bindShellEvents(root) {
     const roleOptions = availableRoles();
     const professionOptions = availableProfessions();
@@ -2855,6 +3234,7 @@ function bindShellEvents(root) {
         currentWeekStart = weekStartMonday(new Date());
         renderTaskAssignmentsPanel();
     });
+    bindMergeEvents(root);
     root.querySelector("[data-task-export]")?.addEventListener("click", exportTaskAssignmentsExcel);
     root.querySelector("[data-task-schedule-preview]")?.addEventListener("click", async () => {
         const { openTaskSchedulePreview } = await import("./taskSchedulePreview.js");
@@ -3060,6 +3440,18 @@ function bindShellEvents(root) {
                 })
             );
             cell.ondragover = event => {
+                // El punto se comprueba PRIMERO: mientras se arrastra uno no
+                // hay trabajador en vuelo, y acertarle al circulo solo seria
+                // pedir demasiada punteria.
+                if (draggedMergePort) {
+                    if (!mergePortPairForCell(cell)) return;
+
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "link";
+                    cell.classList.add("is-merge-target");
+                    return;
+                }
+
                 if (!canMoveWorkerToCell(cell, draggedWorker)) return;
 
                 event.preventDefault();
@@ -3068,8 +3460,22 @@ function bindShellEvents(root) {
             };
             cell.ondragleave = () => {
                 cell.classList.remove("is-drag-over");
+                cell.classList.remove("is-merge-target");
             };
             cell.ondrop = event => {
+                cell.classList.remove("is-merge-target");
+
+                if (draggedMergePort) {
+                    const pair = mergePortPairForCell(cell);
+
+                    if (!pair) return;
+
+                    event.preventDefault();
+                    draggedMergePort = null;
+                    void confirmMergeCells(pair);
+                    return;
+                }
+
                 const payload = readDraggedWorker(event);
 
                 cell.classList.remove("is-drag-over");
@@ -3139,11 +3545,30 @@ function renderDialogCandidate(
     `;
 }
 
+function mergedGroupTitle(assignments, shift, tasks, taskId, keyDay) {
+    const group = groupForTask(assignments, shift, tasks, taskId, keyDay);
+
+    if (!group || group.taskIds.length < 2) return "";
+
+    return group.taskIds
+        .map(id => tasks.find(task => task.id === id)?.title || "")
+        .filter(Boolean)
+        .join(" + ");
+}
+
 function openAssignmentDialog({ shift, taskId, keyDay }) {
-    const task = getTasks().find(item => item.id === taskId);
+    const tasks = getTasks();
+    const task = tasks.find(item => item.id === taskId);
     if (!task) return;
 
     const assignments = getWeekAssignments();
+    const dialogTitle = mergedGroupTitle(
+        assignments,
+        shift,
+        tasks,
+        taskId,
+        keyDay
+    ) || task.title;
     const cellKey = assignmentKey(shift, taskId, keyDay);
     const entry = assignments[cellKey] || { workers: [], note: "" };
     const selectedWorkers = new Set(assignmentWorkers(entry));
@@ -3214,7 +3639,7 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
             <section class="task-assignment-dialog">
                 <div class="task-assignment-dialog__head">
                     <div>
-                        <h3>${escapeHTML(task.title)}</h3>
+                        <h3>${escapeHTML(dialogTitle)}</h3>
                         <span>${escapeHTML(SHIFT_CONFIG[shift].shortLabel)} | ${escapeHTML(formatWeekday(date))} ${escapeHTML(formatShortDate(date))}</span>
                     </div>
                     <button class="icon-button" type="button" data-dialog-close aria-label="Cerrar">&times;</button>
@@ -3343,19 +3768,12 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
             const nextRemovedDefaults = defaultWorkersForCell(task, keyDay, shift)
                 .filter(worker => !selectedWorkers.has(worker));
 
-            if (
-                nextWorkers.length ||
-                nextNote ||
-                nextRemovedDefaults.length
-            ) {
-                assignments[cellKey] = {
-                    workers: nextWorkers,
-                    note: nextNote,
-                    removedDefaults: nextRemovedDefaults
-                };
-            } else {
-                delete assignments[cellKey];
-            }
+            persistEntryOrDelete(assignments, cellKey, {
+                workers: nextWorkers,
+                note: nextNote,
+                removedDefaults: nextRemovedDefaults,
+                mergedNextTaskId: assignments[cellKey]?.mergedNextTaskId
+            });
 
             saveWeekAssignments(assignments);
             publishTaskAssignmentChanges(uniqueValues([
@@ -3381,10 +3799,11 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
     render();
 }
 
-function cellExcelText(assignments, shift, taskId, day) {
-    const entry = getCellEntry(
+function cellExcelText(assignments, shift, taskId, day, tasks) {
+    const entry = groupOwnerEntry(
         assignments,
         shift,
+        tasks,
         taskId,
         keyFromDate(day)
     );
@@ -3410,7 +3829,7 @@ function excelTableForShift(shift, tasks, days, assignments) {
                 ${rows.map(task => `
                     <tr>
                         <td>${escapeHTML(task.title)}</td>
-                        ${days.map(day => `<td>${escapeHTML(cellExcelText(assignments, shift, task.id, day))}</td>`).join("")}
+                        ${days.map(day => `<td>${escapeHTML(cellExcelText(assignments, shift, task.id, day, tasks))}</td>`).join("")}
                     </tr>
                 `).join("") || `<tr><td colspan="8">Sin tareas</td></tr>`}
             </tbody>
@@ -3464,9 +3883,12 @@ export function getTaskScheduleWeek() {
                 title: task.title,
                 detail: taskDetailForShift(task, shift),
                 cells: days.map(day => {
-                    const entry = getCellEntry(
+                    // Casilla fusionada: los trabajadores viven en la de arriba
+                    // del grupo, pero son de todas sus tareas.
+                    const entry = groupOwnerEntry(
                         assignments,
                         shift,
+                        tasks,
                         task.id,
                         keyFromDate(day)
                     );

@@ -180,6 +180,40 @@ function entryForCell(allEntries, shift, taskId, keyDay) {
     return allEntries?.[week]?.[assignmentKey(shift, taskId, keyDay)] || null;
 }
 
+// Casillas fusionadas: el enlace vive en la de arriba y apunta por id a la de
+// abajo, que tiene que ser la siguiente del catalogo. Los trabajadores estan
+// todos en la de arriba, asi que para cada tarea del grupo hay que ir a
+// buscarlos ahi.
+function mergedGroupFor(allEntries, shift, tasks, taskId, keyDay) {
+    const index = tasks.findIndex(task => task.id === taskId);
+
+    if (index === -1) return { ownerId: taskId, size: 1 };
+
+    let start = index;
+
+    while (start > 0) {
+        const previous = tasks[start - 1];
+        const entry = entryForCell(allEntries, shift, previous.id, keyDay);
+
+        if (entry?.mergedNextTaskId !== tasks[start].id) break;
+
+        start -= 1;
+    }
+
+    let end = start;
+
+    for (;;) {
+        const entry = entryForCell(allEntries, shift, tasks[end].id, keyDay);
+        const next = tasks[end + 1];
+
+        if (!next || entry?.mergedNextTaskId !== next.id) break;
+
+        end += 1;
+    }
+
+    return { ownerId: tasks[start].id, size: end - start + 1 };
+}
+
 function isValidDate(date) {
     return date instanceof Date && !Number.isNaN(date.getTime());
 }
@@ -352,7 +386,25 @@ function dayTaskAssignments(profileName, keyDay, tasks, allEntries) {
         tasks.forEach(task => {
             if (!taskAppliesToShift(task, shift)) return;
 
-            const entry = entryForCell(allEntries, shift, task.id, keyDay);
+            const group = mergedGroupFor(
+                allEntries,
+                shift,
+                tasks,
+                task.id,
+                keyDay
+            );
+
+            // Con tres o mas tareas fusionadas no se manda ninguna al
+            // calendario del trabajador: no caben en la casilla del dia. Las ve
+            // igual al abrir la programacion de la semana.
+            if (group.size > 2) return;
+
+            const entry = entryForCell(
+                allEntries,
+                shift,
+                group.ownerId,
+                keyDay
+            );
             const workers = assignmentWorkers(entry);
             const removedDefaults = assignmentRemovedDefaults(entry);
             const isManual = workers.includes(profileName);
