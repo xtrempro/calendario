@@ -116,11 +116,21 @@ function onKeyDown(event) {
 
 // La semana se mueve en el tablero, no solo en el visor: asi lo que se esta
 // mirando aca y lo que queda abierto detras son siempre la misma semana.
-function navigate(action) {
-    if (action === "today") {
-        goToTaskScheduleToday();
-    } else {
-        moveTaskScheduleWeek(action === "prev" ? -7 : 7);
+//
+// Se repinta dos veces a proposito: la primera para que la semana cambie al
+// instante, la segunda cuando el tablero termino de traer los feriados del ano
+// -son ellos los que deciden que columnas van fusionadas-.
+async function navigate(action) {
+    const pendiente = action === "today"
+        ? goToTaskScheduleToday()
+        : moveTaskScheduleWeek(action === "prev" ? -7 : 7);
+
+    render();
+
+    try {
+        await pendiente;
+    } catch (error) {
+        console.warn("No se pudo actualizar el tablero de tareas.", error);
     }
 
     render();

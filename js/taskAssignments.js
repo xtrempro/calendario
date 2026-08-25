@@ -3505,19 +3505,24 @@ export function getTaskScheduleWeek() {
             )
     })).filter(section => section.rows.length);
 
-    // Un dia sin una sola asignacion en todo el turno no necesita una celda por
-    // tarea: se fusiona la columna entera y en su lugar va quien esta de turno,
-    // que es lo que hace la programacion que sube el supervisor con el fin de
-    // semana.
+    // Solo en dia INHABIL. El fin de semana y los feriados no se reparte tarea
+    // por persona: se asume que entre quienes esten de turno se distribuyen
+    // todas, y eso es lo que dice la columna fusionada. En un dia habil una
+    // tarea sin nadie es simplemente una tarea que ese dia no se hace, no un
+    // dia repartido entre todos, y fusionar ahi seria mentir.
     sections.forEach(section => {
         section.merged = days.map((day, index) => {
+            const keyDay = keyFromDate(day);
+
+            if (isBusinessKeyDay(keyDay)) return null;
+
             const vacio = section.rows.every(row =>
                 !row.cells[index].workers.length && !row.cells[index].note
             );
 
             if (!vacio) return null;
 
-            const initials = onShiftInitials(section.shift, keyFromDate(day));
+            const initials = onShiftInitials(section.shift, keyDay);
 
             return initials.length
                 ? `${SHIFT_CONFIG[section.shift].dutyLabel}: ${initials.join("-")}`
@@ -3539,12 +3544,12 @@ export function getTaskScheduleWeek() {
 
 export function moveTaskScheduleWeek(offsetDays) {
     currentWeekStart = addDays(currentWeekStart, offsetDays);
-    renderTaskAssignmentsPanel();
+    return renderTaskAssignmentsPanel();
 }
 
 export function goToTaskScheduleToday() {
     currentWeekStart = weekStartMonday(new Date());
-    renderTaskAssignmentsPanel();
+    return renderTaskAssignmentsPanel();
 }
 
 function exportTaskAssignmentsExcel() {
