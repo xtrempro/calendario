@@ -2352,12 +2352,18 @@ body[data-active-view="home"] .secondary-grid {
 
 /* Con los dos turnos abiertos, cada tabla se queda con la mitad del alto para
    que el rotulo del segundo turno no caiga fuera de la pantalla. */
-/* Columna fusionada de un dia sin tareas: lleva la lista de quien esta de
-   turno, que es larga, asi que se deja partir donde sea antes que ensanchar la
+/* Bloque fusionado de un dia inhabil: las tareas que ese dia no tienen a nadie
+   fijo se juntan en una sola celda con la gente de turno. Va centrada y con el
+   borde marcado para que se lea como un bloque aparte y no como una fila mas.
+   La lista es larga, asi que se deja partir donde sea antes que ensanchar la
    tabla entera. */
 .tsp-cell--duty {
+    vertical-align: middle;
+    text-align: center;
     font-weight: 700;
     overflow-wrap: anywhere;
+    border: 2px solid var(--border-strong);
+    background: var(--panel);
 }
 
 .tsp-section + .tsp-section .ws-table-scroll { max-height: 38vh; }

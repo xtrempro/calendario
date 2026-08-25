@@ -36,33 +36,32 @@ function cellHTML(cell) {
         : "&nbsp;";
 }
 
-// Una columna fusionada se emite UNA vez, en la primera fila, con el rowspan
-// completo; las filas de abajo no vuelven a emitir esa columna o se correrian
-// todas de lugar. Es la misma mecanica del visor de programacion publicada.
-function rowCellsHTML(row, section, isFirstRow) {
-    return row.cells.map((cell, index) => {
-        const merged = section.merged?.[index];
+// Un bloque fusionado se emite UNA vez, en su primera fila, con el rowspan
+// entero; las filas que quedan tapadas no vuelven a emitir esa columna o se
+// correrian todas de lugar. Es la misma mecanica del visor de programacion
+// publicada.
+function rowCellsHTML(row) {
+    return row.cells.map(cell => {
+        if (cell.covered) return "";
 
-        if (merged === null || merged === undefined) {
-            return `<td class="ws-cell">${cellHTML(cell)}</td>`;
+        if (cell.duty) {
+            return `<td class="ws-cell tsp-cell--duty" rowspan="${cell.duty.rowSpan}">${
+                cell.duty.text ? escapeHTML(cell.duty.text) : "&nbsp;"
+            }</td>`;
         }
 
-        if (!isFirstRow) return "";
-
-        return `<td class="ws-cell ws-cell--weekend tsp-cell--duty" rowspan="${section.rows.length}">${
-            merged ? escapeHTML(merged) : "&nbsp;"
-        }</td>`;
+        return `<td class="ws-cell">${cellHTML(cell)}</td>`;
     }).join("");
 }
 
 function sectionHTML(section, days) {
-    const rows = section.rows.map((row, index) => `
+    const rows = section.rows.map(row => `
         <tr>
             <th scope="row" class="ws-role">
                 <strong>${escapeHTML(row.title)}</strong>
                 ${row.detail ? `<span>${escapeHTML(row.detail)}</span>` : ""}
             </th>
-            ${rowCellsHTML(row, section, index === 0)}
+            ${rowCellsHTML(row)}
         </tr>`).join("");
 
     return `

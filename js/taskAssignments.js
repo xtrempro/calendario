@@ -76,13 +76,11 @@ const SHIFT_CONFIG = {
     day: {
         label: "Tareas diurnas",
         shortLabel: "Diurno",
-        dutyLabel: "TURNO DIA",
         className: "day"
     },
     night: {
         label: "Tareas de noche",
         shortLabel: "Noche",
-        dutyLabel: "TURNO NOCHE",
         className: "night"
     }
 };
@@ -1934,23 +1932,34 @@ function shortWorkerName(fullName, { compact = false } = {}) {
     return `${parts.first.charAt(0)}.${compact ? "" : " "}${parts.surname}`;
 }
 
-// Los dias sin tareas listan a TODA la gente de turno, asi que ahi ni la
-// abreviatura corta alcanza: la programacion publicada usa solo las dos
-// iniciales ("P.ARMIJO" -> "PA").
-function workerInitials(fullName) {
-    const parts = workerNameParts(fullName);
-
-    if (!parts) return "";
-
-    return `${parts.first.charAt(0)}${parts.surname.charAt(0)}`;
-}
-
-function onShiftInitials(shift, keyDay) {
+function onShiftWorkerNames(shift, keyDay) {
     return getProfiles()
         .filter(profile => isAvailableForShift(profile, keyDay, shift))
         .sort((a, b) => a.name.localeCompare(b.name, "es"))
-        .map(profile => workerInitials(profile.name))
+        .map(profile => shortWorkerName(profile.name, { compact: true }))
         .filter(Boolean);
+}
+
+// Tramos seguidos de tareas sin nadie dentro de una misma columna. Cada tramo
+// se fusiona en una celda: son las tareas que ese dia no tienen a nadie fijo.
+function emptyCellRuns(rows, dayIndex) {
+    const runs = [];
+    let start = -1;
+
+    rows.forEach((row, index) => {
+        const cell = row.cells[dayIndex];
+        const empty = !cell.workers.length && !cell.note;
+
+        if (empty && start === -1) start = index;
+        if (!empty && start !== -1) {
+            runs.push({ start, end: index - 1 });
+            start = -1;
+        }
+    });
+
+    if (start !== -1) runs.push({ start, end: rows.length - 1 });
+
+    return runs;
 }
 
 function renderWorkerChip(profileName, task, keyDay) {
@@ -3506,27 +3515,40 @@ export function getTaskScheduleWeek() {
     })).filter(section => section.rows.length);
 
     // Solo en dia INHABIL. El fin de semana y los feriados no se reparte tarea
-    // por persona: se asume que entre quienes esten de turno se distribuyen
-    // todas, y eso es lo que dice la columna fusionada. En un dia habil una
-    // tarea sin nadie es simplemente una tarea que ese dia no se hace, no un
-    // dia repartido entre todos, y fusionar ahi seria mentir.
+    // por persona: entre quienes esten de turno se distribuyen todas las que
+    // quedaron sin nadie, y eso es lo que dice el bloque fusionado. En un dia
+    // habil una tarea sin nadie es simplemente una tarea que ese dia no se
+    // hace, no un dia repartido entre todos, y fusionar ahi seria mentir.
+    //
+    // Se fusiona el TRAMO vacio, no la columna entera: si el fin de semana una
+    // tarea si tiene a alguien fijo, esa celda se queda como esta.
     sections.forEach(section => {
-        section.merged = days.map((day, index) => {
+        days.forEach((day, index) => {
             const keyDay = keyFromDate(day);
 
-            if (isBusinessKeyDay(keyDay)) return null;
+            if (isBusinessKeyDay(keyDay)) return;
 
-            const vacio = section.rows.every(row =>
-                !row.cells[index].workers.length && !row.cells[index].note
+            const runs = emptyCellRuns(section.rows, index);
+
+            if (!runs.length) return;
+
+            // La lista va en el tramo mas largo: es donde entra sin deformar la
+            // fila, y repetirla en cada hueco haria pensar en listas distintas.
+            const widest = runs.reduce((best, run) =>
+                run.end - run.start > best.end - best.start ? run : best
             );
+            const names = onShiftWorkerNames(section.shift, keyDay);
 
-            if (!vacio) return null;
+            runs.forEach(run => {
+                section.rows[run.start].cells[index].duty = {
+                    rowSpan: run.end - run.start + 1,
+                    text: run === widest ? names.join(" - ") : ""
+                };
 
-            const initials = onShiftInitials(section.shift, keyDay);
-
-            return initials.length
-                ? `${SHIFT_CONFIG[section.shift].dutyLabel}: ${initials.join("-")}`
-                : "";
+                for (let row = run.start + 1; row <= run.end; row += 1) {
+                    section.rows[row].cells[index].covered = true;
+                }
+            });
         });
     });
 
