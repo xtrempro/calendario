@@ -1521,10 +1521,15 @@ body[data-active-view="home"] .secondary-grid {
 .hm-dn2-txt small { font-size: 0.72rem; opacity: 0.9; }
 
 /* Grid + cards */
-/* align-items: start es lo que hace que el tablero se lea como la maqueta: sin
-   el, las tres tarjetas de una fila se estiran a la altura de la mas alta y
-   "Tareas diarias" queda con medio panel en blanco al lado de "Cobertura". */
-.hm-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; align-items: start; }
+/* Tres pilas, una por columna. La grilla solo reparte el ancho; el alto lo
+   resuelve cada pila por su cuenta, asi que una tarjeta se apoya siempre en la
+   de arriba de SU columna y no espera a la fila.
+
+   Con filas (align-items: start sobre las tarjetas sueltas) el alto lo imponia
+   la tarjeta mas alta de cada fila: "Tareas diarias" con una sola tarea dejaba
+   medio panel en blanco antes de "Ausencias del dia". */
+.hm-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.hm-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .hm-col-4 { grid-column: span 4; }
 .hm-col-5 { grid-column: span 5; }
 .hm-col-6 { grid-column: span 6; }
@@ -2421,11 +2426,18 @@ body[data-active-view="home"] .secondary-grid {
 
 /* Responsive */
 @media (max-width: 1100px) {
+    /* Tres pilas fijas en dos columnas dejarian una columna con seis tarjetas
+       y la otra con tres. Se disuelven con display: contents (las tarjetas
+       pasan a ser hijas de la grilla) y se reparten solas de a dos. */
+    .hm-grid { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+    .hm-stack { display: contents; }
     .hm-col-4, .hm-col-5, .hm-col-6, .hm-col-7 { grid-column: span 6; }
 }
 @media (max-width: 720px) {
     .hm-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .hm-grid > .hm-card { grid-column: 1 / -1; }
+    /* Sin ">" a proposito: con las pilas disueltas el padre en el DOM sigue
+       siendo .hm-stack, aunque la caja que cuenta sea la grilla. */
+    .hm-grid .hm-card { grid-column: 1 / -1; }
     .hm-greet h1 { font-size: 1.6rem; }
     .hm-form-grid { grid-template-columns: 1fr; }
 }

@@ -2144,25 +2144,39 @@ function homeHTML() {
             </section>
 
             <!--
-                Tablero unico de 3 columnas (antes eran tres filas sueltas con
-                anchos distintos). Cada fila responde una pregunta:
-                  1. Que hay que hacer hoy   -> tareas, solicitudes, resumen
-                  2. Que falta hoy           -> ausencias, marcaje, cobertura
-                  3. Que viene este mes      -> cambios, cumpleanos
-                La casilla de abajo a la derecha queda libre a proposito: es el
-                lugar de la proxima tarjeta, sin tener que rearmar el tablero.
+                Tres PILAS, no tres filas. Cada tarjeta se apoya directamente en
+                la de arriba de su columna: si "Tareas diarias" tiene una sola
+                tarea, "Ausencias del dia" sube hasta pegarse a ella, y si
+                manana tiene diez, la empuja hacia abajo.
+
+                Con filas, la altura la imponia la tarjeta mas alta de la fila y
+                las cortas quedaban con medio panel en blanco debajo esperando a
+                la vecina. Por eso el orden de lectura del DOM es por columna y
+                no por fila.
+
+                  Columna 1 (el dia):  tareas -> ausencias -> cambios
+                  Columna 2 (el mes):  solicitudes -> marcaje -> cumpleanos
+                  Columna 3 (el turno): resumen -> cobertura, y lo que sobra
+                                        abajo es el sitio de la proxima tarjeta.
+
+                Abajo de 1100px las pilas se disuelven (display: contents) y las
+                tarjetas vuelven a repartirse solas en la grilla de 12.
             -->
             <section class="hm-grid">
-                ${tareasWidget()}
-                ${solicitudesWidget()}
-                ${resumenWidget()}
-
-                ${ausenciasWidget()}
-                ${incidenciasWidget()}
-                ${coberturaWidget()}
-
-                ${cambiosWidget()}
-                ${cumpleanosWidget()}
+                <div class="hm-stack">
+                    ${tareasWidget()}
+                    ${ausenciasWidget()}
+                    ${cambiosWidget()}
+                </div>
+                <div class="hm-stack">
+                    ${solicitudesWidget()}
+                    ${incidenciasWidget()}
+                    ${cumpleanosWidget()}
+                </div>
+                <div class="hm-stack">
+                    ${resumenWidget()}
+                    ${coberturaWidget()}
+                </div>
             </section>
 
             <div class="hm-note">
