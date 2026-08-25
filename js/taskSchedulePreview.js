@@ -36,24 +36,6 @@ function cellHTML(cell) {
         : "&nbsp;";
 }
 
-// Un bloque fusionado se emite UNA vez, en su primera fila, con el rowspan
-// entero; las filas que quedan tapadas no vuelven a emitir esa columna o se
-// correrian todas de lugar. Es la misma mecanica del visor de programacion
-// publicada.
-function rowCellsHTML(row) {
-    return row.cells.map(cell => {
-        if (cell.covered) return "";
-
-        if (cell.duty) {
-            return `<td class="ws-cell tsp-cell--duty" rowspan="${cell.duty.rowSpan}">${
-                cell.duty.text ? escapeHTML(cell.duty.text) : "&nbsp;"
-            }</td>`;
-        }
-
-        return `<td class="ws-cell">${cellHTML(cell)}</td>`;
-    }).join("");
-}
-
 function sectionHTML(section, days) {
     const rows = section.rows.map(row => `
         <tr>
@@ -61,7 +43,7 @@ function sectionHTML(section, days) {
                 <strong>${escapeHTML(row.title)}</strong>
                 ${row.detail ? `<span>${escapeHTML(row.detail)}</span>` : ""}
             </th>
-            ${rowCellsHTML(row)}
+            ${row.cells.map(cell => `<td class="ws-cell">${cellHTML(cell)}</td>`).join("")}
         </tr>`).join("");
 
     return `
@@ -115,21 +97,11 @@ function onKeyDown(event) {
 
 // La semana se mueve en el tablero, no solo en el visor: asi lo que se esta
 // mirando aca y lo que queda abierto detras son siempre la misma semana.
-//
-// Se repinta dos veces a proposito: la primera para que la semana cambie al
-// instante, la segunda cuando el tablero termino de traer los feriados del ano
-// -son ellos los que deciden que columnas van fusionadas-.
-async function navigate(action) {
-    const pendiente = action === "today"
-        ? goToTaskScheduleToday()
-        : moveTaskScheduleWeek(action === "prev" ? -7 : 7);
-
-    render();
-
-    try {
-        await pendiente;
-    } catch (error) {
-        console.warn("No se pudo actualizar el tablero de tareas.", error);
+function navigate(action) {
+    if (action === "today") {
+        goToTaskScheduleToday();
+    } else {
+        moveTaskScheduleWeek(action === "prev" ? -7 : 7);
     }
 
     render();

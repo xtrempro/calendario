@@ -1932,36 +1932,6 @@ function shortWorkerName(fullName, { compact = false } = {}) {
     return `${parts.first.charAt(0)}.${compact ? "" : " "}${parts.surname}`;
 }
 
-function onShiftWorkerNames(shift, keyDay) {
-    return getProfiles()
-        .filter(profile => isAvailableForShift(profile, keyDay, shift))
-        .sort((a, b) => a.name.localeCompare(b.name, "es"))
-        .map(profile => shortWorkerName(profile.name, { compact: true }))
-        .filter(Boolean);
-}
-
-// Tramos seguidos de tareas sin nadie dentro de una misma columna. Cada tramo
-// se fusiona en una celda: son las tareas que ese dia no tienen a nadie fijo.
-function emptyCellRuns(rows, dayIndex) {
-    const runs = [];
-    let start = -1;
-
-    rows.forEach((row, index) => {
-        const cell = row.cells[dayIndex];
-        const empty = !cell.workers.length && !cell.note;
-
-        if (empty && start === -1) start = index;
-        if (!empty && start !== -1) {
-            runs.push({ start, end: index - 1 });
-            start = -1;
-        }
-    });
-
-    if (start !== -1) runs.push({ start, end: rows.length - 1 });
-
-    return runs;
-}
-
 function renderWorkerChip(profileName, task, keyDay) {
     const profile = profileByName(profileName);
     const configuredClass = taskDefaultWorkers(task).includes(profileName)
@@ -3513,44 +3483,6 @@ export function getTaskScheduleWeek() {
                 row.cells.some(cell => cell.workers.length || cell.note)
             )
     })).filter(section => section.rows.length);
-
-    // Solo en dia INHABIL. El fin de semana y los feriados no se reparte tarea
-    // por persona: entre quienes esten de turno se distribuyen todas las que
-    // quedaron sin nadie, y eso es lo que dice el bloque fusionado. En un dia
-    // habil una tarea sin nadie es simplemente una tarea que ese dia no se
-    // hace, no un dia repartido entre todos, y fusionar ahi seria mentir.
-    //
-    // Se fusiona el TRAMO vacio, no la columna entera: si el fin de semana una
-    // tarea si tiene a alguien fijo, esa celda se queda como esta.
-    sections.forEach(section => {
-        days.forEach((day, index) => {
-            const keyDay = keyFromDate(day);
-
-            if (isBusinessKeyDay(keyDay)) return;
-
-            const runs = emptyCellRuns(section.rows, index);
-
-            if (!runs.length) return;
-
-            // La lista va en el tramo mas largo: es donde entra sin deformar la
-            // fila, y repetirla en cada hueco haria pensar en listas distintas.
-            const widest = runs.reduce((best, run) =>
-                run.end - run.start > best.end - best.start ? run : best
-            );
-            const names = onShiftWorkerNames(section.shift, keyDay);
-
-            runs.forEach(run => {
-                section.rows[run.start].cells[index].duty = {
-                    rowSpan: run.end - run.start + 1,
-                    text: run === widest ? names.join(" - ") : ""
-                };
-
-                for (let row = run.start + 1; row <= run.end; row += 1) {
-                    section.rows[row].cells[index].covered = true;
-                }
-            });
-        });
-    });
 
     return {
         weekStart: new Date(currentWeekStart),
