@@ -11793,6 +11793,12 @@ body.theme-light .task-assignment-event-day--inhabil {
     font-size: 0.86rem;
 }
 
+.task-assignment-task-detail {
+    min-height: 32px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
 .task-assignment-delete {
     width: 24px;
     min-width: 24px;
@@ -12004,10 +12010,16 @@ body.theme-light .task-assignment-event-day--inhabil {
 
 .task-assignment-candidates {
     display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    align-content: start;
     gap: 8px;
-    max-height: 300px;
+    max-height: 340px;
     overflow: auto;
     padding-right: 2px;
+}
+
+.task-assignment-candidates > .empty-state {
+    grid-column: 1 / -1;
 }
 
 .task-assignment-candidate {

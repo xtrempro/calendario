@@ -39,6 +39,7 @@ const ASSIGNMENTS_KEY = "weekly_task_assignment_entries";
 const SCHEDULE_ATTACHMENT_KEY = "weekly_task_schedule_attachment";
 const SCHEDULE_ATTACHMENTS_KEY = "weekly_task_schedule_attachments";
 const TASK_ASSIGNMENT_PUBLISH_DELAY_MS = 3000;
+const TASK_DETAIL_MAX_LENGTH = 240;
 const SCHEDULE_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp,.bmp,.heic,.heif";
 const SCHEDULE_WORKBOOK_ACCEPT = ".xlsx";
 const SCHEDULE_WORKBOOK_EXTENSIONS = new Set(["xlsx"]);
@@ -801,6 +802,7 @@ function normalizeStoredTask(task, index) {
         id: String(task?.id || `task_${Date.now()}_${index}`),
         shift: normalizeTaskShift(task?.shift),
         title: String(task?.title || "").trim(),
+        detail: String(task?.detail || "").trim().slice(0, TASK_DETAIL_MAX_LENGTH),
         order: Number.isFinite(Number(task?.order))
             ? Number(task.order)
             : index,
@@ -1936,6 +1938,7 @@ function renderTaskControl(task) {
                 </span>
             </div>
             <input type="text" value="${escapeHTML(task.title)}" data-task-title="${escapeHTML(task.id)}" aria-label="Nombre de tarea">
+            <input class="task-assignment-task-detail" type="text" maxlength="${TASK_DETAIL_MAX_LENGTH}" value="${escapeHTML(task.detail || "")}" data-task-detail="${escapeHTML(task.id)}" placeholder="Detalle" aria-label="Detalle de tarea">
         </div>
     `;
 }
@@ -2115,6 +2118,7 @@ function addTask(title) {
         id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         shift: GENERIC_TASK_SHIFT,
         title: cleanTitle,
+        detail: "",
         order,
         createdAt: new Date().toISOString()
     });
@@ -2140,6 +2144,21 @@ function updateTaskTitle(taskId, title) {
         )
     );
     publishTaskAssignmentChanges(affectedWorkers);
+}
+
+function updateTaskDetail(taskId, detail) {
+    const cleanDetail = String(detail || "").trim().slice(0, TASK_DETAIL_MAX_LENGTH);
+    const currentTask = getTasks().find(task => task.id === taskId);
+
+    if (!currentTask || currentTask.detail === cleanDetail) return;
+
+    saveTasks(
+        getTasks().map(task =>
+            task.id === taskId
+                ? { ...task, detail: cleanDetail }
+                : task
+        )
+    );
 }
 
 function workerDefaultRule(task, workerName) {
@@ -2784,6 +2803,15 @@ function bindShellEvents(root) {
             input.onchange = () => {
                 updateTaskTitle(input.dataset.taskTitle, input.value);
                 renderTaskAssignmentsPanel();
+            };
+        });
+
+    root
+        .querySelectorAll("[data-task-detail]")
+        .forEach(input => {
+            input.onchange = () => {
+                updateTaskDetail(input.dataset.taskDetail, input.value);
+                input.value = input.value.trim().slice(0, TASK_DETAIL_MAX_LENGTH);
             };
         });
 
