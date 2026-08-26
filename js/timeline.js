@@ -73,6 +73,7 @@ import {
     getHonorariaMonthlySummary
 } from "./honoraria.js";
 import {
+    clockMarkAppliesToTurn,
     getClockMarks,
     getClockIncidentDetail,
     hasClockNetExtra,
@@ -3333,13 +3334,19 @@ function renderTimelineDayCell(profile, d, {
     const pendingManualExtra = rowAux?.pendingManualExtraByKey?.has(key)
         ? rowAux.pendingManualExtraByKey.get(key)
         : pendingManualExtraMarker(profile.name, key);
-    const clockMark = rowAux?.clockMarks
+    // El marcaje se hizo sobre el turno del dia: sin turno la marca quedo
+    // huerfana (le quitaron el turno despues de modificarla) y no se marca.
+    const clockMarkApplies = clockMarkAppliesToTurn(realTurn);
+    const clockMark = (clockMarkApplies && rowAux?.clockMarks)
         ? rowAux.clockMarks[key] || null
         : null;
-    const severeClockIncident = clockMark
+    const severeClockIncident = !clockMarkApplies
+        ? false
+        : clockMark
         ? timelineClockMarkHasSevereIncident(clockMark)
         : hasSevereClockIncident(profile.name, key);
     const simpleClockIncident =
+        clockMarkApplies &&
         !severeClockIncident &&
         (
             clockMark

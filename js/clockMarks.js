@@ -200,6 +200,46 @@ export function hasClockMark(profile, keyDay) {
     );
 }
 
+/**
+ * .Hay un turno al que este marcaje pueda pertenecer?
+ *
+ * Un marcaje se registra SOBRE el turno del dia: sus horas se comparan contra
+ * el horario de ese turno. Si despues le quitan el turno a la casilla, la marca
+ * queda huerfana -no hay horario contra el cual compararla- y el editor la
+ * rechaza ("Selecciona un dia que tenga turno para modificar sus marcajes").
+ * Mientras el reloj siguiera apareciendo, la casilla quedaba secuestrada: el
+ * click abria el detalle en vez de editar, asi que no se podia ni sacar el
+ * icono ni volver a asignar un turno.
+ *
+ * @param {number|string} state Turno efectivo del dia (con cambios/reemplazos).
+ * @returns {boolean}
+ */
+export function clockMarkAppliesToTurn(state) {
+    return (Number(state) || TURNO.LIBRE) !== TURNO.LIBRE;
+}
+
+/**
+ * Borra el marcaje de un dia. Se usa cuando la casilla se queda sin turno (la
+ * marca ya no describe nada) o cuando vuelve a tener uno despues de haber
+ * quedado libre, para que el marcaje viejo no reaparezca pegado al turno nuevo.
+ *
+ * @param {string} profile
+ * @param {string} keyDay
+ * @returns {boolean} true si habia algo que borrar.
+ */
+export function clearClockMark(profile, keyDay) {
+    if (!profile || !keyDay) return false;
+
+    const marks = getClockMarks(profile);
+
+    if (!marks[keyDay]) return false;
+
+    delete marks[keyDay];
+    saveClockMarks(profile, marks);
+
+    return true;
+}
+
 export function getClockScheduleState(profile, keyDay, state) {
     const admin = getJSON(`admin_${profile}`, {});
 

@@ -47,6 +47,7 @@
     "test:quitar-reemplazo": "node --test tests/quitar-reemplazo.test.mjs",
     "test:anular-extra": "node --test tests/anular-turno-extra-manual.test.mjs",
     "test:marcaje-turno-extra": "node --test tests/marcaje-sobre-turno-extra.test.mjs",
+    "test:marcaje-sin-turno": "node --test tests/marcaje-sin-turno.test.mjs",
     "test:cobertura-inicio": "node --test tests/cobertura-inicio-preasignados.test.mjs",
     "test:no-coverage-motivo": "node --test tests/no-coverage-motivo.test.mjs",
     "test:dashboard-hhee": "node --test tests/dashboard-hhee-por-trabajador.test.mjs",

@@ -77,6 +77,7 @@ http://127.0.0.1:8000/
   - El simbolo `!!!` del calendario usa la clase `clock-severe-day`, con badge rojo.
   - Cada registro en el panel Marcajes permite ingresar `Comentarios` y adjuntar documentos; los documentos se guardan dentro del segmento de marcaje como `documents`.
   - El registro de Marcajes tiene una barra de mes propia (`clockMarksPrevMonth`, `clockMarksNextMonth`, `clockMarksMonthLabel`) similar a Cambios de Turno, para avanzar o retroceder el mes sin depender de la navegacion visible del calendario principal.
+  - Un marcaje pertenece al turno sobre el que se hizo: si el dia queda sin turno, calendario y timeline ignoran la marca (no dibujan el reloj y la casilla vuelve a ser editable), y la edicion directa la borra al dejar el dia en Libre o al volver a asignarle turno (`clockMarkAppliesToTurn` / `clearClockMark` en `js/clockMarks.js`).
 - Menu MEMOS:
   - La navegacion principal incluye `MEMOS` despues de `Solicitudes` y antes de `Cambios de Turno`.
   - `js/memos.js` guarda tareas en `localStorage` bajo `memos`, renderiza la pagina y mantiene el badge de pendientes.

@@ -158,6 +158,8 @@ import {
     getPreassignmentTurnForWorker
 } from "./preassignments.js";
 import {
+    clearClockMark,
+    clockMarkAppliesToTurn,
     getClockMarks,
     getClockNetExtraHours,
     getClockScheduleState,
@@ -1091,9 +1093,15 @@ async function handleCalendarCellFallbackClick(cell, event) {
     );
     const honorariaExcess =
         getHonorariaExcessForKey(honorariaSummary, keyDay);
+    // Sin turno no hay marcaje que revisar: la marca quedo huerfana al quitar el
+    // turno y se ignora, para que el click vuelva a editar la casilla.
+    const clockMarkApplies = clockMarkAppliesToTurn(state);
     const severeClockIncident =
+        clockMarkApplies &&
         hasSevereClockIncident(activeProfile, keyDay);
-    const clockMarkForDay = getClockMarks(activeProfile)[keyDay] || null;
+    const clockMarkForDay = clockMarkApplies
+        ? getClockMarks(activeProfile)[keyDay] || null
+        : null;
     const simpleClockIncident =
         Boolean(clockMarkForDay) &&
         !severeClockIncident &&
@@ -4917,6 +4925,40 @@ function cancelManualExtraBackupsForTurnChange(
     return canceledCount;
 }
 
+// Un marcaje pertenece al turno sobre el que se hizo. Si la edicion directa deja
+// la casilla sin turno, la marca ya no describe nada; y si la casilla vuelve a
+// tener turno despues de haber quedado libre, la marca vieja no puede quedar
+// pegada al turno nuevo. En ambos casos se elimina.
+function dropClockMarkForTurnChange(
+    profileName,
+    keyDay,
+    previousTurn,
+    nextTurn
+) {
+    if (
+        clockMarkAppliesToTurn(previousTurn) &&
+        clockMarkAppliesToTurn(nextTurn)
+    ) {
+        return false;
+    }
+
+    if (!clearClockMark(profileName, keyDay)) return false;
+
+    addAuditLog(
+        AUDIT_CATEGORY.CALENDAR,
+        "Elimino marcaje de reloj control",
+        `${profileName}: se borro el marcaje del ${keyDay} porque el turno paso de ${turnoLabel(previousTurn) || "Libre"} a ${turnoLabel(nextTurn) || "Libre"}.`,
+        {
+            profile: profileName,
+            keyDay,
+            previousTurn,
+            nextTurn
+        }
+    );
+
+    return true;
+}
+
 async function getReplacementCandidates(
     profileName,
     keyDay,
@@ -7962,6 +8004,12 @@ async function clickDia(
             keyDay,
             nuevo
         );
+        dropClockMarkForTurnChange(
+            profileName,
+            keyDay,
+            currentState,
+            nuevo
+        );
     }
     saveProfileDayTurn(keyDay, turnToStore, profileName);
     recordCalendarDirectEditChange({
@@ -8399,7 +8447,12 @@ async function renderCalendarImpl(options = {}) {
                 data
             )
         );
-        const clockMark = clockMarks[keyDay] || null;
+        // El marcaje se hizo sobre el turno del dia. Si despues le quitaron el
+        // turno, la marca quedo huerfana: no se dibuja el reloj (no hay turno
+        // que modificar) y la casilla vuelve a ser editable.
+        const clockMark = clockMarkAppliesToTurn(state)
+            ? clockMarks[keyDay] || null
+            : null;
         const severeClockIncident =
             clockMarkHasSevereIncident(clockMark);
         const simpleClockIncident =
