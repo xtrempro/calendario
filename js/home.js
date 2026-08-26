@@ -1511,7 +1511,7 @@ async function alternarIncidenciaDetalle(fila) {
         // Se pudo cerrar mientras se buscaba.
         if (!caja.isConnected) return;
 
-        caja.innerHTML = incidenciaContextoHTML(dias, evento.iso);
+        caja.innerHTML = incidenciaContextoHTML(dias, evento);
     } catch (error) {
         console.warn("No se pudo abrir el reporte de la incidencia.", error);
 
@@ -1529,29 +1529,39 @@ async function alternarIncidenciaDetalle(fila) {
  * la entrada que falta un lunes se explica con la noche del domingo, y la
  * salida que falta hoy aparece en la fila de manana.
  */
-function incidenciaContextoHTML(dias, iso) {
+function incidenciaContextoHTML(dias, evento) {
     if (!dias?.length) {
         return `<div class="hm-empty">Sin datos de esos días.</div>`;
     }
 
+    const donde = `data-profile="${esc(evento.profile)}" data-iso="${esc(evento.iso)}"`;
+
     return `
-        <table class="hm-inc-ctx-table">
-            <thead>
-                <tr>
-                    <th scope="col">Día</th>
-                    ${INC_CTX_COLS.map(([, etiqueta]) =>
-                        `<th scope="col">${esc(etiqueta)}</th>`).join("")}
-                </tr>
-            </thead>
-            <tbody>
-                ${dias.map(dia => `
-                    <tr${dia.iso === iso ? ` class="is-incident"` : ""}>
-                        <th scope="row">${esc(incidenciaDiaLabel(dia.iso))}</th>
-                        ${INC_CTX_COLS.map(([campo]) =>
-                            `<td>${celdaReporte(dia[campo])}</td>`).join("")}
-                    </tr>`).join("")}
-            </tbody>
-        </table>`;
+        <div class="hm-inc-ctx-scroll">
+            <table class="hm-inc-ctx-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Día</th>
+                        ${INC_CTX_COLS.map(([, etiqueta]) =>
+                            `<th scope="col">${esc(etiqueta)}</th>`).join("")}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${dias.map(dia => `
+                        <tr${dia.iso === evento.iso ? ` class="is-incident"` : ""}>
+                            <th scope="row">${esc(incidenciaDiaLabel(dia.iso))}</th>
+                            ${INC_CTX_COLS.map(([campo]) =>
+                                `<td>${celdaReporte(dia[campo])}</td>`).join("")}
+                        </tr>`).join("")}
+                </tbody>
+            </table>
+        </div>
+        <div class="hm-cob-actions">
+            <button class="hm-cob-btn hm-cob-btn--ver" type="button"
+                data-hm="inc-cal" ${donde}>VER CALENDARIO</button>
+            <button class="hm-cob-btn hm-cob-btn--ver" type="button"
+                data-hm="inc-report" ${donde}>IR AL REPORTE</button>
+        </div>`;
 }
 
 /**
@@ -2498,6 +2508,28 @@ function wire(panel) {
     incModal?.addEventListener("click", event => {
         if (event.target === incModal || event.target.closest('[data-hm="close"]')) {
             incModal.hidden = true;
+            return;
+        }
+
+        // Ir a ver el caso completo: el calendario y el reporte se abren en el
+        // trabajador y en el mes de la incidencia, no donde quedaron la ultima
+        // vez que se miraron.
+        const salto = event.target
+            .closest('[data-hm="inc-cal"], [data-hm="inc-report"]');
+
+        if (salto) {
+            incModal.hidden = true;
+            window.dispatchEvent(new CustomEvent(
+                salto.dataset.hm === "inc-cal"
+                    ? "proturnos:viewWorkerRequestInCalendar"
+                    : "proturnos:viewWorkerReport",
+                {
+                    detail: {
+                        profile: salto.dataset.profile,
+                        date: salto.dataset.iso
+                    }
+                }
+            ));
             return;
         }
 

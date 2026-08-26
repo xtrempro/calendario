@@ -7506,6 +7506,60 @@ window.addEventListener(
     }
 );
 
+/**
+ * Abrir el reporte de un trabajador en el mes de un dia dado.
+ *
+ * Lo usa el detalle de incidencias del inicio: la incidencia es de un dia
+ * concreto, asi que el reporte tiene que salir en SU mes y no en el que quedo
+ * abierto la ultima vez que se miro un reporte.
+ */
+window.addEventListener(
+    "proturnos:viewWorkerReport",
+    async event => {
+        const profileName = String(event.detail?.profile || "").trim();
+        const target = parseCalendarJumpDate(event.detail?.date);
+
+        if (!profileName || !target) {
+            showAppToast(
+                "No se pudo abrir el reporte de ese día.",
+                { title: "Dato incompleto", variant: "warn" }
+            );
+            return;
+        }
+
+        if (!getProfiles().some(profile => profile.name === profileName)) {
+            showAppToast(
+                "Ese trabajador ya no existe en el entorno.",
+                { title: "Perfil no encontrado", variant: "warn" }
+            );
+            return;
+        }
+
+        const selected = await selectProfileByName(profileName, {
+            refresh: false,
+            openTurns: false
+        });
+
+        if (!selected) return;
+
+        // El mes se fija ANTES de entrar: al abrir Reportes se dibuja el
+        // detalle, y tiene que salir ya con el mes de la incidencia.
+        reportsMonthDate = new Date(target.year, target.month, 1);
+        reportsMonthPickerYear = target.year;
+
+        if (!await setActiveShortcut("reportsPanel")) {
+            return;
+        }
+
+        requestAnimationFrame(() => {
+            document.getElementById("reportsPanel")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start"
+            });
+        });
+    }
+);
+
 function clearSelectionMode(shouldRefresh = true) {
     selectionMode = null;
     window.selectionMode = null;

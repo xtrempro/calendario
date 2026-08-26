@@ -19553,7 +19553,10 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 
 /* El reporte de la vispera, el dia y el dia siguiente, abierto bajo la fila.
    En pantalla angosta la tabla se desplaza sola en vez de apretar el modal. */
-.hm-inc-ctx { padding: 4px 10px 10px; overflow-x: auto; }
+.hm-inc-ctx { padding: 4px 10px 10px; }
+/* Solo la tabla se desplaza: los dos botones de abajo se quedan donde
+   estan aunque la tabla no quepa. */
+.hm-inc-ctx-scroll { overflow-x: auto; }
 .hm-inc-ctx-table {
     width: 100%; min-width: 440px;
     border-collapse: collapse; font-size: 0.82rem;

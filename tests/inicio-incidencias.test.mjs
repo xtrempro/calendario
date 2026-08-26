@@ -57,6 +57,10 @@ const estilos = (await readFile(
     new URL("../styles.css", import.meta.url),
     "utf8"
 )).replace(/\r\n/g, "\n");
+const principal = (await readFile(
+    new URL("../js/main.js", import.meta.url),
+    "utf8"
+)).replace(/\r\n/g, "\n");
 
 const NOMBRE = "TRABAJADOR DE PRUEBA";
 const RUT = "17816632-8";
@@ -488,6 +492,33 @@ test("el detalle trae las columnas del reporte", () => {
     assert.match(home, /\["atraso", "Atraso"\]/);
     assert.match(home, /\["entrada", "Entrada"\]/);
     assert.match(home, /\["salida", "Salida"\]/);
+});
+
+test("desde el detalle se salta al calendario y al reporte", () => {
+    // Los dos botones van bajo el resumen de los tres dias y llevan al mismo
+    // trabajador, en el mes de la incidencia.
+    assert.match(home, /data-hm="inc-cal"/);
+    assert.match(home, /data-hm="inc-report"/);
+    assert.match(home, /VER CALENDARIO<\/button>/);
+    assert.match(home, /IR AL REPORTE<\/button>/);
+    assert.match(home, /"proturnos:viewWorkerRequestInCalendar"/);
+    assert.match(home, /"proturnos:viewWorkerReport"/);
+    assert.match(home, /data-profile="\$\{esc\(evento\.profile\)\}"/);
+    assert.match(home, /data-iso="\$\{esc\(evento\.iso\)\}"/);
+});
+
+test("el reporte se abre en el mes de la incidencia", () => {
+    // Sin fijar el mes ANTES de entrar, Reportes se dibuja con el mes que
+    // quedo abierto la ultima vez y el supervisor no ve el dia que pidio.
+    const salto = principal.slice(
+        principal.indexOf(`"proturnos:viewWorkerReport"`)
+    );
+    const fijaMes = salto.indexOf("reportsMonthDate = new Date(");
+    const abre = salto.indexOf(`setActiveShortcut("reportsPanel")`);
+
+    assert.ok(fijaMes > 0 && abre > 0);
+    assert.ok(fijaMes < abre, "el mes se fija antes de abrir Reportes");
+    assert.match(salto.slice(0, abre), /selectProfileByName\(profileName/);
 });
 
 test("el detalle va ordenado por fecha", () => {
