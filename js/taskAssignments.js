@@ -96,6 +96,15 @@ let draggedTask = null;
 let draggedWorker = null;
 let draggedMergePort = null;
 let renderToken = 0;
+// Cada tablero de turno se puede plegar para dejar el otro a pantalla completa.
+let collapsedShifts = { day: false, night: false };
+// Filtro de foco: deja visibles solo las casillas sin nadie asignado.
+let onlyUncovered = false;
+// Casilla con el selector rapido abierto: { shift, taskId, keyDay }. El nodo
+// vive colgado del body -no de la casilla- porque el tablero recorta.
+let openCellPicker = null;
+let cellPickerNode = null;
+let unbindCellPicker = null;
 
 function fileExtension(name) {
     return String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
@@ -1913,15 +1922,17 @@ function renderMultiSelectFilter(
     options,
     selected,
     action,
-    openAction = openTaskFilterGroup
+    openAction = openTaskFilterGroup,
+    prefix = ""
 ) {
     const normalizedSelected = selected || options;
     const isOpen = openAction === action;
+    const isFiltered = Boolean(selected);
 
     return `
-        <details class="task-assignment-multiselect" data-filter-group="${escapeHTML(action)}" ${isOpen ? "open" : ""}>
+        <details class="task-assignment-multiselect${isFiltered ? " is-filtered" : ""}" data-filter-group="${escapeHTML(action)}" ${isOpen ? "open" : ""}>
             <summary>
-                <span>${escapeHTML(filterSummaryLabel(options, selected))}</span>
+                <span>${prefix ? `${escapeHTML(prefix)} &middot; ` : ""}${escapeHTML(filterSummaryLabel(options, selected))}</span>
                 <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
                     <path d="M5 7.5 10 12.5 15 7.5"></path>
                 </svg>
@@ -2098,6 +2109,36 @@ function shortWorkerName(fullName, { compact = false } = {}) {
     return `${parts.first.charAt(0)}.${compact ? "" : " "}${parts.surname}`;
 }
 
+// Iniciales del avatar del chip: inicial del nombre + inicial del primer
+// apellido, las mismas dos letras que se leen en el chip abreviado.
+function workerInitials(fullName) {
+    const parts = workerNameParts(fullName);
+
+    if (!parts) return "";
+    if (!parts.surname) return parts.first.charAt(0).toUpperCase();
+
+    return `${parts.first.charAt(0)}${parts.surname.charAt(0)}`.toUpperCase();
+}
+
+// El tono del avatar se deriva del nombre, no de la posicion en la lista: asi
+// una misma persona conserva su color entre semanas, turnos y tableros. Todos
+// comparten luminosidad y croma y solo cambian de matiz, para que ninguno pese
+// mas que otro ni compita con el color de marca.
+function workerAvatarTone(fullName) {
+    const name = stripAccents(String(fullName || "")).toUpperCase();
+    let hash = 0;
+
+    for (let index = 0; index < name.length; index += 1) {
+        hash = (hash * 31 + name.charCodeAt(index)) % 360;
+    }
+
+    return `oklch(0.58 0.10 ${hash})`;
+}
+
+function renderWorkerAvatar(profileName) {
+    return `<span class="task-assignment-worker-avatar" style="background: ${workerAvatarTone(profileName)};" aria-hidden="true">${escapeHTML(workerInitials(profileName))}</span>`;
+}
+
 function renderWorkerChip(profileName, task, keyDay) {
     const profile = profileByName(profileName);
     const configuredClass = taskDefaultWorkers(task).includes(profileName)
@@ -2116,7 +2157,8 @@ function renderWorkerChip(profileName, task, keyDay) {
     }
 
     return `
-        <span class="task-assignment-worker-chip" draggable="true" data-worker-drag="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="${escapeHTML(profileName)} | Arrastrar a otra tarea del mismo turno y d&iacute;a">
+        <span class="task-assignment-worker-chip${configuredClass}" draggable="true" data-worker-drag="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="${escapeHTML(profileName)} | Arrastrar a otra tarea del mismo turno y d&iacute;a">
+            ${renderWorkerAvatar(profileName)}
             <span class="task-assignment-worker-chip__name">${escapeHTML(shortWorkerName(profileName))}</span>
             <button class="task-assignment-worker-edit${configuredClass}" type="button" data-worker-default-config="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="Editar trabajador predefinido" aria-label="Editar trabajador predefinido">
                 &#9998;
@@ -2149,6 +2191,287 @@ function renderMergePorts(task, keyDay, { taskIndex, size, taskCount }) {
     `;
 }
 
+// ---------------------------------------------------------------------------
+// Selector rapido de la casilla.
+//
+// El caso normal -sumar o sacar a una persona- no merece un modal: se resuelve
+// en un panel flotante anclado a la casilla. El modal completo sigue existiendo
+// para lo demas (buscador, libres del dia, comentario) y se alcanza desde aqui.
+//
+// El nodo cuelga del BODY y no de la casilla porque el tablero scrollea en
+// horizontal, y un `overflow-x: auto` recorta tambien en vertical: dentro de la
+// grilla el panel quedaria cortado por el borde del tablero.
+// ---------------------------------------------------------------------------
+
+function isCellPickerOpen(shift, taskId, keyDay) {
+    return Boolean(openCellPicker) &&
+        openCellPicker.shift === shift &&
+        openCellPicker.taskId === taskId &&
+        openCellPicker.keyDay === keyDay;
+}
+
+function destroyCellPickerNode() {
+    if (unbindCellPicker) {
+        unbindCellPicker();
+        unbindCellPicker = null;
+    }
+
+    if (cellPickerNode) {
+        cellPickerNode.remove();
+        cellPickerNode = null;
+    }
+}
+
+function closeCellPicker() {
+    openCellPicker = null;
+    destroyCellPickerNode();
+}
+
+function setCellWorkers(shift, taskId, keyDay, nextWorkers) {
+    const assignments = getWeekAssignments();
+    const tasks = getTasks();
+    const task = tasks.find(item => item.id === taskId);
+
+    if (!task) return;
+
+    const cellKey = assignmentKey(shift, taskId, keyDay);
+    const entry = assignments[cellKey] || {};
+    const previousWorkers = assignmentWorkers(entry);
+    // Sacar a alguien que venia de una regla predefinida no basta con quitarlo
+    // de la lista: hay que anotarlo como quitado o la regla lo repone sola.
+    const removedDefaults = defaultWorkersForCell(task, keyDay, shift)
+        .filter(worker => !nextWorkers.includes(worker));
+
+    persistEntryOrDelete(assignments, cellKey, {
+        workers: nextWorkers,
+        note: entry.note || "",
+        removedDefaults,
+        mergedNextTaskId: entry.mergedNextTaskId
+    });
+
+    saveWeekAssignments(assignments);
+    publishTaskAssignmentChanges(uniqueValues([
+        ...previousWorkers,
+        ...nextWorkers,
+        ...removedDefaults
+    ]));
+}
+
+function renderCellPickerMarkup(shift, taskId, keyDay) {
+    const assignments = getWeekAssignments();
+    const tasks = getTasks();
+    const task = tasks.find(item => item.id === taskId);
+
+    if (!task) return "";
+
+    const title = mergedGroupTitle(assignments, shift, tasks, taskId, keyDay) ||
+        task.title;
+    const date = parseKey(keyDay);
+    const entry = getCellEntry(assignments, shift, taskId, keyDay);
+    const assigned = assignmentWorkers(entry);
+    const candidates = candidateProfiles(
+        shift,
+        keyDay,
+        selectedRoles,
+        selectedProfessions
+    ).filter(profile => !assigned.includes(profile.name));
+
+    return `
+        <div class="task-assignment-picker__head">
+            <div>
+                <strong>${escapeHTML(title)}</strong>
+                <span>${escapeHTML(SHIFT_CONFIG[shift].shortLabel)} | ${escapeHTML(formatWeekday(date))} ${escapeHTML(formatShortDate(date))}</span>
+            </div>
+            <button class="task-assignment-picker__close" type="button" data-picker-close aria-label="Cerrar">&times;</button>
+        </div>
+        ${
+            assigned.length
+                ? `
+                    <div class="task-assignment-picker__assigned">
+                        ${assigned.map(name => `
+                            <div class="task-assignment-picker__row">
+                                ${renderWorkerAvatar(name)}
+                                <span class="task-assignment-picker__name">${escapeHTML(name)}</span>
+                                <button class="task-assignment-picker__remove" type="button" data-picker-remove="${escapeHTML(name)}" title="Quitar de la tarea" aria-label="Quitar de la tarea">&times;</button>
+                            </div>
+                        `).join("")}
+                    </div>
+                `
+                : ""
+        }
+        <div class="task-assignment-picker__label">Disponibles</div>
+        <div class="task-assignment-picker__list">
+            ${
+                candidates.length
+                    ? candidates.map(profile => `
+                        <button class="task-assignment-picker__option" type="button" data-picker-add="${escapeHTML(profile.name)}">
+                            ${renderWorkerAvatar(profile.name)}
+                            <span>
+                                <strong>${escapeHTML(profile.name)}</strong>
+                                <small>${escapeHTML(profileProfession(profile))} | ${escapeHTML(profileShiftLabel(profile, keyDay))}</small>
+                            </span>
+                        </button>
+                    `).join("")
+                    : `<p class="task-assignment-picker__empty">Sin personal disponible para este turno.</p>`
+            }
+        </div>
+        <button class="task-assignment-picker__more" type="button" data-picker-more>M&aacute;s opciones</button>
+    `;
+}
+
+function positionCellPicker(cell, node) {
+    const rect = cell.getBoundingClientRect();
+    const margin = 8;
+    const width = node.offsetWidth;
+    const height = node.offsetHeight;
+    let left = rect.left;
+
+    if (left + width > window.innerWidth - margin) {
+        left = rect.right - width;
+    }
+    if (left < margin) left = margin;
+
+    let top = rect.bottom + 6;
+
+    // Si abajo no cabe, se abre hacia arriba antes que salirse de la pantalla.
+    if (top + height > window.innerHeight - margin) {
+        const above = rect.top - height - 6;
+
+        top = above >= margin
+            ? above
+            : Math.max(margin, window.innerHeight - height - margin);
+    }
+
+    node.style.left = `${Math.round(left)}px`;
+    node.style.top = `${Math.round(top)}px`;
+}
+
+function bindCellPickerEvents(node, { shift, taskId, keyDay }) {
+    const dismiss = () => {
+        closeCellPicker();
+        renderTaskAssignmentsPanel();
+    };
+    const workersNow = () => assignmentWorkers(
+        getCellEntry(getWeekAssignments(), shift, taskId, keyDay)
+    );
+
+    node
+        .querySelector("[data-picker-close]")
+        ?.addEventListener("click", dismiss);
+
+    node
+        .querySelectorAll("[data-picker-add]")
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                const name = button.dataset.pickerAdd;
+                const current = workersNow();
+
+                if (current.includes(name)) return;
+
+                setCellWorkers(shift, taskId, keyDay, [...current, name]);
+                renderTaskAssignmentsPanel();
+            });
+        });
+
+    node
+        .querySelectorAll("[data-picker-remove]")
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                const name = button.dataset.pickerRemove;
+
+                setCellWorkers(
+                    shift,
+                    taskId,
+                    keyDay,
+                    workersNow().filter(worker => worker !== name)
+                );
+                renderTaskAssignmentsPanel();
+            });
+        });
+
+    node
+        .querySelector("[data-picker-more]")
+        ?.addEventListener("click", () => {
+            closeCellPicker();
+            openAssignmentDialog({ shift, taskId, keyDay });
+            renderTaskAssignmentsPanel();
+        });
+
+    const onPointerDown = event => {
+        if (node.contains(event.target)) return;
+
+        // El boton de la casilla alterna el panel por su cuenta. Si lo
+        // cerraramos aqui, su click posterior lo volveria a abrir y nunca se
+        // podria cerrar con el mismo boton que lo abrio.
+        if (
+            event.target instanceof Element &&
+            event.target.closest("[data-cell-assign]")
+        ) {
+            return;
+        }
+
+        dismiss();
+    };
+    const onKeyDown = event => {
+        if (event.key !== "Escape") return;
+        dismiss();
+    };
+    // Al scrollear el tablero el panel dejaria de apuntar a su casilla, asi que
+    // se cierra antes de quedar descolgado. El scroll de su PROPIA lista no
+    // cuenta: en fase de captura tambien llega aqui, y cerraria el panel al
+    // recorrer los candidatos.
+    const onScroll = event => {
+        if (event.target instanceof Node && node.contains(event.target)) return;
+        dismiss();
+    };
+
+    document.addEventListener("mousedown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("resize", dismiss);
+    window.addEventListener("scroll", onScroll, true);
+
+    unbindCellPicker = () => {
+        document.removeEventListener("mousedown", onPointerDown, true);
+        document.removeEventListener("keydown", onKeyDown, true);
+        window.removeEventListener("resize", dismiss);
+        window.removeEventListener("scroll", onScroll, true);
+    };
+}
+
+function syncCellPicker(root) {
+    destroyCellPickerNode();
+
+    if (!openCellPicker) return;
+
+    const { shift, taskId, keyDay } = openCellPicker;
+    const cell = root.querySelector(
+        `[data-task-cell="${taskId}"][data-shift="${shift}"][data-day="${keyDay}"]`
+    );
+
+    // Sin casilla -tarea borrada, semana cambiada- o con el panel oculto tras
+    // un cambio de vista, el panel flotante no tiene a que anclarse.
+    if (!cell || !cell.getBoundingClientRect().width) {
+        openCellPicker = null;
+        return;
+    }
+
+    const markup = renderCellPickerMarkup(shift, taskId, keyDay);
+
+    if (!markup) {
+        openCellPicker = null;
+        return;
+    }
+
+    const node = document.createElement("div");
+
+    node.className = "task-assignment-picker";
+    node.innerHTML = markup;
+    document.body.appendChild(node);
+    cellPickerNode = node;
+    positionCellPicker(cell, node);
+    bindCellPickerEvents(node, { shift, taskId, keyDay });
+}
+
 function renderAssignmentCell(assignments, task, day, holidays, placement) {
     const keyDay = keyFromDate(day);
     const entry = getCellEntry(
@@ -2157,22 +2480,51 @@ function renderAssignmentCell(assignments, task, day, holidays, placement) {
         task.id,
         keyDay
     );
-    const workers = assignmentWorkers(entry)
+    const assigned = assignmentWorkers(entry);
+    const workers = assigned
         .map(profileName => renderWorkerChip(profileName, task, keyDay))
         .filter(Boolean);
     const { dayIndex, taskIndex, size } = placement;
     // Fila y columna explicitas: con una casilla que ocupa varias filas, dejar
     // que la grilla las acomode sola correria las de abajo de lugar.
     const area = `grid-column: ${dayIndex + 2}; grid-row: ${taskIndex + 2} / span ${size};`;
+    // "Sin cubrir" mira la asignacion real, no la filtrada: los filtros de
+    // estamento y profesion son de vista y no deben inventar huecos.
+    const uncovered = !assigned.length;
+    const picking = isCellPickerOpen(task.shift, task.id, keyDay);
+    const classes = [
+        "task-assignment-cell",
+        size > 1 ? " task-assignment-cell--merged" : "",
+        inhabilClass(day, holidays, "task-assignment-cell--inhabil"),
+        uncovered ? " task-assignment-cell--uncovered" : "",
+        picking ? " task-assignment-cell--picking" : "",
+        onlyUncovered && !uncovered && !picking
+            ? " task-assignment-cell--dimmed"
+            : ""
+    ].join("");
 
     return `
-        <div class="task-assignment-cell${size > 1 ? " task-assignment-cell--merged" : ""}${inhabilClass(day, holidays, "task-assignment-cell--inhabil")}" style="${area}" data-task-cell="${escapeHTML(task.id)}" data-shift="${escapeHTML(task.shift)}" data-day="${escapeHTML(keyDay)}" data-merge-size="${size}">
-            <button class="task-assignment-add" type="button" title="Asignar trabajadores">
-                +
-            </button>
+        <div class="${classes}" style="${area}" data-task-cell="${escapeHTML(task.id)}" data-shift="${escapeHTML(task.shift)}" data-day="${escapeHTML(keyDay)}" data-merge-size="${size}">
+            ${size > 1 ? `
+                <span class="task-assignment-cell-tag">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M9.5 14.5 14.5 9.5"></path>
+                        <path d="M7 11 5 13a3.5 3.5 0 0 0 5 5l2-2"></path>
+                        <path d="M17 13l2-2a3.5 3.5 0 0 0-5-5l-2 2"></path>
+                    </svg>
+                    Casillas unidas
+                </span>
+            ` : ""}
             <div class="task-assignment-cell-workers">
                 ${workers.join("")}
             </div>
+            <button class="task-assignment-add" type="button" data-cell-assign title="${assigned.length ? "Agregar trabajadores" : "Asignar trabajadores"}">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 5.5v13"></path>
+                    <path d="M5.5 12h13"></path>
+                </svg>
+                <span>${assigned.length ? "Agregar" : "Asignar"}</span>
+            </button>
             ${entry.note ? `<p>${escapeHTML(entry.note)}</p>` : ""}
             ${renderMergePorts(task, keyDay, placement)}
         </div>
@@ -2206,10 +2558,13 @@ function taskForShift(task, shift) {
 function renderTaskAddForm() {
     return `
         <form class="task-assignment-global-task-form" data-task-add-form autocomplete="off">
-            <strong>Nueva tarea</strong>
             <div class="task-assignment-task-form">
-                <input name="title" type="text" maxlength="80" placeholder="Ej: Revisar insumos">
-                <button class="task-assignment-task-add" type="submit" aria-label="Agregar tarea">+</button>
+                <svg class="task-assignment-task-form__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 5.5v13"></path>
+                    <path d="M5.5 12h13"></path>
+                </svg>
+                <input name="title" type="text" maxlength="80" placeholder="Nueva tarea (ej: Revisar insumos)" aria-label="Nueva tarea">
+                <button class="task-assignment-task-add" type="submit">Agregar</button>
             </div>
         </form>
     `;
@@ -2239,15 +2594,118 @@ function renderScheduleAttachmentStatus() {
     `;
 }
 
+// Permisos, ausencias y cumpleanos del dia, agrupados por motivo. En el
+// encabezado interesa el motivo y cuanta gente, no la lista de nombres: los
+// nombres siguen completos en la fila de Novedades.
+function dayFlags(day) {
+    const absences = new Map();
+
+    absenceProfiles(day).forEach(item => {
+        absences.set(item.label, (absences.get(item.label) || 0) + 1);
+    });
+
+    const flags = [...absences.entries()].map(([label, count]) => ({
+        kind: "absence",
+        label,
+        count
+    }));
+    const birthdays = birthdayProfiles(day).length;
+
+    if (birthdays) {
+        flags.push({
+            kind: "birthday",
+            label: "Cumpleaños",
+            count: birthdays
+        });
+    }
+
+    return flags;
+}
+
+function renderDayFlags(day) {
+    const flags = dayFlags(day);
+
+    if (!flags.length) return "";
+
+    const shown = flags.slice(0, 2);
+    const rest = flags.length - shown.length;
+
+    return `
+        <div class="task-assignment-day-flags">
+            ${shown.map(flag => `
+                <span class="task-assignment-day-flag task-assignment-day-flag--${escapeHTML(flag.kind)}" title="${escapeHTML(flag.label)}">
+                    ${escapeHTML(flag.label)}${flag.count > 1 ? ` ${flag.count}` : ""}
+                </span>
+            `).join("")}
+            ${rest > 0 ? `<span class="task-assignment-day-flag task-assignment-day-flag--rest">+${rest}</span>` : ""}
+        </div>
+    `;
+}
+
+// La barra fina bajo la fecha es la cobertura del turno ese dia: cuantas
+// casillas de la columna tienen a alguien. Es lo que el supervisor busca de un
+// vistazo antes de mirar casilla por casilla.
+function renderDayHead(day, column, holidays, dayIndex, withFlags) {
+    const percent = column.total
+        ? Math.round((column.done / column.total) * 100)
+        : 0;
+    const level = percent >= 100
+        ? "full"
+        : (percent >= 60 ? "mid" : "low");
+
+    return `
+        <div class="task-assignment-day-head${inhabilClass(day, holidays, "task-assignment-day-head--inhabil")}" style="grid-column: ${dayIndex + 2}; grid-row: 1;">
+            <div class="task-assignment-day-head__top">
+                <strong>${escapeHTML(formatWeekday(day))}</strong>
+                <span>${escapeHTML(formatShortDate(day))}</span>
+                <em class="task-assignment-day-percent task-assignment-day-percent--${level}">${percent}%</em>
+            </div>
+            <div class="task-assignment-day-meter task-assignment-day-meter--${level}">
+                <span style="width: ${percent}%;"></span>
+            </div>
+            ${withFlags ? renderDayFlags(day) : ""}
+        </div>
+    `;
+}
+
+function renderShiftIcon(shift) {
+    if (shift === "night") {
+        return `
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 14.5A8.2 8.2 0 0 1 9.5 4 8.4 8.4 0 1 0 20 14.5Z"></path>
+            </svg>
+        `;
+    }
+
+    return `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="4"></circle>
+            <path d="M12 2.5v2"></path>
+            <path d="M12 19.5v2"></path>
+            <path d="M4.2 4.2l1.4 1.4"></path>
+            <path d="M18.4 18.4l1.4 1.4"></path>
+            <path d="M2.5 12h2"></path>
+            <path d="M19.5 12h2"></path>
+            <path d="M4.2 19.8l1.4-1.4"></path>
+            <path d="M18.4 5.6l1.4-1.4"></path>
+        </svg>
+    `;
+}
+
 function renderBoard(shift, tasks, days, assignments, holidays = {}) {
     const config = SHIFT_CONFIG[shift];
     const sectionTasks = tasks.map(task => taskForShift(task, shift));
     // Cada dia se agrupa por su cuenta: la misma tarea puede ir fusionada el
     // sabado y suelta el lunes.
     const columns = days.map(day => {
-        const groups = columnGroups(assignments, shift, tasks, keyFromDate(day));
+        const keyDay = keyFromDate(day);
+        const groups = columnGroups(assignments, shift, tasks, keyDay);
         const owner = new Map();
         const covered = new Set();
+        let done = 0;
+        let total = 0;
+        let people = 0;
+        let uncovered = 0;
 
         groups.forEach(group => {
             owner.set(group.start, group);
@@ -2255,26 +2713,74 @@ function renderBoard(shift, tasks, days, assignments, holidays = {}) {
             for (let offset = 1; offset < group.taskIds.length; offset += 1) {
                 covered.add(group.start + offset);
             }
+
+            // La casilla fusionada cuenta por las filas que ocupa: si cubre dos
+            // tareas, cubrir la casilla cubre las dos.
+            const size = group.taskIds.length;
+            const workers = assignmentWorkers(
+                getCellEntry(assignments, shift, group.taskIds[0], keyDay)
+            );
+
+            total += size;
+            people += workers.length;
+
+            if (workers.length) {
+                done += size;
+            } else {
+                uncovered += 1;
+            }
         });
 
-        return { day, owner, covered };
+        return { day, owner, covered, done, total, people, uncovered };
     });
+    const totals = columns.reduce(
+        (sum, column) => ({
+            people: sum.people + column.people,
+            uncovered: sum.uncovered + column.uncovered
+        }),
+        { people: 0, uncovered: 0 }
+    );
+    const collapsed = Boolean(collapsedShifts[shift]);
 
     return `
-        <section class="task-assignment-section task-assignment-section--${escapeHTML(config.className)}">
-            <div class="task-assignment-section-title">
-                ${escapeHTML(config.label)}
+        <section class="task-assignment-section task-assignment-section--${escapeHTML(config.className)}${collapsed ? " is-collapsed" : ""}">
+            <div class="task-assignment-section-head">
+                <button class="task-assignment-section-toggle" type="button" data-shift-toggle="${escapeHTML(shift)}" aria-expanded="${collapsed ? "false" : "true"}" title="${collapsed ? "Mostrar" : "Ocultar"} ${escapeHTML(config.label)}">
+                    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+                        <path d="M5 7.5 10 12.5 15 7.5"></path>
+                    </svg>
+                </button>
+                <span class="task-assignment-section-icon">${renderShiftIcon(shift)}</span>
+                <strong class="task-assignment-section-title">${escapeHTML(config.label)}</strong>
+                <span class="task-assignment-section-metric">
+                    ${sectionTasks.length} ${sectionTasks.length === 1 ? "tarea" : "tareas"} &middot; ${totals.people} ${totals.people === 1 ? "asignaci&oacute;n" : "asignaciones"}
+                </span>
+                ${
+                    totals.uncovered
+                        ? `
+                            <button class="task-assignment-section-gap${onlyUncovered ? " is-on" : ""}" type="button" data-only-uncovered title="Ver solo las casillas sin cubrir">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <circle cx="12" cy="12" r="9"></circle>
+                                    <path d="M12 8v5"></path>
+                                    <path d="M12 16.4h.01"></path>
+                                </svg>
+                                ${totals.uncovered} sin cubrir
+                            </button>
+                        `
+                        : ""
+                }
             </div>
-            <div class="task-assignment-board">
+            <div class="task-assignment-board"${collapsed ? " hidden" : ""}>
                 <div class="task-assignment-task-head task-assignment-task-head--label" style="grid-column: 1; grid-row: 1;">
                     Tareas
                 </div>
-                ${days.map((day, dayIndex) => `
-                    <div class="task-assignment-day-head${inhabilClass(day, holidays, "task-assignment-day-head--inhabil")}" style="grid-column: ${dayIndex + 2}; grid-row: 1;">
-                        <strong>${escapeHTML(formatWeekday(day))}</strong>
-                        <span>${escapeHTML(formatShortDate(day))}</span>
-                    </div>
-                `).join("")}
+                ${columns.map((column, dayIndex) => renderDayHead(
+                    column.day,
+                    column,
+                    holidays,
+                    dayIndex,
+                    shift === "day"
+                )).join("")}
                 ${
                     sectionTasks.length
                         ? sectionTasks.map((task, taskIndex) => `
@@ -2320,9 +2826,20 @@ function renderBoard(shift, tasks, days, assignments, holidays = {}) {
 function renderEventsBoard(days, holidays = {}) {
     return `
         <section class="task-assignment-events">
+            <div class="task-assignment-section-head">
+                <span class="task-assignment-section-icon task-assignment-section-icon--events">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M12 3v3"></path>
+                        <path d="M6 21h12a1 1 0 0 0 1-1v-6a3 3 0 0 0-3-3H8a3 3 0 0 0-3 3v6a1 1 0 0 0 1 1Z"></path>
+                        <path d="M5 16c1.6 0 1.6 1.4 3.2 1.4S9.8 16 11.4 16s1.6 1.4 3.2 1.4S16.2 16 17.8 16"></path>
+                    </svg>
+                </span>
+                <strong class="task-assignment-section-title">Novedades de la semana</strong>
+                <span class="task-assignment-section-metric">Permisos &middot; Ausencias &middot; Cumplea&ntilde;os</span>
+            </div>
             <div class="task-assignment-events-grid">
                 <div class="task-assignment-events-head">
-                    Permisos / Ausencias / Cumplea&ntilde;os
+                    Registros
                 </div>
                 ${days.map(day => {
                     const absences = absenceProfiles(day);
@@ -2355,35 +2872,129 @@ function renderEventsBoard(days, holidays = {}) {
     `;
 }
 
+const MONTH_LABELS = [
+    "ene", "feb", "mar", "abr", "may", "jun",
+    "jul", "ago", "sep", "oct", "nov", "dic"
+];
+
+// El rango de la semana es el dato que ordena todo el panel, asi que se escribe
+// entero: "24 - 30 ago 2026", y con los dos meses cuando la semana los cruza.
+function weekRangeLabel(days) {
+    const first = days[0];
+    const last = days[days.length - 1];
+
+    if (first.getMonth() === last.getMonth()) {
+        return `${first.getDate()} - ${last.getDate()} ${MONTH_LABELS[first.getMonth()]} ${first.getFullYear()}`;
+    }
+
+    return `${first.getDate()} ${MONTH_LABELS[first.getMonth()]} - ${last.getDate()} ${MONTH_LABELS[last.getMonth()]} ${last.getFullYear()}`;
+}
+
+function isCurrentWeek() {
+    return weekKey(currentWeekStart) === weekKey(weekStartMonday(new Date()));
+}
+
+// Numero de semana ISO: la semana 1 es la que contiene el primer jueves del
+// anio. Va sobre el rango de fechas para no repetirlo con otras palabras.
+function isoWeekNumber(date) {
+    const thursdayOf = value => {
+        const day = new Date(
+            value.getFullYear(),
+            value.getMonth(),
+            value.getDate()
+        );
+
+        day.setDate(day.getDate() + 3 - ((day.getDay() + 6) % 7));
+        return day;
+    };
+    const target = thursdayOf(date);
+    const firstThursday = thursdayOf(new Date(target.getFullYear(), 0, 4));
+
+    return 1 + Math.round(
+        (target.getTime() - firstThursday.getTime()) / (7 * 86400000)
+    );
+}
+
 function renderShell(holidays = {}) {
     const days = weekDays();
     const tasks = getTasks();
     const assignments = cleanAssignmentsForWeek(days, tasks);
     const roles = availableRoles();
     const professions = availableProfessions();
+    const current = isCurrentWeek();
 
     return `
         <div class="task-assignment-shell">
-            <section class="task-assignment-controls">
-                <div class="task-assignment-view-filters">
+            <section class="task-assignment-topbar">
+                <div class="task-assignment-identity">
+                    <span class="task-assignment-identity__icon">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <rect x="3" y="4" width="18" height="17" rx="3"></rect>
+                            <path d="M8 2.5v4"></path>
+                            <path d="M16 2.5v4"></path>
+                            <path d="M3 9h18"></path>
+                            <path d="m7 14 1.5 1.5L11 13"></path>
+                            <path d="M13.5 14h3.5"></path>
+                            <path d="M13.5 17h3.5"></path>
+                        </svg>
+                    </span>
                     <div>
-                        <strong>Estamentos</strong>
-                        ${renderMultiSelectFilter("taskRole", roles, selectedRoles, "roles")}
-                    </div>
-                    <div>
-                        <strong>Profesiones</strong>
-                        ${renderMultiSelectFilter("taskProfession", professions, selectedProfessions, "professions")}
+                        <strong>Asignaci&oacute;n de Tareas</strong>
+                        <span>${tasks.length} ${tasks.length === 1 ? "tarea" : "tareas"} &middot; 7 d&iacute;as</span>
                     </div>
                 </div>
+
+                <div class="task-assignment-weeknav">
+                    <button class="task-assignment-weeknav__step" type="button" data-task-week-prev title="Semana anterior" aria-label="Semana anterior">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="m14 6-6 6 6 6"></path>
+                        </svg>
+                    </button>
+                    <div class="task-assignment-weeknav__label">
+                        <span>Semana ${isoWeekNumber(days[0])}</span>
+                        <strong>${escapeHTML(weekRangeLabel(days))}</strong>
+                    </div>
+                    <button class="task-assignment-weeknav__step" type="button" data-task-week-next title="Semana siguiente" aria-label="Semana siguiente">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="m10 6 6 6-6 6"></path>
+                        </svg>
+                    </button>
+                    <button class="task-assignment-weeknav__today${current ? " is-on" : ""}" type="button" data-task-week-current>Hoy</button>
+                </div>
+
+                <div class="task-assignment-topbar__actions">
+                    <button class="task-assignment-action" type="button" data-task-schedule-preview>Ver programaci&oacute;n</button>
+                    <button class="task-assignment-action" type="button" data-task-schedule-attach title="Adjuntar la programaci&oacute;n de la semana">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.67 3.67 0 1 1 5.18 5.18l-9.2 9.2a1.83 1.83 0 0 1-2.59-2.6l8.49-8.48"></path>
+                        </svg>
+                        Adjuntar
+                    </button>
+                    <button class="task-assignment-action task-assignment-action--primary" type="button" data-task-export>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M12 3v12"></path>
+                            <path d="m7.5 10.5 4.5 4.5 4.5-4.5"></path>
+                            <path d="M4 20h16"></path>
+                        </svg>
+                        Excel
+                    </button>
+                </div>
+            </section>
+
+            <section class="task-assignment-controls">
+                <div class="task-assignment-view-filters">
+                    ${renderMultiSelectFilter("taskRole", roles, selectedRoles, "roles", openTaskFilterGroup, "Estamentos")}
+                    ${renderMultiSelectFilter("taskProfession", professions, selectedProfessions, "professions", openTaskFilterGroup, "Profesiones")}
+                    <button class="task-assignment-gap-filter${onlyUncovered ? " is-on" : ""}" type="button" data-only-uncovered>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0Z"></path>
+                            <path d="M12 8v5"></path>
+                            <path d="M12 16.4h.01"></path>
+                        </svg>
+                        Solo sin cubrir
+                    </button>
+                </div>
                 ${renderTaskAddForm()}
-                <span class="task-assignment-toolbar">
-                    <button class="secondary-button secondary-button--small" type="button" data-task-schedule-attach>Adjuntar Programaci&oacute;n</button>
-                    <button class="secondary-button secondary-button--small" type="button" data-task-week-prev>Anterior</button>
-                    <button class="secondary-button secondary-button--small" type="button" data-task-week-current>Semana actual</button>
-                    <button class="secondary-button secondary-button--small" type="button" data-task-week-next>Siguiente</button>
-                    <button class="secondary-button secondary-button--small" type="button" data-task-schedule-preview>Ver programaci&oacute;n</button>
-                    <button class="primary-button secondary-button--small" type="button" data-task-export>Descargar Excel</button>
-                </span>
                 ${renderScheduleAttachmentStatus()}
             </section>
             ${renderBoard("day", tasks, days, assignments, holidays)}
@@ -3234,6 +3845,31 @@ function bindShellEvents(root) {
         currentWeekStart = weekStartMonday(new Date());
         renderTaskAssignmentsPanel();
     });
+    root
+        .querySelectorAll("[data-shift-toggle]")
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                const shift = button.dataset.shiftToggle;
+
+                collapsedShifts = {
+                    ...collapsedShifts,
+                    [shift]: !collapsedShifts[shift]
+                };
+                closeCellPicker();
+                renderTaskAssignmentsPanel();
+            });
+        });
+
+    root
+        .querySelectorAll("[data-only-uncovered]")
+        .forEach(button => {
+            button.addEventListener("click", () => {
+                onlyUncovered = !onlyUncovered;
+                closeCellPicker();
+                renderTaskAssignmentsPanel();
+            });
+        });
+
     bindMergeEvents(root);
     root.querySelector("[data-task-export]")?.addEventListener("click", exportTaskAssignmentsExcel);
     root.querySelector("[data-task-schedule-preview]")?.addEventListener("click", async () => {
@@ -3431,13 +4067,26 @@ function bindShellEvents(root) {
     root
         .querySelectorAll("[data-task-cell]")
         .forEach(cell => {
-            cell.querySelector(".task-assignment-add")?.addEventListener(
+            cell.querySelector("[data-cell-assign]")?.addEventListener(
                 "click",
-                () => openAssignmentDialog({
-                    shift: cell.dataset.shift,
-                    taskId: cell.dataset.taskCell,
-                    keyDay: cell.dataset.day
-                })
+                event => {
+                    event.stopPropagation();
+
+                    const target = {
+                        shift: cell.dataset.shift,
+                        taskId: cell.dataset.taskCell,
+                        keyDay: cell.dataset.day
+                    };
+                    const wasOpen = isCellPickerOpen(
+                        target.shift,
+                        target.taskId,
+                        target.keyDay
+                    );
+
+                    closeCellPicker();
+                    if (!wasOpen) openCellPicker = target;
+                    renderTaskAssignmentsPanel();
+                }
             );
             cell.ondragover = event => {
                 // El punto se comprueba PRIMERO: mientras se arrastra uno no
@@ -3518,29 +4167,112 @@ function bindShellEvents(root) {
         });
 }
 
+// Copia la asignacion recien guardada a los dias que quedan de la semana.
+//
+// Es deliberadamente conservadora: solo escribe donde no hay fusion -el grupo
+// fusionado tiene su propia casilla duena y su propio criterio- y solo con las
+// personas que ese dia estan realmente en el turno y sin permiso. Repetir a
+// ciegas terminaria asignando a alguien que ese dia libra o esta con licencia.
+function repeatAssignmentForWeek(
+    assignments,
+    tasks,
+    shift,
+    taskId,
+    keyDay,
+    workers
+) {
+    const days = weekDays();
+    const startIndex = days.findIndex(day => keyFromDate(day) === keyDay);
+    const task = tasks.find(item => item.id === taskId);
+
+    if (startIndex < 0 || !task) return [];
+
+    const touched = [];
+
+    days.slice(startIndex + 1).forEach(day => {
+        const nextKey = keyFromDate(day);
+        const group = groupForTask(assignments, shift, tasks, taskId, nextKey);
+
+        if (group && group.taskIds.length > 1) return;
+
+        const available = workers.filter(name => {
+            const profile = profileByName(name);
+
+            return profile && isAvailableForShift(profile, nextKey, shift);
+        });
+
+        if (!available.length) return;
+
+        const cellKey = assignmentKey(shift, taskId, nextKey);
+        const entry = assignments[cellKey] || {};
+
+        persistEntryOrDelete(assignments, cellKey, {
+            workers: available,
+            note: entry.note || "",
+            removedDefaults: defaultWorkersForCell(task, nextKey, shift)
+                .filter(worker => !available.includes(worker)),
+            mergedNextTaskId: entry.mergedNextTaskId
+        });
+        touched.push(...available, ...assignmentWorkers(entry));
+    });
+
+    return touched;
+}
+
+// Cuando el candidato ya esta en otra tarea del mismo turno y dia, el nombre de
+// esa tarea vale mas que un simple "ocupado": dice de donde habria que sacarlo.
+function workerOtherTaskTitle(
+    assignments,
+    tasks,
+    workerName,
+    shift,
+    keyDay,
+    taskId
+) {
+    const hit = Object.entries(assignments).find(([cellKey, entry]) => {
+        const parts = splitAssignmentKey(cellKey);
+
+        return parts.shift === shift &&
+            parts.keyDay === keyDay &&
+            parts.taskId !== taskId &&
+            assignmentWorkers(entry).includes(workerName);
+    });
+
+    if (!hit) return "";
+
+    const otherId = splitAssignmentKey(hit[0]).taskId;
+
+    return tasks.find(task => task.id === otherId)?.title || "En otra tarea";
+}
+
 function renderDialogCandidate(
     profile,
     assignments,
     shift,
     keyDay,
     taskId,
-    selectedWorkers
+    selectedWorkers,
+    tasks = getTasks()
 ) {
-    const busy = workerHasOtherTask(
+    const otherTask = workerOtherTaskTitle(
         assignments,
+        tasks,
         profile.name,
         shift,
         keyDay,
         taskId
     );
+    const checked = selectedWorkers.has(profile.name);
 
     return `
-        <label class="task-assignment-candidate ${busy ? "is-busy" : "is-free"}">
-            <input type="checkbox" value="${escapeHTML(profile.name)}" ${selectedWorkers.has(profile.name) ? "checked" : ""}>
+        <label class="task-assignment-candidate ${otherTask ? "is-busy" : "is-free"}${checked ? " is-checked" : ""}">
+            <input type="checkbox" value="${escapeHTML(profile.name)}" ${checked ? "checked" : ""}>
+            ${renderWorkerAvatar(profile.name)}
             <span>
                 <strong>${escapeHTML(profile.name)}</strong>
-                <small>${escapeHTML(profile.estamento || "Sin estamento")} | ${escapeHTML(profileProfession(profile))} | ${escapeHTML(profileShiftLabel(profile, keyDay))}</small>
+                <small>${escapeHTML(profile.estamento || "Sin estamento")} | ${escapeHTML(profileProfession(profile))}</small>
             </span>
+            <em class="task-assignment-candidate__state">${escapeHTML(otherTask || profileShiftLabel(profile, keyDay))}</em>
         </label>
     `;
 }
@@ -3578,6 +4310,7 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
     let unbindDialogFilterOutside = null;
     let workerSearch = "";
     let includeWorkersWithoutShift = false;
+    let repeatRestOfWeek = false;
     let note = entry.note || "";
     const backdrop = document.createElement("div");
 
@@ -3612,11 +4345,68 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
         workerSearch = backdrop
             .querySelector("[data-dialog-worker-search]")
             ?.value || "";
-        includeWorkersWithoutShift = Boolean(
+        repeatRestOfWeek = Boolean(
             backdrop
-                .querySelector("[data-dialog-include-free-workers]")
+                .querySelector("[data-dialog-repeat-week]")
                 ?.checked
         );
+    };
+    const selectedStripMarkup = () => `
+        <span class="task-assignment-dialog__selected-label">En esta tarea &middot; ${selectedWorkers.size}</span>
+        <div class="task-assignment-dialog__chips">
+            ${
+                selectedWorkers.size
+                    ? [...selectedWorkers].map(name => `
+                        <span class="task-assignment-dialog__chip">
+                            ${renderWorkerAvatar(name)}
+                            <span>${escapeHTML(name)}</span>
+                            <button type="button" data-selected-drop="${escapeHTML(name)}" title="Quitar de la tarea" aria-label="Quitar de la tarea">&times;</button>
+                        </span>
+                    `).join("")
+                    : `<span class="task-assignment-dialog__chips-empty">Nadie asignado todav&iacute;a</span>`
+            }
+        </div>
+    `;
+    // La cabecera de seleccionados y el contador del boton se refrescan solos
+    // al marcar una casilla: repintar el dialogo entero perderia el foco y el
+    // scroll de la lista.
+    const syncSelection = () => {
+        const strip = backdrop.querySelector("[data-selected-strip]");
+
+        if (strip) {
+            strip.innerHTML = selectedStripMarkup();
+            bindSelectedChips();
+        }
+
+        const save = backdrop.querySelector("[data-dialog-save]");
+
+        if (save) save.textContent = `Guardar (${selectedWorkers.size})`;
+
+        backdrop
+            .querySelectorAll("[data-candidate-list] .task-assignment-candidate")
+            .forEach(label => {
+                label.classList.toggle(
+                    "is-checked",
+                    Boolean(label.querySelector("input")?.checked)
+                );
+            });
+    };
+    const bindSelectedChips = () => {
+        backdrop
+            .querySelectorAll("[data-selected-drop]")
+            .forEach(button => {
+                button.addEventListener("click", () => {
+                    const name = button.dataset.selectedDrop;
+
+                    selectedWorkers.delete(name);
+                    [...backdrop.querySelectorAll("[data-candidate-list] input")]
+                        .filter(input => input.value === name)
+                        .forEach(input => {
+                            input.checked = false;
+                        });
+                    syncSelection();
+                });
+            });
     };
     const render = () => {
         const allCandidates = candidateProfiles(
@@ -3639,44 +4429,44 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
             <section class="task-assignment-dialog">
                 <div class="task-assignment-dialog__head">
                     <div>
-                        <h3>${escapeHTML(dialogTitle)}</h3>
-                        <span>${escapeHTML(SHIFT_CONFIG[shift].shortLabel)} | ${escapeHTML(formatWeekday(date))} ${escapeHTML(formatShortDate(date))}</span>
+                        <h3>
+                            ${escapeHTML(dialogTitle)}
+                            <em class="task-assignment-shift-badge task-assignment-shift-badge--${escapeHTML(shift)}">${escapeHTML(SHIFT_CONFIG[shift].shortLabel)}</em>
+                        </h3>
+                        <span>${escapeHTML(formatWeekday(date))} ${escapeHTML(formatShortDate(date))}</span>
                     </div>
                     <button class="icon-button" type="button" data-dialog-close aria-label="Cerrar">&times;</button>
                 </div>
-                <div class="task-assignment-dialog__filters">
-                    <div class="task-assignment-worker-search-field">
-                        <strong>Trabajador</strong>
-                        <form class="profile-viewer task-assignment-worker-search" data-dialog-worker-search-form autocomplete="off">
-                            <div class="profile-viewer__field">
-                                <input
-                                    data-dialog-worker-search
-                                    type="search"
-                                    list="taskAssignmentWorkerOptions"
-                                    placeholder="Buscar trabajador"
-                                    value="${escapeHTML(workerSearch)}"
-                                >
-                                <button class="profile-viewer__button" type="submit" aria-label="Buscar trabajador">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                                        <circle cx="11" cy="11" r="7"></circle>
-                                        <path d="M21 21l-4.35-4.35"></path>
-                                    </svg>
-                                </button>
-                            </div>
-                            <datalist id="taskAssignmentWorkerOptions">
-                                ${renderDialogWorkerOptions(allCandidates)}
-                            </datalist>
-                        </form>
-                    </div>
-                    <div>
-                        <strong>Profesi&oacute;n</strong>
-                        ${renderMultiSelectFilter("dialogTaskProfession", professions, dialogProfessions, "dialog-professions", openDialogFilterGroup)}
-                    </div>
+                <div class="task-assignment-dialog__selected" data-selected-strip>
+                    ${selectedStripMarkup()}
                 </div>
-                <label class="task-assignment-free-toggle">
-                    <input type="checkbox" data-dialog-include-free-workers ${includeWorkersWithoutShift ? "checked" : ""}>
-                    <span>Incluir trabajadores libres del d&iacute;a</span>
-                </label>
+                <div class="task-assignment-dialog__filters">
+                    <form class="profile-viewer task-assignment-worker-search" data-dialog-worker-search-form autocomplete="off">
+                        <div class="profile-viewer__field">
+                            <input
+                                data-dialog-worker-search
+                                type="search"
+                                list="taskAssignmentWorkerOptions"
+                                placeholder="Buscar por nombre o profesi&oacute;n"
+                                value="${escapeHTML(workerSearch)}"
+                            >
+                            <button class="profile-viewer__button" type="submit" aria-label="Buscar trabajador">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="11" cy="11" r="7"></circle>
+                                    <path d="M21 21l-4.35-4.35"></path>
+                                </svg>
+                            </button>
+                        </div>
+                        <datalist id="taskAssignmentWorkerOptions">
+                            ${renderDialogWorkerOptions(allCandidates)}
+                        </datalist>
+                    </form>
+                    <div class="task-assignment-scope">
+                        <button class="task-assignment-scope__option${includeWorkersWithoutShift ? "" : " is-on"}" type="button" data-dialog-scope="shift">Del turno</button>
+                        <button class="task-assignment-scope__option${includeWorkersWithoutShift ? " is-on" : ""}" type="button" data-dialog-scope="all">Todos</button>
+                    </div>
+                    ${renderMultiSelectFilter("dialogTaskProfession", professions, dialogProfessions, "dialog-professions", openDialogFilterGroup, "Profesión")}
+                </div>
                 <div class="task-assignment-candidates" data-candidate-list>
                     ${
                         candidates.length
@@ -3687,19 +4477,24 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
                                     shift,
                                     keyDay,
                                     taskId,
-                                    selectedWorkers
+                                    selectedWorkers,
+                                    tasks
                                 )
                             ).join("")
                             : `<div class="empty-state empty-state--compact">Sin personal disponible para este turno.</div>`
                     }
                 </div>
                 <label class="task-assignment-note-field">
-                    <span>Comentario</span>
-                    <textarea data-task-note rows="3" placeholder="Ej: Equipo en mantenimiento de 10 a 17 horas.">${escapeHTML(note)}</textarea>
+                    <span>Comentario de la casilla</span>
+                    <textarea data-task-note rows="2" placeholder="Ej: Equipo en mantenimiento de 10 a 17 horas.">${escapeHTML(note)}</textarea>
                 </label>
                 <div class="task-assignment-dialog__actions">
+                    <label class="task-assignment-repeat-toggle">
+                        <input type="checkbox" data-dialog-repeat-week ${repeatRestOfWeek ? "checked" : ""}>
+                        <span>Repetir el resto de la semana</span>
+                    </label>
                     <button class="secondary-button" type="button" data-dialog-cancel>Cancelar</button>
-                    <button class="primary-button" type="button" data-dialog-save>Guardar</button>
+                    <button class="primary-button" type="button" data-dialog-save>Guardar (${selectedWorkers.size})</button>
                 </div>
             </section>
         `;
@@ -3730,11 +4525,28 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
                 }
             });
         }
+        bindSelectedChips();
+        syncSelection();
+
         backdrop
-            .querySelector("[data-dialog-include-free-workers]")
+            .querySelector("[data-candidate-list]")
             ?.addEventListener("change", () => {
                 collectVisibleWorkers();
-                render();
+                syncSelection();
+            });
+
+        backdrop
+            .querySelectorAll("[data-dialog-scope]")
+            .forEach(button => {
+                button.addEventListener("click", () => {
+                    const next = button.dataset.dialogScope === "all";
+
+                    if (next === includeWorkersWithoutShift) return;
+
+                    collectVisibleWorkers();
+                    includeWorkersWithoutShift = next;
+                    render();
+                });
             });
         backdrop
             .querySelectorAll(".task-assignment-multiselect[data-filter-group]")
@@ -3775,11 +4587,23 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
                 mergedNextTaskId: assignments[cellKey]?.mergedNextTaskId
             });
 
+            const repeated = repeatRestOfWeek
+                ? repeatAssignmentForWeek(
+                    assignments,
+                    tasks,
+                    shift,
+                    taskId,
+                    keyDay,
+                    nextWorkers
+                )
+                : [];
+
             saveWeekAssignments(assignments);
             publishTaskAssignmentChanges(uniqueValues([
                 ...previousWorkers,
                 ...nextWorkers,
-                ...nextRemovedDefaults
+                ...nextRemovedDefaults,
+                ...repeated
             ]));
             close();
             renderTaskAssignmentsPanel();
@@ -4015,4 +4839,7 @@ export async function renderTaskAssignmentsPanel() {
 
     root.innerHTML = renderShell(holidays);
     bindShellEvents(root);
+    // El selector rapido vive fuera del panel, asi que hay que volver a
+    // colgarlo -y reanclarlo a su casilla- despues de cada pintado.
+    syncCellPicker(root);
 }

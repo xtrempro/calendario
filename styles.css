@@ -11279,45 +11279,208 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     margin-bottom: 0;
 }
 
-.task-assignment-controls {
-    display: grid;
-    grid-template-columns: minmax(430px, 0.95fr) minmax(300px, 0.72fr) minmax(520px, 1.45fr);
-    align-items: end;
-    gap: 12px;
+/* ==========================================================================
+   ASIGNACION DE TAREAS - CABECERA
+
+   La semana es el dato que ordena el panel entero, asi que ocupa el centro y
+   se lee completa. A los lados quedan la identidad del panel y las acciones
+   que no cambian de una semana a otra (programacion y Excel).
+========================================================================== */
+
+.task-assignment-topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
     min-width: 0;
-    padding: 8px 10px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--panel-alt);
+}
+
+.task-assignment-identity {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+}
+
+.task-assignment-identity > div {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+}
+
+.task-assignment-identity strong {
+    font-family: var(--font-display);
+    font-size: 1.02rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text);
+}
+
+.task-assignment-identity span {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.task-assignment-identity__icon {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    flex: none;
+    border-radius: 12px;
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.task-assignment-identity__icon svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.task-assignment-weeknav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    margin-left: auto;
+}
+
+.task-assignment-weeknav__step,
+.task-assignment-weeknav__today,
+.task-assignment-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 11px;
+    background: var(--field);
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+}
+
+.task-assignment-weeknav__step:hover,
+.task-assignment-weeknav__today:hover,
+.task-assignment-action:hover {
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+.task-assignment-weeknav__step {
+    width: 38px;
+    padding: 0;
+    flex: none;
+}
+
+.task-assignment-weeknav__step svg,
+.task-assignment-action svg {
+    width: 17px;
+    height: 17px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.task-assignment-weeknav__label {
+    display: grid;
+    gap: 1px;
+    min-width: 206px;
+    padding: 4px 16px;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    background: var(--field);
+    text-align: center;
+}
+
+.task-assignment-weeknav__label span {
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.task-assignment-weeknav__label strong {
+    font-family: var(--font-display);
+    font-size: 0.94rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text);
+}
+
+/* "Hoy" se enciende cuando ya estas en la semana actual: no es un boton
+   apagado, es el indicador de donde estas parado. */
+.task-assignment-weeknav__today.is-on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-strong, var(--accent));
+}
+
+.task-assignment-topbar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding-left: 14px;
+    border-left: 1px solid var(--border);
+}
+
+.task-assignment-action--primary {
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #fff;
+    box-shadow: 0 12px 22px rgba(var(--brand-blue-rgb), 0.24);
+}
+
+.task-assignment-action--primary:hover {
+    color: #fff;
+    border-color: transparent;
+}
+
+.task-assignment-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 8px 12px;
     border: 1px solid var(--border);
     border-radius: 14px;
     background: var(--panel-alt);
 }
 
-.task-assignment-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 8px;
-    align-items: end;
+.task-schedule-attachment-status {
+    display: inline-flex;
+    align-items: center;
+    max-width: 320px;
     min-width: 0;
     padding-left: 12px;
     border-left: 1px solid var(--border);
-}
-
-.task-assignment-toolbar .secondary-button--small {
-    min-height: 38px;
-    padding: 0 14px;
-    white-space: nowrap;
-}
-
-.task-schedule-attachment-status {
-    grid-column: 3;
-    justify-self: end;
-    max-width: 100%;
-    min-width: 0;
     color: var(--text-muted);
-    font-size: 0.76rem;
+    font-size: 0.74rem;
     font-weight: 700;
-    line-height: 1.25;
-    text-align: right;
+    line-height: 1.3;
     overflow-wrap: anywhere;
 }
 
@@ -11380,9 +11543,15 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     gap: 12px;
 }
 
+/* Los filtros dejaron de ser dos bloques con etiqueta encima: ahora son dos
+   botones con menu, del mismo alto que el resto de la barra, y el nombre del
+   filtro viaja dentro del propio boton ("Estamentos - Todos"). */
 .task-assignment-view-filters {
-    grid-template-columns: repeat(2, minmax(180px, 1fr));
-    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    grid-template-columns: none;
     min-width: 0;
     padding: 0;
     border: 0;
@@ -11390,11 +11559,46 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     background: transparent;
 }
 
-.task-assignment-view-filters > div {
-    min-width: 0;
+.task-assignment-gap-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 11px;
+    background: var(--field);
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
 }
 
-.task-assignment-view-filters strong,
+.task-assignment-gap-filter svg {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.task-assignment-gap-filter:hover {
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+.task-assignment-gap-filter.is-on {
+    border-color: transparent;
+    background: var(--accent);
+    color: #fff;
+}
+
 .task-assignment-dialog__filters strong,
 .task-assignment-global-task-form strong {
     display: block;
@@ -11410,7 +11614,51 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 }
 
 .task-assignment-dialog__filters {
-    align-items: end;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 9px;
+    grid-template-columns: none;
+}
+
+.task-assignment-dialog__filters .task-assignment-worker-search {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+
+.task-assignment-dialog__filters .task-assignment-multiselect {
+    flex: 0 1 auto;
+}
+
+/* Segmentado que reemplaza al antiguo checkbox "incluir libres del dia": la
+   misma decision, pero legible sin leer una frase entera. */
+.task-assignment-scope {
+    display: flex;
+    flex: none;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-alt);
+}
+
+.task-assignment-scope__option {
+    min-height: 34px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 800;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.task-assignment-scope__option.is-on {
+    background: var(--field);
+    color: var(--text);
+    box-shadow: var(--shadow-soft);
 }
 
 .task-assignment-worker-search-field {
@@ -11422,43 +11670,23 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     width: 100%;
 }
 
+/* 42 px es la altura comun de la fila de filtros del modal: buscador,
+   segmentado y menu de profesion quedan alineados. */
 .task-assignment-worker-search .profile-viewer__field {
     width: 100%;
     max-width: none;
     min-width: 0;
-    height: 46px;
+    height: 42px;
     border-radius: var(--radius-sm);
     background: var(--field);
 }
 
+.task-assignment-dialog__filters .task-assignment-multiselect > summary {
+    min-height: 42px;
+}
+
 .task-assignment-worker-search .profile-viewer__field input {
     font-weight: 700;
-}
-
-.task-assignment-free-toggle {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: 9px;
-    padding: 10px 12px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--field);
-    color: var(--text);
-    font-size: 0.82rem;
-    font-weight: 800;
-}
-
-.task-assignment-free-toggle input {
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    accent-color: var(--accent);
-}
-
-.task-assignment-free-toggle span {
-    min-width: 0;
-    overflow-wrap: anywhere;
 }
 
 .task-assignment-filter-list {
@@ -11615,14 +11843,147 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     min-width: 0;
 }
 
+/* Cabecera de turno: plegable, con su recuento y -solo cuando lo hay- el
+   contador de casillas sin cubrir, que ademas es el atajo al filtro. */
+.task-assignment-section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 0 4px;
+}
+
 .task-assignment-section-title {
-    justify-self: start;
-    padding-left: 4px;
+    min-width: 0;
+    font-family: var(--font-display);
     color: var(--text);
-    font-size: 0.92rem;
-    font-weight: 900;
+    font-size: 0.96rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     line-height: 1.15;
 }
+
+.task-assignment-section-toggle {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    padding: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 9px;
+    background: var(--field);
+    color: var(--text-soft);
+    cursor: pointer;
+}
+
+.task-assignment-section-toggle:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.task-assignment-section-toggle svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform 0.18s ease;
+}
+
+.task-assignment-section.is-collapsed .task-assignment-section-toggle svg {
+    transform: rotate(-90deg);
+}
+
+.task-assignment-section-icon {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 8px;
+}
+
+.task-assignment-section-icon svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* Diurno y noche toman el mismo color que ya tienen en el calendario y el
+   timeline (js/turnoColors.js): verde para Diurno, azul de marca para Noche. */
+.task-assignment-section--day .task-assignment-section-icon {
+    background: rgba(11, 136, 83, 0.16);
+    color: #0b8853;
+}
+
+.task-assignment-section--night .task-assignment-section-icon {
+    background: rgba(var(--brand-blue-rgb), 0.2);
+    color: var(--accent);
+}
+
+.task-assignment-section-icon--events {
+    background: rgba(139, 43, 217, 0.16);
+    color: #7c2bb8;
+}
+
+body.theme-dark .task-assignment-section--day .task-assignment-section-icon { color: #34d399; }
+body.theme-dark .task-assignment-section--night .task-assignment-section-icon { color: #7dabe8; }
+body.theme-dark .task-assignment-section-icon--events { color: #c084fc; }
+
+.task-assignment-section-metric {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--panel-alt);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.task-assignment-section-gap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border: 1px solid rgba(240, 177, 0, 0.55);
+    border-radius: 999px;
+    background: rgba(240, 177, 0, 0.09);
+    color: #b07d00;
+    font-size: 0.72rem;
+    font-weight: 800;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.task-assignment-section-gap svg {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.task-assignment-section-gap.is-on {
+    border-color: transparent;
+    background: #b07d00;
+    color: #fff;
+}
+
+body.theme-dark .task-assignment-section-gap { color: #f0b100; }
+body.theme-dark .task-assignment-section-gap.is-on { background: #a97800; color: #fff; }
 
 .task-assignment-board,
 .task-assignment-events-grid {
@@ -11660,44 +12021,66 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     box-shadow: 8px 0 18px rgba(15, 23, 42, 0.08);
 }
 
-.task-assignment-events-head {
-    color: var(--text);
-    font-size: 0.9rem;
-    font-weight: 900;
-}
-
+/* Los dos rotulos de la primera columna son etiquetas de grilla, no titulos:
+   el titulo de la seccion ya esta arriba, en la cabecera. */
+.task-assignment-events-head,
 .task-assignment-task-head--label {
-    color: var(--text);
-    font-size: 0.84rem;
-    font-weight: 900;
+    color: var(--text-muted);
+    font-size: 0.74rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
 }
 
 .task-assignment-task-form {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 34px;
-    gap: 6px;
+    position: relative;
+    display: flex;
     align-items: center;
+    gap: 6px;
+    min-width: 0;
 }
 
 .task-assignment-global-task-form {
     min-width: 0;
+    margin-left: auto;
+}
+
+.task-assignment-task-form__icon {
+    position: absolute;
+    top: 50%;
+    left: 11px;
+    width: 16px;
+    height: 16px;
+    transform: translateY(-50%);
+    pointer-events: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    color: var(--text-muted);
 }
 
 .task-assignment-task-form input {
+    width: 258px;
+    max-width: 100%;
     min-width: 0;
-    min-height: 42px;
-    border-radius: 10px;
+    min-height: 38px;
+    padding-left: 34px;
+    border-radius: 11px;
+    font-size: 0.82rem;
 }
 
 .task-assignment-task-add {
-    width: 34px;
-    height: 34px;
-    display: grid;
-    place-items: center;
-    border-radius: 9px;
+    display: inline-flex;
+    align-items: center;
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 11px;
     background: var(--accent);
     color: #fff;
-    font-size: 1rem;
+    font-size: 0.82rem;
+    white-space: nowrap;
     font-weight: 900;
     line-height: 1;
     box-shadow: 0 10px 20px rgba(var(--brand-blue-rgb), 0.2);
@@ -11724,15 +12107,99 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     text-align: center;
 }
 
+/* El encabezado del dia pasa de ser un rotulo a ser un resumen: dia, fecha,
+   cuanto del turno esta cubierto y que permisos hay. Es lo que se mira antes
+   de entrar a repartir casilla por casilla. */
 .task-assignment-day-head {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
+    display: grid;
+    gap: 5px;
+    align-content: start;
     min-height: 62px;
-    padding: 10px;
-    text-align: center;
+    padding: 9px 11px 10px;
 }
+
+.task-assignment-day-head__top {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+}
+
+.task-assignment-day-percent {
+    margin-left: auto;
+    flex: none;
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 800;
+}
+
+.task-assignment-day-percent--full { color: #0b8853; }
+.task-assignment-day-percent--mid { color: var(--accent); }
+.task-assignment-day-percent--low { color: #b07d00; }
+
+body.theme-dark .task-assignment-day-percent--full { color: #34d399; }
+body.theme-dark .task-assignment-day-percent--mid { color: #7dabe8; }
+body.theme-dark .task-assignment-day-percent--low { color: #f0b100; }
+
+.task-assignment-day-meter {
+    height: 3px;
+    border-radius: 999px;
+    background: var(--border-strong);
+    overflow: hidden;
+}
+
+.task-assignment-day-meter span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+    transition: width 0.2s ease;
+}
+
+.task-assignment-day-meter--full span { background: #0b8853; }
+.task-assignment-day-meter--low span { background: #f0b100; }
+
+.task-assignment-day-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-height: 17px;
+}
+
+/* Los avisos se escriben con el encabezado por delante porque
+   `.task-assignment-day-head span` -que viene mas abajo- gana por
+   especificidad y les borraria el color. */
+.task-assignment-day-head .task-assignment-day-flag {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 0.64rem;
+    font-weight: 800;
+    line-height: 1.5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-assignment-day-head .task-assignment-day-flag--absence {
+    background: rgba(217, 119, 6, 0.16);
+    color: #b45309;
+}
+
+.task-assignment-day-head .task-assignment-day-flag--birthday {
+    background: rgba(139, 43, 217, 0.16);
+    color: #7c2bb8;
+}
+
+.task-assignment-day-head .task-assignment-day-flag--rest {
+    background: var(--panel-alt);
+    color: var(--text-muted);
+}
+
+body.theme-dark .task-assignment-day-head .task-assignment-day-flag--absence { color: #fbbf24; }
+body.theme-dark .task-assignment-day-head .task-assignment-day-flag--birthday { color: #c084fc; }
 
 .task-assignment-day-head strong,
 .task-assignment-event-date strong {
@@ -11922,9 +12389,13 @@ body.theme-light .task-assignment-event-day--inhabil {
     left: 5px;
 }
 
+/* El grupo fusionado se reconoce por el riel de marca del borde izquierdo mas
+   el rotulo de arriba, no por el anillo completo: asi no compite con el estado
+   "sin cubrir" ni con la casilla seleccionada. */
 .task-assignment-cell--merged {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px rgba(var(--brand-blue-rgb), 0.18);
+    border-color: var(--border);
+    border-left: 3px solid var(--accent);
+    box-shadow: none;
 }
 
 /* El blanco valido mientras se arrastra un punto: se marca la casilla entera,
@@ -11942,23 +12413,106 @@ body.theme-light .task-assignment-event-day--inhabil {
     transform: scale(1.5);
 }
 
+/* El boton de asignar dejo de ser un "+" azul siempre encendido en la esquina:
+   con la casilla llena, quien manda son los chips, asi que el boton se revela
+   al pasar el mouse. En la casilla vacia se queda fijo, porque ahi el boton ES
+   el contenido. */
 .task-assignment-add {
-    width: 24px;
-    height: 24px;
-    display: grid;
-    place-items: center;
-    justify-self: end;
-    border-radius: 7px;
-    background: var(--accent);
-    color: #fff;
-    font-size: 0.88rem;
-    font-weight: 900;
-    line-height: 1;
-    box-shadow: 0 10px 20px rgba(var(--brand-blue-rgb), 0.18);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    padding: 4px 8px;
+    border: 1px dashed var(--field-border);
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 800;
+    line-height: 1.3;
+    opacity: 0;
+    transition: opacity 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.task-assignment-add svg {
+    width: 12px;
+    height: 12px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.task-assignment-cell:hover .task-assignment-add,
+.task-assignment-cell:focus-within .task-assignment-add,
+.task-assignment-cell--uncovered .task-assignment-add,
+.task-assignment-cell--picking .task-assignment-add {
+    opacity: 1;
 }
 
 .task-assignment-add:hover {
-    background: var(--accent-2);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Sin cubrir es el unico estado que llama la atencion sola: borde punteado
+   ambar. Es lo que cuenta el contador de la cabecera del turno. */
+.task-assignment-cell--uncovered {
+    border-style: dashed;
+    border-color: rgba(240, 177, 0, 0.55);
+    background: rgba(240, 177, 0, 0.09);
+}
+
+.task-assignment-cell--picking {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(var(--brand-blue-rgb), 0.3);
+}
+
+/* Con "solo sin cubrir" encendido, lo cubierto no se esconde: se apaga. Sigue
+   dando contexto de la columna sin competir con los huecos. */
+.task-assignment-cell--dimmed {
+    opacity: 0.34;
+}
+
+.task-assignment-cell--dimmed:hover {
+    opacity: 1;
+}
+
+.task-assignment-cell-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--accent);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.task-assignment-cell-tag svg {
+    width: 11px;
+    height: 11px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.task-assignment-worker-avatar {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    border-radius: 999px;
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
 }
 
 .task-assignment-cell-workers {
@@ -11972,7 +12526,8 @@ body.theme-light .task-assignment-event-day--inhabil {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 3px 4px 3px 7px;
+    padding: 3px 4px 3px 3px;
+    border: 1px solid transparent;
     border-radius: 999px;
     background: var(--accent-soft);
     color: var(--text);
@@ -12016,6 +12571,13 @@ body.theme-light .task-assignment-event-day--inhabil {
 
 .task-assignment-worker-chip.is-dragging {
     opacity: 0.55;
+}
+
+/* Relleno = asignacion de ese dia. Contorno = trabajador predefinido de la
+   tarea, el que la regla repone sola. Se distinguen sin leer el lapiz. */
+.task-assignment-worker-chip.is-configured {
+    background: transparent;
+    border-color: rgba(var(--brand-blue-rgb), 0.45);
 }
 
 .task-assignment-cell p {
@@ -12128,9 +12690,9 @@ body.theme-light .task-assignment-event-day--inhabil {
 
 .task-assignment-candidates {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
     align-content: start;
-    gap: 8px;
+    gap: 6px;
     max-height: 340px;
     overflow: auto;
     padding-right: 2px;
@@ -12140,29 +12702,57 @@ body.theme-light .task-assignment-event-day--inhabil {
     grid-column: 1 / -1;
 }
 
+/* La fila del candidato ya no se pinta entera de verde o rojo: el estado -libre
+   del turno, o el nombre de la tarea en la que ya esta- viaja en una etiqueta
+   a la derecha, y la fila solo se marca cuando esta seleccionada. */
 .task-assignment-candidate {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 10px;
+    padding: 9px 11px;
     border: 1px solid var(--border);
     border-radius: 12px;
     color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.task-assignment-candidate:hover {
+    background: var(--panel-hover);
 }
 
 .task-assignment-candidate[hidden] {
     display: none;
 }
 
-.task-assignment-candidate.is-free {
-    border-color: rgba(34, 197, 94, 0.28);
-    background: rgba(34, 197, 94, 0.14);
+.task-assignment-candidate.is-checked {
+    border-color: var(--accent);
+    background: rgba(var(--brand-blue-rgb), 0.13);
 }
 
-.task-assignment-candidate.is-busy {
-    border-color: rgba(248, 113, 113, 0.3);
-    background: rgba(248, 113, 113, 0.16);
+.task-assignment-candidate__state {
+    flex: none;
+    max-width: 120px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--panel-alt);
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.task-assignment-candidate.is-busy .task-assignment-candidate__state {
+    background: rgba(240, 177, 0, 0.16);
+    color: #b07d00;
+}
+
+body.theme-dark .task-assignment-candidate.is-busy .task-assignment-candidate__state {
+    color: #f0b100;
 }
 
 .task-assignment-candidate input {
@@ -12172,7 +12762,7 @@ body.theme-light .task-assignment-event-day--inhabil {
     accent-color: var(--accent);
 }
 
-.task-assignment-candidate span {
+.task-assignment-candidate > span:not(.task-assignment-worker-avatar) {
     display: grid;
     gap: 2px;
     min-width: 0;
@@ -12278,6 +12868,346 @@ body.theme-dark .task-assignment-event--absence {
 
 body.theme-dark .task-assignment-event--birthday {
     color: #bbf7d0;
+}
+
+/* ==========================================================================
+   ASIGNACION DE TAREAS - SELECTOR RAPIDO DE LA CASILLA
+
+   Cuelga del BODY, no de la casilla: el tablero scrollea en horizontal y un
+   `overflow-x: auto` recorta tambien en vertical, asi que dentro de la grilla
+   el panel quedaria cortado. La posicion la calcula el JS contra la casilla.
+========================================================================== */
+
+.task-assignment-picker {
+    position: fixed;
+    z-index: 9000;
+    width: 288px;
+    max-height: 420px;
+    overflow: auto;
+    padding: 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    background: var(--panel);
+    box-shadow: var(--shadow-panel);
+    backdrop-filter: blur(18px);
+}
+
+.task-assignment-picker__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 0 2px 8px;
+}
+
+.task-assignment-picker__head > div {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+}
+
+.task-assignment-picker__head strong {
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+}
+
+.task-assignment-picker__head span {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: capitalize;
+}
+
+.task-assignment-picker__close {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    margin-left: auto;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--field);
+    color: var(--text-soft);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.task-assignment-picker__close:hover {
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+.task-assignment-picker__assigned {
+    display: grid;
+    gap: 1px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+}
+
+.task-assignment-picker__row,
+.task-assignment-picker__option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 7px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+}
+
+.task-assignment-picker__option {
+    cursor: pointer;
+}
+
+.task-assignment-picker__option:hover {
+    background: var(--panel-hover);
+}
+
+.task-assignment-picker__name {
+    min-width: 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.task-assignment-picker__remove {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    flex: none;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #dc2626;
+    font-size: 0.95rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.task-assignment-picker__remove:hover {
+    background: rgba(220, 38, 38, 0.12);
+}
+
+.task-assignment-picker__label {
+    padding: 8px 4px 5px;
+    color: var(--text-muted);
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.task-assignment-picker__list {
+    display: grid;
+    gap: 1px;
+    max-height: 208px;
+    overflow: auto;
+}
+
+.task-assignment-picker__option > span {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+}
+
+.task-assignment-picker__option strong {
+    font-size: 0.8rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.task-assignment-picker__option small {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.task-assignment-picker__empty {
+    margin: 0;
+    padding: 14px 8px;
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-style: italic;
+    text-align: center;
+}
+
+.task-assignment-picker__more {
+    width: 100%;
+    margin-top: 8px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--field);
+    color: var(--text-soft);
+    font-size: 0.76rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.task-assignment-picker__more:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* ==========================================================================
+   ASIGNACION DE TAREAS - REMATES DEL MODAL
+========================================================================== */
+
+.task-assignment-shift-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 800;
+    vertical-align: middle;
+}
+
+.task-assignment-shift-badge--day {
+    background: rgba(11, 136, 83, 0.16);
+    color: #0b8853;
+}
+
+.task-assignment-shift-badge--night {
+    background: rgba(var(--brand-blue-rgb), 0.18);
+    color: var(--accent);
+}
+
+body.theme-dark .task-assignment-shift-badge--day { color: #34d399; }
+body.theme-dark .task-assignment-shift-badge--night { color: #7dabe8; }
+
+.task-assignment-dialog__selected {
+    display: grid;
+    gap: 7px;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel-alt);
+}
+
+.task-assignment-dialog__selected-label {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.task-assignment-dialog__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 26px;
+}
+
+.task-assignment-dialog__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 3px 5px 3px 3px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--text);
+    font-size: 0.74rem;
+    font-weight: 800;
+}
+
+.task-assignment-dialog__chip > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.task-assignment-dialog__chip button {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.task-assignment-dialog__chip button:hover {
+    color: #dc2626;
+}
+
+.task-assignment-dialog__chips-empty {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-style: italic;
+    font-weight: 600;
+}
+
+.task-assignment-repeat-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: auto;
+    color: var(--text-soft);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.task-assignment-repeat-toggle input {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    accent-color: var(--accent);
+}
+
+.task-assignment-dialog__actions {
+    align-items: center;
+}
+
+/* Un filtro puesto se nota en el propio boton, sin abrir el menu. */
+.task-assignment-multiselect.is-filtered > summary {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.task-assignment-view-filters .task-assignment-multiselect {
+    min-width: 178px;
+}
+
+.task-assignment-multiselect__menu {
+    min-width: 224px;
+}
+
+/* `.task-assignment-board` declara `display: grid`, que gana al atributo
+   `hidden`: sin esto, plegar un turno no ocultaria nada. */
+.task-assignment-board[hidden] {
+    display: none;
+}
+
+.task-assignment-shell {
+    gap: 14px;
+}
+
+.task-assignment-section,
+.task-assignment-events {
+    gap: 8px;
 }
 
 .kanban-panel {

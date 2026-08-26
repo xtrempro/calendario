@@ -15,13 +15,14 @@ test("el modal de asignacion usa buscador de trabajadores sin filtro de estament
     assert.match(source, /getCalendarProfileSearchValue/);
 });
 
-test("el checkbox amplia candidatos sin incluir trabajadores con permisos", async () => {
+test("el selector Del turno / Todos amplia candidatos sin incluir trabajadores con permisos", async () => {
     const source = await readFile(
         new URL("../js/taskAssignments.js", import.meta.url),
         "utf8"
     );
 
-    assert.match(source, /data-dialog-include-free-workers/);
+    assert.match(source, /data-dialog-scope="shift"/);
+    assert.match(source, /data-dialog-scope="all"/);
     assert.match(source, /if \(hasBlockingAbsence\(profile\.name, keyDay\)\) return false/);
     assert.match(source, /includeWorkersWithoutShift \|\|[\s\S]{0,90}turnScheduledForShift/);
 });

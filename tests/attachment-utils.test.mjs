@@ -78,7 +78,7 @@ test("la programacion se publica desde Excel (grid) con respaldo de imagen/OCR",
     assert.match(source, /SCHEDULE_ATTACHMENTS_KEY = "weekly_task_schedule_attachments"/);
     assert.match(source, /function scheduleWeekStartISO/);
     assert.match(source, /function getScheduleAttachments/);
-    assert.match(source, /data-task-schedule-attach>Adjuntar Programaci&oacute;n/);
+    assert.match(source, /data-task-schedule-attach/);
     // La programación se publica desde un EXCEL (.xlsx): la CF lo convierte al
     // grid estructurado (reemplazo determinista del OCR de imagen).
     assert.match(source, /Formato aceptado: Excel \(\.xlsx\)/);
