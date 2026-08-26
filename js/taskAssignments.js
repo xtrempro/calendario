@@ -745,6 +745,15 @@ function formatWeekday(date) {
     });
 }
 
+// En las grillas el dia va abreviado ("mie"): con el nombre completo la columna
+// no baja de 155 px y el tablero de 8 columnas ya no cabe en pantalla. Los
+// dialogos y el Excel siguen usando el nombre largo, donde sobra el ancho.
+function formatWeekdayShort(date) {
+    return date.toLocaleDateString("es-CL", {
+        weekday: "short"
+    }).replace(".", "");
+}
+
 function weekStartMonday(date) {
     const base = new Date(
         date.getFullYear(),
@@ -2656,7 +2665,7 @@ function renderDayHead(day, column, holidays, dayIndex, withFlags) {
     return `
         <div class="task-assignment-day-head${inhabilClass(day, holidays, "task-assignment-day-head--inhabil")}" style="grid-column: ${dayIndex + 2}; grid-row: 1;">
             <div class="task-assignment-day-head__top">
-                <strong>${escapeHTML(formatWeekday(day))}</strong>
+                <strong>${escapeHTML(formatWeekdayShort(day))}</strong>
                 <span>${escapeHTML(formatShortDate(day))}</span>
                 <em class="task-assignment-day-percent task-assignment-day-percent--${level}">${percent}%</em>
             </div>
@@ -2848,7 +2857,7 @@ function renderEventsBoard(days, holidays = {}) {
                     return `
                         <div class="task-assignment-event-day${inhabilClass(day, holidays, "task-assignment-event-day--inhabil")}">
                             <div class="task-assignment-event-date">
-                                <strong>${escapeHTML(formatWeekday(day))}</strong>
+                                <strong>${escapeHTML(formatWeekdayShort(day))}</strong>
                                 <span>${escapeHTML(formatShortDate(day))}</span>
                             </div>
                             <div class="task-assignment-event-list">

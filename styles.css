@@ -11985,14 +11985,24 @@ body.theme-dark .task-assignment-section-icon--events { color: #c084fc; }
 body.theme-dark .task-assignment-section-gap { color: #f0b100; }
 body.theme-dark .task-assignment-section-gap.is-on { background: #a97800; color: #fff; }
 
+/* Las 8 columnas tienen que entrar en pantalla sin scroll lateral.
+   Antes el ancho minimo era 230 + 7x155 + huecos = 1371 px, mas de lo que deja
+   un portatil de 1440 una vez descontados shell, panel y padding: siempre
+   sobraba tablero por el costado.
+   Ahora la columna de tareas escala con la ventana y los dias se reparten lo
+   que queda. El minimo de 116 px es lo que ocupa la linea "mie 26/08 100%" del
+   encabezado, que es la fila mas ancha de la columna; por debajo de ~1075 px de
+   ventana vuelve el scroll, que ahi si es preferible a exprimir las columnas.
+   Los dos tableros y la fila de Novedades comparten esta regla: si se separan,
+   dejan de alinearse. */
 .task-assignment-board,
 .task-assignment-events-grid {
     display: grid;
-    grid-template-columns: minmax(230px, 270px) repeat(7, minmax(155px, 1fr));
-    gap: 8px;
+    grid-template-columns: clamp(132px, 13vw, 250px) repeat(7, minmax(116px, 1fr));
+    gap: 6px;
     min-width: 0;
     overflow-x: auto;
-    padding: 12px;
+    padding: 10px;
     border: 1px solid var(--border);
     border-radius: 16px;
     background: var(--panel-alt);
@@ -12115,7 +12125,7 @@ body.theme-dark .task-assignment-section-gap.is-on { background: #a97800; color:
     gap: 5px;
     align-content: start;
     min-height: 62px;
-    padding: 9px 11px 10px;
+    padding: 8px 9px 9px;
 }
 
 .task-assignment-day-head__top {
@@ -12238,8 +12248,8 @@ body.theme-light .task-assignment-event-day--inhabil {
 }
 
 .task-assignment-task-cell {
-    min-height: 96px;
-    padding: 8px;
+    min-height: 92px;
+    padding: 7px;
     transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -12316,10 +12326,10 @@ body.theme-light .task-assignment-event-day--inhabil {
 .task-assignment-cell {
     position: relative;
     display: grid;
-    gap: 7px;
+    gap: 6px;
     align-content: start;
-    min-height: 96px;
-    padding: 9px;
+    min-height: 92px;
+    padding: 7px;
 }
 
 /* Fusion de casillas de una columna.
@@ -12521,8 +12531,12 @@ body.theme-light .task-assignment-event-day--inhabil {
     gap: 5px;
 }
 
+/* El nombre se recorta con puntos suspensivos en vez de partirse letra a letra:
+   en una columna angosta `overflow-wrap: anywhere` convertia "J. Cornejo" en
+   dos renglones y estiraba la casilla. El nombre completo sigue en el title. */
 .task-assignment-worker-chip {
     max-width: 100%;
+    min-width: 0;
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -12534,12 +12548,13 @@ body.theme-light .task-assignment-event-day--inhabil {
     cursor: grab;
     font-size: 0.72rem;
     font-weight: 800;
-    overflow-wrap: anywhere;
 }
 
 .task-assignment-worker-chip__name {
     min-width: 0;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .task-assignment-worker-edit {
