@@ -12617,9 +12617,10 @@ body.theme-light .task-assignment-event-day--inhabil {
     font-weight: 800;
 }
 
-.task-assignment-events-grid {
-    grid-template-columns: minmax(230px, 270px) repeat(7, minmax(155px, 1fr));
-}
+/* La fila de Novedades NO redeclara sus columnas: hereda la plantilla comun de
+   arriba. Cuando tenia la suya propia venia despues en el archivo, ganaba, y
+   dejaba esta fila con el minimo viejo -o sea, con scroll- y desalineada de los
+   dos tableros de turno. */
 
 .task-assignment-events-head {
     min-height: 92px;
