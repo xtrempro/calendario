@@ -12595,6 +12595,15 @@ body.theme-light .task-assignment-event-day--inhabil {
     border-color: rgba(var(--brand-blue-rgb), 0.45);
 }
 
+/* Asignado a proposito aunque ese dia no le toca el turno (opcion "Todos" del
+   modal). Se muestra en ambar y con borde punteado: es valido, pero no es una
+   asignacion normal y el supervisor tiene que poder verlo de una pasada. */
+.task-assignment-worker-chip--off-shift {
+    border-style: dashed;
+    border-color: rgba(240, 177, 0, 0.6);
+    background: rgba(240, 177, 0, 0.12);
+}
+
 .task-assignment-cell p {
     margin: 0;
     color: var(--text-muted);

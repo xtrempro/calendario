@@ -1637,11 +1637,22 @@ function cleanAssignmentsForWeek(days, tasks) {
 
         if (!days.some(day => keyFromDate(day) === keyDay)) return;
 
+        // Aqui solo se quita a quien ese dia NO PUEDE trabajar: licencia,
+        // permiso, ausencia, o un perfil que ya no existe o quedo inactivo.
+        //
+        // Estar libre del turno NO basta para quitarlo. El modal ofrece
+        // deliberadamente "Todos" para asignar a alguien fuera de su turno
+        // (`includeWorkersWithoutShift`), y este saneado corre en cada
+        // pintado: si tambien filtrara por turno, guardar a esa persona y
+        // perderla serian el mismo gesto, sin aviso ninguno. Se queda
+        // asignada y el chip se marca como fuera de turno.
         const availableWorkers = assignmentWorkers(entry)
             .filter(name => {
                 const profile = profileByName(name);
 
-                return isAvailableForShift(profile, keyDay, shift);
+                return Boolean(profile) &&
+                    isProfileActive(profile) &&
+                    !hasBlockingAbsence(name, keyDay);
             });
 
         if (
@@ -2165,8 +2176,20 @@ function renderWorkerChip(profileName, task, keyDay) {
         return "";
     }
 
+    // Asignado aunque ese dia no le toca el turno: se hace a proposito desde
+    // "Todos" del modal, asi que no se oculta ni se borra, pero tampoco puede
+    // pasar por una asignacion normal.
+    const offShift = Boolean(profile) &&
+        !isScheduledForShift(profile, keyDay, task.shift);
+    const offShiftClass = offShift
+        ? " task-assignment-worker-chip--off-shift"
+        : "";
+    const offShiftHint = offShift
+        ? " | Fuera de su turno este d&iacute;a"
+        : "";
+
     return `
-        <span class="task-assignment-worker-chip${configuredClass}" draggable="true" data-worker-drag="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="${escapeHTML(profileName)} | Arrastrar a otra tarea del mismo turno y d&iacute;a">
+        <span class="task-assignment-worker-chip${configuredClass}${offShiftClass}" draggable="true" data-worker-drag="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="${escapeHTML(profileName)}${offShiftHint} | Arrastrar a otra tarea del mismo turno y d&iacute;a">
             ${renderWorkerAvatar(profileName)}
             <span class="task-assignment-worker-chip__name">${escapeHTML(shortWorkerName(profileName))}</span>
             <button class="task-assignment-worker-edit${configuredClass}" type="button" data-worker-default-config="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="Editar trabajador predefinido" aria-label="Editar trabajador predefinido">
