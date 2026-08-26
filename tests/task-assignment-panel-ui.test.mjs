@@ -23,7 +23,25 @@ test("el tablero de 8 columnas cabe en pantalla sin scroll lateral", async () =>
     assert.doesNotMatch(styles, /minmax\(230px, 270px\) repeat\(7, minmax\(155px/);
     assert.match(
         styles,
-        /grid-template-columns: clamp\(132px, 13vw, 250px\) repeat\(7, minmax\(116px, 1fr\)\)/
+        /grid-template-columns: clamp\(106px, 10\.4vw, 200px\) repeat\(7, minmax\(116px, 1fr\)\)/
+    );
+});
+
+test("los chips se quedan dentro de la casilla", async () => {
+    const styles = await readStyles();
+
+    // El contenedor de chips es un item de grilla: sin `min-width: 0` toma
+    // `min-width: auto`, crece hasta su contenido y se mete por debajo de la
+    // columna vecina, dejando el lapiz de predefinir fuera de alcance. Ademas
+    // el `max-width: 100%` del chip se mide contra este ancho, asi que sin el
+    // guardia el recorte con puntos suspensivos nunca llega a actuar.
+    assert.match(
+        styles,
+        /\.task-assignment-cell-workers \{[^}]*min-width: 0;/
+    );
+    assert.match(
+        styles,
+        /\.task-assignment-worker-chip__name \{[^}]*text-overflow: ellipsis;/
     );
 });
 

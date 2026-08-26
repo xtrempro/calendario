@@ -11991,14 +11991,18 @@ body.theme-dark .task-assignment-section-gap.is-on { background: #a97800; color:
    sobraba tablero por el costado.
    Ahora la columna de tareas escala con la ventana y los dias se reparten lo
    que queda. El minimo de 116 px es lo que ocupa la linea "mie 26/08 100%" del
-   encabezado, que es la fila mas ancha de la columna; por debajo de ~1075 px de
+   encabezado, que es la fila mas ancha de la columna; por debajo de ~1050 px de
    ventana vuelve el scroll, que ahi si es preferible a exprimir las columnas.
    Los dos tableros y la fila de Novedades comparten esta regla: si se separan,
-   dejan de alinearse. */
+   dejan de alinearse.
+
+   La columna de tareas se angosto un 20% respecto de la primera version
+   (132/13vw/250 -> 106/10.4vw/200): los titulos reales son cortos ("RM", "TC")
+   y ese ancho le hacia falta a los dias, donde los nombres si aprietan. */
 .task-assignment-board,
 .task-assignment-events-grid {
     display: grid;
-    grid-template-columns: clamp(132px, 13vw, 250px) repeat(7, minmax(116px, 1fr));
+    grid-template-columns: clamp(106px, 10.4vw, 200px) repeat(7, minmax(116px, 1fr));
     gap: 6px;
     min-width: 0;
     overflow-x: auto;
@@ -12525,10 +12529,17 @@ body.theme-light .task-assignment-event-day--inhabil {
     letter-spacing: 0.02em;
 }
 
+/* `min-width: 0` es lo que mantiene los chips DENTRO de la casilla.
+   Sin el, este contenedor -que es un item de grilla- toma `min-width: auto`,
+   crece hasta su contenido y se desborda por debajo de la columna vecina: el
+   nombre largo tapa la casilla de al lado y el lapiz de predefinir queda fuera
+   de alcance. Ademas el `max-width: 100%` del chip se mide contra ESTE ancho,
+   asi que sin el guardia el recorte con puntos suspensivos nunca actua. */
 .task-assignment-cell-workers {
     display: flex;
     flex-wrap: wrap;
     gap: 5px;
+    min-width: 0;
 }
 
 /* El nombre se recorta con puntos suspensivos en vez de partirse letra a letra:
