@@ -2529,7 +2529,8 @@ function weeklyProfileNeedsReplacement(profile, keyDay, turno) {
         maps.admin,
         maps.legal,
         maps.comp,
-        maps.absences
+        maps.absences,
+        getRotativa(profile.name).type
     ) &&
         !getReplacementForCoveredShift(profile.name, keyDay) &&
         !getInheritedReplacementContractForCoveredShift(
@@ -3454,7 +3455,8 @@ function getPendingReplacementTarget(profile, keyDay) {
             admin,
             legal,
             comp,
-            absences
+            absences,
+            getRotativa(profile.name).type
         ) ||
         isNoCoverageDay(profile.name, keyDay)
     ) {

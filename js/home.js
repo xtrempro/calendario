@@ -16,6 +16,7 @@ import {
     getProfiles,
     isProfileActive,
     isNoCoverageDay,
+    getRotativa,
     getShiftAssigned,
     getWorkerRequests
 } from "./storage.js";
@@ -237,7 +238,8 @@ function isShiftUncovered(name, keyDay) {
         admin,
         legal,
         comp,
-        absences
+        absences,
+        getRotativa(name).type
     );
     if (!requires) return false;
 

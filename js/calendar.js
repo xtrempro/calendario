@@ -1118,7 +1118,8 @@ async function handleCalendarCellFallbackClick(cell, event) {
             admin,
             legal,
             comp,
-            absences
+            absences,
+            getRotativa(activeProfile).type
         ) &&
         !coveredReplacement &&
         !inheritedContractCoverage &&
@@ -7880,7 +7881,8 @@ async function clickDia(
             admin,
             legal,
             comp,
-            absences
+            absences,
+            getRotativa(profileName).type
         ) &&
         !getReplacementForCoveredShift(
             profileName,
@@ -8481,7 +8483,8 @@ async function renderCalendarImpl(options = {}) {
                 admin,
                 legal,
                 comp,
-                absences
+                absences,
+                activeRotativa.type
             ) &&
             !coveredReplacement &&
             !inheritedContractCoverage &&

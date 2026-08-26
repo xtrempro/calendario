@@ -5,6 +5,7 @@ import {
     getShiftAssigned,
     getReplacements,
     getSwaps,
+    getRotativa,
     isProfileActive,
     isNoCoverageDay
 } from "./storage.js";
@@ -2356,7 +2357,8 @@ function needsReplacementMarker(nombre, key) {
             getAdmin(nombre),
             getLegal(nombre),
             getComp(nombre),
-            getAbs(nombre)
+            getAbs(nombre),
+            getRotativa(nombre).type
         ) &&
         !getReplacementForCoveredShift(nombre, key) &&
         !getInheritedReplacementContractForCoveredShift(nombre, key) &&
@@ -2531,6 +2533,9 @@ function buildTimelineRowAuxiliaryContext(
     const data =
         rowData?.data || getTimelineCachedData(profileName, renderCache);
     const isReplacement = isReplacementProfile(profileName);
+    // Se lee una vez por fila (no por dia): decide si un 1/2 ADM de esta
+    // persona pide cobertura o no.
+    const rotativaType = getRotativa(profileName).type;
 
     if (!renderCache) {
         keys.forEach(keyDay => {
@@ -2686,7 +2691,8 @@ function buildTimelineRowAuxiliaryContext(
                 leaveMaps.admin,
                 leaveMaps.legal,
                 leaveMaps.comp,
-                leaveMaps.absences
+                leaveMaps.absences,
+                rotativaType
             ) &&
             !coveredReplacementByIso.has(iso) &&
             !isNoCoverageDay(profileName, keyDay)

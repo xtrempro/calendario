@@ -30,13 +30,61 @@ export function tieneAusencia(
     );
 }
 
+// Un 1/2 ADM (manana o tarde) sobre una rotativa diurna no deja hueco que
+// cubrir: el trabajador hace igual la otra mitad de su jornada y nadie lo
+// reemplaza, asi que ese dia no debe marcarse con el "!" de pendiente de
+// cobertura. En 3er/4to turno la mitad de la Larga si se cubre, de modo que
+// para esas rotativas el permiso sigue pidiendo reemplazo.
+//
+// La excepcion solo corre cuando el 1/2 ADM es la UNICA ausencia del dia. En la
+// practica no hay otro caso: solo se aplica un permiso por turno, y con el 1/2
+// ADM puesto el dia queda bloqueado para un FL/compensatorio. La condicion es
+// una red de seguridad para datos antiguos o sincronizados donde igual
+// convivieran los dos: ahi el turno si queda descubierto y el "!" tiene que
+// salir.
+export function esMedioAdminSinCobertura(
+    keyDay,
+    admin,
+    legal,
+    comp,
+    absences,
+    rotativaType
+) {
+    if (
+        stripAccents(String(rotativaType || ""))
+            .trim()
+            .toLowerCase() !== "diurno"
+    ) {
+        return false;
+    }
+
+    const value = admin?.[keyDay];
+
+    // "0.5M"/"0.5T" son los valores actuales; 0.5 es el 1/2 ADM antiguo,
+    // guardado antes de que se distinguiera manana de tarde.
+    if (
+        value !== "0.5M" &&
+        value !== "0.5T" &&
+        value !== 0.5
+    ) {
+        return false;
+    }
+
+    return !(
+        legal?.[keyDay] ||
+        comp?.[keyDay] ||
+        absences?.[keyDay]
+    );
+}
+
 export function requiereReemplazoTurnoBase(
     keyDay,
     baseState,
     admin,
     legal,
     comp,
-    absences
+    absences,
+    rotativaType = ""
 ) {
     return (
         Number(baseState) > TURNO.LIBRE &&
@@ -48,6 +96,14 @@ export function requiereReemplazoTurnoBase(
                 comp,
                 absences
             )
+        ) &&
+        !esMedioAdminSinCobertura(
+            keyDay,
+            admin,
+            legal,
+            comp,
+            absences,
+            rotativaType
         )
     );
 }
