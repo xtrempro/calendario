@@ -1034,6 +1034,69 @@ export async function buildAttendanceIncidents(profiles, monthDate) {
     return { events, totals };
 }
 
+/**
+ * La fila del reporte del dia de la incidencia, con su vispera y su dia
+ * siguiente.
+ *
+ * Una incidencia casi nunca se entiende sola: la entrada que falta un lunes se
+ * explica con el turno de noche del domingo, y la salida que falta hoy aparece
+ * en la fila de manana. Por eso el detalle del inicio abre las tres filas.
+ *
+ * Sale de attendanceReportCells, o sea de los mismos hechos que el reporte:
+ * lo que se lee aqui es lo que se lee alla, sin una segunda version.
+ *
+ * @param {{name: string, rut: string}} profile
+ * @param {string} iso dia de la incidencia
+ * @returns {Promise<Array<{
+ *   iso: string, turnoBase: string, turnoRealizado: string,
+ *   atraso: string, entrada: string, salida: string
+ * }>>}
+ */
+export async function attendanceIncidentContext(profile, iso) {
+    const profileName = profile?.name;
+    const centro = iso ? keyFromISO(iso) : "";
+
+    if (!profileName || !centro) return [];
+
+    // fetchReportHolidays ya trae el anio anterior y el siguiente, asi que la
+    // vispera de un 1 de enero y el dia despues de un 31 de diciembre quedan
+    // cubiertos con una sola consulta.
+    const holidays = await fetchReportHolidays(parseKey(centro).getFullYear());
+    const data = getProfileData(profileName);
+    const maps = getReportMaps(profileName);
+    const today = startOfToday();
+    const coverage = attendanceCoverage();
+
+    return [previousDayKey(centro), centro, nextDayKey(centro)].map(keyDay => {
+        const date = parseKey(keyDay);
+        const dayIso = isoFromKey(keyDay);
+        const baseWithSwaps = baseWithSwapsForReport(profileName, keyDay);
+        const actual = actualStateForReport(profileName, data, keyDay);
+        const absence = dayAbsenceDetail(keyDay, maps);
+        const cells = attendanceReportCells(
+            profile,
+            dayIso,
+            attendanceDay(profileName, keyDay, date, holidays, data, {
+                baseShift: baseWithSwaps,
+                extraShift: getTurnoExtraAgregado(baseWithSwaps, actual),
+                workedShift: actual,
+                absent: Boolean(absence?.full),
+                today,
+                coverage
+            })
+        );
+
+        return {
+            iso: dayIso,
+            turnoBase: turnoLabel(baseWithSwaps),
+            turnoRealizado: absence?.label || turnoLabel(actual),
+            atraso: cells.atrasos,
+            entrada: cells.entrada,
+            salida: cells.salida
+        };
+    });
+}
+
 function attendanceReportCells(profile, iso, day) {
     const {
         cells,

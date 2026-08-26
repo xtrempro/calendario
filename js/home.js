@@ -77,6 +77,7 @@ import { openAttachmentFile } from "./attachmentUtils.js";
 import { openScheduleAttachmentDialog } from "./taskAssignments.js";
 import {
     ATTENDANCE_INCIDENT_KINDS,
+    attendanceIncidentContext,
     buildAttendanceIncidents
 } from "./hoursReport.js";
 
@@ -1295,6 +1296,9 @@ function reRenderTaskCalendar(panel) {
 let incidenciasMes = new Date();
 let incidenciasCache = null;
 let incidenciasRequest = 0;
+// Lo que se esta listando en el modal, en el orden en que se ve: la fila
+// abierta se ubica por su posicion en esta lista.
+let incidenciasDetalle = [];
 
 /**
  * Lo calculado deja de valer cuando cambian los datos de los que salio: las
@@ -1438,24 +1442,137 @@ async function cargarIncidencias(panel) {
 }
 
 function incidenciasDetalleHTML(kind) {
-    const eventos = (incidenciasCache?.events || [])
+    incidenciasDetalle = (incidenciasCache?.events || [])
         .filter(evento => evento.kind === kind)
         .sort((a, b) => a.iso.localeCompare(b.iso) ||
             a.profile.localeCompare(b.profile));
 
-    if (!eventos.length) {
+    if (!incidenciasDetalle.length) {
         return `<div class="hm-empty">Sin eventos de este tipo.</div>`;
     }
 
+    // Cada fila es un boton: al presionarla se abre debajo el reporte de esos
+    // dias, y al volver a presionarla se cierra.
     return `
         <div class="hm-inc-detail">
-            ${eventos.map(evento => `
-                <div class="hm-inc-row">
+            ${incidenciasDetalle.map((evento, indice) => `
+                <button class="hm-inc-row" type="button" data-hm="inc-row"
+                    data-idx="${indice}" aria-expanded="false">
                     <b>${esc(evento.profile)}</b>
                     <span class="hm-inc-date">${esc(formatIncidentDate(evento.iso))}</span>
                     <small>${esc(evento.detail)}</small>
-                </div>`).join("")}
+                </button>`).join("")}
         </div>`;
+}
+
+// Lo que se muestra de cada dia, en el orden de las columnas del reporte.
+const INC_CTX_COLS = [
+    ["turnoBase", "Turno base"],
+    ["turnoRealizado", "Turno realizado"],
+    ["atraso", "Atraso"],
+    ["entrada", "Entrada"],
+    ["salida", "Salida"]
+];
+
+/**
+ * Abre -o cierra- el reporte de esos dias bajo la fila de la incidencia.
+ *
+ * El detalle entra como hermano de la fila, no dentro de ella: asi empuja
+ * hacia abajo a las incidencias que siguen y queda entre la que se revisa y
+ * la siguiente, que es como se pidio. Cerrar es quitarlo y las filas se
+ * vuelven a juntar.
+ */
+async function alternarIncidenciaDetalle(fila) {
+    const abierto = fila.nextElementSibling?.classList.contains("hm-inc-ctx");
+
+    if (abierto) {
+        fila.nextElementSibling.remove();
+        fila.setAttribute("aria-expanded", "false");
+        return;
+    }
+
+    const evento = incidenciasDetalle[Number(fila.dataset.idx)];
+
+    if (!evento) return;
+
+    const caja = document.createElement("div");
+
+    caja.className = "hm-inc-ctx";
+    caja.innerHTML = `<div class="hm-empty">Buscando el reporte...</div>`;
+    fila.after(caja);
+    fila.setAttribute("aria-expanded", "true");
+
+    try {
+        const dias = await attendanceIncidentContext(
+            getProfiles().find(perfil => perfil.name === evento.profile),
+            evento.iso
+        );
+
+        // Se pudo cerrar mientras se buscaba.
+        if (!caja.isConnected) return;
+
+        caja.innerHTML = incidenciaContextoHTML(dias, evento.iso);
+    } catch (error) {
+        console.warn("No se pudo abrir el reporte de la incidencia.", error);
+
+        if (caja.isConnected) {
+            caja.innerHTML =
+                `<div class="hm-empty">No se pudo abrir el reporte de esos días.</div>`;
+        }
+    }
+}
+
+/**
+ * El dia de la incidencia entre su vispera y su dia siguiente.
+ *
+ * Los tres dias van juntos porque un turno no termina donde termina la fecha:
+ * la entrada que falta un lunes se explica con la noche del domingo, y la
+ * salida que falta hoy aparece en la fila de manana.
+ */
+function incidenciaContextoHTML(dias, iso) {
+    if (!dias?.length) {
+        return `<div class="hm-empty">Sin datos de esos días.</div>`;
+    }
+
+    return `
+        <table class="hm-inc-ctx-table">
+            <thead>
+                <tr>
+                    <th scope="col">Día</th>
+                    ${INC_CTX_COLS.map(([, etiqueta]) =>
+                        `<th scope="col">${esc(etiqueta)}</th>`).join("")}
+                </tr>
+            </thead>
+            <tbody>
+                ${dias.map(dia => `
+                    <tr${dia.iso === iso ? ` class="is-incident"` : ""}>
+                        <th scope="row">${esc(incidenciaDiaLabel(dia.iso))}</th>
+                        ${INC_CTX_COLS.map(([campo]) =>
+                            `<td>${celdaReporte(dia[campo])}</td>`).join("")}
+                    </tr>`).join("")}
+            </tbody>
+        </table>`;
+}
+
+/**
+ * "Lun 10/08". El dia de la semana es lo que hace legible la fila: una noche
+ * de sabado no se lee igual que una de martes.
+ */
+function incidenciaDiaLabel(iso) {
+    const [year, month, day] = String(iso).split("-");
+    const fecha = new Date(Number(year), Number(month) - 1, Number(day));
+
+    return `${DIAS_ABR[fecha.getDay()]} ${day}/${month}`;
+}
+
+/**
+ * Una celda del reporte. Puede traer dos lineas -un D+N marca dos veces- y
+ * viene vacia cuando ese dia no tenia nada que mostrar.
+ */
+function celdaReporte(valor) {
+    const texto = String(valor ?? "").trim();
+
+    return texto ? esc(texto).replace(/\n/g, "<br>") : "—";
 }
 
 function formatIncidentDate(iso) {
@@ -2381,7 +2498,12 @@ function wire(panel) {
     incModal?.addEventListener("click", event => {
         if (event.target === incModal || event.target.closest('[data-hm="close"]')) {
             incModal.hidden = true;
+            return;
         }
+
+        const fila = event.target.closest('[data-hm="inc-row"]');
+
+        if (fila) void alternarIncidenciaDetalle(fila);
     });
 
     // La programacion semanal es otra tarjeta de la misma fila, asi que

@@ -41,6 +41,7 @@ globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
 const {
     ATTENDANCE_INCIDENT_KINDS,
+    attendanceIncidentContext,
     buildAttendanceIncidents
 } = await import("../js/hoursReport.js");
 
@@ -50,6 +51,10 @@ const home = (await readFile(
 )).replace(/\r\n/g, "\n");
 const importacion = (await readFile(
     new URL("../js/attendanceImport.js", import.meta.url),
+    "utf8"
+)).replace(/\r\n/g, "\n");
+const estilos = (await readFile(
+    new URL("../styles.css", import.meta.url),
     "utf8"
 )).replace(/\r\n/g, "\n");
 
@@ -329,6 +334,72 @@ test("un RUT con la fecha vacia no es una marca", async () => {
 });
 
 /* =========================================================
+   El detalle de una incidencia
+========================================================= */
+
+test("abre la vispera, el dia y el dia siguiente", async () => {
+    // Un turno no termina donde termina la fecha: la vispera y el dia
+    // siguiente son la mitad de la explicacion de lo que se esta mirando.
+    sembrar({ [dia(5)]: 0, [dia(6)]: 1, [dia(7)]: 2 }, {
+        [iso(6)]: [{ time: "08:20", type: "in" }, { time: "20:00", type: "out" }]
+    });
+
+    const dias = await attendanceIncidentContext(
+        { name: NOMBRE, rut: RUT },
+        iso(6)
+    );
+
+    assert.deepEqual(dias.map(item => item.iso), [iso(5), iso(6), iso(7)]);
+});
+
+test("de cada dia dice turno, atraso y marcas", async () => {
+    sembrar({ [dia(5)]: 0, [dia(6)]: 1, [dia(7)]: 2 }, {
+        [iso(6)]: [{ time: "08:20", type: "in" }, { time: "20:00", type: "out" }]
+    });
+
+    const [vispera, elDia, siguiente] = await attendanceIncidentContext(
+        { name: NOMBRE, rut: RUT },
+        iso(6)
+    );
+
+    assert.equal(elDia.turnoBase, "Larga");
+    assert.equal(elDia.turnoRealizado, "Larga");
+    assert.equal(elDia.atraso, "20 min");
+    assert.match(elDia.entrada, /08:20/);
+    assert.match(elDia.salida, /20:00/);
+    assert.equal(vispera.turnoRealizado, "Libre");
+    assert.equal(siguiente.turnoBase, "Noche");
+});
+
+test("la vispera del dia 1 es del mes anterior", async () => {
+    // Los feriados se piden con el anio del dia mirado, y esa consulta ya
+    // trae el anterior y el siguiente: un 1 de enero no se queda sin vispera.
+    sembrar({ [dia(1)]: 1 }, {
+        [iso(1)]: [{ time: "08:00", type: "in" }]
+    });
+
+    const dias = await attendanceIncidentContext(
+        { name: NOMBRE, rut: RUT },
+        iso(1)
+    );
+
+    assert.deepEqual(
+        dias.map(item => item.iso),
+        ["2026-06-30", iso(1), iso(2)]
+    );
+});
+
+test("sin trabajador o sin fecha no devuelve nada", async () => {
+    sembrar({ [dia(6)]: 1 }, {});
+
+    assert.deepEqual(await attendanceIncidentContext(null, iso(6)), []);
+    assert.deepEqual(
+        await attendanceIncidentContext({ name: NOMBRE, rut: RUT }, ""),
+        []
+    );
+});
+
+/* =========================================================
    El recuadro
 ========================================================= */
 
@@ -393,6 +464,30 @@ test("cada tipo abre su detalle", () => {
     assert.match(home, /function incidenciasDetalleHTML\(kind\)/);
     assert.match(home, /evento\.kind === kind/);
     assert.match(home, /data-hm="inc-modal"/);
+});
+
+test("cada fila del detalle se abre y se cierra", () => {
+    // El reporte entra como HERMANO de la fila, no dentro: asi empuja hacia
+    // abajo a las incidencias que siguen y queda entre esta y la siguiente.
+    // Cerrarlo lo quita y las filas se vuelven a juntar.
+    assert.match(home, /data-hm="inc-row"/);
+    assert.match(home, /fila\.after\(caja\);/);
+    assert.match(home, /fila\.nextElementSibling\.remove\(\);/);
+    assert.match(home, /aria-expanded="false"/);
+});
+
+test("el rayado no se corre al abrir una fila", () => {
+    // Entre dos filas puede quedar abierto un reporte, que es otro elemento:
+    // contando por tipo, las rayas siguen alternando igual.
+    assert.match(estilos, /\.hm-inc-row:nth-of-type\(odd\)/);
+});
+
+test("el detalle trae las columnas del reporte", () => {
+    assert.match(home, /\["turnoBase", "Turno base"\]/);
+    assert.match(home, /\["turnoRealizado", "Turno realizado"\]/);
+    assert.match(home, /\["atraso", "Atraso"\]/);
+    assert.match(home, /\["entrada", "Entrada"\]/);
+    assert.match(home, /\["salida", "Salida"\]/);
 });
 
 test("el detalle va ordenado por fecha", () => {
