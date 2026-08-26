@@ -261,6 +261,36 @@ export function attendanceCoverage() {
 }
 
 /**
+ * RUT de los trabajadores que ALGUNA VEZ tuvieron una marca cargada.
+ *
+ * Quien nunca vino en una planilla no tiene incidencias que mostrar: no llego
+ * tarde ni le falta un marcaje, es que el reloj no lo registra. Con la primera
+ * marca -del mes que sea- entra a la cuenta y ya no sale, aunque los archivos
+ * siguientes no lo traigan: desde ahi, que falte SI es un dato de el.
+ *
+ * Recorre todo el almacen, asi que conviene calcularlo UNA vez por reporte.
+ *
+ * @returns {Set<string>} RUT normalizados
+ */
+export function attendanceMarkedRuts() {
+    const ruts = new Set();
+
+    Object.entries(getAttendanceMarks()).forEach(([rut, byDate]) => {
+        const rutKey = normalizeRut(rut);
+
+        if (!rutKey) return;
+
+        const tieneAlguna = Object.values(byDate || {}).some(marks =>
+            Array.isArray(marks) && marks.length
+        );
+
+        if (tieneAlguna) ruts.add(rutKey);
+    });
+
+    return ruts;
+}
+
+/**
  * .Hay datos del reloj para ese dia?
  */
 export function isAttendanceCovered(iso, coverage) {

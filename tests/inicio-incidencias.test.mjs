@@ -60,14 +60,18 @@ const M = 6; // julio: mes ya pasado, para que las cruces cuenten
 const PERFIL = [{ name: NOMBRE, rut: RUT }];
 const set = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 
-function sembrar(base, marcas) {
-    localStorage.clear();
-    set(`rotativa_${NOMBRE}`, {
+function sembrarPerfil(nombre, base) {
+    set(`rotativa_${nombre}`, {
         type: "4turno", start: "2026-07-01", firstTurn: "larga"
     });
-    set(`shift_${NOMBRE}`, true);
-    set(`baseData_${NOMBRE}`, base);
-    set(`data_${NOMBRE}`, base);
+    set(`shift_${nombre}`, true);
+    set(`baseData_${nombre}`, base);
+    set(`data_${nombre}`, base);
+}
+
+function sembrar(base, marcas) {
+    localStorage.clear();
+    sembrarPerfil(NOMBRE, base);
     set("attendanceMarks", { [RUT]: marcas });
 }
 
@@ -246,6 +250,85 @@ test("sin trabajadores no falla ni inventa", async () => {
 });
 
 /* =========================================================
+   Quien entra en la cuenta
+========================================================= */
+
+const OTRO = "TRABAJADORA SIN RELOJ";
+const RUT_OTRO = "12345678-5";
+const jornada = {
+    [iso(6)]: [{ time: "08:00", type: "in" }, { time: "20:00", type: "out" }]
+};
+
+test("un perfil desactivado no cuenta", async () => {
+    // El supervisor desactiva a quien deja la unidad. Sus dias siguen
+    // guardados, pero ya no son incidencias de nadie.
+    sembrar(
+        { [dia(6)]: 1 },
+        { [iso(6)]: [{ time: "08:20", type: "in" }, { time: "20:00", type: "out" }] }
+    );
+
+    const { totals, events } = await buildAttendanceIncidents(
+        [{ name: NOMBRE, rut: RUT, active: false }],
+        new Date(A, M, 1)
+    );
+
+    assert.equal(totals.atraso, 0);
+    assert.deepEqual(events, []);
+});
+
+test("quien nunca tuvo una marca no aparece", async () => {
+    // Si no viene en el .xls, el reloj no lo registra: sus dias sin marca no
+    // son una falta suya. Sin esto, el periodo cargado por SUS companeros le
+    // llenaba el resumen de cruces.
+    sembrar({ [dia(6)]: 1 }, jornada);
+    sembrarPerfil(OTRO, { [dia(6)]: 1 });
+
+    const { events } = await buildAttendanceIncidents(
+        [{ name: NOMBRE, rut: RUT }, { name: OTRO, rut: RUT_OTRO }],
+        new Date(A, M, 1)
+    );
+
+    assert.deepEqual(events.filter(evento => evento.profile === OTRO), []);
+});
+
+test("con una marca de cualquier mes ya entra, y no sale mas", async () => {
+    // Basta que el reloj lo haya registrado una vez -aunque sea en junio-:
+    // desde ahi, que la planilla nueva no lo traiga SI es un dato de el.
+    sembrar({ [dia(6)]: 1 }, jornada);
+    sembrarPerfil(OTRO, { [dia(6)]: 1 });
+    set("attendanceMarks", {
+        [RUT]: jornada,
+        [RUT_OTRO]: { "2026-06-15": [{ time: "08:00", type: "in" }] }
+    });
+
+    const { events } = await buildAttendanceIncidents(
+        [{ name: NOMBRE, rut: RUT }, { name: OTRO, rut: RUT_OTRO }],
+        new Date(A, M, 1)
+    );
+    const delOtro = events
+        .filter(evento => evento.profile === OTRO && evento.iso === iso(6))
+        .map(evento => evento.kind)
+        .sort();
+
+    assert.deepEqual(delOtro, ["missingEntry", "missingExit"]);
+});
+
+test("un RUT con la fecha vacia no es una marca", async () => {
+    // El almacen puede quedar con el RUT y ninguna marca dentro; eso sigue
+    // siendo un trabajador que el reloj nunca registro.
+    sembrar({ [dia(6)]: 1 }, jornada);
+    sembrarPerfil(OTRO, { [dia(6)]: 1 });
+    set("attendanceMarks", { [RUT]: jornada, [RUT_OTRO]: { [iso(6)]: [] } });
+
+    const { events } = await buildAttendanceIncidents(
+        [{ name: NOMBRE, rut: RUT }, { name: OTRO, rut: RUT_OTRO }],
+        new Date(A, M, 1)
+    );
+
+    assert.deepEqual(events.filter(evento => evento.profile === OTRO), []);
+});
+
+/* =========================================================
    El recuadro
 ========================================================= */
 
@@ -267,6 +350,12 @@ test("lo calculado se descarta al subir una planilla nueva", () => {
     // cada rato: basta con enterarse cuando cambian.
     assert.match(home, /"proturnos:attendanceMarksChanged", "proturnos:clockMarksChanged"/);
     assert.match(home, /incidenciasCache = null;/);
+});
+
+test("lo calculado se descarta al desactivar un perfil", () => {
+    // Desactivar a alguien lo saca del resumen. Sin esto, sus incidencias
+    // seguian a la vista hasta cambiar de mes o recargar la pagina.
+    assert.match(home, /"proturnos:profilesSaved"/);
 });
 
 test("el aviso lo emite quien guarda las marcas", () => {

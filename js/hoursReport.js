@@ -9,16 +9,19 @@ import {
     getReportSignatureConfig,
     getShiftAssigned,
     getValorHora,
-    getCompensationProfileAt
+    getCompensationProfileAt,
+    isProfileActive
 } from "./storage.js";
 import { fetchHolidays } from "./holidays.js";
 import { AVERAGE_DIURNAL_WORKDAY_HOURS } from "./overtimeRules.js";
 import { calcExtraHours } from "./calculations.js";
 import {
     attendanceCoverage,
+    attendanceMarkedRuts,
     CONTINUES_MARK,
     getAttendanceCells,
-    isAttendanceCovered
+    isAttendanceCovered,
+    normalizeRut
 } from "./attendanceImport.js";
 import {
     getWorkerScheduleAt,
@@ -958,13 +961,17 @@ export function createAttendanceMarksReader(profile) {
 }
 
 /**
- * Incidencias de marcaje de un mes, para todos los trabajadores.
+ * Incidencias de marcaje de un mes, para los trabajadores de la unidad.
  *
  * Sale de los MISMOS hechos que dibujan las celdas del reporte
  * (attendanceDayFacts), asi que el resumen del inicio y el reporte no pueden
  * decir cosas distintas.
  *
- * @param {Array<{name: string, rut: string}>} profiles
+ * Quedan fuera dos grupos, porque lo que se cuente de ellos no seria una
+ * incidencia de nadie: los perfiles desactivados -ya no trabajan en la unidad-
+ * y los que nunca tuvieron una marca cargada (ver attendanceMarkedRuts).
+ *
+ * @param {Array<{name: string, rut: string, active?: boolean}>} profiles
  * @param {Date} monthDate
  * @returns {Promise<{events: Array<Object>, totals: Object}>}
  */
@@ -975,12 +982,15 @@ export async function buildAttendanceIncidents(profiles, monthDate) {
     const holidays = await fetchReportHolidays(year);
     const today = startOfToday();
     const coverage = attendanceCoverage();
+    const marcados = attendanceMarkedRuts();
     const events = [];
 
     (profiles || []).forEach(profile => {
         const profileName = profile?.name;
 
         if (!profileName) return;
+        if (!isProfileActive(profile)) return;
+        if (!marcados.has(normalizeRut(profile.rut))) return;
 
         const data = getProfileData(profileName);
         const maps = getReportMaps(profileName);
