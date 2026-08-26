@@ -11,3 +11,6 @@ node_modules/
 .claude/
 dist/
 functions/engine/
+
+# Archivos de trabajo de los mockups (lienzo de diseno)
+.design/
