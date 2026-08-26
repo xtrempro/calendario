@@ -36,6 +36,7 @@ const ENTRY_BATCH_SIZE = 1;
 const ENTRY_SYNC_DELAY_MS = 2500;
 const ENTRY_USER_QUIET_MS = 90000;
 const ENTRY_ACTIVE_RETRY_MS = 10000;
+const ENTRY_BLOCKED_RETRY_MS = 4000;
 const ENTRY_VISIBLE_RETRY_MS = 60000;
 const REMOTE_APPLY_BATCH_SIZE = 4;
 const REMOTE_APPLY_ACTIVE_RETRY_MS = 30000;
@@ -414,6 +415,12 @@ async function flushRemoteStateEntries() {
         if (pendingRemoteStateEntries.size) {
             scheduleRemoteStateApply(firebaseRemoteApplyDelay());
         }
+
+        // El apply remoto es justo lo que bloquea el envio local: al terminar
+        // hay que devolverle el turno, o lo encolado se queda sin timer.
+        if (pendingStateEntries.size) {
+            scheduleEntrySyncRetry();
+        }
     }
 }
 
@@ -543,6 +550,21 @@ function canReadModule(moduleId) {
     return canViewMenu(permission);
 }
 
+// Reintento para cuando el envio local no puede salir AHORA porque hay un
+// apply remoto en curso, el estado inicial todavia no llega o ya hay un envio
+// volando. Los tres son transitorios: se despejan solos.
+//
+// Existe aparte de `scheduleEntrySync` justo porque aquella descarta la
+// programacion ante esas mismas condiciones. Si nadie reintenta, el cambio se
+// queda encolado sin timer, y al vencer su proteccion local de 30 minutos el
+// estado remoto lo pisa: el usuario ve su cambio aparecer y desaparecer solo.
+function scheduleEntrySyncRetry(delay = ENTRY_BLOCKED_RETRY_MS) {
+    if (!pendingStateEntries.size || !activeWorkspaceId) return;
+
+    clearTimeout(entrySyncTimer);
+    entrySyncTimer = setTimeout(flushPartialStateEntries, delay);
+}
+
 function scheduleEntrySync(delay = ENTRY_SYNC_DELAY_MS, options = {}) {
     if (options.urgent) {
         urgentEntrySyncPending = true;
@@ -583,12 +605,12 @@ function queuePartialStateEntries(entries = [], options = {}) {
     rememberLocalStateEntries(entries);
     queueGroupedPartialStateEntries(entries);
 
-    if (
-        !pendingStateEntries.size ||
-        !activeWorkspaceId ||
-        applyingRemoteState ||
-            waitingInitialState
-    ) return;
+    if (!pendingStateEntries.size || !activeWorkspaceId) return;
+
+    if (applyingRemoteState || waitingInitialState) {
+        scheduleEntrySyncRetry();
+        return;
+    }
 
     scheduleEntrySync(
         options.urgent ? 0 : ENTRY_SYNC_DELAY_MS,
@@ -781,13 +803,12 @@ export async function flushPendingFirebaseAppStateEntries({
 async function flushPartialStateEntries() {
     entrySyncTimer = null;
 
-    if (
-        !activeWorkspaceId ||
-        applyingRemoteState ||
-        waitingInitialState ||
-        !pendingStateEntries.size ||
-        entrySyncInFlight
-    ) return;
+    if (!activeWorkspaceId || !pendingStateEntries.size) return;
+
+    if (applyingRemoteState || waitingInitialState || entrySyncInFlight) {
+        scheduleEntrySyncRetry();
+        return;
+    }
 
     const urgent = urgentEntrySyncPending;
     urgentEntrySyncPending = false;
