@@ -18,10 +18,47 @@ import {
 } from "./taskAssignments.js";
 import { weekHeading } from "./weeklySchedulePreview.js";
 
+const PALETTE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.2 0-1 .8-1.8 1.8-1.8H16a5 5 0 0 0 5-5c0-3.9-4-6.7-9-6.7Z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15" cy="8" r="1.2"/></svg>`;
+const SHUFFLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 4l3 3-3 3"/><path d="M17 14l3 3-3 3"/><path d="M4 7h4l8 10h4"/><path d="M4 17h4l2.5-3"/></svg>`;
 const PRINT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9V3h12v6"/><path d="M6 18H4a1 1 0 0 1-1-1v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a1 1 0 0 1-1 1h-2"/><rect x="6" y="14" width="12" height="7" rx="1"/></svg>`;
 const TABLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14.5h18M9 9v11M15 9v11"/></svg>`;
 
 let backdrop = null;
+// 0 = blanco y negro. Cualquier otro valor es la semilla de la tanda de colores
+// actual: las filas derivan su tono de ella, asi que barajar es cambiarla.
+let colorSeed = 0;
+
+// Tono por fila a partir de la semilla. El angulo aureo reparte los tonos de
+// modo que dos filas seguidas nunca caen en el mismo color, que es justo lo que
+// arruinaria una tabla de veinte filas si los tonos salieran al azar puro.
+function rowHue(index) {
+    return Math.round((colorSeed + index * 137.508) % 360);
+}
+
+// Pastel claro para las celdas y un paso mas saturado para la columna del
+// nombre, como en la programacion que arma el supervisor a mano.
+function rowTint(index) {
+    if (!colorSeed) return "";
+
+    return `background: hsl(${rowHue(index)}, 72%, 89%); color: #111827;`;
+}
+
+function rowLabelTint(index) {
+    if (!colorSeed) return "";
+
+    return `background: hsl(${rowHue(index)}, 66%, 80%); color: #111827;`;
+}
+
+function shuffleColors() {
+    // Se evita el 0, que significa blanco y negro.
+    colorSeed = 1 + Math.floor(Math.random() * 3599);
+    render();
+}
+
+function clearColors() {
+    colorSeed = 0;
+    render();
+}
 
 // Los nombres van pegados con guion, igual que en la programacion que publica
 // el supervisor: "J.CORNEJO-B.ESCOBAR-A.SALGADO". El comentario de la celda,
@@ -40,26 +77,28 @@ function cellHTML(cell) {
 // Una casilla fusionada se emite UNA vez, en la fila de su tarea de arriba,
 // con el rowspan de todo el grupo; las filas que quedan tapadas no vuelven a
 // emitir esa columna o se correrian todas de lugar.
-function rowCellsHTML(row) {
+function rowCellsHTML(row, rowIndex = 0) {
+    const tint = rowTint(rowIndex);
+
     return row.cells.map(cell => {
         if (cell.covered) return "";
 
         if (cell.rowSpan > 1) {
-            return `<td class="ws-cell tsp-cell--merged" rowspan="${cell.rowSpan}">${cellHTML(cell)}</td>`;
+            return `<td class="ws-cell tsp-cell--merged" rowspan="${cell.rowSpan}" style="${tint}">${cellHTML(cell)}</td>`;
         }
 
-        return `<td class="ws-cell">${cellHTML(cell)}</td>`;
+        return `<td class="ws-cell" style="${tint}">${cellHTML(cell)}</td>`;
     }).join("");
 }
 
 function sectionHTML(section, days) {
-    const rows = section.rows.map(row => `
-        <tr>
-            <th scope="row" class="ws-role">
+    const rows = section.rows.map((row, rowIndex) => `
+        <tr class="${colorSeed ? "tsp-row--tinted" : ""}">
+            <th scope="row" class="ws-role" style="${rowLabelTint(rowIndex)}">
                 <strong>${escapeHTML(row.title)}</strong>
                 ${row.detail ? `<span>${escapeHTML(row.detail)}</span>` : ""}
             </th>
-            ${rowCellsHTML(row)}
+            ${rowCellsHTML(row, rowIndex)}
         </tr>`).join("");
 
     return `
@@ -200,13 +239,13 @@ const PRINT_STYLES = `
 `;
 
 function printTableHTML(section, days) {
-    const rows = section.rows.map(row => `
+    const rows = section.rows.map((row, rowIndex) => `
         <tr>
-            <th scope="row">
+            <th scope="row" style="${rowLabelTint(rowIndex)}">
                 ${escapeHTML(row.title)}
                 ${row.detail ? `<span>${escapeHTML(row.detail)}</span>` : ""}
             </th>
-            ${rowCellsHTML(row)}
+            ${rowCellsHTML(row, rowIndex)}
         </tr>`).join("");
 
     // El nombre del turno vive en la primera celda del encabezado en vez de en
@@ -301,6 +340,19 @@ function printSchedule() {
     }, 0);
 }
 
+// En blanco y negro basta un boton. Con color ya puestos, aparecen los dos que
+// de verdad hacen falta: barajar otra vez y volver atras. Asi la cabecera no
+// carga un boton "B/N" que no hace nada cuando ya se esta en blanco y negro.
+function colorControlsHTML() {
+    if (!colorSeed) {
+        return `<button class="hm-btn-secondary tsp-color" type="button" data-preview-color title="Pintar cada tarea de un color">${PALETTE_ICON}Color</button>`;
+    }
+
+    return `
+        <button class="hm-btn-secondary tsp-color" type="button" data-preview-color title="Cambiar la tanda de colores">${SHUFFLE_ICON}Otros colores</button>
+        <button class="hm-btn-secondary tsp-color" type="button" data-preview-mono title="Volver a blanco y negro">B/N</button>`;
+}
+
 function render() {
     if (!backdrop) return;
 
@@ -309,6 +361,16 @@ function render() {
     backdrop.querySelector("[data-preview-heading]").textContent =
         weekHeading(week.weekStart);
     backdrop.querySelector("[data-preview-body]").innerHTML = bodyHTML(week);
+
+    const controls = backdrop.querySelector("[data-color-controls]");
+
+    controls.innerHTML = colorControlsHTML();
+    controls
+        .querySelector("[data-preview-color]")
+        ?.addEventListener("click", shuffleColors);
+    controls
+        .querySelector("[data-preview-mono]")
+        ?.addEventListener("click", clearColors);
 }
 
 function close() {
@@ -350,6 +412,7 @@ export function openTaskSchedulePreview() {
                     <button type="button" data-preview-nav="next" aria-label="Semana siguiente">&#8250;</button>
                 </div>
                 <button class="hm-btn-secondary hm-ws-today" type="button" data-preview-nav="today">Hoy</button>
+                <span class="tsp-color-controls" data-color-controls></span>
                 <button class="hm-btn-secondary tsp-print" type="button" data-preview-print>${PRINT_ICON}Imprimir</button>
                 <button class="hm-modal-close" type="button" data-preview-close aria-label="Cerrar">&times;</button>
             </div>

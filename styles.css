@@ -2322,6 +2322,12 @@ body[data-active-view="home"] .secondary-grid {
 .ws-table .ws-role strong { display: block; font-size: 0.78rem; font-weight: 800; color: var(--text); }
 .ws-table .ws-role span { display: block; font-size: 0.7rem; color: var(--text-muted); }
 .ws-cell { min-width: 108px; color: var(--text); }
+
+/* Fila con color en el visor de programacion. El fondo pastel va inline, pero
+   el nombre de la tarea y su detalle tienen color propio por clase: en tema
+   oscuro son claros, y sobre pastel quedarian ilegibles. */
+.ws-table tr.tsp-row--tinted .ws-role strong { color: #111827; }
+.ws-table tr.tsp-row--tinted .ws-role span { color: #334155; }
 .ws-cell--weekend { background: var(--panel-alt); }
 .ws-cell--full { background: var(--accent-soft); font-weight: 700; }
 
@@ -2351,10 +2357,25 @@ body[data-active-view="home"] .secondary-grid {
     font-size: 0.78rem;
 }
 
-.tsp-print svg {
+.tsp-print svg,
+.tsp-color svg {
     width: 15px;
     height: 15px;
     flex: none;
+}
+
+.tsp-color-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tsp-color {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
 }
 
 .tsp-section { display: grid; gap: 8px; }
