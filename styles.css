@@ -19551,6 +19551,13 @@ body[data-active-view="profile"] .pf-v2 #profileSection .metric-row--field selec
 .hm-inc-date { font-size: 0.85rem; color: var(--text-soft); white-space: nowrap; }
 .hm-inc-row small { grid-column: 1 / -1; color: var(--text-soft); }
 
+/* Adjuntar el .xls del reloj sin salir del inicio, al pie de la tarjeta. Es
+   el mismo input que el de Reportes, solo que apretado desde aqui. */
+.hm-inc-import {
+    display: flex; margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid rgba(148, 163, 184, 0.25);
+}
+
 /* El reporte de la vispera, el dia y el dia siguiente, abierto bajo la fila.
    En pantalla angosta la tabla se desplaza sola en vez de apretar el modal. */
 .hm-inc-ctx { padding: 4px 10px 10px; }

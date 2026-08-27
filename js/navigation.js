@@ -75,6 +75,21 @@ export function getViewForTarget(targetId) {
 }
 
 /**
+ * Elemento por el que EMPIEZA la vista de un target.
+ *
+ * El tile de Perfiles apunta a "Datos personales", que no es el comienzo de su
+ * vista: antes van el nombre del trabajador, sus botones y sus tarjetas de
+ * resumen. Entrar al menu saltandoselas se lee como una pagina que quedo a
+ * medio scroll, asi que se entra por el encabezado.
+ *
+ * @param {string} targetId
+ * @returns {string} id del elemento por el que se entra a esa vista
+ */
+export function getViewTopTarget(targetId) {
+    return targetId === "profileSection" ? "profileHero" : targetId;
+}
+
+/**
  * Target del tile de navegacion correspondiente a la vista activa actual.
  * @returns {string}
  */

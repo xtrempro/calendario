@@ -6,6 +6,7 @@ const source = await readFile(
     new URL("../js/main.js", import.meta.url),
     "utf8"
 );
+const { getViewTopTarget } = await import("../js/navigation.js");
 
 function sourceBlock(start, end) {
     const startIndex = source.indexOf(start);
@@ -96,8 +97,21 @@ test("mover turno habilita deshacer al terminar la accion", () => {
 test("los clicks de menu no hacen scroll si el guard bloquea", () => {
     assert.match(
         source,
-        /button\.onclick = async \(\) => \{[\s\S]*const navigated = await setActiveShortcut\([\s\S]*if \(!navigated\) return;[\s\S]*target\.scrollIntoView/
+        /button\.onclick = async \(\) => \{[\s\S]*const navigated = await setActiveShortcut\([\s\S]*if \(!navigated\) return;[\s\S]*\.scrollIntoView/
     );
+});
+
+test("cada menu se entra por el comienzo de su vista", () => {
+    // El tile de Perfiles apunta a "Datos personales", que tiene arriba el
+    // encabezado del trabajador y sus tarjetas: entrar ahi se ve como una
+    // pagina que quedo a medio scroll.
+    assert.match(
+        source,
+        /getElementById\(\s*getViewTopTarget\(button\.dataset\.target\)\s*\)/
+    );
+    assert.equal(getViewTopTarget("profileSection"), "profileHero");
+    assert.equal(getViewTopTarget("reportsPanel"), "reportsPanel");
+    assert.equal(getViewTopTarget("homePanel"), "homePanel");
 });
 
 test("los saldos editados en perfil marcan el borrador como modificado", () => {

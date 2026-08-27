@@ -521,6 +521,28 @@ test("el reporte se abre en el mes de la incidencia", () => {
     assert.match(salto.slice(0, abre), /selectProfileByName\(profileName/);
 });
 
+test("desde la tarjeta se adjunta el registro del reloj", () => {
+    // Es el MISMO input que el de Reportes: una sola forma de leer el .xls,
+    // con su misma proteccion contra repetir marcas que ya estaban.
+    assert.match(home, /data-hm="inc-import"/);
+    assert.match(home, /ADJUNTAR REGISTRO<\/button>/);
+    assert.match(
+        home,
+        /document\.getElementById\("attendanceImportInput"\)\?\.click\(\);/
+    );
+    assert.match(principal, /const input = DOM\.attendanceImportInput;/);
+});
+
+test("adjuntar desde el inicio tambien avisa como resulto", () => {
+    // El texto de estado vive bajo el boton de Reportes, que desde el inicio
+    // no se ve: ahi el mismo aviso sale como toast.
+    assert.match(
+        principal,
+        /if \(document\.body\.dataset\.activeView !== "reports"\) \{/
+    );
+    assert.match(principal, /title: "Registros del reloj"/);
+});
+
 test("el detalle va ordenado por fecha", () => {
     assert.match(
         home,

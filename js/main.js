@@ -137,6 +137,7 @@ import {
 } from "./profileRecordsView.js";
 import {
     getViewForTarget,
+    getViewTopTarget,
     getTargetForActiveView,
     isAppTarget,
     targetFromHash,
@@ -3263,6 +3264,20 @@ function bindAttendanceImport() {
         if (!file) return;
 
         const show = (text, tone) => {
+            // El mismo aviso, donde se lo pueda ver. En Reportes va bajo el
+            // boton; si el archivo se adjunto desde el inicio, ese texto no
+            // esta a la vista y el aviso sale como toast.
+            if (document.body.dataset.activeView !== "reports") {
+                showAppToast(text, {
+                    title: "Registros del reloj",
+                    variant: tone === "ok"
+                        ? "success"
+                        : tone === "error"
+                            ? "warn"
+                            : "info"
+                });
+            }
+
             if (!status) return;
 
             status.textContent = text;
@@ -12784,7 +12799,14 @@ function bindShellInteractions() {
                 if (!navigated) return;
 
                 setMobileMenuOpen(false);
-                target.scrollIntoView({
+
+                // Cada menu se entra desde arriba: no siempre el tile apunta
+                // al primer recuadro de su vista (ver getViewTopTarget).
+                const inicio = document.getElementById(
+                    getViewTopTarget(button.dataset.target)
+                ) || target;
+
+                inicio.scrollIntoView({
                     behavior: "smooth",
                     block: "start"
                 });

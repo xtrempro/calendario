@@ -1368,6 +1368,10 @@ function incidenciasWidget() {
             <div class="hm-listcol" data-hm="inc-list">
                 <div class="hm-empty">Revisando el mes...</div>
             </div>
+            <div class="hm-inc-import">
+                <button class="hm-cob-btn hm-cob-btn--ver" type="button"
+                    data-hm="inc-import">ADJUNTAR REGISTRO</button>
+            </div>
         </div>`;
 }
 
@@ -2487,6 +2491,15 @@ function wire(panel) {
                 1
             );
             void cargarIncidencias(panel);
+            return;
+        }
+
+        // Cargar el .xls del reloj sin ir a Reportes. Se aprieta el MISMO
+        // input que hay alla: una sola forma de cargar el archivo, con su
+        // misma lectura, su mismo aviso y su misma proteccion contra repetir
+        // marcas que ya estaban.
+        if (event.target.closest('[data-hm="inc-import"]')) {
+            document.getElementById("attendanceImportInput")?.click();
             return;
         }
 
