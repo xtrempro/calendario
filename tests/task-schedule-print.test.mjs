@@ -31,7 +31,29 @@ test("deja un colchon minimo para que no se corten las columnas de los bordes", 
 
     // Casi ninguna impresora imprime hasta el borde fisico: sin este aire, la
     // primera y la ultima columna salen cortadas.
-    assert.match(source, /body \{\s*\n\s*padding: 5mm;/);
+    assert.match(source, /body \{\s*\n\s*padding: 4mm;/);
+});
+
+test("el nombre del turno va en el encabezado de la tabla, no en un titulo aparte", async () => {
+    const source = await readSource();
+
+    // El titulo costaba dos renglones por seccion y decia lo mismo que la
+    // columna que encabeza.
+    assert.doesNotMatch(source, /<h2>/);
+    assert.match(
+        source,
+        /<th class="tsp-print-section-name">\$\{escapeHTML\(section\.label\.toUpperCase\(\)\)\}<\/th>/
+    );
+});
+
+test("la hoja va apretada para que la semana entera quepa en una pagina", async () => {
+    const source = await readSource();
+
+    // Estos valores salen de medir la programacion real: unas 20 tareas
+    // diurnas mas las de noche. Si se agrandan, vuelven las dos hojas.
+    assert.match(source, /font-size: 7\.5pt;/);
+    assert.match(source, /line-height: 1\.15;/);
+    assert.match(source, /padding: 1\.5pt 3pt;/);
 });
 
 test("si pasa a una segunda hoja, repite los titulos de las columnas", async () => {

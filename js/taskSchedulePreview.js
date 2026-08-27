@@ -119,33 +119,26 @@ const PRINT_STYLES = `
 
     html, body { margin: 0; padding: 0; background: #fff; }
 
+    /* Todo lo de abajo esta apretado a proposito: el objetivo es que la semana
+       entera quepa en UNA hoja. Los valores salen de medir la programacion
+       real -unas 20 tareas diurnas mas las de noche- y no de un gusto
+       tipografico. Si se agrandan, vuelven las dos hojas. */
     body {
-        padding: 5mm;
+        padding: 4mm;
         color: #111827;
         font-family: "Plus Jakarta Sans", "Segoe UI", Arial, sans-serif;
-        font-size: 8pt;
-        line-height: 1.25;
+        font-size: 7.5pt;
+        line-height: 1.15;
     }
 
     h1 {
-        margin: 0 0 3mm;
-        font-size: 12pt;
+        margin: 0 0 1.5mm;
+        font-size: 10pt;
         font-weight: 800;
         letter-spacing: -0.01em;
     }
 
-    .tsp-print-section { margin-bottom: 4mm; }
-
-    h2 {
-        margin: 0 0 1.5mm;
-        font-size: 8pt;
-        font-weight: 800;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: #334155;
-        break-after: avoid;
-        page-break-after: avoid;
-    }
+    .tsp-print-section { margin-bottom: 2.5mm; }
 
     table {
         width: 100%;
@@ -163,7 +156,7 @@ const PRINT_STYLES = `
 
     th, td {
         border: 0.5pt solid #94a3b8;
-        padding: 2.5pt 3pt;
+        padding: 1.5pt 3pt;
         vertical-align: top;
         overflow-wrap: anywhere;
     }
@@ -171,24 +164,32 @@ const PRINT_STYLES = `
     thead th {
         background: #0f172a;
         color: #fff;
-        font-size: 7pt;
+        font-size: 6.5pt;
         font-weight: 800;
         letter-spacing: 0.03em;
         text-align: left;
         text-transform: uppercase;
     }
 
+    /* Primera celda del encabezado: es el nombre del turno, no un rotulo de
+       columna, asi que se le da algo mas de peso. */
+    thead th.tsp-print-section-name {
+        font-size: 7pt;
+        letter-spacing: 0.05em;
+    }
+
     tbody th {
         text-align: left;
-        font-size: 7.5pt;
+        font-size: 7pt;
         font-weight: 800;
         background: #f1f5f9;
     }
 
     tbody th span {
         display: block;
-        font-size: 6.5pt;
+        font-size: 5.5pt;
         font-weight: 600;
+        line-height: 1.1;
         color: #475569;
     }
 
@@ -208,9 +209,11 @@ function printTableHTML(section, days) {
             ${rowCellsHTML(row)}
         </tr>`).join("");
 
+    // El nombre del turno vive en la primera celda del encabezado en vez de en
+    // un titulo aparte: ese titulo costaba dos renglones por seccion y decia lo
+    // mismo que la columna que encabeza.
     return `
         <section class="tsp-print-section">
-            <h2>${escapeHTML(section.label)}</h2>
             <table>
                 <colgroup>
                     <col class="tsp-print-col--task">
@@ -218,7 +221,7 @@ function printTableHTML(section, days) {
                 </colgroup>
                 <thead>
                     <tr>
-                        <th>Tarea</th>
+                        <th class="tsp-print-section-name">${escapeHTML(section.label.toUpperCase())}</th>
                         ${days.map(day => `<th>${escapeHTML(day.weekday.toUpperCase())} ${escapeHTML(String(day.dayNumber))}</th>`).join("")}
                     </tr>
                 </thead>
