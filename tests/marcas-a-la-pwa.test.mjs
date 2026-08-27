@@ -60,6 +60,15 @@ const sync = (await readFile(
     "utf8"
 )).replace(/\r\n/g, "\n");
 
+// OJO: el motor de proyeccion esta DUPLICADO. Hoy quien publica es la Cloud
+// Function, y esa corre serverEngine.js; workerAppDataSync.js conserva su copia
+// para el navegador del supervisor. Cablear las marcas en una sola de las dos
+// es no publicarlas: fue exactamente lo que paso.
+const engine = (await readFile(
+    new URL("../js/serverEngine.js", import.meta.url),
+    "utf8"
+)).replace(/\r\n/g, "\n");
+
 const NOMBRE = "TRABAJADOR";
 const RUT = "1-9";
 const PERFIL = { name: NOMBRE, rut: RUT };
@@ -141,20 +150,27 @@ test("sin perfil no revienta", () => {
     assert.equal(createAttendanceMarksReader(null)("x", new Date(), {}), null);
 });
 
-test("el publicador arma el lector UNA vez por trabajador", () => {
-    // Recorre dos meses de dias: rehacerlo por dia significaria releer sus
-    // datos y el almacen de marcas 60 veces.
-    assert.match(sync, /readMarks: createAttendanceMarksReader\(profile\)/);
+// Las dos copias del motor tienen que llevar el mismo cableado: la Cloud
+// Function publica con serverEngine.js y el navegador con workerAppDataSync.js.
+for (const [nombre, src] of [
+    ["serverEngine.js (Cloud Function)", engine],
+    ["workerAppDataSync.js (navegador del supervisor)", sync]
+]) {
+    test(`${nombre}: arma el lector UNA vez por trabajador`, () => {
+        // Recorre meses enteros de dias: rehacerlo por dia significaria releer
+        // sus datos y el almacen de marcas una vez por jornada.
+        assert.match(src, /readMarks: createAttendanceMarksReader\(profile\)/);
 
-    const usos = sync.match(/createAttendanceMarksReader\(/g) || [];
+        const usos = src.match(/createAttendanceMarksReader\(/g) || [];
 
-    assert.equal(usos.length, 1);
-});
+        assert.equal(usos.length, 1);
+    });
 
-test("cada dia publicado lleva sus marcas cuando las tiene", () => {
-    assert.match(sync, /const marks = ctx\.readMarks\(/);
-    assert.match(sync, /return marks \? \{ marks \} : \{\};/);
-});
+    test(`${nombre}: cada dia publicado lleva sus marcas cuando las tiene`, () => {
+        assert.match(src, /const marks = ctx\.readMarks\(/);
+        assert.match(src, /return marks \? \{ marks \} : \{\};/);
+    });
+}
 
 /* =========================================================
    Subir la planilla es lo que las envia

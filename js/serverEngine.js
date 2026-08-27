@@ -39,7 +39,8 @@ import {
     buildWorkerHheeSummaries,
     buildWorkerHheeMonthSummary,
     buildWorkerReportPreviewHTML,
-    buildWorkerClockMarkModifications
+    buildWorkerClockMarkModifications,
+    createAttendanceMarksReader
 } from "./hoursReport.js";
 
 const OVERTIME_SUMMARY_MONTHS_BACK = 2;
@@ -448,6 +449,20 @@ function computeMonthDays(profile, month, ctx) {
             ...(hasLeave && cancelableLeaveTypeForDay(maps, keyDay)
                 ? { leaveCancelType: cancelableLeaveTypeForDay(maps, keyDay) }
                 : {}),
+            // Marcas del reloj de ese turno, tal como las muestra el reporte:
+            // con la salida de una noche ya traida a su dia. El trabajador las
+            // ve al abrir el turno en su aplicacion.
+            ...(ctx.readMarks
+                ? (() => {
+                    const marks = ctx.readMarks(
+                        keyDay,
+                        cursor,
+                        holidaysByYear[year]
+                    );
+
+                    return marks ? { marks } : {};
+                })()
+                : {}),
             // Solo se incluye cuando hay cambio, para no engordar la proyeccion.
             // counterpart = el companero del cambio (para el detalle en la PWA).
             ...(swapMarker
@@ -496,7 +511,14 @@ export function computeProfileSchedule(profile, today = new Date()) {
     const maps = profileLeaveMaps(profile.name);
     const profileData = getJSON("data_" + profile.name, {});
     const colorResolver = buildHexColorResolver(getTurnoColorConfig());
-    const ctx = { maps, profileData, colorResolver, holidaysByYear: {} };
+    const ctx = {
+        maps,
+        profileData,
+        colorResolver,
+        holidaysByYear: {},
+        // Lo caro se calcula una vez por trabajador, no por dia.
+        readMarks: createAttendanceMarksReader(profile)
+    };
 
     const computedDays = {};
     months.forEach(month => {
