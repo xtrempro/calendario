@@ -81,6 +81,10 @@ const SHIFT_CONFIG = {
     night: {
         label: "Tareas de noche",
         shortLabel: "Noche",
+        // Rotulo de la fila que junta a los que estan de turno sin tarea. Solo
+        // la noche la tiene: de dia casi todos quedan en alguna tarea y la fila
+        // seria una hilera de celdas vacias.
+        dutyLabel: "TURNO DE NOCHE",
         className: "night"
     }
 };
@@ -2763,6 +2767,67 @@ function renderShiftIcon(shift) {
     `;
 }
 
+// Quien esta de turno ese dia y no quedo en NINGUNA tarea. No es una tarea de
+// verdad: es el resto, y se muestra para que nadie de turno desaparezca de la
+// vista solo por no tener puesto asignado.
+function unassignedOnShift(shift, keyDay, tasks, assignments) {
+    const assigned = new Set();
+
+    tasks.forEach(task => {
+        assignmentWorkers(
+            getCellEntry(assignments, shift, task.id, keyDay)
+        ).forEach(name => assigned.add(name));
+    });
+
+    return getProfiles()
+        .filter(isProfileActive)
+        .filter(profile => profileMatchesFilters(
+            profile,
+            selectedRoles,
+            selectedProfessions
+        ))
+        .filter(profile => !assigned.has(profile.name))
+        .filter(profile => isAvailableForShift(profile, keyDay, shift))
+        .sort((a, b) => a.name.localeCompare(b.name, "es"));
+}
+
+// Chip de solo lectura: no se arrastra, no se quita y no abre el lapiz de
+// predefinidos. Estar de turno no es una asignacion.
+function renderDutyChip(profileName) {
+    return `
+        <span class="task-assignment-worker-chip task-assignment-worker-chip--duty" title="${escapeHTML(profileName)} | De turno, sin tarea asignada">
+            ${renderWorkerAvatar(profileName)}
+            <span class="task-assignment-worker-chip__name">${escapeHTML(shortWorkerName(profileName))}</span>
+        </span>
+    `;
+}
+
+function renderDutyRow(shift, tasks, days, assignments, holidays, rowIndex, label) {
+    return `
+        <div class="task-assignment-duty-head" style="grid-column: 1; grid-row: ${rowIndex};">
+            <strong>${escapeHTML(label)}</strong>
+            <span>Sin tarea asignada</span>
+        </div>
+        ${days.map((day, dayIndex) => {
+            const people = unassignedOnShift(
+                shift,
+                keyFromDate(day),
+                tasks,
+                assignments
+            );
+
+            return `
+                <div class="task-assignment-duty-cell${inhabilClass(day, holidays, "task-assignment-duty-cell--inhabil")}" style="grid-column: ${dayIndex + 2}; grid-row: ${rowIndex};">
+                    ${
+                        people.length
+                            ? `<div class="task-assignment-cell-workers">${people.map(profile => renderDutyChip(profile.name)).join("")}</div>`
+                            : `<span class="task-assignment-duty-empty">Todos con tarea</span>`
+                    }
+                </div>`;
+        }).join("")}
+    `;
+}
+
 function renderBoard(shift, tasks, days, assignments, holidays = {}) {
     const config = SHIFT_CONFIG[shift];
     const sectionTasks = tasks.map(task => taskForShift(task, shift));
@@ -2888,6 +2953,21 @@ function renderBoard(shift, tasks, days, assignments, holidays = {}) {
                                 Sin tareas registradas.
                             </div>
                         `
+                }
+                ${
+                    config.dutyLabel
+                        ? renderDutyRow(
+                            shift,
+                            tasks,
+                            days,
+                            assignments,
+                            holidays,
+                            // Sin tareas, la fila 2 la ocupa el aviso de
+                            // "Sin tareas registradas".
+                            Math.max(sectionTasks.length, 1) + 2,
+                            config.dutyLabel
+                        )
+                        : ""
                 }
             </div>
         </section>
