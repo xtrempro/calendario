@@ -942,6 +942,14 @@ export function createAttendanceMarksReader(profile) {
 
     if (!profileName) return () => null;
 
+    // Quien NUNCA tuvo una marca cargada no tiene faltas que mostrar: el reloj
+    // no lo registra, y el periodo que cubre la planilla es de la unidad
+    // entera, asi que sin esto su mes entero le aparece como marcaje faltante.
+    // Es la misma regla del resumen de incidencias del supervisor.
+    if (!attendanceMarkedRuts().has(normalizeRut(profile.rut))) {
+        return () => null;
+    }
+
     const data = getProfileData(profileName);
     const maps = getReportMaps(profileName);
     const coverage = attendanceCoverage();

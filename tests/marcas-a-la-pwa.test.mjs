@@ -146,6 +146,29 @@ test("un dia sin nada que decir no ocupa espacio en la proyeccion", () => {
     assert.equal(leer()("2026-7-19", new Date(2026, 7, 19), {}), null);
 });
 
+test("a quien el reloj nunca registro no se le manda ninguna falta", async () => {
+    // El periodo cargado es de la unidad entera: si un trabajador no viene en
+    // el .xls, sin esta regla su mes ENTERO le llega con cruces y su aplicacion
+    // le reclama un marcaje que nunca existio.
+    sembrar({
+        "2026-08-17": [
+            { time: "07:58", type: "in" },
+            { time: "20:04", type: "out" }
+        ]
+    });
+
+    const ajeno = createAttendanceMarksReader({
+        name: NOMBRE,
+        rut: "12345678-5"
+    });
+
+    assert.equal(ajeno("2026-7-17", new Date(2026, 7, 17), {}), null);
+    assert.equal(ajeno("2026-7-18", new Date(2026, 7, 18), {}), null);
+
+    // Y el que si vino en la planilla las sigue recibiendo.
+    assert.equal(leer()("2026-7-17", new Date(2026, 7, 17), {}).entrada, "07:58");
+});
+
 test("sin perfil no revienta", () => {
     assert.equal(createAttendanceMarksReader(null)("x", new Date(), {}), null);
 });
