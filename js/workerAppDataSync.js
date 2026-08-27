@@ -372,6 +372,80 @@ export function getWorkerAppLinks() {
     }));
 }
 
+// Ubica el enlace de un perfil recien renombrado. Primero con la tolerancia
+// habitual (RUT o nombre normalizado contra el perfil ya guardado con el nombre
+// nuevo); si el perfil no tiene RUT y el nombre cambio de verdad, queda el
+// nombre viejo del propio enlace como ultimo recurso.
+function findWorkerLinkForRename(oldName, newName) {
+    const direct = getWorkerAppLinkForProfile(newName);
+
+    if (direct) return direct;
+
+    const previous = normalizeText(oldName);
+
+    if (!previous) return null;
+
+    return workerLinks.find(link =>
+        normalizeText(link.profileName) === previous
+    ) || null;
+}
+
+/**
+ * Copia el nombre nuevo del perfil al enlace del trabajador en Firestore.
+ *
+ * updateProfile migra todas las claves locales del trabajador, pero no puede
+ * tocar Firestore: workerLinks/{uid}.profileName se quedaba con el nombre viejo
+ * PARA SIEMPRE (proturnos:profileRenamed no tenia ni un listener). La PWA lee su
+ * espejo users/{uid}/workerLinks/{ws} pero lo pisa con este documento canonico,
+ * y copia ese profileName dentro de CADA solicitud que envia.
+ *
+ * Con el nombre viejo viajando en las solicitudes, aceptar un permiso lo
+ * escribia en un perfil que no existe -el almacenamiento por trabajador se
+ * indexa por nombre-, sin dar ningun error: quedaba aceptado en el LOG y jamas
+ * aparecia en el calendario. resolveProfileName (workerRequests.js) ya tolera el
+ * desfase; esto ademas lo evita de raiz.
+ */
+export async function syncWorkerLinkProfileName(oldName, newName) {
+    const nextName = String(newName || "").trim();
+
+    if (!nextName || nextName === String(oldName || "").trim()) return false;
+
+    const link = findWorkerLinkForRename(oldName, nextName);
+    const workspace = getActiveWorkspace();
+
+    if (!link?.uid || !workspace?.id) return false;
+    if (link.profileName === nextName) return false;
+
+    try {
+        const { db, firestoreModule } = await getFirebaseServices();
+
+        await firestoreModule.setDoc(
+            firestoreModule.doc(
+                db,
+                "workspaces",
+                workspace.id,
+                "workerLinks",
+                link.uid
+            ),
+            {
+                // Las reglas exigen que el uid siga en el documento resultante.
+                uid: link.uid,
+                profileName: nextName,
+                updatedAt: firestoreModule.serverTimestamp()
+            },
+            { merge: true }
+        );
+
+        return true;
+    } catch (error) {
+        console.warn(
+            "No se pudo actualizar el nombre del trabajador en su enlace.",
+            error
+        );
+        return false;
+    }
+}
+
 function notificationMessageId() {
     if (globalThis.crypto?.randomUUID) {
         return globalThis.crypto.randomUUID();
@@ -3287,6 +3361,13 @@ if (typeof window !== "undefined") {
         applyDirtyFromKeys(
             event?.detail?.keys,
             event?.detail?.changes || {}
+        );
+    });
+
+    window.addEventListener("proturnos:profileRenamed", event => {
+        void syncWorkerLinkProfileName(
+            event?.detail?.oldName,
+            event?.detail?.newName
         );
     });
 

@@ -70,6 +70,7 @@ import {
     notifyWorkerApp
 } from "./workerAppDataSync.js";
 import { buildWorkerReportPreviewHTML } from "./hoursReport.js";
+import { normalizeText } from "./stringUtils.js";
 
 const REQUEST_TYPE_LABELS = {
     admin: "P. Administrativo",
@@ -378,10 +379,59 @@ async function withProfile(profile, task) {
     }
 }
 
-function resolveProfileName(request) {
-    if (request.profile) return request.profile;
+// Copia local (igual que en workerAppDataSync) para no arrastrar el lector de
+// Excel de attendanceImport solo por normalizar un RUT.
+function normalizeRut(value) {
+    return String(value || "")
+        .replace(/[^0-9kK]/g, "")
+        .toUpperCase();
+}
 
+// El nombre que trae la solicitud es el que la PWA copio de workerLinks al
+// enviarla, y puede estar desfasado del perfil real: si el perfil se renombro
+// (o se corrigio un typo o el uso de mayusculas) despues de enlazar al
+// trabajador, workerLinks.profileName se queda con el nombre viejo.
+//
+// Ese nombre NO se puede usar tal cual: todo el almacenamiento por trabajador
+// se indexa por nombre ("legal_<NOMBRE>", "data_<NOMBRE>"...) y
+// setCurrentProfile acepta cualquier texto, asi que aceptar una solicitud con
+// el nombre viejo escribia el permiso en un perfil fantasma sin dar ningun
+// error: quedaba en el LOG como aceptada y nunca aparecia en el calendario.
+//
+// Por eso resolvemos SIEMPRE contra los perfiles que existen, con la misma
+// tolerancia que findProfileForLink (RUT primero, luego nombre normalizado), y
+// devolvemos "" si no calza ninguno, para que quien aplique la solicitud falle
+// con un mensaje visible en vez de escribir en el vacio.
+function resolveProfileName(request) {
     const profiles = getProfiles();
+    const requestedName = String(request.profile || "");
+
+    if (requestedName) {
+        const exactMatch = profiles.find(profile =>
+            profile.name === requestedName
+        );
+
+        if (exactMatch) return exactMatch.name;
+    }
+
+    const requestedRut = normalizeRut(request.profileRut);
+
+    if (requestedRut) {
+        const rutMatch = profiles.find(profile =>
+            normalizeRut(profile.rut) === requestedRut
+        );
+
+        if (rutMatch) return rutMatch.name;
+    }
+
+    if (requestedName) {
+        const normalizedName = normalizeText(requestedName);
+        const nameMatch = profiles.find(profile =>
+            normalizeText(profile.name) === normalizedName
+        );
+
+        if (nameMatch) return nameMatch.name;
+    }
 
     if (request.profileId) {
         return profiles.find(profile =>
@@ -1765,15 +1815,19 @@ async function acceptRequest(request) {
         return false;
     }
 
+    // El nombre resuelto, no el que viajo en la solicitud: el LOG se filtra y se
+    // anula por perfil, y notifyWorkerApp busca el enlace por nombre exacto.
+    const profileName = resolveProfileName(request) || request.profile;
+
     saveUpdatedRequest(request.id, {
         status: "accepted",
         acceptedAt: new Date().toISOString(),
         appliedAt: new Date().toISOString()
     });
 
-    if (request.type === "leave_cancel" && request.profile) {
+    if (request.type === "leave_cancel" && profileName) {
         void notifyWorkerApp(
-            request.profile,
+            profileName,
             `Tu supervisor aprobó la anulación de tu ${requestTypeLabel(request.leaveType) || "permiso"}. Se restauraron tus saldos.`
         );
     }
@@ -1781,9 +1835,9 @@ async function acceptRequest(request) {
     addAuditLog(
         AUDIT_CATEGORY.WORKER_REQUESTS,
         "Acepto solicitud de trabajador",
-        `${request.profile}: ${requestTypeLabel(request.type)} (${requestDetailsHTML(request)}).`,
+        `${profileName}: ${requestTypeLabel(request.type)} (${requestDetailsHTML(request)}).`,
         {
-            profile: request.profile,
+            profile: profileName,
             requestId: request.id,
             requestType: request.type
         }
@@ -1797,27 +1851,29 @@ async function rejectRequest(request) {
 
     if (!reason) return false;
 
+    const profileName = resolveProfileName(request) || request.profile;
+
     saveUpdatedRequest(request.id, {
         status: "rejected",
         rejectedAt: new Date().toISOString(),
         rejectReason: reason
     });
 
-    if (request.type === "hhee_return" && request.profile) {
+    if (request.type === "hhee_return" && profileName) {
         const monthLabel = monthLabelFromYearMonth(
             request.returnYear,
             request.returnMonth
         );
 
         void notifyWorkerApp(
-            request.profile,
+            profileName,
             `Tu supervisor no aprobó tu solicitud de devolución de horas${monthLabel ? ` de ${monthLabel}` : ""}. Motivo: ${reason}.`
         );
     }
 
-    if (request.type === "leave_cancel" && request.profile) {
+    if (request.type === "leave_cancel" && profileName) {
         void notifyWorkerApp(
-            request.profile,
+            profileName,
             `Tu supervisor no aprobó la anulación de tu ${requestTypeLabel(request.leaveType) || "permiso"}. Motivo: ${reason}.`
         );
     }
@@ -1825,9 +1881,9 @@ async function rejectRequest(request) {
     addAuditLog(
         AUDIT_CATEGORY.WORKER_REQUESTS,
         "Rechazo solicitud de trabajador",
-        `${request.profile}: ${requestTypeLabel(request.type)}. Motivo: ${reason}.`,
+        `${profileName}: ${requestTypeLabel(request.type)}. Motivo: ${reason}.`,
         {
-            profile: request.profile,
+            profile: profileName,
             requestId: request.id,
             requestType: request.type
         }

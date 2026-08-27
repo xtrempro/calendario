@@ -59,6 +59,8 @@
     "test:calendario-tareas": "node --test tests/inicio-calendario-tareas.test.mjs",
     "test:cobertura-en-espera": "node --test tests/solicitud-cobertura-en-espera.test.mjs",
     "test:solicitud-aceptada": "node --test tests/solicitud-aceptada-no-vuelve-pendiente.test.mjs",
+    "test:solicitud-perfil-renombrado": "node --test tests/solicitud-perfil-renombrado.test.mjs",
+    "test:enlace-nombre-renombrado": "node --test tests/enlace-nombre-perfil-renombrado.test.mjs",
     "test:mensajes-adjuntos": "node --test tests/mensajes-adjuntos.test.mjs",
     "test:tope-hhee-diurnas": "node --test tests/cobertura-tope-hhee-diurnas.test.mjs",
     "test:motor-horas-extras": "node --test tests/motor-horas-extras.test.mjs",
