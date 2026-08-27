@@ -1972,12 +1972,55 @@ body[data-active-view="home"] .secondary-grid {
 .hm-dot-colhead svg { width: 17px; height: 17px; color: var(--text-soft); }
 .hm-dot-colhead b { margin-left: auto; font-size: 0.78rem; font-weight: 800; color: var(--text-soft); background: var(--panel-alt); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
 .hm-dot-list { display: flex; flex-direction: column; gap: 6px; }
-.hm-dot-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; border-radius: 11px; background: var(--panel-alt); border: 1px solid var(--border); }
+.hm-dot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; border-radius: 11px; background: var(--panel-alt); border: 1px solid var(--border); }
 /* El nombre completo, en dos lineas si hace falta: recortarlo con puntos
    suspensivos era justamente lo que escondia informacion. */
 .hm-dot-name { font-size: 0.86rem; font-weight: 700; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
 .hm-dot-time { flex: none; font-size: 0.78rem; font-weight: 700; color: var(--text-soft); font-variant-numeric: tabular-nums; }
+/* Tareas asignadas: segunda linea de la fila (flex-basis 100% la baja entera),
+   para que el nombre y el horario sigan leyendose de un vistazo arriba. */
+.hm-dot-tasks { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 5px; }
+.hm-dot-task {
+    font-size: 0.72rem; font-weight: 700; line-height: 1.3;
+    padding: 3px 8px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid transparent;
+}
 .hm-dot-empty { padding: 14px; text-align: center; color: var(--text-muted); font-size: 0.8rem; border: 1px dashed var(--border-strong); border-radius: 11px; }
+/* Dotacion: navegacion por dia y calendario para saltar a otra fecha.
+   El dialogo recibe el foco al abrirse -para que las flechas del teclado
+   muevan el dia- y por eso hay que apagarle el anillo de foco propio. */
+.hm-modal--dotacion:focus { outline: none; }
+.hm-bday-nav + .hm-modal-action { margin-left: 0; }
+/* El titulo crece con la fecha ('Profesional - en servicio el Jueves 28 de
+   agosto'): que envuelva en dos lineas antes que aplastar los botones. */
+.hm-modal--dotacion .hm-modal-head h3 { min-width: 0; overflow-wrap: anywhere; }
+.hm-modal--dotacion .hm-modal-close { flex: none; }
+.hm-dp { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: var(--panel-alt); }
+.hm-dp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.hm-dp-head strong { font-size: 0.86rem; font-weight: 800; color: var(--text); min-width: 132px; }
+.hm-dp-head button:not(.hm-dp-today) {
+    width: 28px; height: 28px; flex: none; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel);
+    color: var(--text-soft); font-size: 1rem; line-height: 1; cursor: pointer;
+}
+.hm-dp-head button:hover { border-color: var(--accent); color: var(--accent); }
+.hm-dp-today {
+    margin-left: auto; height: 28px; padding: 0 12px; flex: none;
+    border-radius: 8px; border: 1px solid var(--border); background: var(--panel);
+    color: var(--text-soft); font-size: 0.76rem; font-weight: 800; cursor: pointer;
+}
+.hm-dp-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.hm-dp-dow { text-align: center; font-size: 0.68rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; padding-bottom: 2px; }
+.hm-dp-cell {
+    height: 34px; border-radius: 9px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--text); cursor: pointer;
+    font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.hm-dp-cell--blank { border-color: transparent; background: transparent; }
+.hm-dp-cell:hover:not(.hm-dp-cell--blank) { border-color: var(--accent); background: var(--accent-soft); }
+.hm-dp-cell.is-today { color: var(--accent); border-color: var(--accent); }
+.hm-dp-cell.is-sel { background: var(--accent); border-color: var(--accent); color: #fff; }
 .hm-modal--absence { width: min(720px, 100%); }
 .hm-absence-detail-list { display: flex; flex-direction: column; gap: 8px; }
 .hm-absence-worker { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

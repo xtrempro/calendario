@@ -76,6 +76,10 @@ import {
 import { openAttachmentFile } from "./attachmentUtils.js";
 import { openScheduleAttachmentDialog } from "./taskAssignments.js";
 import {
+    buildTaskAssignmentContext,
+    getDayTaskAssignments
+} from "./taskAssignmentProjection.js";
+import {
     ATTENDANCE_INCIDENT_KINDS,
     attendanceIncidentContext,
     buildAttendanceIncidents
@@ -432,20 +436,45 @@ function serviceScheduleToday(profile, keyDay, date) {
 
 // Detalle de dotación por estamento: listas de trabajadores de día y de noche
 // (con su horario). Un mismo trabajador puede aparecer en ambos (24h/D+N/18h).
-function getDotacionDetalleHoy() {
-    const now = new Date();
-    const keyDay = keyFromDate(now);
+//
+// El dia es un parametro y no "hoy" fijo porque el modal de dotacion se mueve
+// con flechas y con un calendario: la misma cuenta sirve para cualquier fecha.
+export function getDotacionDetalle(date = new Date()) {
+    const keyDay = keyFromDate(date);
     const byEstamento = {};
+    // Una sola lectura del catalogo de tareas para todo el dia, en vez de una
+    // por trabajador.
+    const taskContext = buildTaskAssignmentContext();
 
     getProfiles().forEach(profile => {
         if (!isProfileActive(profile)) return;
-        const sched = serviceScheduleToday(profile, keyDay, now);
+        const sched = serviceScheduleToday(profile, keyDay, date);
         if (!sched) return;
+
+        // Las tareas del dia se reparten por turno: las diurnas acompanan al
+        // trabajador en la columna de dia y las nocturnas en la de noche. Una
+        // tarea "both" -la misma tarea en los dos turnos- va en las dos.
+        const tareas = getDayTaskAssignments(profile.name, keyDay, taskContext);
+        const tareasDe = turno => tareas
+            .filter(item => item.shift === turno || item.shift === "both")
+            .map(item => item.title);
 
         const est = profile.estamento || "Otros";
         if (!byEstamento[est]) byEstamento[est] = { dia: [], noche: [] };
-        if (sched.dia) byEstamento[est].dia.push({ name: profile.name, time: sched.dia });
-        if (sched.noche) byEstamento[est].noche.push({ name: profile.name, time: sched.noche });
+        if (sched.dia) {
+            byEstamento[est].dia.push({
+                name: profile.name,
+                time: sched.dia,
+                tasks: tareasDe("day")
+            });
+        }
+        if (sched.noche) {
+            byEstamento[est].noche.push({
+                name: profile.name,
+                time: sched.noche,
+                tasks: tareasDe("night")
+            });
+        }
     });
 
     const canonicalOrder = est => {
@@ -465,7 +494,7 @@ function getDotacionDetalleHoy() {
 
 // Conteos por estamento (día/noche) derivados del detalle, para las stat cards.
 function getDotacionHoy() {
-    const det = getDotacionDetalleHoy();
+    const det = getDotacionDetalle();
     const byEstamento = {};
     let total = 0;
     let dia = 0;
@@ -2198,8 +2227,20 @@ function taskEditModal() {
 }
 
 // ---- Modal de dotación (trabajadores en servicio: día / noche + horario) ----
+// Fila de un trabajador en servicio. Las tareas que le asigno el supervisor
+// -a mano o por regla predefinida- van en una segunda linea: son las mismas que
+// el trabajador ve en su telefono, y aca evitan tener que ir al tablero de
+// tareas para saber quien esta haciendo que.
 function dotRowHTML(x) {
-    return `<div class="hm-dot-row"><span class="hm-dot-name">${esc(x.name)}</span><span class="hm-dot-time">${esc(x.time)}</span></div>`;
+    const tasks = Array.isArray(x.tasks) ? x.tasks : [];
+    const tasksHTML = tasks.length
+        ? `<div class="hm-dot-tasks">${tasks
+            .map(title => `<span class="hm-dot-task">${esc(title)}</span>`)
+            .join("")}</div>`
+        : "";
+
+    return `<div class="hm-dot-row"><span class="hm-dot-name">${esc(x.name)}</span>` +
+        `<span class="hm-dot-time">${esc(x.time)}</span>${tasksHTML}</div>`;
 }
 
 function dotColumnHTML(icon, title, list) {
@@ -2220,6 +2261,48 @@ function dotBodyHTML(e) {
         </div>`;
 }
 
+// ---- Calendario para saltar a otra fecha desde el modal de dotacion ----
+//
+// Es un mes compacto, dentro del propio modal: elegir "el jueves que viene" a
+// punta de flechas es tedioso, y abrir el calendario grande del app obligaria a
+// salir de la vista de dotacion y volver.
+function dotPickerHTML(view, selectedIso) {
+    const year = view.getFullYear();
+    const month = view.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    // getDay() da 0 en domingo; con la semana en lunes, domingo es la columna 6.
+    const lead = (new Date(year, month, 1).getDay() + 6) % 7;
+    const todayIso = todayISO();
+    const cells = new Array(lead).fill('<span class="hm-dp-cell hm-dp-cell--blank"></span>');
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+        const iso = isoFromDate(new Date(year, month, day));
+        const marks = [
+            iso === selectedIso ? "is-sel" : "",
+            iso === todayIso ? "is-today" : ""
+        ].join(" ").trim();
+
+        cells.push(
+            `<button type="button" class="hm-dp-cell ${marks}" data-hm="dot-day"` +
+            ` data-iso="${esc(iso)}" aria-pressed="${iso === selectedIso ? "true" : "false"}">${day}</button>`
+        );
+    }
+
+    return `
+        <div class="hm-dp">
+            <div class="hm-dp-head">
+                <button type="button" data-hm="dot-pm-prev" aria-label="Mes anterior">&#8249;</button>
+                <strong>${esc(`${MESES[month]} ${year}`)}</strong>
+                <button type="button" data-hm="dot-pm-next" aria-label="Mes siguiente">&#8250;</button>
+                <button type="button" class="hm-dp-today" data-hm="dot-today">Hoy</button>
+            </div>
+            <div class="hm-dp-grid">
+                ${DIAS_SEMANA.map(day => `<span class="hm-dp-dow">${day}</span>`).join("")}
+                ${cells.join("")}
+            </div>
+        </div>`;
+}
+
 function dotacionModal() {
     return `
         <div class="hm-modal-backdrop" data-hm="inc-modal" hidden>
@@ -2233,28 +2316,94 @@ function dotacionModal() {
             </div>
         </div>
         <div class="hm-modal-backdrop" data-hm="dotacion-modal" hidden>
-            <div class="hm-modal hm-modal--dotacion" role="dialog" aria-modal="true" aria-label="Trabajadores en servicio">
+            <div class="hm-modal hm-modal--dotacion" role="dialog" aria-modal="true"
+                aria-label="Trabajadores en servicio" tabindex="-1">
                 <div class="hm-modal-head">
                     <span class="hm-modal-ico">${svg(IC.users)}</span>
                     <h3 data-hm="dot-title">En servicio hoy</h3>
+                    <div class="hm-bday-nav">
+                        <button type="button" data-hm="dot-prev" aria-label="Día anterior" title="Día anterior">&#8249;</button>
+                        <button type="button" data-hm="dot-next" aria-label="Día siguiente" title="Día siguiente">&#8250;</button>
+                    </div>
+                    <button class="hm-modal-action" type="button" data-hm="dot-cal"
+                        aria-label="Elegir fecha" title="Elegir otra fecha">${svg(IC.calendar)}</button>
                     <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
                 </div>
-                <div class="hm-modal-body" data-hm="dot-body"></div>
+                <div class="hm-modal-body">
+                    <div data-hm="dot-picker" hidden></div>
+                    <div data-hm="dot-body"></div>
+                </div>
             </div>
         </div>`;
 }
 
-function openDotacion(panel, est) {
-    const det = getDotacionDetalleHoy();
-    const e = det.byEstamento[est];
+// Estado del modal de dotacion: el estamento abierto, el dia que se esta
+// mirando y el mes que muestra el calendario. Vive fuera del modal porque el
+// contenido se repinta entero en cada salto de dia.
+let dotacionEst = "";
+let dotacionDate = new Date();
+let dotacionPickerMonth = new Date();
+let dotacionPickerOpen = false;
+
+function firstOfMonth(date) {
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function addDays(date, days) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+function dateFromISO(iso) {
+    const [year, month, day] = String(iso).split("-").map(Number);
+    return new Date(year, month - 1, day);
+}
+
+function dotDateLabel(date) {
+    return `${DIAS[date.getDay()]} ${date.getDate()} de ${MESES[date.getMonth()]}`;
+}
+
+function renderDotacion(panel) {
     const modal = panel.querySelector('[data-hm="dotacion-modal"]');
     if (!modal) return;
 
-    modal.querySelector('[data-hm="dot-title"]').textContent = `${est} · en servicio hoy`;
+    const e = getDotacionDetalle(dotacionDate).byEstamento[dotacionEst];
+    const esHoy = keyFromDate(dotacionDate) === keyFromDate(new Date());
+    const picker = modal.querySelector('[data-hm="dot-picker"]');
+
+    modal.querySelector('[data-hm="dot-title"]').textContent = esHoy
+        ? `${dotacionEst} · en servicio hoy`
+        : `${dotacionEst} · en servicio el ${dotDateLabel(dotacionDate)}`;
     modal.querySelector('[data-hm="dot-body"]').innerHTML = e
         ? dotBodyHTML(e)
         : `<div class="hm-dot-empty">Sin trabajadores en servicio.</div>`;
+
+    picker.innerHTML = dotacionPickerOpen
+        ? dotPickerHTML(dotacionPickerMonth, isoFromDate(dotacionDate))
+        : "";
+    picker.hidden = !dotacionPickerOpen;
+
+    // Repintar el calendario borra el boton que se acaba de apretar y con el se
+    // va el foco: sin esto, tras elegir un dia las flechas del teclado ya no
+    // mueven nada.
+    const dialog = modal.querySelector(".hm-modal");
+
+    if (dialog && !dialog.contains(document.activeElement)) dialog.focus();
+}
+
+// Abre siempre en hoy y con el calendario cerrado, no donde quedo la vez
+// anterior: la tarjeta que se acaba de apretar cuenta el dia de hoy.
+function openDotacion(panel, est) {
+    const modal = panel.querySelector('[data-hm="dotacion-modal"]');
+    if (!modal) return;
+
+    dotacionEst = est;
+    dotacionDate = new Date();
+    dotacionPickerMonth = firstOfMonth(dotacionDate);
+    dotacionPickerOpen = false;
+
     modal.hidden = false;
+    renderDotacion(panel);
+    modal.querySelector(".hm-modal")?.focus();
 }
 
 function homeHTML() {
@@ -2579,10 +2728,74 @@ function wire(panel) {
         });
     }
     if (dotModal) {
+        // Saltar de dia sin cerrar el modal: flechas del encabezado, calendario
+        // del mes, o las flechas del teclado.
+        const irADia = (date, { cerrarCalendario = false } = {}) => {
+            dotacionDate = date;
+            dotacionPickerMonth = firstOfMonth(date);
+            if (cerrarCalendario) dotacionPickerOpen = false;
+            renderDotacion(panel);
+        };
+
         dotModal.addEventListener("click", event => {
-            if (event.target === dotModal || event.target.closest('[data-hm="close"]')) {
+            const target = event.target;
+
+            if (target === dotModal || target.closest('[data-hm="close"]')) {
                 dotModal.hidden = true;
+                return;
             }
+
+            const paso = target.closest('[data-hm="dot-prev"], [data-hm="dot-next"]');
+
+            if (paso) {
+                irADia(addDays(dotacionDate, paso.dataset.hm === "dot-next" ? 1 : -1));
+                return;
+            }
+
+            if (target.closest('[data-hm="dot-cal"]')) {
+                dotacionPickerOpen = !dotacionPickerOpen;
+                dotacionPickerMonth = firstOfMonth(dotacionDate);
+                renderDotacion(panel);
+                return;
+            }
+
+            // El mes del calendario se mueve solo; el dia mirado no cambia
+            // hasta que se elija una casilla.
+            const mes = target.closest('[data-hm="dot-pm-prev"], [data-hm="dot-pm-next"]');
+
+            if (mes) {
+                const salto = mes.dataset.hm === "dot-pm-next" ? 1 : -1;
+                dotacionPickerMonth = new Date(
+                    dotacionPickerMonth.getFullYear(),
+                    dotacionPickerMonth.getMonth() + salto,
+                    1
+                );
+                renderDotacion(panel);
+                return;
+            }
+
+            if (target.closest('[data-hm="dot-today"]')) {
+                irADia(new Date());
+                return;
+            }
+
+            const dia = target.closest('[data-hm="dot-day"]');
+
+            if (dia) irADia(dateFromISO(dia.dataset.iso), { cerrarCalendario: true });
+        });
+
+        dotModal.addEventListener("keydown", event => {
+            if (dotModal.hidden) return;
+
+            if (event.key === "Escape") {
+                dotModal.hidden = true;
+                return;
+            }
+
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+
+            event.preventDefault();
+            irADia(addDays(dotacionDate, event.key === "ArrowRight" ? 1 : -1));
         });
     }
 

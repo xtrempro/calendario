@@ -70,6 +70,7 @@
     "test:notas-rrhh": "node --test tests/inicio-notas-rrhh.test.mjs",
     "test:hoja-programacion": "node --test tests/hoja-programacion.test.mjs",
     "test:programacion-semanal": "node --test tests/inicio-programacion-semanal.test.mjs",
+    "test:dotacion-fecha": "node --test tests/inicio-dotacion-fecha.test.mjs",
     "test:nombres-admin": "node --test tests/nombres-administradores.test.mjs",
     "test:grado-vigencia": "node --test tests/valores-grado-vigencia.test.mjs",
     "test:atrasos": "node --test tests/atrasos.test.mjs",

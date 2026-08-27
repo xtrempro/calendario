@@ -453,6 +453,43 @@ function dayTaskAssignments(profileName, keyDay, tasks, allEntries) {
     return [...byTitle.values()].map(({ order: _order, ...item }) => item);
 }
 
+// El catalogo de tareas y las asignaciones de todas las semanas, leidos UNA
+// vez para reusarlos en varias consultas seguidas. El modal de dotacion
+// pregunta por cada trabajador del dia; sin esto releeria y volveria a parsear
+// los mismos dos blobs una vez por persona.
+export function buildTaskAssignmentContext() {
+    return {
+        tasks: getTaskCatalog(),
+        allEntries: getAllTaskAssignmentEntries()
+    };
+}
+
+/**
+ * Las tareas de un trabajador en un dia: las que el supervisor le puso a mano
+ * en el tablero y las que le tocan por regla predefinida.
+ *
+ * Es la MISMA cuenta que se proyecta a la PWA del trabajador (misma funcion
+ * interna), asi que lo que ve el supervisor en el inicio es exactamente lo que
+ * ve el trabajador en su telefono.
+ *
+ * @param {string} profileName
+ * @param {string} keyDay clave interna `YYYY-M-D` (mes 0-based)
+ * @param {{tasks: Array, allEntries: Object}} [context]
+ * @returns {Array<{id: string, title: string, shift: string, shiftLabel: string, source: string}>}
+ */
+export function getDayTaskAssignments(
+    profileName,
+    keyDay,
+    context = buildTaskAssignmentContext()
+) {
+    const name = String(profileName || "").trim();
+    const tasks = Array.isArray(context?.tasks) ? context.tasks : [];
+
+    if (!name || !keyDay || !tasks.length) return [];
+
+    return dayTaskAssignments(name, keyDay, tasks, context?.allEntries || {});
+}
+
 function clearTaskAssignmentsFromSchedule(schedule) {
     Object.values(schedule?.days || {}).forEach(day => {
         if (day && typeof day === "object" && day.taskAssignments) {
