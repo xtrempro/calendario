@@ -281,6 +281,7 @@ async function main() {
     // 2. solicitudes con el nombre viejo, y las que se aplicaron al fantasma
     const requests = await listDocs(`/workspaces/${WORKSPACE}/workerRequests`);
     const ghostNames = new Set();
+    let reopened = false;
 
     requests.forEach(request => {
         const name = plain(request.fields?.profile);
@@ -316,6 +317,7 @@ async function main() {
             fields.appliedAt = { nullValue: null };
             fields.updatedAt = { stringValue: new Date().toISOString() };
             checks.push(f => plain(f?.status) === "pending");
+            reopened = true;
             what += "  + VUELVE A PENDIENTE";
         } else if (status === "accepted") {
             what += "  (aceptada sobre el fantasma: ver --reabrir)";
@@ -457,11 +459,13 @@ async function main() {
         return;
     }
 
-    console.log(
-        "\nLas solicitudes que volvieron a PENDIENTE hay que aceptarlas de nuevo\n" +
-        "desde el panel de solicitudes: ahi recien se descuenta el saldo y se\n" +
-        "publica el permiso al calendario y a la PWA."
-    );
+    if (reopened) {
+        console.log(
+            "\nLas solicitudes que volvieron a PENDIENTE hay que aceptarlas de\n" +
+            "nuevo desde el panel: ahi recien se descuenta el saldo y se publica\n" +
+            "el permiso al calendario y a la PWA."
+        );
+    }
 }
 
 main().catch(error => {
