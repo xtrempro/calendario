@@ -177,13 +177,32 @@ async function patch(pathname, fields) {
     });
 }
 
+// Firestore devuelve una lista VACIA para una coleccion que no existe, no un
+// 404, asi que un ID de unidad mal escrito se veia igual que una unidad sin
+// perfiles. Se comprueba el documento de la unidad para poder decir cual de las
+// dos cosas pasa.
+async function assertWorkspaceExists() {
+    try {
+        await api(`/workspaces/${WORKSPACE}`);
+    } catch (error) {
+        if (!String(error.message).startsWith("404")) throw error;
+
+        throw new Error(
+            `No existe la unidad "${WORKSPACE}". Revisa el ID: es facil ` +
+            "confundir la O mayuscula con un cero."
+        );
+    }
+}
+
 async function readProfiles() {
+    await assertWorkspaceExists();
+
     const entries = await listDocs(
         `/workspaces/${WORKSPACE}/stateModules/profile/entries`
     );
     const doc = entries.find(entry => docId(entry) === "profiles");
 
-    if (!doc) throw new Error("La unidad no tiene perfiles.");
+    if (!doc) throw new Error("La unidad existe pero no tiene perfiles.");
 
     let json = doc.fields?.value?.stringValue;
 
