@@ -1259,13 +1259,24 @@ function withMarks(time, ...symbols) {
  */
 function hiddenMarksTitle(cells) {
     const marks = cells.marks || [];
-    const shown = (cells.entrada ? 1 : 0) + (cells.salida ? 1 : 0);
+    // Lo que se ve son las marcas de CADA tramo, no las celdas: un 24 con el
+    // traspaso marcado muestra cuatro horas en dos lineas, y ahi no hay nada
+    // escondido que avisar.
+    const shown = (cells.segments || []).reduce(
+        (total, segment) =>
+            total + (segment.entry ? 1 : 0) + (segment.exit ? 1 : 0),
+        0
+    );
 
     if (marks.length <= shown) return "";
 
+    // Cada marca dicha entera y bien separada de la siguiente: en un 24 son
+    // cuatro, y de corrido no se distingue cual cierra un tramo y cual abre
+    // el otro.
     return `${ALL_MARKS_TITLE} ${marks
-        .map(mark => `${mark.time} ${mark.type === "out" ? "salida" : "entrada"}`)
-        .join(" · ")}`;
+        .map(mark =>
+            `${mark.type === "out" ? "Salida" : "Entrada"} a las ${mark.time}`)
+        .join("  |  ")}`;
 }
 
 function baseWithSwapsForReport(profileName, keyDay) {

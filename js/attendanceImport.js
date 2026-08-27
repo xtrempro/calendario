@@ -435,29 +435,29 @@ function singleShiftSegment(marks, closing, context) {
 }
 
 /**
- * Los dos tramos de un D+N.
+ * Los dos tramos de un D+N o de un 24 con el traspaso marcado.
  *
- * Se emparejan en orden: la primera marca abre el diurno, la segunda lo cierra,
- * la tercera abre la noche. El cierre de la noche es siempre la marca traida
+ * La llegada es el primer momento del dia. Todo lo que venga despues es el
+ * traspaso de un tramo al otro, y ahi cual cierra y cual abre lo dice el boton
+ * que apreto, no el orden: en un 24 el trabajador sale y vuelve a entrar en el
+ * mismo minuto, las marcas se guardan sin segundos y el archivo las puede
+ * traer en cualquier orden. El cierre de la noche es siempre la marca traida
  * del dia siguiente, este donde este en la lista.
  *
- * No se usan horas de corte: el orden basta, y ademas aguanta que el trabajador
- * se equivoque de boton, que es justamente lo que no se puede dar por bueno.
+ * No se usan horas de corte: aguanta que el trabajador se equivoque de boton,
+ * que es justamente lo que no se puede dar por bueno.
  */
 function splitShiftSegments(marks, closing) {
     const own = marks.filter(mark => !mark.iso);
+    const events = groupMarkEvents(own);
     // La llegada sale del primer momento: si marco dos veces al llegar, esas
-    // dos son una sola llegada y vale la primera.
-    const entry = groupMarkEvents(own)[0]?.[0] || null;
-    const tras = entry ? own.slice(own.indexOf(entry) + 1) : [];
-    // El cierre del primer tramo es la primera SALIDA posterior. Aqui no se
-    // agrupa por cercania: en un 24 la salida de la Larga y la entrada de la
-    // Noche pueden ir con un minuto de diferencia, y son el cambio de tramo,
-    // no una remarcacion.
+    // dos son una sola llegada, vale la primera y ninguna de las dos puede ser
+    // despues el traspaso.
+    const entry = events[0]?.[0] || null;
+    const tras = events.slice(1).flat();
     const exit = tras.find(mark => mark.type === "out") || tras[0] || null;
-    const second = exit
-        ? tras.slice(tras.indexOf(exit) + 1)[0] || null
-        : null;
+    const resto = tras.filter(mark => mark !== exit);
+    const second = resto.find(mark => mark.type === "in") || resto[0] || null;
     const segment = (from, to) => ({
         entry: from || null,
         exit: to || null,

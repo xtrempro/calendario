@@ -687,14 +687,27 @@ test("un turno normal sin marcas intermedias no arma hover", () => {
 test("el hover se arma solo cuando la fila esconde marcas", () => {
     assert.match(reporte, /const ALL_MARKS_TITLE = "Marcas del turno:";/);
     assert.match(reporte, /function hiddenMarksTitle\(cells\)/);
-    // La cuenta es contra lo que SE MUESTRA, no contra un numero fijo: un dia
-    // sin salida muestra una sola celda y con dos marcas ya esconde una.
+    // La cuenta es contra lo que SE MUESTRA, no contra un numero fijo, y lo
+    // que se muestra son las marcas de cada tramo: un dia sin salida muestra
+    // una sola y con dos marcas ya esconde una; un 24 con el traspaso marcado
+    // muestra cuatro horas en dos lineas y no esconde ninguna.
     assert.match(
         reporte,
-        /const shown = \(cells\.entrada \? 1 : 0\) \+ \(cells\.salida \? 1 : 0\);/
+        /total \+ \(segment\.entry \? 1 : 0\) \+ \(segment\.exit \? 1 : 0\)/
     );
     assert.match(reporte, /if \(marks\.length <= shown\) return "";/);
     assert.match(estilos, /\.report-table td\.report-cell--more-marks \{/);
+});
+
+test("el hover dice cada marca entera y bien separada", () => {
+    // "Entrada a las 07:57  |  Salida a las 20:00  |  ...". De corrido, en un
+    // 24 con cuatro marcas, no se distingue cual cierra un tramo y cual abre
+    // el otro.
+    assert.match(
+        reporte,
+        /`\$\{mark\.type === "out" \? "Salida" : "Entrada"\} a las \$\{mark\.time\}`/
+    );
+    assert.match(reporte, /\.join\("  \|  "\)/);
 });
 
 /* =========================================================
@@ -1059,6 +1072,62 @@ test("un 24 se parte en dos SI marco el traspaso", () => {
 
     assert.equal(dia.multiline, true);
     assert.equal(dia.entrada, "08:00\n20:02");
+    assert.equal(dia.salida, "20:00\n08:05");
+});
+
+test("sale y vuelve a entrar en el MISMO minuto", () => {
+    // Es lo normal en un 24: apreta salida y entrada seguidas, a las 20:01
+    // las dos. Las marcas se guardan sin segundos, asi que no hay orden que
+    // valga: cual cierra y cual abre lo dice el boton que apreto.
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-16": [
+                { time: "07:57", type: "in" },
+                { time: "20:01", type: "in" },
+                { time: "20:01", type: "out" }
+            ],
+            "2026-08-17": [{ time: "08:02", type: "out" }]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-16", {
+        workedShift: TURNO.TURNO24,
+        endsNextMorning: true,
+        canSplitOnMarks: true
+    });
+
+    // Antes la entrada de la Noche se perdia -quedaba solo en el hover-
+    // porque se buscaba DESPUES de la salida en la lista.
+    assert.equal(dia.entrada, "07:57\n20:01");
+    assert.equal(dia.salida, "20:01\n08:02");
+    assert.equal(dia.entryIncident, false);
+    assert.equal(dia.exitIncident, false);
+});
+
+test("el traspaso no se confunde con dos marcas al llegar", () => {
+    // Marco dos veces al llegar: esas dos son una sola llegada y ninguna
+    // puede pasar por la entrada del segundo tramo.
+    localStorage.clear();
+    localStorage.setItem("attendanceMarks", JSON.stringify({
+        "1-9": {
+            "2026-08-20": [
+                { time: "07:57", type: "in" },
+                { time: "07:58", type: "in" },
+                { time: "20:00", type: "out" },
+                { time: "20:01", type: "in" }
+            ],
+            "2026-08-21": [{ time: "08:05", type: "out" }]
+        }
+    }));
+
+    const dia = getAttendanceCells("1-9", "2026-08-20", {
+        workedShift: TURNO.TURNO24,
+        endsNextMorning: true,
+        canSplitOnMarks: true
+    });
+
+    assert.equal(dia.entrada, "07:57\n20:01");
     assert.equal(dia.salida, "20:00\n08:05");
 });
 
