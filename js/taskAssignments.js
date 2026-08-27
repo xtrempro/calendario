@@ -2791,43 +2791,6 @@ function unassignedOnShift(shift, keyDay, tasks, assignments) {
         .sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
 
-// Chip de solo lectura: no se arrastra, no se quita y no abre el lapiz de
-// predefinidos. Estar de turno no es una asignacion.
-function renderDutyChip(profileName) {
-    return `
-        <span class="task-assignment-worker-chip task-assignment-worker-chip--duty" title="${escapeHTML(profileName)} | De turno, sin tarea asignada">
-            ${renderWorkerAvatar(profileName)}
-            <span class="task-assignment-worker-chip__name">${escapeHTML(shortWorkerName(profileName))}</span>
-        </span>
-    `;
-}
-
-function renderDutyRow(shift, tasks, days, assignments, holidays, rowIndex, label) {
-    return `
-        <div class="task-assignment-duty-head" style="grid-column: 1; grid-row: ${rowIndex};">
-            <strong>${escapeHTML(label)}</strong>
-            <span>Sin tarea asignada</span>
-        </div>
-        ${days.map((day, dayIndex) => {
-            const people = unassignedOnShift(
-                shift,
-                keyFromDate(day),
-                tasks,
-                assignments
-            );
-
-            return `
-                <div class="task-assignment-duty-cell${inhabilClass(day, holidays, "task-assignment-duty-cell--inhabil")}" style="grid-column: ${dayIndex + 2}; grid-row: ${rowIndex};">
-                    ${
-                        people.length
-                            ? `<div class="task-assignment-cell-workers">${people.map(profile => renderDutyChip(profile.name)).join("")}</div>`
-                            : `<span class="task-assignment-duty-empty">Todos con tarea</span>`
-                    }
-                </div>`;
-        }).join("")}
-    `;
-}
-
 function renderBoard(shift, tasks, days, assignments, holidays = {}) {
     const config = SHIFT_CONFIG[shift];
     const sectionTasks = tasks.map(task => taskForShift(task, shift));
@@ -2953,21 +2916,6 @@ function renderBoard(shift, tasks, days, assignments, holidays = {}) {
                                 Sin tareas registradas.
                             </div>
                         `
-                }
-                ${
-                    config.dutyLabel
-                        ? renderDutyRow(
-                            shift,
-                            tasks,
-                            days,
-                            assignments,
-                            holidays,
-                            // Sin tareas, la fila 2 la ocupa el aviso de
-                            // "Sin tareas registradas".
-                            Math.max(sectionTasks.length, 1) + 2,
-                            config.dutyLabel
-                        )
-                        : ""
                 }
             </div>
         </section>
@@ -4871,7 +4819,7 @@ export function getTaskScheduleWeek() {
     const tasks = getTasks();
     const assignments = cleanAssignmentsForWeek(days, tasks);
 
-    const sections = SHIFT_TYPES.map(shift => ({
+    let sections = SHIFT_TYPES.map(shift => ({
         shift,
         label: SHIFT_CONFIG[shift].label,
         rows: tasks
@@ -4902,7 +4850,41 @@ export function getTaskScheduleWeek() {
             .filter(row =>
                 row.cells.some(cell => cell.workers.length || cell.note)
             )
-    })).filter(section => section.rows.length);
+    }));
+
+    // La programacion cierra el turno con una fila que junta a quien esta de
+    // turno esa noche y no quedo en ninguna tarea. Va SOLO aca, no en el
+    // tablero: al supervisor que reparte le estorba, pero quien lee la
+    // programacion necesita ver a todos los que estan citados.
+    //
+    // No es una tarea: se agrega despues de armar las filas reales, para que no
+    // entre en la fusion de casillas ni en ningun recuento.
+    sections.forEach(section => {
+        const dutyLabel = SHIFT_CONFIG[section.shift].dutyLabel;
+
+        if (!dutyLabel) return;
+
+        const cells = days.map(day => ({
+            workers: unassignedOnShift(
+                section.shift,
+                keyFromDate(day),
+                tasks,
+                assignments
+            ).map(profile => shortWorkerName(profile.name, { compact: true })),
+            note: ""
+        }));
+
+        if (!cells.some(cell => cell.workers.length)) return;
+
+        section.rows.push({
+            taskId: `duty_${section.shift}`,
+            title: dutyLabel,
+            detail: "",
+            cells
+        });
+    });
+
+    sections = sections.filter(section => section.rows.length);
 
     // Las casillas que el supervisor unio en el tablero se dibujan tambien
     // unidas aca: una sola celda para todo el grupo, con el rowspan de sus

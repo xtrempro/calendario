@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 // La fila "TURNO DE NOCHE" junta a quien esta de turno esa noche y no quedo en
-// ninguna tarea. No es una tarea: no se edita, no recibe gente y no cuenta para
-// la cobertura.
+// ninguna tarea. Vive SOLO en la programacion -el visor y la hoja impresa-, no
+// en el tablero: al supervisor que reparte le estorba, pero quien lee la
+// programacion necesita ver a todos los que estan citados.
 
 const readSource = () => readFile(
     new URL("../js/taskAssignments.js", import.meta.url),
@@ -15,12 +16,33 @@ const readStyles = () => readFile(
     "utf8"
 );
 
-test("la fila existe solo en el tablero de noche", async () => {
+test("la fila no existe en el tablero", async () => {
+    const source = await readSource();
+    const styles = await readStyles();
+
+    // Ni markup ni estilos en el panel: si reaparecieran, la fila volveria a
+    // dibujarse donde el usuario pidio que NO estuviera.
+    assert.doesNotMatch(source, /renderDutyRow/);
+    assert.doesNotMatch(source, /renderDutyChip/);
+    assert.doesNotMatch(source, /task-assignment-duty/);
+    assert.doesNotMatch(styles, /task-assignment-duty/);
+    assert.doesNotMatch(styles, /task-assignment-worker-chip--duty/);
+});
+
+test("la fila se agrega al armar la programacion", async () => {
     const source = await readSource();
 
     assert.match(source, /dutyLabel: "TURNO DE NOCHE"/);
-    // Se dibuja solo si el turno declara rotulo, y el diurno no lo declara.
-    assert.match(source, /config\.dutyLabel\s*\n\s*\? renderDutyRow\(/);
+    assert.match(
+        source,
+        /function getTaskScheduleWeek[\s\S]{0,4000}section\.rows\.push\(\{\s*\n\s*taskId: `duty_\$\{section\.shift\}`,\s*\n\s*title: dutyLabel,/
+    );
+});
+
+test("solo la noche declara la fila", async () => {
+    const source = await readSource();
+
+    assert.match(source, /const dutyLabel = SHIFT_CONFIG\[section\.shift\]\.dutyLabel;\s*\n\s*\n\s*if \(!dutyLabel\) return;/);
     assert.doesNotMatch(
         source,
         /label: "Tareas diurnas",[\s\S]{0,160}dutyLabel/
@@ -39,54 +61,29 @@ test("junta a los de turno que no estan en ninguna tarea", async () => {
     );
 });
 
-test("respeta los filtros de estamento y profesion del panel", async () => {
+test("los nombres van en el mismo formato que el resto de la programacion", async () => {
     const source = await readSource();
 
     assert.match(
         source,
-        /function unassignedOnShift[\s\S]{0,700}profileMatchesFilters\(\s*\n\s*profile,\s*\n\s*selectedRoles,\s*\n\s*selectedProfessions\s*\n\s*\)/
+        /\.map\(profile => shortWorkerName\(profile\.name, \{ compact: true \}\)\)/
     );
 });
 
-test("sus chips son de solo lectura", async () => {
+test("se agrega despues de las filas reales, fuera de la fusion de casillas", async () => {
     const source = await readSource();
-    const styles = await readStyles();
 
-    // Estar de turno no es una asignacion: no se arrastra, no se quita y no
-    // abre el lapiz de predefinidos.
-    assert.match(
-        source,
-        /function renderDutyChip[\s\S]{0,500}task-assignment-worker-chip--duty/
-    );
-    assert.doesNotMatch(
-        source,
-        /function renderDutyChip[\s\S]{0,500}data-worker-drag/
-    );
-    assert.doesNotMatch(
-        source,
-        /function renderDutyChip[\s\S]{0,500}data-worker-default-config/
-    );
-    assert.match(
-        styles,
-        /\.task-assignment-worker-chip--duty \{[^}]*cursor: default;/
-    );
+    // Si entrara antes, la fusion de casillas la tomaria por una tarea y le
+    // calcularia rowspans que no le corresponden.
+    const push = source.indexOf("section.rows.push({");
+    const merge = source.indexOf("columnGroups(assignments, section.shift, tasks, keyFromDate(day))");
+
+    assert.ok(push !== -1 && merge !== -1);
+    assert.ok(push < merge, "la fila debe agregarse antes del calculo de rowspan");
 });
 
-test("no cuenta para la cobertura ni para el contador de sin cubrir", async () => {
+test("si nadie queda suelto, la fila no aparece", async () => {
     const source = await readSource();
 
-    // Los totales salen de `columnGroups` sobre las tareas reales, y la fila no
-    // es una tarea, asi que queda fuera por construccion. Si algun dia se
-    // colara, seria por usar sus celdas: no llevan `data-task-cell`.
-    assert.doesNotMatch(
-        source,
-        /function renderDutyRow[\s\S]{0,900}data-task-cell/
-    );
-});
-
-test("se ubica bajo las tareas, y respeta el aviso de tablero vacio", async () => {
-    const source = await readSource();
-
-    // Sin tareas, la fila 2 la ocupa "Sin tareas registradas".
-    assert.match(source, /Math\.max\(sectionTasks\.length, 1\) \+ 2/);
+    assert.match(source, /if \(!cells\.some\(cell => cell\.workers\.length\)\) return;/);
 });
