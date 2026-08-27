@@ -88,10 +88,10 @@ const dia = (n) => `${A}-${M}-${n}`;
 const iso = (n) => `2026-07-${String(n).padStart(2, "0")}`;
 
 /* =========================================================
-   Los cinco tipos
+   Los tipos
 ========================================================= */
 
-test("son los cinco que pidio el usuario, en orden", () => {
+test("son los que pidio el usuario, en orden", () => {
     assert.deepEqual(
         ATTENDANCE_INCIDENT_KINDS.map(kind => kind.label),
         [
@@ -99,7 +99,8 @@ test("son los cinco que pidio el usuario, en orden", () => {
             "Sin marcaje entrada",
             "Sin marcaje salida",
             "Entrada tardía",
-            "Salida temprana"
+            "Salida temprana",
+            "Marcaje en día libre"
         ]
     );
 });
@@ -201,6 +202,80 @@ test("irse antes de hora es salida temprana", async () => {
 
     assert.equal(totals.earlyExit, 1);
     assert.equal(totals.atraso, 0);
+});
+
+test("marcar en un dia libre es una incidencia", async () => {
+    // Vino a trabajar y su turno no quedo registrado en TurnoPlus: el reporte
+    // muestra "Libre" en turno realizado y aun asi hay marcas.
+    sembrar({ [dia(6)]: 1, [dia(7)]: 0 }, {
+        [iso(6)]: [{ time: "08:00", type: "in" }, { time: "20:00", type: "out" }],
+        [iso(7)]: [{ time: "19:49", type: "in" }, { time: "23:58", type: "out" }]
+    });
+
+    const { totals, events } = await buildAttendanceIncidents(
+        PERFIL,
+        new Date(A, M, 1)
+    );
+    const delDia = events.filter(evento => evento.iso === iso(7));
+
+    assert.equal(totals.markOnFreeDay, 1);
+    assert.equal(delDia[0].kind, "markOnFreeDay");
+    assert.match(delDia[0].detail, /Entró 19:49 y salió 23:58/);
+    assert.match(delDia[0].detail, /sin turno registrado/);
+});
+
+test("una sola marca en el dia libre tambien cuenta", async () => {
+    sembrar({ [dia(6)]: 1, [dia(7)]: 0 }, {
+        [iso(6)]: [{ time: "08:00", type: "in" }, { time: "20:00", type: "out" }],
+        [iso(7)]: [{ time: "08:23", type: "out" }]
+    });
+
+    const { totals, events } = await buildAttendanceIncidents(
+        PERFIL,
+        new Date(A, M, 1)
+    );
+    const delDia = events.filter(evento => evento.iso === iso(7));
+
+    assert.equal(totals.markOnFreeDay, 1);
+    assert.match(delDia[0].detail, /^Salió 08:23/);
+});
+
+test("un dia libre SIN marcas no genera nada", async () => {
+    // Es lo normal: la mayoria de los dias libres no tienen marcas y no deben
+    // llenar el resumen.
+    sembrar({ [dia(6)]: 1, [dia(7)]: 0 }, {
+        [iso(6)]: [{ time: "08:00", type: "in" }, { time: "20:00", type: "out" }]
+    });
+
+    const { totals } = await buildAttendanceIncidents(PERFIL, new Date(A, M, 1));
+
+    assert.equal(totals.markOnFreeDay, 0);
+});
+
+test("un permiso no es un dia libre", async () => {
+    // El reporte muestra "P. Administrativo" en turno realizado, no "Libre":
+    // el dia ya tiene su motivo y no es un turno sin registrar.
+    sembrar({ [dia(6)]: 1, [dia(7)]: 0 }, {
+        [iso(6)]: [{ time: "08:00", type: "in" }, { time: "20:00", type: "out" }],
+        [iso(7)]: [{ time: "09:10", type: "in" }]
+    });
+    set(`admin_${NOMBRE}`, { [dia(7)]: 1 });
+
+    const { totals } = await buildAttendanceIncidents(PERFIL, new Date(A, M, 1));
+
+    assert.equal(totals.markOnFreeDay, 0);
+});
+
+test("un turno de verdad nunca cuenta como dia libre", async () => {
+    // El dia 6 tiene Larga y sus dos marcas: es un turno normal.
+    sembrar(
+        { [dia(6)]: 1 },
+        { [iso(6)]: [{ time: "08:00", type: "in" }, { time: "20:00", type: "out" }] }
+    );
+
+    const { totals } = await buildAttendanceIncidents(PERFIL, new Date(A, M, 1));
+
+    assert.equal(totals.markOnFreeDay, 0);
 });
 
 test("un dia sin problemas no genera nada", async () => {

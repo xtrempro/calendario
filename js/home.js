@@ -1383,7 +1383,7 @@ function incidenciasListHTML(totals) {
         return `<div class="hm-empty">Sin incidencias de marcaje este mes.</div>`;
     }
 
-    // Se listan las cinco siempre, incluso en cero: ver un "0" al lado de "Sin
+    // Se listan todas siempre, incluso en cero: ver un "0" al lado de "Sin
     // marcaje entrada" dice algo; que la fila desaparezca, no.
     return ATTENDANCE_INCIDENT_KINDS.map(kind => {
         const cantidad = totals[kind.key] || 0;

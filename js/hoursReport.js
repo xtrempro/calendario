@@ -841,19 +841,28 @@ function attendanceDayFacts(profile, iso, day) {
             day.scheduledExit &&
             cells.salida < day.scheduledExit &&
             !day.exitMoved
+        ),
+        // Marco en un dia sin turno: vino a trabajar y su turno no quedo
+        // registrado. Un permiso o una licencia no cuentan -el dia tiene su
+        // motivo y el reporte lo dice-, solo el dia que figura Libre.
+        markOnFreeDay: Boolean(
+            (cells.entrada || cells.salida) &&
+            Number(day.workedShift) <= TURNO.LIBRE &&
+            !day.absent
         )
     };
 }
 
 /**
- * Los cinco tipos de incidencia de marcaje, en el orden en que se muestran.
+ * Los tipos de incidencia de marcaje, en el orden en que se muestran.
  */
 export const ATTENDANCE_INCIDENT_KINDS = [
     { key: "atraso", label: "Atrasos" },
     { key: "missingEntry", label: "Sin marcaje entrada" },
     { key: "missingExit", label: "Sin marcaje salida" },
     { key: "lateOnExtra", label: "Entrada tardía" },
-    { key: "earlyExit", label: "Salida temprana" }
+    { key: "earlyExit", label: "Salida temprana" },
+    { key: "markOnFreeDay", label: "Marcaje en día libre" }
 ];
 
 function pushIncidents(events, profile, iso, facts) {
@@ -898,6 +907,19 @@ function pushIncidents(events, profile, iso, facts) {
             ...base,
             kind: "earlyExit",
             detail: `Salió ${cells.salida}`
+        });
+    }
+
+    if (facts.markOnFreeDay) {
+        events.push({
+            ...base,
+            kind: "markOnFreeDay",
+            detail: [
+                cells.entrada ? `Entró ${cells.entrada}` : "",
+                cells.salida
+                    ? `${cells.entrada ? "salió" : "Salió"} ${cells.salida}`
+                    : ""
+            ].filter(Boolean).join(" y ") + " en un día sin turno registrado"
         });
     }
 }
