@@ -12918,7 +12918,7 @@ body.theme-dark .task-assignment-event--birthday {
     position: fixed;
     z-index: 9000;
     width: 288px;
-    max-height: 420px;
+    max-height: min(560px, calc(100vh - 24px));
     overflow: auto;
     padding: 10px;
     border: 1px solid var(--border-strong);
@@ -13047,8 +13047,27 @@ body.theme-dark .task-assignment-event--birthday {
 .task-assignment-picker__list {
     display: grid;
     gap: 1px;
-    max-height: 208px;
+    max-height: 360px;
     overflow: auto;
+}
+
+/* Ya asignado a otra tarea de este mismo turno y dia. Se puede elegir igual
+   -mover gente entre tareas es normal- pero va al final de la lista y en ambar
+   suave, para no confundirlo con quien esta libre. */
+.task-assignment-picker__option--busy {
+    background: rgba(240, 177, 0, 0.13);
+}
+
+.task-assignment-picker__option--busy:hover {
+    background: rgba(240, 177, 0, 0.22);
+}
+
+.task-assignment-picker__option--busy small {
+    color: #b07d00;
+}
+
+body.theme-dark .task-assignment-picker__option--busy small {
+    color: #f0b100;
 }
 
 .task-assignment-picker__option > span {

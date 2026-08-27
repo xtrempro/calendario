@@ -2301,12 +2301,31 @@ function renderCellPickerMarkup(shift, taskId, keyDay) {
     const date = parseKey(keyDay);
     const entry = getCellEntry(assignments, shift, taskId, keyDay);
     const assigned = assignmentWorkers(entry);
+    // Quien ya esta en OTRA tarea de este mismo turno y dia sigue siendo
+    // elegible -mover gente entre tareas es normal- pero baja al final de la
+    // lista y se pinta en ambar, para que no compita con quien esta libre.
     const candidates = candidateProfiles(
         shift,
         keyDay,
         selectedRoles,
         selectedProfessions
-    ).filter(profile => !assigned.includes(profile.name));
+    )
+        .filter(profile => !assigned.includes(profile.name))
+        .map(profile => ({
+            profile,
+            otherTask: workerOtherTaskTitle(
+                assignments,
+                tasks,
+                profile.name,
+                shift,
+                keyDay,
+                taskId
+            )
+        }));
+    const orderedCandidates = [
+        ...candidates.filter(item => !item.otherTask),
+        ...candidates.filter(item => item.otherTask)
+    ];
 
     return `
         <div class="task-assignment-picker__head">
@@ -2334,13 +2353,13 @@ function renderCellPickerMarkup(shift, taskId, keyDay) {
         <div class="task-assignment-picker__label">Disponibles</div>
         <div class="task-assignment-picker__list">
             ${
-                candidates.length
-                    ? candidates.map(profile => `
-                        <button class="task-assignment-picker__option" type="button" data-picker-add="${escapeHTML(profile.name)}">
+                orderedCandidates.length
+                    ? orderedCandidates.map(({ profile, otherTask }) => `
+                        <button class="task-assignment-picker__option${otherTask ? " task-assignment-picker__option--busy" : ""}" type="button" data-picker-add="${escapeHTML(profile.name)}">
                             ${renderWorkerAvatar(profile.name)}
                             <span>
                                 <strong>${escapeHTML(profile.name)}</strong>
-                                <small>${escapeHTML(profileProfession(profile))} | ${escapeHTML(profileShiftLabel(profile, keyDay))}</small>
+                                <small>${escapeHTML(profileProfession(profile))} | ${otherTask ? `Ya en ${escapeHTML(otherTask)}` : escapeHTML(profileShiftLabel(profile, keyDay))}</small>
                             </span>
                         </button>
                     `).join("")
@@ -2351,8 +2370,11 @@ function renderCellPickerMarkup(shift, taskId, keyDay) {
     `;
 }
 
-function positionCellPicker(cell, node) {
-    const rect = cell.getBoundingClientRect();
+// El ancla es el BOTON "Asignar", no la casilla. Una casilla fusionada puede
+// medir cientos de pixeles de alto, y anclar a su borde inferior mandaba el
+// panel al fondo de la pagina, lejos de donde el supervisor hizo clic.
+function positionCellPicker(anchor, node) {
+    const rect = anchor.getBoundingClientRect();
     const margin = 8;
     const width = node.offsetWidth;
     const height = node.offsetHeight;
@@ -2500,7 +2522,10 @@ function syncCellPicker(root) {
     node.innerHTML = markup;
     document.body.appendChild(node);
     cellPickerNode = node;
-    positionCellPicker(cell, node);
+    positionCellPicker(
+        cell.querySelector("[data-cell-assign]") || cell,
+        node
+    );
     bindCellPickerEvents(node, { shift, taskId, keyDay });
 }
 

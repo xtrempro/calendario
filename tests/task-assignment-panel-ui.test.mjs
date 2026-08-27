@@ -119,3 +119,42 @@ test("quitar a alguien desde el selector lo anota como quitado", async () => {
         /function setCellWorkers[\s\S]{0,700}const removedDefaults = defaultWorkersForCell\(task, keyDay, shift\)\s*\n\s*\.filter\(worker => !nextWorkers\.includes\(worker\)\)/
     );
 });
+
+test("los candidatos ya asignados en otra tarea van al final y se marcan", async () => {
+    const source = await readSource();
+    const styles = await readStyles();
+
+    // Siguen siendo elegibles -mover gente entre tareas es normal- pero no
+    // deben competir con quien esta libre a esa hora.
+    assert.match(
+        source,
+        /const orderedCandidates = \[\s*\n\s*\.\.\.candidates\.filter\(item => !item\.otherTask\),\s*\n\s*\.\.\.candidates\.filter\(item => item\.otherTask\)\s*\n\s*\];/
+    );
+    assert.match(source, /task-assignment-picker__option--busy/);
+    assert.match(source, /Ya en \$\{escapeHTML\(otherTask\)\}/);
+    assert.match(
+        styles,
+        /\.task-assignment-picker__option--busy \{[^}]*background: rgba\(240, 177, 0/
+    );
+});
+
+test("el selector se ancla al boton, no a la casilla", async () => {
+    const source = await readSource();
+
+    // Una casilla fusionada mide cientos de pixeles: anclar a su borde
+    // inferior mandaba el panel al fondo de la pagina, lejos del clic.
+    assert.match(
+        source,
+        /positionCellPicker\(\s*\n\s*cell\.querySelector\("\[data-cell-assign\]"\) \|\| cell,/
+    );
+    assert.match(source, /function positionCellPicker\(anchor, node\) \{\s*\n\s*const rect = anchor\.getBoundingClientRect\(\);/);
+});
+
+test("el selector nunca sobrepasa el alto de la ventana", async () => {
+    const styles = await readStyles();
+
+    assert.match(
+        styles,
+        /\.task-assignment-picker \{[^}]*max-height: min\(560px, calc\(100vh - 24px\)\);/
+    );
+});
