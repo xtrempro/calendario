@@ -2339,6 +2339,24 @@ body[data-active-view="home"] .secondary-grid {
    que verse igual que lo que despues se publica. Lo unico propio es el rotulo
    del turno, porque el tablero de tareas tiene dos (diurno y noche) y la
    programacion subida como Excel viene en una sola tabla. */
+/* El boton de imprimir va junto a "Hoy" en la cabecera del visor. La hoja que
+   sale NO es este modal: se arma un documento aparte en taskSchedulePreview.js,
+   pensado para papel carta. */
+.tsp-print {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 4px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+}
+
+.tsp-print svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+}
+
 .tsp-section { display: grid; gap: 8px; }
 
 .tsp-section-title {
