@@ -68,6 +68,8 @@ const motor = await leer("../js/attendanceDelay.js");
 const reporte = await leer("../js/hoursReport.js");
 const estilos = await leer("../styles.css");
 const marcajes = await leer("../js/clockMarks.js");
+const importacion = await leer("../js/attendanceImport.js");
+const modulos = await leer("../js/firebaseStateModules.js");
 
 // Los tres constructores de filas del reporte. Se miran uno por uno y no
 // contando ocurrencias sueltas: el resumen de incidencias del inicio usa las
@@ -383,15 +385,24 @@ test("con ausencia tampoco falta ninguna marca", () => {
     );
 });
 
-test("el reporte corta las cruces en el dia de hoy", () => {
-    assert.match(reporte, /function startOfToday\(\)/);
-    assert.match(reporte, /hasPassed: date < day\.today &&/);
+test("el reporte corta las cruces en la ultima planilla subida", () => {
+    // El corte NO es hoy: es la hora en que se cargo el ultimo archivo del
+    // reloj. Si pasan cinco dias sin subir nada, esos cinco dias no generan
+    // faltas; se juzgan cuando llegue la planilla que los cubre.
+    assert.match(reporte, /function shiftEndedByLastImport\(/);
+    assert.match(reporte, /hasPassed: shiftEndedByLastImport\(/);
+    assert.match(reporte, /const importedAt = coverage\?\.at \? new Date\(coverage\.at\) : null;/);
+    assert.match(reporte, /return end \? end <= importedAt : date < importedAt;/);
     // Y ademas exige tener datos del reloj para ese dia: sin la planilla
     // cargada, que falte una marca no significa nada.
     assert.match(
         reporte,
         /isAttendanceCovered\(isoFromKey\(keyDay\), day\.coverage\)/
     );
+
+    // Sin momento guardado -planillas de antes- se sigue usando el dia de hoy.
+    assert.match(reporte, /function startOfToday\(\)/);
+    assert.match(reporte, /return date < today;/);
 
     CONSTRUCTORES.forEach(nombre => {
         assert.match(
@@ -400,6 +411,24 @@ test("el reporte corta las cruces en el dia de hoy", () => {
             `${nombre} no sabe que dia es hoy`
         );
     });
+});
+
+test("un turno que aun no termina no cuenta, aunque el dia este cargado", () => {
+    // La planilla se sube a las 10 y el turno largo sale a las 20: a esa hora
+    // no hay salida que exigir. El turno de la noche anterior, que cerro a las
+    // 08, si se juzga.
+    assert.match(reporte, /function shiftEndInstant\(date, scheduledExit, workedShift\)/);
+    assert.match(reporte, /if \(shiftEndsNextMorning\(workedShift\)\) \{/);
+    assert.match(reporte, /end\.setDate\(end\.getDate\(\) \+ 1\);/);
+});
+
+test("la hora de la carga viaja con las marcas", () => {
+    // El motor del servidor la lee del mismo estado sincronizado; sin esto la
+    // PWA seguiria juzgando hasta hoy.
+    assert.match(importacion, /const IMPORTED_AT_KEY = "attendanceMarksImportedAt";/);
+    assert.match(importacion, /setJSON\(IMPORTED_AT_KEY, new Date\(\)\.toISOString\(\)\);/);
+    assert.match(importacion, /return \{ from, to, at: attendanceImportedAt\(\) \};/);
+    assert.match(modulos, /\["attendanceMarksImportedAt", "clockmarks"\]/);
 });
 
 test("la cruz de salida usa el mismo estilo que la de entrada", () => {

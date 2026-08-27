@@ -17,6 +17,9 @@ import {
 } from "./attendanceDelay.js";
 
 const STORAGE_KEY = "attendanceMarks";
+// Momento de la ULTIMA carga. Es el corte de lo que se puede juzgar: despues de
+// esa hora no hay planilla que consultar (ver attendanceCoverage).
+const IMPORTED_AT_KEY = "attendanceMarksImportedAt";
 
 // Encabezados que se buscan, en minusculas y sin acentos. El sistema los puede
 // traducir o reordenar, asi que las columnas se ubican por NOMBRE y nunca por
@@ -159,6 +162,16 @@ export function saveAttendanceMarks(marks) {
     setJSON(STORAGE_KEY, marks || {});
 }
 
+/**
+ * Cuando se subio la ultima planilla del reloj.
+ * @returns {string} ISO con hora, o "" si nunca se guardo
+ */
+export function attendanceImportedAt() {
+    const stored = getJSON(IMPORTED_AT_KEY, "");
+
+    return typeof stored === "string" ? stored : "";
+}
+
 // Identidad de una marca. El Checksum del reloj es unico por marca; si el
 // archivo no lo trajera, se compone con hora y tipo, que para un mismo
 // trabajador y dia tampoco se repiten.
@@ -202,6 +215,9 @@ export function mergeAttendanceMarks(marks) {
 
     if (added) {
         saveAttendanceMarks(store);
+        // La hora de la carga, no la del ultimo marcaje: es hasta donde se
+        // puede decir que falto una marca.
+        setJSON(IMPORTED_AT_KEY, new Date().toISOString());
 
         // Los datos del reloj solo cambian al subir una planilla. Quien tenga
         // algo calculado sobre ellos -el resumen de incidencias del inicio- se
@@ -243,7 +259,11 @@ export function mergeAttendanceMarks(marks) {
  * Recorre todo el almacen, asi que conviene calcularlo UNA vez por reporte y
  * pasarlo, no por dia.
  *
- * @returns {{from: string, to: string}} ISO, o cadenas vacias si no hay nada
+ * Ademas viaja `at`: el momento en que se subio la ultima planilla. El periodo
+ * dice que DIAS se cargaron; `at` dice hasta que HORA se puede juzgar lo que
+ * falta (ver attendanceDay en hoursReport.js).
+ *
+ * @returns {{from: string, to: string, at: string}} ISO, o cadenas vacias
  */
 export function attendanceCoverage() {
     let from = "";
@@ -257,7 +277,7 @@ export function attendanceCoverage() {
         });
     });
 
-    return { from, to };
+    return { from, to, at: attendanceImportedAt() };
 }
 
 /**

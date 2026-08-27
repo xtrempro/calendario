@@ -176,6 +176,62 @@ test("sin planilla cargada NO se inventan faltas de marcaje", async () => {
     assert.equal(totals.missingExit, 0);
 });
 
+/* =========================================================
+   El corte es la ultima planilla, no el reloj de la pared
+
+   Si pasan dias sin subir el .xls, esos dias no generan faltas: no hay archivo
+   que diga si marco o no. Se juzgan cuando llegue la planilla que los cubre.
+========================================================= */
+
+const cargadaEl = (...partes) =>
+    set("attendanceMarksImportedAt", new Date(...partes).toISOString());
+
+test("un turno que aun no terminaba al subir la planilla no cuenta", async () => {
+    // El dia 6 tiene Larga (sale 20:00) y la planilla se subio ese mismo dia a
+    // las 10: a esa hora no hay salida que exigir, ni entrada que reclamar.
+    sembrar({ [dia(6)]: 1 }, {
+        [iso(3)]: [{ time: "08:00", type: "in" }],
+        [iso(9)]: [{ time: "08:00", type: "in" }]
+    });
+    cargadaEl(A, M, 6, 10, 0);
+
+    const { events } = await buildAttendanceIncidents(PERFIL, new Date(A, M, 1));
+
+    assert.deepEqual(events.filter(evento => evento.iso === iso(6)), []);
+});
+
+test("y si cuenta cuando la planilla llego despues", async () => {
+    sembrar({ [dia(6)]: 1 }, {
+        [iso(3)]: [{ time: "08:00", type: "in" }],
+        [iso(9)]: [{ time: "08:00", type: "in" }]
+    });
+    cargadaEl(A, M, 10, 9, 0);
+
+    const { events } = await buildAttendanceIncidents(PERFIL, new Date(A, M, 1));
+    const delDia = events
+        .filter(evento => evento.iso === iso(6))
+        .map(evento => evento.kind)
+        .sort();
+
+    assert.deepEqual(delDia, ["missingEntry", "missingExit"]);
+});
+
+test("los dias posteriores a la carga quedan en espera", async () => {
+    // Se subio el dia 6 a las 22; el turno del 7 no existe todavia para el
+    // reloj y no puede faltarle nada.
+    sembrar({ [dia(6)]: 1, [dia(7)]: 1 }, {
+        [iso(3)]: [{ time: "08:00", type: "in" }],
+        [iso(9)]: [{ time: "08:00", type: "in" }]
+    });
+    cargadaEl(A, M, 6, 22, 0);
+
+    const { events } = await buildAttendanceIncidents(PERFIL, new Date(A, M, 1));
+
+    assert.deepEqual(events.filter(evento => evento.iso === iso(7)), []);
+    // El del 6, que ya habia cerrado a las 20:00, si se cuenta.
+    assert.ok(events.some(evento => evento.iso === iso(6)));
+});
+
 test("fuera del periodo cargado tampoco", async () => {
     // La planilla cubre hasta el dia 9; del 10 en adelante no sabemos nada
     // todavia, aunque la fecha ya haya pasado.

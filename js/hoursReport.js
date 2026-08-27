@@ -33,6 +33,7 @@ import {
     entryDelayForDay,
     formatDelayCell,
     isMarkMissing,
+    minutesFromTime,
     shiftEndsNextMorning,
     shiftHasSeparateSegments,
     shiftHasTwoParts,
@@ -749,26 +750,76 @@ function previousDayKey(keyDay) {
  * resumen de incidencias del inicio. Tenerlo repetido seria tener cuatro
  * criterios que se van separando de a poco.
  */
+/**
+ * Momento en que TERMINA el turno de ese dia, o null si no tiene hora conocida.
+ * La noche y el 24 cierran a la manana siguiente.
+ */
+function shiftEndInstant(date, scheduledExit, workedShift) {
+    const minutes = minutesFromTime(scheduledExit);
+
+    if (minutes === null) return null;
+
+    const end = new Date(date);
+
+    if (shiftEndsNextMorning(workedShift)) {
+        end.setDate(end.getDate() + 1);
+    }
+
+    end.setHours(0, minutes, 0, 0);
+
+    return end;
+}
+
+/**
+ * .Habia terminado este turno cuando se subio la ultima planilla?
+ *
+ * El corte no es "hoy": es la hora en que se cargo el ultimo archivo del reloj.
+ * Lo que ocurrio despues no esta en ninguna planilla todavia, asi que contarlo
+ * como marca que falta seria inventar una falta que solo dice que el archivo
+ * no se ha subido. Si pasan cinco dias sin cargar nada, esos cinco dias no
+ * generan faltas; se juzgan cuando llegue la planilla que los cubre.
+ *
+ * Sin momento guardado -planillas subidas antes de que se registrara- se cae al
+ * criterio anterior: el dia que ya termino.
+ */
+function shiftEndedByLastImport(date, scheduledExit, workedShift, coverage, today) {
+    const importedAt = coverage?.at ? new Date(coverage.at) : null;
+
+    if (!importedAt || Number.isNaN(importedAt.getTime())) {
+        return date < today;
+    }
+
+    const end = shiftEndInstant(date, scheduledExit, workedShift);
+
+    // Sin hora de salida conocida se juzga el dia entero: cuenta si la carga
+    // fue despues de ese dia.
+    return end ? end <= importedAt : date < importedAt;
+}
+
 function attendanceDay(profileName, keyDay, date, holidays, data, day) {
+    const scheduledExit = scheduledExitFromShift(
+        profileName, keyDay, date, day.workedShift, holidays
+    );
+
     return {
         baseShift: day.baseShift,
         extraShift: day.extraShift,
         workedShift: day.workedShift,
         absent: day.absent,
-        // Un dia solo "ya paso" para el marcaje si ademas hay datos del reloj
-        // que lo cubran: sin la planilla de esos dias, la falta de marca no
-        // dice nada.
-        hasPassed: date < day.today &&
-            isAttendanceCovered(isoFromKey(keyDay), day.coverage),
+        // Un dia solo "ya paso" para el marcaje si el turno habia terminado
+        // cuando se subio la ultima planilla, y ademas ese dia esta dentro del
+        // periodo que ella cubre. Sin las dos cosas, la falta de una marca no
+        // dice nada del trabajador: dice que el archivo todavia no esta.
+        hasPassed: shiftEndedByLastImport(
+            date, scheduledExit, day.workedShift, day.coverage, day.today
+        ) && isAttendanceCovered(isoFromKey(keyDay), day.coverage),
         scheduledEntry: scheduledEntryFromShift(
             profileName, keyDay, date, day.workedShift, holidays
         ),
         baseScheduledEntry: scheduledEntryFromShift(
             profileName, keyDay, date, day.baseShift, holidays
         ),
-        scheduledExit: scheduledExitFromShift(
-            profileName, keyDay, date, day.workedShift, holidays
-        ),
+        scheduledExit,
         exitMoved: hasModifiedExitTime(profileName, keyDay),
         entryMoved: hasModifiedEntryTime(profileName, keyDay),
         nextEntryMoved: hasModifiedEntryTime(profileName, nextDayKey(keyDay)),

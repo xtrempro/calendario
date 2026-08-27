@@ -41,6 +41,9 @@ const EXACT_KEY_MODULES = new Map([
     ["weekly_task_schedule_attachments", "tasks"],
     ["gradeHourConfig", "hours"],
     ["attendanceMarks", "clockmarks"],
+    // Cuando se subio la ultima planilla: viaja con las marcas porque decide
+    // hasta que hora se juzga lo que falta, y el motor del servidor lo lee.
+    ["attendanceMarksImportedAt", "clockmarks"],
     // El horario propio de cada trabajador viaja con las marcas: sin esto
     // quedaria solo en el navegador de quien lo configuro, y otro supervisor
     // veria atrasos que no existen.
