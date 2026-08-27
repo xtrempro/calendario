@@ -12338,10 +12338,14 @@ body.theme-light .task-assignment-event-day--inhabil {
 
 /* Fusion de casillas de una columna.
 
-   Los puntos del borde izquierdo son el gesto: se arrastra el de abajo de una
-   casilla hasta el de arriba de la siguiente. El circulo se ve chico a
-   proposito -no debe competir con los chips- pero el area que recibe el mouse
-   es bastante mayor, porque si no habria que tener punteria de cirujano. */
+   UN punto por casilla, en el borde de abajo. Se arrastra hasta cualquier otra
+   casilla de la misma columna -hacia abajo o hacia arriba- y se unen todas las
+   filas del tramo. Antes habia dos puntos por casilla, arriba y abajo, y la
+   columna se llenaba de puntos sin que el segundo aportara nada.
+
+   El circulo se ve chico a proposito -no debe competir con los chips- pero el
+   area que recibe el mouse es bastante mayor, porque si no habria que tener
+   punteria de cirujano. */
 .task-assignment-merge-port {
     position: absolute;
     left: -7px;
@@ -12364,7 +12368,6 @@ body.theme-light .task-assignment-event-day--inhabil {
     transition: transform .12s ease;
 }
 
-.task-assignment-merge-port--top { top: -7px; }
 .task-assignment-merge-port--bottom { bottom: -7px; }
 .task-assignment-merge-port:active { cursor: grabbing; }
 .task-assignment-merge-port:hover::after { transform: scale(1.35); }

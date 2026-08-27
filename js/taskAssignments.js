@@ -1780,23 +1780,37 @@ function groupOwnerEntry(assignments, shift, tasks, taskId, keyDay) {
     return getCellEntry(assignments, shift, group?.taskIds[0] || taskId, keyDay);
 }
 
-function mergeCellWithNext(shift, keyDay, upperTaskId) {
+// Une el tramo [startIndex..endIndex] enlazando cada casilla con la siguiente.
+// Al terminar, `collapseGroupWorkers` sube a todos los trabajadores del tramo a
+// la casilla de arriba, que es la unica que se dibuja.
+function mergeCellRange(shift, keyDay, startIndex, endIndex) {
     const assignments = getWeekAssignments();
     const tasks = getTasks();
-    const index = tasks.findIndex(task => task.id === upperTaskId);
-    const next = tasks[index + 1];
 
-    if (index === -1 || !next) return false;
+    if (
+        startIndex < 0 ||
+        endIndex >= tasks.length ||
+        endIndex <= startIndex
+    ) return false;
 
-    persistEntryOrDelete(
+    for (let index = startIndex; index < endIndex; index += 1) {
+        persistEntryOrDelete(
+            assignments,
+            assignmentKey(shift, tasks[index].id, keyDay),
+            {
+                ...getCellEntry(assignments, shift, tasks[index].id, keyDay),
+                mergedNextTaskId: tasks[index + 1].id
+            }
+        );
+    }
+
+    collapseGroupWorkers(
         assignments,
-        assignmentKey(shift, upperTaskId, keyDay),
-        {
-            ...getCellEntry(assignments, shift, upperTaskId, keyDay),
-            mergedNextTaskId: next.id
-        }
+        shift,
+        tasks,
+        tasks[startIndex].id,
+        keyDay
     );
-    collapseGroupWorkers(assignments, shift, tasks, upperTaskId, keyDay);
     saveWeekAssignments(assignments);
     publishTaskAssignmentChanges();
     return true;
@@ -2206,19 +2220,19 @@ function renderWorkerChip(profileName, task, keyDay) {
 function renderMergePorts(task, keyDay, { taskIndex, size, taskCount }) {
     const shift = escapeHTML(task.shift);
     const day = escapeHTML(keyDay);
-    const hasAbove = taskIndex > 0;
     const hasBelow = taskIndex + size < taskCount;
     const merged = size > 1;
 
+    // Un solo punto por casilla, en el borde de abajo. Antes habia dos -arriba
+    // y abajo- y la columna se llenaba de puntos sin que el segundo aportara
+    // nada: el gesto se puede hacer entero desde uno, arrastrandolo hacia
+    // abajo o hacia arriba.
     return `
         ${merged ? `
             <button class="task-assignment-merge-line" type="button" data-merge-split="${escapeHTML(task.id)}" data-shift="${shift}" data-day="${day}" title="Separar las casillas" aria-label="Separar las casillas"></button>
         ` : ""}
-        ${hasAbove ? `
-            <span class="task-assignment-merge-port task-assignment-merge-port--top" draggable="true" data-merge-port="top" data-merge-task="${escapeHTML(task.id)}" data-shift="${shift}" data-day="${day}" title="Unir con la casilla de arriba"></span>
-        ` : ""}
         ${hasBelow ? `
-            <span class="task-assignment-merge-port task-assignment-merge-port--bottom" draggable="true" data-merge-port="bottom" data-merge-task="${escapeHTML(task.lastTaskId || task.id)}" data-shift="${shift}" data-day="${day}" title="Unir con la casilla de abajo"></span>
+            <span class="task-assignment-merge-port task-assignment-merge-port--bottom" draggable="true" data-merge-port="bottom" data-merge-task="${escapeHTML(task.lastTaskId || task.id)}" data-shift="${shift}" data-day="${day}" title="Arrastrar hasta otra casilla de la columna para unir todo el tramo"></span>
         ` : ""}
     `;
 }
@@ -3742,42 +3756,82 @@ export function openScheduleAttachmentDialog(weekStart = currentWeekStart) {
 // Dos puntos se pueden unir solo si son de la misma columna y de casillas
 // pegadas: uno tiene que ser el borde de abajo de una y el otro el borde de
 // arriba de la que sigue en el catalogo. Da igual desde cual se arrastre.
-function mergePairFor(from, to) {
+// Del punto arrastrado a la casilla donde se suelta: se unen TODAS las filas
+// del tramo, no solo las dos puntas. Da igual el sentido -hacia abajo o hacia
+// arriba-, y si alguna punta ya era un grupo fusionado, el tramo se estira
+// para cubrirlo entero en vez de partirlo.
+function mergeRangeFor(from, to) {
     if (!from || !to) return null;
     if (from.shift !== to.shift || from.day !== to.day) return null;
-    if (from.mergePort === to.mergePort) return null;
 
-    const upper = from.mergePort === "bottom" ? from : to;
-    const lower = from.mergePort === "bottom" ? to : from;
     const tasks = getTasks();
-    const upperIndex = tasks.findIndex(task => task.id === upper.mergeTask);
+    const assignments = getWeekAssignments();
+    const sourceIndex = tasks.findIndex(task => task.id === from.mergeTask);
+    const targetIndex = tasks.findIndex(task => task.id === to.mergeTask);
 
-    if (upperIndex === -1) return null;
-    if (tasks[upperIndex + 1]?.id !== lower.mergeTask) return null;
+    if (sourceIndex === -1 || targetIndex === -1) return null;
+
+    const spanOf = index => {
+        const group = groupForTask(
+            assignments,
+            from.shift,
+            tasks,
+            tasks[index].id,
+            from.day
+        );
+
+        if (!group) return { start: index, end: index };
+
+        return {
+            start: group.start,
+            end: group.start + group.taskIds.length - 1
+        };
+    };
+    const source = spanOf(sourceIndex);
+    const target = spanOf(targetIndex);
+    const startIndex = Math.min(source.start, target.start);
+    const endIndex = Math.max(source.end, target.end);
+
+    // Soltar sobre la misma casilla no une nada...
+    if (endIndex <= startIndex) return null;
+
+    // ...y soltar dentro del grupo del que salio el punto, tampoco: el tramo
+    // seria el que ya existe, y preguntar por eso solo confunde.
+    if (source.start === target.start && source.end === target.end) return null;
 
     return {
-        shift: upper.shift,
-        keyDay: upper.day,
-        upperTaskId: upper.mergeTask
+        shift: from.shift,
+        keyDay: from.day,
+        startIndex,
+        endIndex,
+        count: endIndex - startIndex + 1
     };
 }
 
-async function confirmMergeCells(pair) {
-    if (!pair) return;
+async function confirmMergeCells(range) {
+    if (!range) return;
+
+    const message = range.count > 2
+        ? `Las ${range.count} casillas del tramo quedaran unidas y compartiran los mismos trabajadores.`
+        : "Las dos casillas quedaran unidas y compartiran los mismos trabajadores.";
 
     if (
-        !await showConfirm(
-            "Las dos casillas quedaran unidas y compartiran los mismos trabajadores.",
-            {
-                title: "Combinar casillas",
-                confirmText: "Combinar"
-            }
-        )
+        !await showConfirm(message, {
+            title: "Combinar casillas",
+            confirmText: "Combinar"
+        })
     ) {
         return;
     }
 
-    if (mergeCellWithNext(pair.shift, pair.keyDay, pair.upperTaskId)) {
+    if (
+        mergeCellRange(
+            range.shift,
+            range.keyDay,
+            range.startIndex,
+            range.endIndex
+        )
+    ) {
         renderTaskAssignmentsPanel();
     }
 }
@@ -3800,31 +3854,13 @@ async function confirmSplitCells(shift, keyDay, taskId) {
     }
 }
 
-// La casilla como blanco: se prueba contra sus dos bordes, porque cual de los
-// dos toca depende de si el punto que viene en vuelo es el de arriba o el de
-// abajo.
-function mergePortPairForCell(cell) {
-    const size = Number(cell.dataset.mergeSize) || 1;
-    const tasks = getTasks();
-    const firstIndex = tasks.findIndex(
-        task => task.id === cell.dataset.taskCell
-    );
-
-    if (firstIndex === -1) return null;
-
-    const base = {
+// La casilla entera es el blanco. Con un solo punto ya no hay que probar dos
+// bordes: el tramo se deduce de la fila donde se suelta.
+function mergeRangeForCell(cell) {
+    return mergeRangeFor(draggedMergePort, {
         shift: cell.dataset.shift,
-        day: cell.dataset.day
-    };
-
-    return mergePairFor(draggedMergePort, {
-        ...base,
-        mergePort: "top",
+        day: cell.dataset.day,
         mergeTask: cell.dataset.taskCell
-    }) || mergePairFor(draggedMergePort, {
-        ...base,
-        mergePort: "bottom",
-        mergeTask: tasks[firstIndex + size - 1]?.id || cell.dataset.taskCell
     });
 }
 
@@ -3849,7 +3885,7 @@ function bindMergeEvents(root) {
                     .forEach(node => node.classList.remove("is-merge-target"));
             };
             port.ondragover = event => {
-                if (!mergePairFor(draggedMergePort, port.dataset)) return;
+                if (!mergeRangeFor(draggedMergePort, port.dataset)) return;
 
                 event.preventDefault();
                 event.stopPropagation();
@@ -3860,16 +3896,16 @@ function bindMergeEvents(root) {
                 port.classList.remove("is-merge-target");
             };
             port.ondrop = event => {
-                const pair = mergePairFor(draggedMergePort, port.dataset);
+                const range = mergeRangeFor(draggedMergePort, port.dataset);
 
                 port.classList.remove("is-merge-target");
 
-                if (!pair) return;
+                if (!range) return;
 
                 event.preventDefault();
                 event.stopPropagation();
                 draggedMergePort = null;
-                void confirmMergeCells(pair);
+                void confirmMergeCells(range);
             };
         });
 
@@ -4150,7 +4186,7 @@ function bindShellEvents(root) {
                 // hay trabajador en vuelo, y acertarle al circulo solo seria
                 // pedir demasiada punteria.
                 if (draggedMergePort) {
-                    if (!mergePortPairForCell(cell)) return;
+                    if (!mergeRangeForCell(cell)) return;
 
                     event.preventDefault();
                     event.dataTransfer.dropEffect = "link";
@@ -4172,13 +4208,13 @@ function bindShellEvents(root) {
                 cell.classList.remove("is-merge-target");
 
                 if (draggedMergePort) {
-                    const pair = mergePortPairForCell(cell);
+                    const range = mergeRangeForCell(cell);
 
-                    if (!pair) return;
+                    if (!range) return;
 
                     event.preventDefault();
                     draggedMergePort = null;
-                    void confirmMergeCells(pair);
+                    void confirmMergeCells(range);
                     return;
                 }
 
