@@ -113,8 +113,7 @@ const WORKER_APP_PROJECTION_GLOBAL_STATE_KEYS = [
     "turnChangeConfig",
     "weekly_task_assignment_tasks",
     "weekly_task_assignment_entries",
-    "weekly_task_schedule_attachment",
-    "weekly_task_schedule_attachments"
+    "weekly_task_assignment_updated"
 ];
 
 // Claves de localStorage por-perfil que afectan lo que ve el trabajador. El
@@ -150,8 +149,7 @@ const GLOBAL_RELEVANT_KEYS = new Set([
     "staffing_custom_reminders",
     "weekly_task_assignment_tasks",
     "weekly_task_assignment_entries",
-    "weekly_task_schedule_attachment",
-    "weekly_task_schedule_attachments",
+    "weekly_task_assignment_updated",
     "gradeHourConfig",
     "profiles"
 ]);
@@ -1540,25 +1538,6 @@ function normalizePublishedScheduleOcr(value) {
     };
 }
 
-function normalizePublishedScheduleAttachmentMap(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-
-    return Object.fromEntries(
-        Object.entries(value)
-            .map(([weekStartISO, attachment]) => {
-                const start = schedulePublicationWeekDate(weekStartISO);
-                const normalized = normalizePublishedScheduleAttachment(
-                    attachment,
-                    start
-                );
-                const key = normalized?.weekStartISO || weekStartISO;
-
-                return normalized && key ? [key, normalized] : null;
-            })
-            .filter(Boolean)
-            .sort(([a], [b]) => a.localeCompare(b))
-    );
-}
 
 // La programacion que ve el trabajador sale de la ASIGNACION DE TAREAS, no del
 // Excel. La grilla la construye `taskAssignments.js`, que YA importa este
@@ -1608,21 +1587,11 @@ function taskScheduleAttachments() {
     }).filter(Boolean);
 }
 
+// La UNICA programacion posible es la del tablero de tareas. Adjuntar un Excel
+// dejo de existir, asi que ya no hay adjunto que mezclar ni al que caer.
 function getPublishedScheduleAttachments() {
-    const attachments = normalizePublishedScheduleAttachmentMap(
-        getJSON("weekly_task_schedule_attachments", {})
-    );
-    const legacy = normalizePublishedScheduleAttachment(
-        getJSON("weekly_task_schedule_attachment", null),
-        schedulePublicationWeekStart(new Date())
-    );
+    const attachments = {};
 
-    if (legacy && !attachments[legacy.weekStartISO]) {
-        attachments[legacy.weekStartISO] = legacy;
-    }
-
-    // Va DESPUES del Excel a proposito: donde haya tareas repartidas, esa es la
-    // programacion buena y pisa al adjunto de esa semana.
     taskScheduleAttachments().forEach(entry => {
         attachments[entry.weekStartISO] = entry;
     });
@@ -3121,103 +3090,6 @@ export async function publishWorkerAppDataNow(profileTargets = []) {
     await publishHotNow();
 }
 
-export async function publishWorkerScheduleAttachmentNow(attachment) {
-    if (!activeWorkspace?.id || !workerLinks.length) {
-        return { count: 0, uids: [] };
-    }
-
-    const workspace = currentWorkspace();
-    const profiles = getProfiles();
-    const linked = linkedProfilePairs(profiles)
-        .filter(item => item.link?.uid && item.profile);
-
-    if (!linked.length) {
-        return { count: 0, uids: [] };
-    }
-
-    await flushPendingFirebaseAppStateEntries({
-        keys: [
-            "weekly_task_schedule_attachment",
-            "weekly_task_schedule_attachments"
-        ],
-        reason: "worker-schedule-attachment"
-    });
-
-    const mappedPayload = normalizePublishedScheduleAttachmentMap(attachment);
-    const singlePayload = Object.keys(mappedPayload).length
-        ? null
-        : normalizePublishedScheduleAttachment(
-            attachment,
-            schedulePublicationWeekStart(new Date())
-        );
-    const weeklyScheduleAttachments = {
-        ...mappedPayload,
-        ...(singlePayload ? { [singlePayload.weekStartISO]: singlePayload } : {})
-    };
-    const currentWeekPayload = getPublishedScheduleAttachment(
-        new Date(),
-        weeklyScheduleAttachments
-    );
-    const hasWeeklyPayload = Boolean(Object.keys(weeklyScheduleAttachments).length);
-    const { db, firestoreModule } = await getFirebaseServices();
-    const updatedAt = new Date().toISOString();
-    const serverUpdatedAt = firestoreModule.serverTimestamp();
-
-    // La programacion es la MISMA para todo el workspace, asi que se publica en
-    // UN doc compartido (workspaces/{id}/published/schedule) en vez de duplicarla
-    // en el doc de cada trabajador. Antes escribir N docs en un batch excedia el
-    // limite de commit de Firestore con muchos trabajadores ("Transaction too
-    // big"); asi es O(1) y escala a cualquier cantidad. La PWA lo lee de este doc.
-    const scheduleRef = firestoreModule.doc(
-        db,
-        "workspaces",
-        workspace.id,
-        "published",
-        "schedule"
-    );
-    const publishedPayload = hasWeeklyPayload
-        ? {
-            weeklyScheduleAttachment: currentWeekPayload,
-            weeklyScheduleAttachments,
-            updatedAtISO: updatedAt,
-            updatedAt: serverUpdatedAt
-        }
-        : {
-            weeklyScheduleAttachment: firestoreModule.deleteField(),
-            weeklyScheduleAttachments: firestoreModule.deleteField(),
-            updatedAtISO: updatedAt,
-            updatedAt: serverUpdatedAt
-        };
-
-    try {
-        await firestoreModule.setDoc(scheduleRef, publishedPayload, { merge: true });
-    } catch (error) {
-        if (/payload size exceeds|too big|maximum|exceeds the maximum/i.test(String(error?.message || ""))) {
-            const kb = Math.round(
-                JSON.stringify({
-                    weeklyScheduleAttachment: currentWeekPayload,
-                    weeklyScheduleAttachments
-                }).length / 1024
-            );
-            const err = new Error(`${error.message} [programacion workspace: ${kb}KB]`);
-            err.code = error.code;
-            throw err;
-        }
-        throw error;
-    }
-
-    recordPerformanceEvent("worker-app:publish-schedule-attachment", {
-        type: "worker-app",
-        workspaceId: workspace.id,
-        linkedCount: linked.length,
-        hasAttachment: hasWeeklyPayload
-    });
-
-    return {
-        count: linked.length,
-        uids: linked.map(item => item.link.uid)
-    };
-}
 
 export async function startWorkerAppDataSync(workspace) {
     const workspaceId = String(workspace?.id || "").trim();

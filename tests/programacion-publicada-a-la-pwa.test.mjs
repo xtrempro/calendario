@@ -25,16 +25,18 @@ test("la grilla de tareas se suma a lo que se publica", async () => {
     );
 });
 
-test("donde hay tareas repartidas, pisan al Excel de esa semana", async () => {
+test("no queda ningun adjunto de Excel al que caer", async () => {
     const sync = await readSync();
 
-    // El orden importa: si se mezclara antes del adjunto, el Excel viejo
-    // ganaria y el trabajador seguiria viendo la programacion equivocada.
-    const legacy = sync.indexOf("attachments[legacy.weekStartISO] = legacy;");
-    const tasks = sync.indexOf("attachments[entry.weekStartISO] = entry;");
-
-    assert.ok(legacy !== -1 && tasks !== -1);
-    assert.ok(legacy < tasks, "la grilla de tareas debe mezclarse despues");
+    // Adjuntar Excel se elimino: si volviera a mezclarse un adjunto aca, el
+    // trabajador podria terminar viendo una programacion que no es la del
+    // tablero.
+    assert.doesNotMatch(sync, /weekly_task_schedule_attachment/);
+    assert.doesNotMatch(sync, /attachments\[legacy\.weekStartISO\]/);
+    assert.match(
+        sync,
+        /function getPublishedScheduleAttachments\(\) \{[\s\S]{0,400}taskScheduleAttachments\(\)\.forEach/
+    );
 });
 
 test("se publica una ventana acotada de semanas", async () => {

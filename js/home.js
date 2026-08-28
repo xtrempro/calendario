@@ -67,14 +67,12 @@ import { getActiveWorkspace } from "./workspaces.js";
 import {
     addDays as addScheduleDays,
     publishedWeeksOfMonth,
-    weekAttachment,
     weekHeading,
-    weekNeedsImage,
     weekStartMonday,
     weeklyScheduleBody
 } from "./weeklySchedulePreview.js";
 import { openAttachmentFile } from "./attachmentUtils.js";
-import { openScheduleAttachmentDialog } from "./taskAssignments.js";
+import { taskScheduleUpdatedAt } from "./taskAssignments.js";
 import {
     buildTaskAssignmentContext,
     getDayTaskAssignments
@@ -714,10 +712,10 @@ function dotacionCard(tone, label, dia, noche) {
 }
 
 /**
- * Semanas con programacion publicada: la actual y la siguiente.
+ * Semanas con programacion: la actual y la siguiente.
  *
- * Devuelve solo las que tienen algo adjunto. Si la lista queda vacia no hay
- * nada que mostrar, y el widget no se dibuja.
+ * Devuelve solo las que tienen tareas repartidas. Si la lista queda vacia no
+ * hay nada que mostrar, y el widget no se dibuja.
  */
 function programacionSemanas() {
     const estaSemana = weekStartMonday(new Date());
@@ -727,10 +725,10 @@ function programacionSemanas() {
         { label: "Próxima semana", start: addScheduleDays(estaSemana, 7) }
     ]
         .map(semana => {
-            const adjunto = weekAttachment(semana.start);
+            const updatedAtISO = taskScheduleUpdatedAt(semana.start);
 
-            return adjunto
-                ? { label: semana.label, ...actualizacion(adjunto) }
+            return updatedAtISO
+                ? { label: semana.label, ...actualizacion(updatedAtISO) }
                 : null;
         })
         .filter(Boolean);
@@ -740,8 +738,8 @@ function programacionSemanas() {
  * Cuando se actualizo por ultima vez esa programacion. La fecha va en la
  * tarjeta y la hora exacta en el title, para no apretar la tarjeta.
  */
-function actualizacion(adjunto) {
-    const fecha = new Date(adjunto.updatedAtISO || adjunto.addedAt || "");
+function actualizacion(updatedAtISO) {
+    const fecha = new Date(updatedAtISO || "");
 
     if (Number.isNaN(fecha.getTime())) {
         return { fecha: "sin fecha", exacta: "Sin fecha de actualización" };
@@ -1689,8 +1687,6 @@ function weeklyScheduleModal() {
                         <button type="button" data-hm="ws-next" aria-label="Semana siguiente">&#8250;</button>
                     </div>
                     <button class="hm-btn-secondary hm-ws-today" type="button" data-hm="ws-today">Hoy</button>
-                    <button class="hm-btn-secondary hm-ws-attach" type="button"
-                        data-hm="ws-attach" title="Publicar la programación de esta semana">Adjuntar</button>
                     <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
                 </div>
                 <div class="hm-ws-weeks" data-hm="ws-weeks"></div>
@@ -1717,7 +1713,7 @@ function weeklyScheduleWeeksHTML() {
     `).join("");
 }
 
-function renderWeeklySchedule(panel, { imageUrl = "", loading = false } = {}) {
+function renderWeeklySchedule(panel) {
     const modal = panel.querySelector('[data-hm="weekly-modal"]');
 
     if (!modal) return;
@@ -1727,47 +1723,10 @@ function renderWeeklySchedule(panel, { imageUrl = "", loading = false } = {}) {
     modal.querySelector('[data-hm="ws-weeks"]').innerHTML =
         weeklyScheduleWeeksHTML();
     modal.querySelector('[data-hm="ws-body"]').innerHTML =
-        weeklyScheduleBody(weeklyScheduleWeek, { imageUrl, loading });
+        weeklyScheduleBody(weeklyScheduleWeek);
 }
 
-// Las programaciones subidas como imagen viven en Storage: hay que pedir su URL
-// de descarga, que es asincrono. Se pinta primero el "cargando" y se repinta al
-// llegar, comprobando que la semana no haya cambiado mientras tanto.
-async function loadWeeklyScheduleImage(panel) {
-    const semana = weeklyScheduleWeek.getTime();
-    const attachment = weekAttachment(weeklyScheduleWeek);
 
-    if (!attachment) return;
-
-    renderWeeklySchedule(panel, { loading: true });
-
-    try {
-        const url = await resolveAttachmentUrl(attachment);
-
-        if (weeklyScheduleWeek.getTime() !== semana) return;
-
-        renderWeeklySchedule(panel, { imageUrl: url });
-    } catch (error) {
-        console.warn("No se pudo cargar la programación publicada.", error);
-
-        if (weeklyScheduleWeek.getTime() === semana) {
-            renderWeeklySchedule(panel);
-        }
-    }
-}
-
-async function resolveAttachmentUrl(attachment) {
-    if (attachment.downloadURL) return attachment.downloadURL;
-    if (attachment.dataUrl) return attachment.dataUrl;
-    if (!attachment.storagePath) return "";
-
-    const { getFirebaseServices } = await import("./firebaseClient.js");
-    const { storage, storageModule } = await getFirebaseServices();
-
-    return storageModule.getDownloadURL(
-        storageModule.ref(storage, attachment.storagePath)
-    );
-}
 
 function showWeeklySchedule(panel) {
     const modal = panel.querySelector('[data-hm="weekly-modal"]');
@@ -1776,10 +1735,6 @@ function showWeeklySchedule(panel) {
 
     renderWeeklySchedule(panel);
     modal.hidden = false;
-
-    if (weekNeedsImage(weeklyScheduleWeek)) {
-        void loadWeeklyScheduleImage(panel);
-    }
 }
 
 function absenceModal() {
@@ -2814,10 +2769,6 @@ function wire(panel) {
         const irASemana = (week) => {
             weeklyScheduleWeek = week;
             renderWeeklySchedule(panel);
-
-            if (weekNeedsImage(weeklyScheduleWeek)) {
-                void loadWeeklyScheduleImage(panel);
-            }
         };
 
         weeklyModal.addEventListener("click", event => {
@@ -2843,13 +2794,6 @@ function wire(panel) {
 
             if (event.target.closest('[data-hm="ws-today"]')) {
                 irASemana(weekStartMonday(new Date()));
-                return;
-            }
-
-            // Publicar la programacion de la semana que se esta viendo, no la
-            // de hoy: se navega hasta la semana y se adjunta ahi.
-            if (event.target.closest('[data-hm="ws-attach"]')) {
-                openScheduleAttachmentDialog(weeklyScheduleWeek);
                 return;
             }
 

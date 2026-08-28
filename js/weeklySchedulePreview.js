@@ -5,16 +5,16 @@
 // el supervisor, que obligaba a mantener dos verdades -lo repartido en el
 // tablero y lo subido a mano- y a que no coincidieran.
 //
-// El Excel se sigue pudiendo adjuntar; simplemente ya no es lo que se muestra.
+// Adjuntar un Excel ya no existe: la unica programacion posible es la que sale
+// del tablero de tareas.
 //
 // Solo LEE. Repartir tareas sigue siendo del menu de Asignacion de Tareas.
 
 import { escapeHTML } from "./htmlUtils.js";
 import {
-    getScheduleAttachment,
-    getScheduleAttachments,
     scheduleWeekStartISO,
-    taskScheduleGrid
+    taskScheduleGrid,
+    taskScheduleWeeks
 } from "./taskAssignments.js";
 
 const DIAS_POR_DEFECTO = [
@@ -68,15 +68,15 @@ export function weekHeading(weekStart) {
 }
 
 /**
- * Semanas del mes que tienen programacion publicada. Sirve para no obligar a
+ * Semanas del mes que tienen tareas repartidas. Sirve para no obligar a
  * recorrer semana por semana buscando cual tiene algo.
  */
 export function publishedWeeksOfMonth(reference = new Date()) {
-    const attachments = getScheduleAttachments();
+    const attachments = taskScheduleWeeks();
     const year = reference.getFullYear();
     const month = reference.getMonth();
 
-    return Object.keys(attachments)
+    return attachments
         .map(parseISO)
         .filter(Boolean)
         .filter(date => {
@@ -213,20 +213,6 @@ export function weeklyScheduleBody(weekStart) {
     }
 
     return `${gridTableHTML(grid)}${scheduleUpdatedHTML(grid.updatedAtISO)}`;
-}
-
-/**
- * Indica si esa semana se publico como imagen (y por lo tanto hay que ir a
- * buscar su URL a Storage antes de poder mostrarla).
- */
-export function weekNeedsImage() {
-    // El visor ya no dibuja la imagen del Excel, sino la asignacion de tareas,
-    // asi que no hay nada que ir a buscar a Storage.
-    return false;
-}
-
-export function weekAttachment(weekStart) {
-    return getScheduleAttachment(weekStart);
 }
 
 export function weekISO(weekStart) {

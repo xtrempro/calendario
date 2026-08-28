@@ -100,15 +100,18 @@ test("sin programacion adjunta el widget no aparece", () => {
 test("el widget muestra cuando se actualizo cada semana", () => {
     assert.match(home, /label: "Esta semana"/);
     assert.match(home, /label: "Próxima semana", start: addScheduleDays\(estaSemana, 7\)/);
-    // Solo las que tienen algo adjunto.
-    assert.match(home, /return adjunto\s*\n\s*\? \{ label: semana\.label, \.\.\.actualizacion\(adjunto\) \}\s*\n\s*: null;/);
-    assert.match(home, /adjunto\.updatedAtISO \|\| adjunto\.addedAt/);
+    // Solo las semanas que tienen tareas repartidas.
+    assert.match(home, /const updatedAtISO = taskScheduleUpdatedAt\(semana\.start\);/);
+    assert.match(home, /return updatedAtISO\s*\n\s*\? \{ label: semana\.label, \.\.\.actualizacion\(updatedAtISO\) \}\s*\n\s*: null;/);
 });
 
-test("desde el modal se puede publicar la semana que se esta viendo", () => {
-    assert.match(home, /data-hm="ws-attach"/);
-    // La semana que se esta viendo, no la de hoy.
-    assert.match(home, /openScheduleAttachmentDialog\(weeklyScheduleWeek\);/);
+test("desde el inicio ya no se adjunta ningun Excel", () => {
+    // La unica programacion posible viene del tablero de tareas.
+    assert.doesNotMatch(home, /data-hm="ws-attach"/);
+    assert.doesNotMatch(home, /openScheduleAttachmentDialog/);
+    // Y no queda camino para resolver imagenes de Storage.
+    assert.doesNotMatch(home, /resolveAttachmentUrl/);
+    assert.doesNotMatch(home, /loadWeeklyScheduleImage/);
 });
 
 test("se puede recorrer semana a semana y volver a hoy", () => {
@@ -129,14 +132,14 @@ test("las semanas publicadas del mes estan a un click", () => {
     );
 });
 
-test("el visor solo lee: no publica ni borra", () => {
-    // Publicar sigue siendo del menu de tareas; el inicio es una vista.
-    assert.match(
-        tasks,
-        /export function getScheduleAttachments\(\)/
-    );
-    assert.doesNotMatch(tasks, /export function saveScheduleAttachment/);
-    assert.doesNotMatch(tasks, /export function clearScheduleAttachment/);
+test("adjuntar Excel dejo de existir en el menu de tareas", () => {
+    // Se elimino por completo: la unica programacion posible es la que sale del
+    // tablero. Si algo de esto reaparece, volvieron las dos verdades.
+    assert.doesNotMatch(tasks, /getScheduleAttachment/);
+    assert.doesNotMatch(tasks, /openScheduleAttachmentDialog/);
+    assert.doesNotMatch(tasks, /createScheduleWorkbookAttachment/);
+    assert.doesNotMatch(tasks, /data-task-schedule-attach/);
+    assert.doesNotMatch(tasks, /SCHEDULE_WORKBOOK_ACCEPT/);
 });
 
 test("dibuja la asignacion de tareas, no el Excel que sube el supervisor", () => {
@@ -168,7 +171,9 @@ test("respeta las celdas combinadas del fin de semana", () => {
 });
 
 test("la tabla scrollea en su caja, no arrastra el modal", () => {
-    assert.match(styles, /\.ws-table-scroll,[\s\S]{0,80}overflow: auto;/);
+    // Regla de un solo selector: `.ws-image-scroll` se fue con el Excel.
+    assert.match(styles, /\.ws-table-scroll \{[\s\S]{0,80}overflow: auto;/);
+    assert.doesNotMatch(styles, /ws-image-scroll/);
     // Y la columna de roles queda fija: sin ella no se sabe de quien es la fila.
     assert.match(styles, /\.ws-table \.ws-role \{[\s\S]{0,120}position: sticky;[\s\S]{0,40}left: 0;/);
     // El modal se ensancha para que quepan los 7 dias.

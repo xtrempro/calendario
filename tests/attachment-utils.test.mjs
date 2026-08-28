@@ -58,7 +58,7 @@ test("Storage Rules conservan limite de 10 MB por objeto", () => {
     assert.doesNotMatch(rules, /request\.resource\.size <= 5 \* 1024 \* 1024/);
 });
 
-test("la programacion se publica desde Excel (grid) con respaldo de imagen/OCR", () => {
+test("adjuntar Excel para la programacion se elimino del cliente", () => {
     const source = readFileSync(
         fileURLToPath(new URL("../js/taskAssignments.js", import.meta.url)),
         "utf8"
@@ -67,78 +67,19 @@ test("la programacion se publica desde Excel (grid) con respaldo de imagen/OCR",
         fileURLToPath(new URL("../js/workerAppDataSync.js", import.meta.url)),
         "utf8"
     );
-    const engineSource = readFileSync(
-        fileURLToPath(new URL("../js/serverEngine.js", import.meta.url)),
-        "utf8"
-    );
-    const functionsSource = readFileSync("functions/index.js", "utf8");
-    const rules = readFileSync("storage.rules", "utf8");
 
-    assert.match(source, /SCHEDULE_ATTACHMENT_KEY = "weekly_task_schedule_attachment"/);
-    assert.match(source, /SCHEDULE_ATTACHMENTS_KEY = "weekly_task_schedule_attachments"/);
-    assert.match(source, /function scheduleWeekStartISO/);
-    assert.match(source, /function getScheduleAttachments/);
-    assert.match(source, /data-task-schedule-attach/);
-    // La programación se publica desde un EXCEL (.xlsx): la CF lo convierte al
-    // grid estructurado (reemplazo determinista del OCR de imagen).
-    assert.match(source, /Formato aceptado: Excel \(\.xlsx\)/);
-    assert.match(source, /function validateScheduleWorkbook/);
-    assert.match(source, /createScheduleWorkbookAttachment\(\s*file/);
-    assert.match(source, /httpsCallable\([\s\S]*"uploadScheduleWorkbook"/);
-    assert.match(source, /normalizeScheduleGrid\(value\.grid\)/);
-    assert.match(source, /Publicando programación/);
-    assert.doesNotMatch(source, /storageFallbackReason/);
-    assert.doesNotMatch(source, /inlineScheduleAttachment/);
-    assert.match(source, /const attachment = getScheduleAttachment\(weekStart\);[\s\S]*publishWorkerScheduleAttachmentNow\([\s\S]*getScheduleAttachments\(\)[\s\S]*notifyScheduleAttachmentPublication\(attachment, publication/);
-    assert.match(source, /recipientUids/);
-    assert.match(source, /weekStartISO/);
-    assert.match(source, /httpsCallable\([\s\S]*"notifyScheduleAttachmentUpdated"/);
-    assert.match(source, /action: attachment \? "published" : "removed"/);
-    assert.match(functionsSource, /exports\.uploadScheduleAttachment = onCall/);
-    assert.match(functionsSource, /exports\.uploadScheduleWorkbook = onCall/);
-    assert.match(functionsSource, /scheduleGridFromSheet/);
-    assert.match(functionsSource, /exports\.notifyScheduleAttachmentUpdated = onCall/);
-    assert.match(functionsSource, /automaticScheduleImageOcr\(decoded/);
-    assert.match(functionsSource, /DOCUMENT_TEXT_DETECTION/);
-    assert.match(functionsSource, /reviewRequired: false/);
-    assert.match(functionsSource, /collection\("workerNotifications"\)/);
-    assert.match(functionsSource, /type: "schedule_attachment_updated"/);
-    assert.match(functionsSource, /category: "calendar_changes"/);
-    assert.match(functionsSource, /type: "worker_schedule_attachment_updated"/);
-    assert.match(functionsSource, /requestedRecipientUids/);
-    assert.match(functionsSource, /weekLabel/);
-    assert.match(functionsSource, /sendWorkerPush\(/);
-    assert.match(functionsSource, /ocr/);
-    assert.match(functionsSource, /enforceAppCheck: ENFORCE_APP_CHECK/);
-    assert.match(functionsSource, /SCHEDULE_ATTACHMENT_MODULE_ID = "tasks"/);
-    assert.match(functionsSource, /SCHEDULE_ATTACHMENT_OWNER_ID = "weekly-schedule"/);
-    assert.match(functionsSource, /SCHEDULE_ATTACHMENT_RECORD_ID = "published-schedule"/);
-    assert.match(functionsSource, /firebaseStorageDownloadTokens/);
-    assert.match(functionsSource, /downloadURL: storageDownloadURL/);
-    assert.match(syncSource, /export async function publishWorkerScheduleAttachmentNow\(attachment\)/);
-    assert.match(syncSource, /uids: linked\.map\(item => item\.link\.uid\)/);
-    assert.match(syncSource, /weekly_task_schedule_attachments/);
-    assert.match(syncSource, /weeklyScheduleAttachment: currentWeekPayload/);
-    assert.match(syncSource, /weeklyScheduleAttachments/);
-    assert.match(syncSource, /weeklyScheduleAttachment: firestoreModule\.deleteField\(\)/);
-    assert.match(syncSource, /weeklyScheduleAttachments: firestoreModule\.deleteField\(\)/);
-    assert.match(syncSource, /downloadURL/);
-    assert.match(syncSource, /normalizePublishedScheduleOcr\(value\.ocr\)/);
-    assert.match(syncSource, /normalizePublishedScheduleGrid\(value\.grid\)/);
-    assert.match(syncSource, /mode: grid \? "grid" : \(ocrText \? "ocr_text" : "image"\)/);
-    assert.match(syncSource, /ocrText/);
-    assert.match(syncSource, /writeBatch\(db\)/);
-    assert.match(engineSource, /weeklyScheduleAttachment: getPublishedScheduleAttachment\(/);
-    assert.match(engineSource, /weeklyScheduleAttachments/);
-    assert.match(engineSource, /downloadURL/);
-    assert.match(engineSource, /normalizePublishedScheduleOcr\(value\.ocr\)/);
-    assert.match(engineSource, /normalizePublishedScheduleGrid\(value\.grid\)/);
-    assert.match(engineSource, /mode: grid \? "grid" : \(ocrText \? "ocr_text" : "image"\)/);
-    assert.match(engineSource, /ocrText/);
-    assert.match(rules, /function allowedScheduleImage\(\)/);
-    assert.match(rules, /function isPublishedScheduleAttachment\(moduleId, ownerId, recordId\)/);
-    assert.match(rules, /workerLinks\/\$\(request\.auth\.uid\)/);
-    assert.match(rules, /moduleId != "tasks"/);
+    // La unica programacion posible es la que sale del tablero de tareas. Todo
+    // el camino del Excel -claves, validacion, subida, OCR y publicacion del
+    // adjunto- se fue del cliente.
+    assert.doesNotMatch(source, /weekly_task_schedule_attachment/);
+    assert.doesNotMatch(source, /createScheduleWorkbookAttachment/);
+    assert.doesNotMatch(source, /validateScheduleWorkbook/);
+    assert.doesNotMatch(source, /reprocessScheduleAttachmentOcr/);
+    assert.doesNotMatch(source, /uploadScheduleWorkbook/);
+    assert.doesNotMatch(syncSource, /publishWorkerScheduleAttachmentNow/);
+
+    // Y lo que se publica al trabajador viene de las tareas repartidas.
+    assert.match(syncSource, /function taskScheduleAttachments\(\)/);
 });
 
 test("solo archivos previsualizables abren pestana", () => {

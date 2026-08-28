@@ -1,16 +1,7 @@
 import { keyFromDate, keyToDate as parseKey } from "./dateUtils.js";
-import { IS_TEST_ENVIRONMENT } from "./firebaseConfig.js";
-import {
-    getCurrentFirebaseUser,
-    getFirebaseServices
-} from "./firebaseClient.js";
 import { stripAccents } from "./stringUtils.js";
 import { escapeHTML } from "./htmlUtils.js";
 import { getJSON, setJSON } from "./persistence.js";
-import {
-    deleteStoredAttachment,
-    readFileAsDataURL
-} from "./attachmentUtils.js";
 import {
     getProfiles,
     isProfileActive
@@ -27,10 +18,7 @@ import { TURNO, TURNO_LABEL } from "./constants.js";
 import { fetchHolidays, getCachedHolidays } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
 import { showConfirm } from "./dialogs.js";
-import { getActiveWorkspace } from "./workspaces.js";
 import {
-    getWorkerAppLinks,
-    publishWorkerScheduleAttachmentNow,
     registerTaskScheduleGridProvider,
     scheduleWorkerAppDataPublish
 } from "./workerAppDataSync.js";
@@ -38,41 +26,8 @@ import {
 const TASKS_KEY = "weekly_task_assignment_tasks";
 const ASSIGNMENTS_KEY = "weekly_task_assignment_entries";
 const TASK_SCHEDULE_UPDATED_KEY = "weekly_task_assignment_updated";
-const SCHEDULE_ATTACHMENT_KEY = "weekly_task_schedule_attachment";
-const SCHEDULE_ATTACHMENTS_KEY = "weekly_task_schedule_attachments";
 const TASK_ASSIGNMENT_PUBLISH_DELAY_MS = 3000;
 const TASK_DETAIL_MAX_LENGTH = 240;
-const SCHEDULE_IMAGE_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp,.bmp,.heic,.heif";
-const SCHEDULE_WORKBOOK_ACCEPT = ".xlsx";
-const SCHEDULE_WORKBOOK_EXTENSIONS = new Set(["xlsx"]);
-const SCHEDULE_WORKBOOK_TYPES = new Set([
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/octet-stream"
-]);
-const SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS = 1400 * 1024;
-const SCHEDULE_UPLOAD_MAX_WIDTHS = [1800, 1600, 1400, 1200, 1000];
-const SCHEDULE_UPLOAD_JPEG_QUALITIES = [0.9, 0.82, 0.72, 0.62];
-const SCHEDULE_IMAGE_EXTENSIONS = new Set([
-    "png",
-    "jpg",
-    "jpeg",
-    "gif",
-    "webp",
-    "bmp",
-    "heic",
-    "heif"
-]);
-const SCHEDULE_IMAGE_TYPES = new Set([
-    "image/png",
-    "image/jpeg",
-    "image/jpg",
-    "image/pjpeg",
-    "image/gif",
-    "image/webp",
-    "image/bmp",
-    "image/heic",
-    "image/heif"
-]);
 
 const SHIFT_CONFIG = {
     day: {
@@ -112,62 +67,13 @@ let openCellPicker = null;
 let cellPickerNode = null;
 let unbindCellPicker = null;
 
-function fileExtension(name) {
-    return String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
-}
 
-function normalizeScheduleOcrWords(value) {
-    if (!Array.isArray(value)) return [];
 
-    const out = [];
-    for (const word of value) {
-        if (!word || typeof word !== "object") continue;
-        const t = String(word.t || "").slice(0, 60);
-        if (!t) continue;
-        out.push({
-            t,
-            x: Number(word.x) || 0,
-            y: Number(word.y) || 0,
-            w: Number(word.w) || 0,
-            h: Number(word.h) || 0
-        });
-        if (out.length >= 1500) break;
-    }
-    return out;
-}
-
-function normalizeScheduleOcr(value) {
-    if (!value || typeof value !== "object") return null;
-
-    const status = String(value.status || "").trim() || "failed";
-    const text = String(value.text || "").trim();
-    const error = String(value.error || "").trim();
-
-    return {
-        status,
-        engine: String(value.engine || "").trim(),
-        source: String(value.source || "automatic_upload").trim(),
-        reviewRequired: value.reviewRequired === true,
-        requestedAtISO: String(value.requestedAtISO || "").trim(),
-        extractedAtISO: String(value.extractedAtISO || "").trim(),
-        // OCR obsoleto: el grid del Excel reemplaza la reconstrucción. No persistir
-        // el texto (hasta 30 KB/semana) ni la geometría evita inflar el estado y
-        // exceder el límite de commit de Firestore.
-        text: "",
-        textLength: 0,
-        truncated: value.truncated === true,
-        error,
-        words: []
-    };
-}
 
 export function scheduleWeekStartISO(start = currentWeekStart) {
     return isoFromDate(weekStartMonday(start));
 }
 
-function scheduleWeekEndISO(start = currentWeekStart) {
-    return isoFromDate(addDays(weekStartMonday(start), 6));
-}
 
 export function scheduleWeekLabel(start = currentWeekStart) {
     const weekStart = weekStartMonday(start);
@@ -176,555 +82,28 @@ export function scheduleWeekLabel(start = currentWeekStart) {
     return `Semana ${formatShortDate(weekStart)} al ${formatShortDate(weekEnd)}`;
 }
 
-// Sanea una celda del grid: string simple o { text, rowSpan } (bloques de fin
-// de semana combinados verticalmente).
-function normalizeScheduleGridCell(cell) {
-    if (cell && typeof cell === "object") {
-        const text = String(cell.text || "").slice(0, 600);
-        const rowSpan = Math.max(1, Math.min(80, Math.round(Number(cell.rowSpan) || 1)));
-        return rowSpan > 1 ? { text, rowSpan } : text;
-    }
-    return String(cell == null ? "" : cell).slice(0, 600);
-}
 
-function normalizeScheduleGridRow(row) {
-    if (!row || typeof row !== "object") return null;
-    const title = String(row.title || "").trim().slice(0, 200);
-    const detail = String(row.detail || "").trim().slice(0, 200);
 
-    if (row.fullWidth) {
-        const fullText = String(row.fullText || "").slice(0, 3000);
-        if (!title && !fullText) return null;
-        return { title, detail, fullWidth: true, fullText };
-    }
 
-    const cells = Array.isArray(row.cells)
-        ? row.cells.map(normalizeScheduleGridCell).slice(0, 12)
-        : [];
-    const hasText = cells.some((c) => (typeof c === "string" ? c : c.text));
-    if (!title && !hasText) return null;
-    return { title, detail, cells };
-}
 
-// Grilla estructurada de la programación (Excel -> grid). Es el reemplazo
-// determinista del OCR: title/días/filas listas para renderizar.
-function normalizeScheduleGrid(value) {
-    if (!value || typeof value !== "object") return null;
-    const days = Array.isArray(value.days)
-        ? value.days.map((d) => String(d || "").trim()).slice(0, 12)
-        : [];
-    const rows = Array.isArray(value.rows)
-        ? value.rows.map(normalizeScheduleGridRow).filter(Boolean).slice(0, 80)
-        : [];
-    if (!rows.length) return null;
-    return {
-        title: String(value.title || "").trim().slice(0, 240),
-        weekLabel: String(value.weekLabel || "").trim().slice(0, 160),
-        days,
-        rows
-    };
-}
 
-function normalizeScheduleAttachment(value, weekStart = null) {
-    if (!value || typeof value !== "object") return null;
 
-    const storagePath = String(value.storagePath || "").trim();
-    const dataUrl = String(value.dataUrl || "").trim();
-    const downloadURL = String(value.downloadURL || value.downloadUrl || "").trim();
-    const type = String(value.type || "").toLowerCase();
-    const normalizedWeekStart = weekStart
-        ? weekStartMonday(weekStart)
-        : null;
-    const weekStartISO = String(
-        value.weekStartISO ||
-        (normalizedWeekStart ? scheduleWeekStartISO(normalizedWeekStart) : "")
-    ).trim();
-    const weekEndISO = String(
-        value.weekEndISO ||
-        (normalizedWeekStart ? scheduleWeekEndISO(normalizedWeekStart) : "")
-    ).trim();
 
-    const grid = normalizeScheduleGrid(value.grid);
 
-    if (!storagePath && !dataUrl && !downloadURL && !grid) return null;
 
-    return {
-        id: String(value.id || "").trim(),
-        name: String(value.name || "programacion").trim(),
-        type,
-        size: Number(value.size || 0),
-        addedAt: String(value.addedAt || "").trim(),
-        updatedAtISO: String(value.updatedAtISO || value.addedAt || "").trim(),
-        storagePath,
-        // La imagen vive en Storage (storagePath/downloadURL); no persistimos el
-        // base64 porque infla el estado y hace exceder el limite de escritura de
-        // Firestore (~11 MB). Solo se conserva para adjuntos legacy sin Storage.
-        dataUrl: (storagePath || downloadURL || dataUrl.length > 800 * 1024)
-            ? ""
-            : dataUrl,
-        downloadURL,
-        uploadedByUid: String(value.uploadedByUid || "").trim(),
-        mode: grid ? "grid" : "image",
-        source: grid ? "supervisor_xlsx" : "supervisor_image",
-        weekStartISO,
-        weekEndISO,
-        weekLabel: String(
-            value.weekLabel ||
-            grid?.weekLabel ||
-            (normalizedWeekStart ? scheduleWeekLabel(normalizedWeekStart) : "")
-        ).trim(),
-        ocr: normalizeScheduleOcr(value.ocr),
-        grid
-    };
-}
 
-function normalizeScheduleAttachmentMap(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
 
-    return Object.fromEntries(
-        Object.entries(value)
-            .map(([weekStartISO, attachment]) => {
-                const start = /^\d{4}-\d{2}-\d{2}$/.test(weekStartISO)
-                    ? new Date(`${weekStartISO}T00:00:00`)
-                    : null;
-                const normalized = normalizeScheduleAttachment(attachment, start);
-                const key = normalized?.weekStartISO || weekStartISO;
 
-                return normalized && key ? [key, normalized] : null;
-            })
-            .filter(Boolean)
-            .sort(([a], [b]) => a.localeCompare(b))
-    );
-}
 
-export function getScheduleAttachments() {
-    const attachments = normalizeScheduleAttachmentMap(
-        getJSON(SCHEDULE_ATTACHMENTS_KEY, {})
-    );
-    const legacy = normalizeScheduleAttachment(
-        getJSON(SCHEDULE_ATTACHMENT_KEY, null),
-        weekStartMonday(new Date())
-    );
 
-    if (legacy && !attachments[legacy.weekStartISO]) {
-        attachments[legacy.weekStartISO] = legacy;
-    }
 
-    return attachments;
-}
 
-function syncLegacyScheduleAttachment(attachments) {
-    const currentWeek = scheduleWeekStartISO(new Date());
 
-    setJSON(SCHEDULE_ATTACHMENT_KEY, attachments[currentWeek] || null);
-}
 
-function saveScheduleAttachments(attachments) {
-    const normalized = normalizeScheduleAttachmentMap(attachments);
 
-    setJSON(SCHEDULE_ATTACHMENTS_KEY, normalized);
-    syncLegacyScheduleAttachment(normalized);
-}
 
-export function getScheduleAttachment(start = currentWeekStart) {
-    return getScheduleAttachments()[scheduleWeekStartISO(start)] || null;
-}
 
-function saveScheduleAttachment(attachment, start = currentWeekStart) {
-    const attachments = getScheduleAttachments();
-    const normalized = normalizeScheduleAttachment(attachment, start);
 
-    if (!normalized) return;
-
-    attachments[normalized.weekStartISO] = normalized;
-    saveScheduleAttachments(attachments);
-}
-
-function clearScheduleAttachment(start = currentWeekStart) {
-    const attachments = getScheduleAttachments();
-
-    delete attachments[scheduleWeekStartISO(start)];
-    saveScheduleAttachments(attachments);
-}
-
-function validateScheduleImage(file) {
-    if (!(file instanceof File)) {
-        throw new Error("Selecciona una imagen valida.");
-    }
-
-    const type = String(file.type || "").toLowerCase();
-    const extension = fileExtension(file.name);
-
-    if (
-        !SCHEDULE_IMAGE_TYPES.has(type) &&
-        !SCHEDULE_IMAGE_EXTENSIONS.has(extension)
-    ) {
-        throw new Error("La programacion debe adjuntarse como imagen.");
-    }
-
-    return file;
-}
-
-function validateScheduleWorkbook(file) {
-    if (!(file instanceof File)) {
-        throw new Error("Selecciona un archivo Excel (.xlsx).");
-    }
-
-    const type = String(file.type || "").toLowerCase();
-    const extension = fileExtension(file.name);
-
-    if (
-        !SCHEDULE_WORKBOOK_TYPES.has(type) &&
-        !SCHEDULE_WORKBOOK_EXTENSIONS.has(extension)
-    ) {
-        throw new Error("La programacion debe adjuntarse como Excel (.xlsx).");
-    }
-
-    return file;
-}
-
-function scheduleUploadDebugContext() {
-    const user = getCurrentFirebaseUser();
-    const workspace = getActiveWorkspace();
-    const email = String(user?.email || "").trim();
-
-    return {
-        user,
-        workspace,
-        email: email || "sin correo",
-        uid: String(user?.uid || "").trim() || "sin UID",
-        workspaceId: String(workspace?.id || "").trim() || "sin unidad"
-    };
-}
-
-function scheduleUploadErrorCode(error) {
-    const code = String(error?.code || error?.cause?.code || "").trim();
-
-    return code.startsWith("functions/") ? code.slice("functions/".length) : code;
-}
-
-function imageFromDataUrl(dataUrl) {
-    return new Promise((resolve, reject) => {
-        const image = new Image();
-
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error(
-            "No se pudo procesar la imagen adjunta. Prueba con JPG o PNG."
-        ));
-        image.src = dataUrl;
-    });
-}
-
-async function compressedScheduleDataUrl(file) {
-    const original = await readFileAsDataURL(file);
-
-    if (original.length <= SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS) {
-        return original;
-    }
-
-    const image = await imageFromDataUrl(original);
-    let best = original;
-
-    for (const maxWidth of SCHEDULE_UPLOAD_MAX_WIDTHS) {
-        const ratio = Math.min(1, maxWidth / image.naturalWidth);
-        const width = Math.max(1, Math.round(image.naturalWidth * ratio));
-        const height = Math.max(1, Math.round(image.naturalHeight * ratio));
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-
-        if (!context) break;
-
-        canvas.width = width;
-        canvas.height = height;
-        context.fillStyle = "#fff";
-        context.fillRect(0, 0, width, height);
-        context.drawImage(image, 0, 0, width, height);
-
-        for (const quality of SCHEDULE_UPLOAD_JPEG_QUALITIES) {
-            const candidate = canvas.toDataURL("image/jpeg", quality);
-
-            if (candidate.length < best.length) {
-                best = candidate;
-            }
-
-            if (candidate.length <= SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS) {
-                return candidate;
-            }
-        }
-    }
-
-    if (best.length > SCHEDULE_UPLOAD_MAX_DATA_URL_CHARS) {
-        throw new Error(
-            "La imagen es muy grande para publicarla. " +
-            "Intenta con un JPG/PNG mas liviano."
-        );
-    }
-
-    return best;
-}
-
-async function createScheduleAttachment(file) {
-    const workspace = getActiveWorkspace();
-    const dataUrl = await compressedScheduleDataUrl(file);
-    const { functions, functionsModule } = await getFirebaseServices();
-    const upload = functionsModule.httpsCallable(
-        functions,
-        "uploadScheduleAttachment"
-    );
-    const result = await upload({
-        workspaceId: workspace?.id || "",
-        name: file.name || "programacion.jpg",
-        type: file.type || "",
-        dataUrl
-    });
-    const attachment = normalizeScheduleAttachment(result.data);
-
-    if (!attachment) {
-        throw new Error("No se recibio la URL de la programacion publicada.");
-    }
-
-    return attachment;
-}
-
-// Publica la programación desde un EXCEL: manda el .xlsx a la Cloud Function
-// uploadScheduleWorkbook, que lo convierte al grid estructurado (sin OCR). El
-// attachment resultante lleva `grid` embebido; la PWA lo renderiza tal cual.
-/**
- * Pregunta en que hoja esta la programacion.
- *
- * Solo aparece cuando el servidor no pudo decidirla por el nombre. Devuelve la
- * hoja elegida, o "" si el supervisor cancela.
- *
- * @param {string[]} sheets
- * @param {string} weekLabel
- * @returns {Promise<string>}
- */
-function askScheduleSheet(sheets, weekLabel) {
-    return new Promise(resolve => {
-        const backdrop = document.createElement("div");
-
-        backdrop.className = "task-assignment-dialog-backdrop";
-        backdrop.innerHTML = `
-            <section class="task-assignment-dialog task-schedule-sheet-dialog">
-                <div class="task-assignment-dialog__head">
-                    <h3>¿En qué hoja está la programación?</h3>
-                </div>
-                <p class="task-schedule-sheet-hint">
-                    El archivo trae varias hojas y ninguna coincide con
-                    ${escapeHTML(weekLabel)}. Elige cuál publicar.
-                </p>
-                <div class="task-schedule-sheet-list">
-                    ${sheets.map((name, index) => `
-                        <label class="task-schedule-sheet-option">
-                            <input type="radio" name="scheduleSheet"
-                                value="${escapeHTML(name)}"
-                                ${index === 0 ? "checked" : ""}>
-                            <span>${escapeHTML(name)}</span>
-                        </label>`).join("")}
-                </div>
-                <div class="task-assignment-dialog__actions">
-                    <button class="ghost-button" type="button" data-sheet-cancel>
-                        Cancelar
-                    </button>
-                    <button class="primary-button" type="button" data-sheet-confirm>
-                        Publicar esta hoja
-                    </button>
-                </div>
-            </section>`;
-
-        document.body.appendChild(backdrop);
-
-        const finish = (value) => {
-            backdrop.remove();
-            resolve(value);
-        };
-
-        backdrop.querySelector("[data-sheet-confirm]").addEventListener(
-            "click",
-            () => finish(
-                backdrop.querySelector("input[name='scheduleSheet']:checked")
-                    ?.value || ""
-            )
-        );
-        backdrop.querySelector("[data-sheet-cancel]").addEventListener(
-            "click",
-            () => finish("")
-        );
-        backdrop.addEventListener("click", event => {
-            if (event.target === backdrop) finish("");
-        });
-    });
-}
-
-/**
- * Publica la programacion de una semana desde un Excel.
- *
- * El servidor elige la hoja por su nombre. Cuando el libro trae varias y
- * ninguna calza con la semana, en vez de publicar una por descarte devuelve
- * `needsSheet` con la lista: ahi se le pregunta al supervisor y se reintenta
- * con su eleccion. Preguntar solo en ese caso evita molestarlo cuando la hoja
- * es evidente, que es casi siempre.
- */
-async function createScheduleWorkbookAttachment(
-    file,
-    weekStart = currentWeekStart,
-    { onAskSheet = null } = {}
-) {
-    const workspace = getActiveWorkspace();
-    const dataUrl = await readFileAsDataURL(file);
-    const normalizedWeekStart = weekStartMonday(weekStart);
-    const { functions, functionsModule } = await getFirebaseServices();
-    const upload = functionsModule.httpsCallable(
-        functions,
-        "uploadScheduleWorkbook"
-    );
-    const payload = {
-        workspaceId: workspace?.id || "",
-        name: file.name || "programacion.xlsx",
-        type: file.type || "",
-        weekStartISO: normalizedWeekStart
-            ? scheduleWeekStartISO(normalizedWeekStart)
-            : "",
-        dataUrl
-    };
-
-    let result = await upload(payload);
-
-    if (result?.data?.needsSheet) {
-        const sheetName = onAskSheet
-            ? await onAskSheet(result.data.sheets || [])
-            : "";
-
-        if (!sheetName) return null;
-
-        result = await upload({ ...payload, sheetName });
-    }
-
-    const attachment = normalizeScheduleAttachment(result.data, weekStart);
-
-    if (!attachment || !attachment.grid) {
-        throw new Error("No se pudo leer la programacion del Excel.");
-    }
-
-    return { ...attachment, sheetName: result.data?.sheetName || "" };
-}
-
-// Reintenta el OCR de una programacion ya publicada (sin re-subir la imagen):
-// el servidor la lee desde Storage y corre Vision otra vez; aqui actualizamos
-// el adjunto con el resultado y re-publicamos para que la PWA quede en modo texto.
-async function reprocessScheduleAttachmentOcr(start = currentWeekStart) {
-    const weekStart = weekStartMonday(start);
-    const attachment = getScheduleAttachment(weekStart);
-    const workspace = getActiveWorkspace();
-
-    if (!attachment?.storagePath || !workspace?.id) {
-        throw new Error(
-            "No hay una programacion publicada para reintentar el OCR."
-        );
-    }
-
-    const { functions, functionsModule } = await getFirebaseServices();
-    const reprocess = functionsModule.httpsCallable(
-        functions,
-        "reprocessScheduleOcr"
-    );
-    const result = await reprocess({
-        workspaceId: workspace.id,
-        storagePath: attachment.storagePath
-    });
-    const ocr = normalizeScheduleOcr(result?.data?.ocr);
-
-    saveScheduleAttachment(
-        { ...attachment, ocr, updatedAtISO: new Date().toISOString() },
-        weekStart
-    );
-    await publishScheduleAttachmentChanges(weekStart);
-
-    return ocr;
-}
-
-function scheduleUploadPermissionMessage(error) {
-    const code = scheduleUploadErrorCode(error);
-    const context = scheduleUploadDebugContext();
-    const base = String(
-        error?.message ||
-        "No se pudo publicar la programacion."
-    );
-
-    if (
-        code !== "permission-denied" &&
-        code !== "unauthenticated" &&
-        code !== "storage/unauthorized" &&
-        code !== "storage/unauthenticated" &&
-        code !== "schedule/workspace-access-denied"
-    ) {
-        return base;
-    }
-
-    const hint = (
-        "Verifica que la cuenta actual tenga acceso de supervisor " +
-        "a la unidad activa."
-    );
-
-    if (!IS_TEST_ENVIRONMENT) {
-        return `${base}\n\n${hint}`;
-    }
-
-    return [
-        base,
-        "",
-        hint,
-        "",
-        `Cuenta Test: ${context.email}`,
-        `UID: ${context.uid}`,
-        `Unidad activa: ${context.workspaceId}`,
-        code ? `Codigo Firebase: ${code}` : ""
-    ].filter(Boolean).join("\n");
-}
-
-async function assertScheduleAttachmentUploadAccess() {
-    const context = scheduleUploadDebugContext();
-
-    if (!context.user?.uid) {
-        throw new Error("Debes iniciar sesion para adjuntar la programacion.");
-    }
-
-    if (!context.workspace?.id) {
-        throw new Error("Selecciona una unidad antes de adjuntar la programacion.");
-    }
-
-    try {
-        const { db, firestoreModule } = await getFirebaseServices();
-        const userWorkspaceRef = firestoreModule.doc(
-            db,
-            "users",
-            context.user.uid,
-            "workspaces",
-            context.workspace.id
-        );
-        const userWorkspaceSnap = await firestoreModule.getDoc(userWorkspaceRef);
-
-        if (!userWorkspaceSnap.exists()) {
-            console.warn(
-                "La unidad activa no aparece vinculada al usuario actual.",
-                {
-                    uid: context.uid,
-                    email: context.email,
-                    workspaceId: context.workspaceId
-                }
-            );
-        }
-    } catch (error) {
-        if (scheduleUploadErrorCode(error) !== "permission-denied") {
-            throw error;
-        }
-
-        console.warn(
-            "No se pudo verificar la unidad activa antes de subir.",
-            error
-        );
-    }
-}
 
 function normalizeText(value) {
     return stripAccents(String(value || "")).toLowerCase();
@@ -1079,98 +458,8 @@ function publishTaskAssignmentChanges(workerNames = null) {
     );
 }
 
-async function publishScheduleAttachmentChanges(start = currentWeekStart) {
-    const weekStart = weekStartMonday(start);
-    const weekStartISO = scheduleWeekStartISO(weekStart);
-    const attachment = getScheduleAttachment(weekStart);
-    const publication = await publishWorkerScheduleAttachmentNow(
-        getScheduleAttachments()
-    );
 
-    await notifyScheduleAttachmentPublication(attachment, publication, {
-        weekStartISO,
-        weekEndISO: scheduleWeekEndISO(weekStart),
-        weekLabel: scheduleWeekLabel(weekStart)
-    });
-}
 
-async function notifyScheduleAttachmentPublication(
-    attachment,
-    publication,
-    week = {}
-) {
-    const workspace = getActiveWorkspace();
-    const publishedCount = Number(publication?.count ?? publication ?? 0);
-    const recipientUids = Array.isArray(publication?.uids)
-        ? publication.uids
-        : [];
-
-    if (!workspace?.id || !publishedCount) return;
-
-    try {
-        const { functions, functionsModule } = await getFirebaseServices();
-        const notify = functionsModule.httpsCallable(
-            functions,
-            "notifyScheduleAttachmentUpdated"
-        );
-        const eventId = [
-            "schedule_attachment",
-            attachment?.id || (attachment ? "published" : "removed"),
-            Date.now().toString(36)
-        ].join("_");
-
-        await notify({
-            workspaceId: workspace.id,
-            eventId,
-            action: attachment ? "published" : "removed",
-            attachment: attachment
-                ? {
-                    id: attachment.id || "",
-                    name: attachment.name || "",
-                    storagePath: attachment.storagePath || "",
-                    updatedAtISO: attachment.updatedAtISO || attachment.addedAt || "",
-                    mode: attachment.mode || "",
-                    ocrStatus: attachment.ocr?.status || "",
-                    weekStartISO: attachment.weekStartISO || week.weekStartISO || "",
-                    weekEndISO: attachment.weekEndISO || week.weekEndISO || "",
-                    weekLabel: attachment.weekLabel || week.weekLabel || ""
-                }
-                : {
-                    weekStartISO: week.weekStartISO || "",
-                    weekEndISO: week.weekEndISO || "",
-                    weekLabel: week.weekLabel || ""
-                },
-            publishedCount,
-            recipientUids
-        });
-    } catch (error) {
-        console.warn(
-            "La programacion se publico, pero no se pudo notificar a la PWA.",
-            error
-        );
-    }
-}
-
-function scheduleOcrStatusLabel(ocr) {
-    const status = String(ocr?.status || "").trim();
-
-    if (status === "completed") {
-        const count = Number(ocr?.textLength || ocr?.text?.length || 0);
-        const words = Array.isArray(ocr?.words) ? ocr.words.length : 0;
-        const wordsPart = words ? ` · ${words} palabras` : " · sin coordenadas";
-
-        return count
-            ? `OCR listo (${count}${wordsPart})`
-            : `OCR listo${wordsPart}`;
-    }
-
-    if (status === "empty") return "OCR sin texto";
-    if (status === "failed") return "OCR con error";
-    if (status === "processing" || status === "pending") return "OCR pendiente";
-    if (status) return `OCR ${status}`;
-
-    return "OCR pendiente";
-}
 
 function getWeekAssignments(start = currentWeekStart) {
     const all = getAllAssignments();
@@ -2673,29 +1962,6 @@ function renderTaskAddForm() {
     `;
 }
 
-function renderScheduleAttachmentStatus() {
-    const attachment = getScheduleAttachment();
-    const label = scheduleWeekLabel();
-
-    if (!attachment) return "";
-
-    const updated = attachment.updatedAtISO || attachment.addedAt;
-    const detail = updated
-        ? new Date(updated).toLocaleString("es-CL", {
-            day: "2-digit",
-            month: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit"
-        })
-        : "publicada";
-    const ocrLabel = scheduleOcrStatusLabel(attachment.ocr);
-
-    return `
-        <span class="task-schedule-attachment-status" title="${escapeHTML(attachment.name)}">
-            Programaci&oacute;n ${escapeHTML(label)}: ${escapeHTML(attachment.name)} | ${escapeHTML(detail)} | ${escapeHTML(ocrLabel)}
-        </span>
-    `;
-}
 
 // Permisos, ausencias y cumpleanos del dia, agrupados por motivo. En el
 // encabezado interesa el motivo y cuanta gente, no la lista de nombres: los
@@ -3091,12 +2357,6 @@ function renderShell(holidays = {}) {
 
                 <div class="task-assignment-topbar__actions">
                     <button class="task-assignment-action" type="button" data-task-schedule-preview>Ver programaci&oacute;n</button>
-                    <button class="task-assignment-action" type="button" data-task-schedule-attach title="Adjuntar la programaci&oacute;n de la semana">
-                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                            <path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.67 3.67 0 1 1 5.18 5.18l-9.2 9.2a1.83 1.83 0 0 1-2.59-2.6l8.49-8.48"></path>
-                        </svg>
-                        Adjuntar
-                    </button>
                     <button class="task-assignment-action task-assignment-action--primary" type="button" data-task-export>
                         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                             <path d="M12 3v12"></path>
@@ -3122,7 +2382,6 @@ function renderShell(holidays = {}) {
                     </button>
                 </div>
                 ${renderTaskAddForm()}
-                ${renderScheduleAttachmentStatus()}
             </section>
             ${renderBoard("day", tasks, days, assignments, holidays)}
             ${renderBoard("night", tasks, days, assignments, holidays)}
@@ -3604,210 +2863,6 @@ function openWorkerDefaultDialog({ taskId, workerName, shift, keyDay }) {
     });
 }
 
-/**
- * Dialogo para publicar la programacion de una semana.
- *
- * Recibe la semana porque ahora se abre desde dos lugares: la pantalla de
- * Tareas -donde manda la semana que se esta viendo alli- y el widget de
- * inicio, que abre la semana que el supervisor tiene a la vista en el modal.
- */
-export function openScheduleAttachmentDialog(weekStart = currentWeekStart) {
-    const dialogWeekStart = new Date(weekStart);
-    const current = getScheduleAttachment(dialogWeekStart);
-    const weekLabel = scheduleWeekLabel(dialogWeekStart);
-    const linkedCount = getWorkerAppLinks()
-        .filter(item => item.uid && item.profile)
-        .length;
-    const backdrop = document.createElement("div");
-
-    backdrop.className = "task-assignment-dialog-backdrop";
-    document.body.appendChild(backdrop);
-
-    const close = () => {
-        backdrop.remove();
-    };
-
-    backdrop.innerHTML = `
-        <section class="task-assignment-dialog task-schedule-attachment-dialog">
-            <div class="task-assignment-dialog__head">
-                <div>
-                    <h3>Adjuntar Programaci&oacute;n</h3>
-                    <span>${escapeHTML(weekLabel)} | ${linkedCount || 0} trabajador(es) enlazado(s)</span>
-                </div>
-                <button class="ghost-button" type="button" data-close-schedule-attachment aria-label="Cerrar">&times;</button>
-            </div>
-            <form data-schedule-attachment-form class="task-schedule-attachment-form">
-                <label class="task-schedule-attachment-field">
-                    <span>Programaci&oacute;n (Excel)</span>
-                    <input type="file" name="scheduleImage" accept="${SCHEDULE_WORKBOOK_ACCEPT}" required>
-                    <small>Formato aceptado: Excel (.xlsx). La tabla se arma sola desde la planilla. M&aacute;ximo 10 MB.</small>
-                </label>
-                ${current ? `
-                    <div class="task-schedule-current">
-                        <strong>Publicada para esta semana</strong>
-                        <span>${escapeHTML(current.name)}</span>
-                        ${current.grid ? `
-                            <span class="task-schedule-current__ocr">Tabla le&iacute;da del Excel &middot; ${current.grid.rows?.length || 0} filas</span>
-                        ` : `
-                            <span class="task-schedule-current__ocr">Estado OCR: ${escapeHTML(scheduleOcrStatusLabel(current.ocr))}</span>
-                            <button class="secondary-button task-schedule-retry-ocr" type="button" data-retry-schedule-ocr>Reintentar OCR</button>
-                        `}
-                    </div>
-                ` : ""}
-                <div class="task-assignment-dialog__actions">
-                    ${current ? `<button class="ghost-button" type="button" data-remove-schedule-attachment>Quitar semana</button>` : ""}
-                    <button class="secondary-button" type="button" data-close-schedule-attachment>Cancelar</button>
-                    <button class="primary-button" type="submit">Publicar programaci&oacute;n</button>
-                </div>
-            </form>
-        </section>
-    `;
-
-    backdrop
-        .querySelectorAll("[data-close-schedule-attachment]")
-        .forEach(button => {
-            button.addEventListener("click", close);
-        });
-
-    backdrop
-        .querySelector("[data-remove-schedule-attachment]")
-        ?.addEventListener("click", async () => {
-            const previous = getScheduleAttachment(dialogWeekStart);
-
-            if (
-                !await showConfirm(
-                    `La programacion de ${weekLabel} dejara de mostrarse en la PWA del trabajador.`,
-                    {
-                        title: "Quitar programacion",
-                        tone: "danger",
-                        confirmText: "Quitar",
-                        destructive: true
-                    }
-                )
-            ) {
-                return;
-            }
-
-            clearScheduleAttachment(dialogWeekStart);
-            await publishScheduleAttachmentChanges(dialogWeekStart);
-            if (previous?.storagePath) {
-                deleteStoredAttachment(previous).catch(error => {
-                    console.warn(
-                        "No se pudo eliminar la programacion anterior.",
-                        error
-                    );
-                });
-            }
-            close();
-            renderTaskAssignmentsPanel();
-        });
-
-    backdrop
-        .querySelector("[data-retry-schedule-ocr]")
-        ?.addEventListener("click", async event => {
-            const button = event.currentTarget;
-            const original = button.textContent;
-
-            button.disabled = true;
-            button.textContent = "Leyendo OCR...";
-
-            try {
-                const ocr = await reprocessScheduleAttachmentOcr(dialogWeekStart);
-                const status = String(ocr?.status || "");
-
-                if (status === "completed") {
-                    alert(
-                        "OCR completado. La programacion se reenvio a la PWA en modo texto."
-                    );
-                } else if (status === "empty") {
-                    alert(
-                        "El OCR se ejecuto pero no detecto texto en la imagen."
-                    );
-                } else {
-                    alert(
-                        `No se pudo completar el OCR (${status || "error"}).` +
-                        (ocr?.error ? `\n\n${ocr.error}` : "")
-                    );
-                }
-
-                close();
-                renderTaskAssignmentsPanel();
-            } catch (error) {
-                console.warn(
-                    "No se pudo reintentar el OCR de la programacion.",
-                    error
-                );
-                alert(error?.message || "No se pudo reintentar el OCR.");
-                button.disabled = false;
-                button.textContent = original;
-            }
-        });
-
-    backdrop
-        .querySelector("[data-schedule-attachment-form]")
-        ?.addEventListener("submit", async event => {
-            event.preventDefault();
-
-            const form = event.currentTarget;
-            const submit = form.querySelector("button[type='submit']");
-            const file = form.elements.scheduleImage?.files?.[0];
-            const previous = getScheduleAttachment(dialogWeekStart);
-
-            try {
-                validateScheduleWorkbook(file);
-                submit.disabled = true;
-                submit.textContent = "Publicando programación...";
-
-                await assertScheduleAttachmentUploadAccess();
-
-                const attachment = await createScheduleWorkbookAttachment(
-                    file,
-                    dialogWeekStart,
-                    {
-                        onAskSheet: sheets => askScheduleSheet(sheets, weekLabel)
-                    }
-                );
-
-                // Cancelo al elegir la hoja: se deja el dialogo como estaba.
-                if (!attachment) {
-                    submit.disabled = false;
-                    submit.textContent = "Publicar programación";
-                    return;
-                }
-
-                saveScheduleAttachment({
-                    ...attachment,
-                    updatedAtISO: new Date().toISOString()
-                }, dialogWeekStart);
-                await publishScheduleAttachmentChanges(dialogWeekStart);
-
-                if (
-                    previous?.storagePath &&
-                    previous.storagePath !== attachment.storagePath
-                ) {
-                    deleteStoredAttachment(previous).catch(error => {
-                        console.warn(
-                            "No se pudo eliminar la programacion reemplazada.",
-                            error
-                        );
-                    });
-                }
-
-                close();
-                renderTaskAssignmentsPanel();
-            } catch (error) {
-                console.warn(
-                    "No se pudo publicar la programacion adjunta.",
-                    error?.cause || error
-                );
-                alert(scheduleUploadPermissionMessage(error));
-                submit.disabled = false;
-                submit.textContent = "Publicar programación";
-            }
-        });
-
-    backdrop.querySelector("input[type='file']")?.focus();
-}
 
 // Dos puntos se pueden unir solo si son de la misma columna y de casillas
 // pegadas: uno tiene que ser el borde de abajo de una y el otro el borde de
@@ -4026,7 +3081,6 @@ function bindShellEvents(root) {
 
         openTaskSchedulePreview();
     });
-    root.querySelector("[data-task-schedule-attach]")?.addEventListener("click", openScheduleAttachmentDialog);
 
     root
         .querySelectorAll("[data-task-add-form]")
@@ -4967,6 +4021,17 @@ export function getTaskScheduleWeek(start = currentWeekStart) {
 // que pasar de mostrar el Excel a mostrar esto no les cambia una linea de
 // render. El nombre del turno viaja como fila `fullWidth`, que es como esas
 // tablas ya separan bloques.
+// Semanas (ISO del lunes) que tienen algo repartido. Es lo que reemplaza a la
+// lista de semanas con Excel adjunto: ahora "tener programacion" es "tener
+// tareas asignadas".
+export function taskScheduleWeeks() {
+    const all = getAllAssignments();
+
+    return Object.keys(all).filter(key =>
+        all[key] && Object.keys(all[key]).length
+    );
+}
+
 export function taskScheduleGrid(start = currentWeekStart) {
     const week = getTaskScheduleWeek(start);
     const rows = [];

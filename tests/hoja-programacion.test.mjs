@@ -83,30 +83,15 @@ test("un HttpsError propio no se disfraza de error de formato", () => {
 });
 
 /* =========================================================
-   La pregunta, en el cliente
+   El cliente ya no sube ningun Excel
 ========================================================= */
 
-test("se pregunta solo cuando el servidor lo pide", () => {
-    assert.match(cliente, /if \(result\?\.data\?\.needsSheet\) \{/);
-    assert.match(cliente, /result = await upload\(\{ \.\.\.payload, sheetName \}\);/);
-});
-
-test("cancelar no publica nada", () => {
-    assert.match(cliente, /if \(!sheetName\) return null;/);
-    // Y el dialogo queda utilizable, no bloqueado en "Publicando...".
-    assert.match(
-        cliente,
-        /if \(!attachment\) \{\s*\n\s*submit\.disabled = false;/
-    );
-});
-
-test("el dialogo lista las hojas y trae una marcada", () => {
-    assert.match(cliente, /function askScheduleSheet\(sheets, weekLabel\)/);
-    assert.match(cliente, /\$\{index === 0 \? "checked" : ""\}/);
-    assert.match(cliente, /input\[name='scheduleSheet'\]:checked/);
-    assert.match(estilos, /\.task-schedule-sheet-list \{/);
-});
-
-test("cerrar el dialogo por fuera cuenta como cancelar", () => {
-    assert.match(cliente, /if \(event\.target === backdrop\) finish\(""\);/);
+test("adjuntar Excel se elimino del cliente", () => {
+    // La unica programacion posible sale del tablero de tareas. El backend
+    // (`uploadScheduleWorkbook`, `scheduleGridFromSheet`) sigue desplegado pero
+    // quedo sin quien lo llame; sus pruebas de arriba se mantienen hasta que se
+    // retire con su propio deploy de functions.
+    assert.doesNotMatch(cliente, /askScheduleSheet/);
+    assert.doesNotMatch(cliente, /uploadScheduleWorkbook/);
+    assert.doesNotMatch(cliente, /needsSheet/);
 });
