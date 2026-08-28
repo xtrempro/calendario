@@ -37,7 +37,7 @@ test("al terminar el apply remoto se le devuelve el turno al envio local", async
     // terminar no avisa, lo encolado se queda sin nadie que lo reintente.
     assert.match(
         source,
-        /remoteApplyInFlight = false;[\s\S]{0,400}if \(pendingStateEntries\.size\) \{\s*\n\s*scheduleEntrySyncRetry\(\);/
+        /remoteApplyInFlight = false;[\s\S]{0,800}if \(pendingStateEntries\.size\) \{\s*\n\s*scheduleEntrySyncRetry\(\);/
     );
 });
 

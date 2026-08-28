@@ -162,12 +162,14 @@ test("el listener auditUndoApplied refresca las filas de quienes cubrian", () =>
     assert.match(body, /\.forEach\(worker => updateTimelineCells\(worker\)\)/);
 });
 
-test("el refresco por persistenceChanged recomputa HH.EE frescas", () => {
-    const start = timeline.indexOf(
-        'window.addEventListener("proturnos:persistenceChanged"'
+test("el refresco por cambio de estado recomputa HH.EE frescas", () => {
+    const start = timeline.indexOf("const handleTimelineStateChange = (");
+    assert.notEqual(
+        start,
+        -1,
+        "no se encontro el manejador de cambios de estado del timeline"
     );
-    assert.notEqual(start, -1, "no se encontro el listener persistenceChanged");
-    const body = timeline.slice(start, start + 1600);
+    const body = timeline.slice(start, start + 1900);
 
     // Sin forceFreshMetrics, el resumen de HH.EE de los perfiles afectados se
     // servia del caché/resumen publicado stale tras anular un permiso.
@@ -177,6 +179,21 @@ test("el refresco por persistenceChanged recomputa HH.EE frescas", () => {
     );
     // Marca a los editados como "dirty" para no volver a hidratar su publicado.
     assert.match(body, /timelineLocallyDirtyProfiles\.add\(name\)/);
+});
+
+test("un cambio de otra sesion pasa por el mismo refresco del timeline", () => {
+    // El apply remoto escribe en silencio, asi que no emite persistenceChanged.
+    // Cuando este listener solo miraba "app-state-applied" -la hidratacion
+    // inicial-, el timeline seguia pintando desde su cache y el turno editado
+    // por el supervisor no aparecia hasta apretar refrescar.
+    assert.match(
+        timeline,
+        /window\.addEventListener\("proturnos:persistenceChanged", event => \{\s*\n\s*handleTimelineStateChange\(event\.detail\);/
+    );
+    assert.match(
+        timeline,
+        /if \(type === "app-state-entries-applied"\) \{\s*\n\s*handleTimelineStateChange\(/
+    );
 });
 
 test("el publicado no se hidrata para perfiles editados localmente", () => {

@@ -3710,13 +3710,29 @@ if (typeof window !== "undefined") {
         }
     );
     window.addEventListener("proturnos:firebaseAppState", event => {
-        if (event.detail?.type === "app-state-applied") {
-            clearAnalizarMesCache();
-            scheduleStaffingReportPreload({
-                delay: 1200,
-                force: true
-            });
-            scheduleStaffingWeeklyPreload({ delay: 1200 });
+        const type = event.detail?.type;
+
+        // `app-state-applied` es solo la hidratacion inicial. Lo que edita otra
+        // sesion llega por los otros dos, y sin escucharlos el resumen seguia
+        // saliendo del cache: no reflejaba el turno que acababan de cambiar.
+        if (
+            type !== "app-state-applied" &&
+            type !== "app-state-entries-applied" &&
+            type !== "app-state-module-applied"
+        ) return;
+
+        // El apply remoto escribe en silencio, asi que este es el unico aviso:
+        // se reusa el mismo filtro de claves que en `persistenceChanged`.
+        if (!clearAnalizarMesCache(event)) return;
+
+        scheduleStaffingReportPreload({
+            delay: 1200,
+            force: true
+        });
+        scheduleStaffingWeeklyPreload({ delay: 1200 });
+
+        if (type === "app-state-entries-applied") {
+            void renderInlineStaffingAnalysis();
         }
     });
 }

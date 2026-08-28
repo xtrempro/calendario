@@ -38,9 +38,26 @@ const ENTRY_USER_QUIET_MS = 90000;
 const ENTRY_ACTIVE_RETRY_MS = 10000;
 const ENTRY_BLOCKED_RETRY_MS = 4000;
 const ENTRY_VISIBLE_RETRY_MS = 60000;
+// Techo duro de la cola de subida: ningun cambio local espera mas que esto,
+// aunque el usuario siga interactuando y la pestaña siga visible.
+const ENTRY_MAX_WAIT_MS = 8000;
+// Hueco entre documentos al subir una rafaga, en lugar de una espera completa
+// por cada uno.
+const ENTRY_SLICE_GAP_MS = 300;
 const REMOTE_APPLY_BATCH_SIZE = 4;
-const REMOTE_APPLY_ACTIVE_RETRY_MS = 30000;
-const REMOTE_APPLY_CALENDAR_RETRY_MS = 90000;
+// Ventana de agrupacion para lo que el otro perfil acaba de tocar: junta las
+// entradas de una misma edicion sin que el cambio se sienta diferido.
+const REMOTE_APPLY_URGENT_DELAY_MS = 400;
+// Reintento mientras el hilo principal esta ocupado. Es una cadencia, no una
+// espera: el techo de abajo manda.
+const REMOTE_APPLY_BUSY_DELAY_MS = 1500;
+// Techo duro. Ninguna entrada remota puede esperar mas que esto con la pestaña
+// visible, sin importar la vista ni si el usuario sigue interactuando.
+const REMOTE_APPLY_URGENT_MAX_WAIT_MS = 2000;
+const REMOTE_APPLY_MAX_WAIT_MS = 6000;
+// Hueco entre lotes al drenar una rafaga: se cede el hilo entre tandas de 4
+// entradas, pero la cola avanza en segundos, no en minutos.
+const REMOTE_APPLY_BATCH_GAP_MS = 200;
 const LOCAL_ENTRY_PROTECTION_MS = 30 * 60 * 1000;
 const WORKER_CALENDAR_URGENT_STATE_PREFIXES = [
     "data_",
@@ -73,7 +90,9 @@ let entrySyncInFlight = false;
 let urgentEntrySyncPending = false;
 let remoteApplyTimer = null;
 let remoteApplyInFlight = false;
+let remoteQueueOldestAt = 0;
 let entryLastUserActivityAt = Date.now();
+let pendingEntriesOldestAt = 0;
 let servicesCache = null;
 let onStateChanged = () => {};
 let syncGeneration = 0;
@@ -117,22 +136,51 @@ function firebaseStateHasPendingInput() {
     }
 }
 
-function firebaseStateInteractiveDelay(quietMs = ENTRY_USER_QUIET_MS) {
-    if (typeof document === "undefined") return 0;
-    if (document.visibilityState !== "visible") return 0;
+// Los commits de Firestore/IndexedDB pueden congelar el hilo principal incluso
+// tras un periodo de quietud, asi que mientras el supervisor mira la app se
+// prioriza la fluidez. Pero "se vacia al ocultar la pestaña" era literal: la
+// espera se recalculaba entera en cada reintento, de modo que una clave no
+// urgente no subia nunca con la pestaña abierta y los demas perfiles no podian
+// verla. El diferimiento se mantiene; lo que se agrega es el techo.
+//
+// El loop del `carry_` que motivaba esperas de 90 s ya se corta en origen:
+// `roundCarryHour` deja el valor estable y `setRaw` no lo reporta como cambio.
+export function planEntrySyncDelay({
+    now = Date.now(),
+    visible = true,
+    pendingInput = false,
+    oldestQueuedAt = 0,
+    quietMs = ENTRY_USER_QUIET_MS
+} = {}) {
+    if (!visible) return 0;
+    if (!oldestQueuedAt) return 0;
 
-    // Los commits de Firestore/IndexedDB pueden congelar el hilo principal
-    // incluso tras un periodo de quietud. Mientras el supervisor mira la app,
-    // se prioriza la fluidez; la cola se vacia al ocultar la pestaña.
+    const waited = Math.max(0, now - oldestQueuedAt);
+    const budget = Math.max(0, ENTRY_MAX_WAIT_MS - waited);
+
+    if (budget <= 0) return 0;
+
     const delay = Math.max(
         ENTRY_VISIBLE_RETRY_MS,
         ENTRY_ACTIVE_RETRY_MS,
         Number(quietMs) || ENTRY_USER_QUIET_MS
     );
 
-    return firebaseStateHasPendingInput()
-        ? Math.max(delay, ENTRY_ACTIVE_RETRY_MS)
-        : delay;
+    return Math.min(
+        budget,
+        pendingInput ? Math.max(delay, ENTRY_ACTIVE_RETRY_MS) : delay
+    );
+}
+
+function firebaseStateInteractiveDelay(quietMs = ENTRY_USER_QUIET_MS) {
+    if (typeof document === "undefined") return 0;
+
+    return planEntrySyncDelay({
+        visible: document.visibilityState === "visible",
+        pendingInput: firebaseStateHasPendingInput(),
+        oldestQueuedAt: pendingEntriesOldestAt,
+        quietMs
+    });
 }
 
 export function isWorkerCalendarUrgentStateKey(key) {
@@ -144,29 +192,70 @@ export function isWorkerCalendarUrgentStateKey(key) {
         );
 }
 
-function firebaseRemoteApplyDelay() {
-    if (typeof document === "undefined") return 0;
-    if (document.visibilityState !== "visible") return 0;
+// Cuanto puede esperar lo que ya cambio otra sesion antes de aplicarse aqui.
+//
+// La version anterior devolvia 90 s fijos en el calendario y >=30 s mientras
+// quedara quietud pendiente. Como al vencer el timer se volvia a consultar esta
+// misma funcion, la espera se renovaba entera: un administrador mirando "turnos"
+// -o simplemente moviendo el mouse cada minuto y medio- no recibia nunca el
+// cambio del supervisor. Solo lo destrababa ocultar la pestaña o refrescar.
+//
+// Ahora la espera se descuenta contra el momento en que la entrada se encolo:
+// el diferimiento sigue protegiendo el hilo principal, pero tiene techo.
+export function planRemoteStateApplyDelay({
+    now = Date.now(),
+    visible = true,
+    activeView = "",
+    pendingInput = false,
+    lastUserActivityAt = 0,
+    oldestQueuedAt = 0,
+    urgent = false
+} = {}) {
+    if (!visible) return 0;
 
-    const activeView = document.body?.dataset?.activeView || "";
+    // Sin marca de encolado no hay contra que descontar el techo, y diferir a
+    // ciegas es exactamente como se llegaba a la espera infinita. Se aplica.
+    if (!oldestQueuedAt) return 0;
 
-    if (activeView === "turnos" || activeView === "timeline") {
-        return REMOTE_APPLY_CALENDAR_RETRY_MS;
+    const waited = Math.max(0, now - oldestQueuedAt);
+    const budget = Math.max(
+        0,
+        (urgent
+            ? REMOTE_APPLY_URGENT_MAX_WAIT_MS
+            : REMOTE_APPLY_MAX_WAIT_MS) - waited
+    );
+
+    if (budget <= 0) return 0;
+
+    // Turnos, permisos, reemplazos: lo que el otro perfil ve en pantalla. Solo
+    // se agrupa lo justo para no aplicar una edicion entrada por entrada.
+    if (urgent) {
+        return Math.min(budget, REMOTE_APPLY_URGENT_DELAY_MS);
     }
 
     const quietRemaining = Math.max(
         0,
-        ENTRY_USER_QUIET_MS - (Date.now() - entryLastUserActivityAt)
+        ENTRY_USER_QUIET_MS - Math.max(0, now - lastUserActivityAt)
     );
+    const calendarView =
+        activeView === "turnos" || activeView === "timeline";
 
-    if (firebaseStateHasPendingInput() || quietRemaining > 0) {
-        return Math.max(
-            REMOTE_APPLY_ACTIVE_RETRY_MS,
-            Math.min(quietRemaining, REMOTE_APPLY_CALENDAR_RETRY_MS)
-        );
-    }
+    if (!pendingInput && !quietRemaining && !calendarView) return 0;
 
-    return 0;
+    return Math.min(budget, REMOTE_APPLY_BUSY_DELAY_MS);
+}
+
+function firebaseRemoteApplyDelay() {
+    if (typeof document === "undefined") return 0;
+
+    return planRemoteStateApplyDelay({
+        visible: document.visibilityState === "visible",
+        activeView: document.body?.dataset?.activeView || "",
+        pendingInput: firebaseStateHasPendingInput(),
+        lastUserActivityAt: entryLastUserActivityAt,
+        oldestQueuedAt: remoteQueueOldestAt,
+        urgent: pendingRemoteStateHasUrgentKey()
+    });
 }
 
 function remoteEntryId(entry = {}) {
@@ -335,11 +424,26 @@ function shouldApplyRemoteStateEntry(entry = {}) {
     return true;
 }
 
+function pendingRemoteStateHasUrgentKey() {
+    for (const entry of pendingRemoteStateEntries.values()) {
+        if (isWorkerCalendarUrgentStateKey(entry.storageKey)) return true;
+    }
+
+    return false;
+}
+
 function queueRemoteStateEntries(entries = []) {
     entries.forEach(entry => {
         if (!entry?.storageKey) return;
         pendingRemoteStateEntries.set(remoteEntryId(entry), entry);
     });
+
+    // Marca de la entrada mas antigua sin aplicar: es contra ella que se
+    // descuenta el techo de espera. No se pisa mientras quede cola, o el
+    // diferimiento volveria a renovarse solo.
+    if (pendingRemoteStateEntries.size && !remoteQueueOldestAt) {
+        remoteQueueOldestAt = Date.now();
+    }
 }
 
 function scheduleRemoteStateApply(delay = 0) {
@@ -380,6 +484,7 @@ async function flushRemoteStateEntries() {
     }
 
     remoteApplyInFlight = true;
+    let batchGapPending = false;
 
     try {
         while (pendingRemoteStateEntries.size && activeWorkspaceId) {
@@ -403,7 +508,13 @@ async function flushRemoteStateEntries() {
                 typeof document !== "undefined" &&
                 document.visibilityState === "visible"
             ) {
-                scheduleRemoteStateApply(REMOTE_APPLY_ACTIVE_RETRY_MS);
+                // Se cede el hilo entre tandas, pero el resto de la rafaga
+                // vuelve en milisegundos. Aqui se reprogramaba con la espera
+                // completa: una edicion de varias entradas tardaba minutos en
+                // verse entera. (Ademas la llamada era inerte:
+                // `scheduleRemoteStateApply` se descarta con el apply en vuelo,
+                // asi que el gap real lo ponia el `finally`.)
+                batchGapPending = true;
                 return;
             }
 
@@ -413,7 +524,13 @@ async function flushRemoteStateEntries() {
         remoteApplyInFlight = false;
 
         if (pendingRemoteStateEntries.size) {
-            scheduleRemoteStateApply(firebaseRemoteApplyDelay());
+            scheduleRemoteStateApply(
+                batchGapPending
+                    ? REMOTE_APPLY_BATCH_GAP_MS
+                    : firebaseRemoteApplyDelay()
+            );
+        } else {
+            remoteQueueOldestAt = 0;
         }
 
         // El apply remoto es justo lo que bloquea el envio local: al terminar
@@ -595,6 +712,13 @@ function queueGroupedPartialStateEntries(entries = []) {
 
         pendingStateEntries.set(id, entry);
     });
+
+    // Igual que en la cola de bajada: la marca es de la entrada mas antigua sin
+    // subir, y no se pisa mientras quede cola. Es contra ella que se descuenta
+    // `ENTRY_MAX_WAIT_MS`.
+    if (pendingStateEntries.size && !pendingEntriesOldestAt) {
+        pendingEntriesOldestAt = Date.now();
+    }
 }
 
 function queuePartialStateEntries(entries = [], options = {}) {
@@ -782,6 +906,10 @@ export async function flushPendingFirebaseAppStateEntries({
             pendingStateEntries.delete(pendingStateEntryId(entry));
         });
 
+        if (!pendingStateEntries.size) {
+            pendingEntriesOldestAt = 0;
+        }
+
         dispatchStatus({
             type: "app-state-entries-saved",
             count: writable.length,
@@ -933,7 +1061,10 @@ async function flushPartialStateEntries() {
                             documents.length -
                             (offset + ENTRY_BATCH_SIZE)
                     });
-                    scheduleEntrySync(ENTRY_ACTIVE_RETRY_MS);
+                    // Un documento por vuelta sigue cediendo el hilo, pero el
+                    // resto de la rafaga vuelve enseguida: con los 10 s de antes
+                    // una edicion de varias claves tardaba minutos en publicarse.
+                    scheduleEntrySync(ENTRY_SLICE_GAP_MS);
                     return;
                 }
 
@@ -972,6 +1103,8 @@ async function flushPartialStateEntries() {
                 urgentEntrySyncPending ? 0 : firebaseStateInteractiveDelay(),
                 { urgent: urgentEntrySyncPending }
             );
+        } else {
+            pendingEntriesOldestAt = 0;
         }
     }
 }
@@ -1583,6 +1716,8 @@ export function stopFirebaseAppStateSync() {
     waitingInitialState = false;
     entrySyncInFlight = false;
     remoteApplyInFlight = false;
+    remoteQueueOldestAt = 0;
+    pendingEntriesOldestAt = 0;
     lastAppliedHashes.clear();
     pendingStateEntries.clear();
     pendingRemoteStateEntries.clear();

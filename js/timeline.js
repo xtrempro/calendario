@@ -5610,8 +5610,14 @@ if (typeof window !== "undefined") {
         timelineVisibilityResolvers.clear();
         resolvers.forEach(resolve => resolve());
     });
-    window.addEventListener("proturnos:persistenceChanged", event => {
-        const keys = event.detail?.keys || [];
+    // Se invoca desde dos lados: los cambios propios llegan por
+    // `persistenceChanged`, y los de otra sesion por `app-state-entries-applied`
+    // -el apply remoto escribe en silencio, asi que no emite el primero-.
+    const handleTimelineStateChange = (
+        detail,
+        { renderIfVisible = false } = {}
+    ) => {
+        const keys = detail?.keys || [];
 
         if (
             keys.length &&
@@ -5624,7 +5630,7 @@ if (typeof window !== "undefined") {
 
         const affectedProfiles = timelineAffectedProfilesFromKeys(
             keys,
-            event.detail?.changes || {}
+            detail?.changes || {}
         );
 
         clearLegacyTimelineCache();
@@ -5649,6 +5655,16 @@ if (typeof window !== "undefined") {
         }
 
         clearTimelineCache();
+
+        // Tras un cambio propio ya viene un render; tras uno remoto no lo pide
+        // nadie, y limpiar el cache sin repintar deja la vista igual de vieja.
+        if (renderIfVisible && timelineIsVisibleView()) {
+            void renderTimeline({ skipCache: true });
+        }
+    };
+
+    window.addEventListener("proturnos:persistenceChanged", event => {
+        handleTimelineStateChange(event.detail);
     });
     window.addEventListener("proturnos:calendarDirectEditCommitted", event => {
         const affectedProfiles = new Set(
@@ -5665,7 +5681,24 @@ if (typeof window !== "undefined") {
         });
     });
     window.addEventListener("proturnos:firebaseAppState", event => {
-        if (event.detail?.type === "app-state-applied") {
+        const type = event.detail?.type;
+
+        // `app-state-applied` es solo la hidratacion inicial del entorno. Los
+        // cambios que hace otra sesion mientras miramos llegan por los otros
+        // dos, y sin escucharlos el timeline seguia pintando desde su cache:
+        // el turno editado por el supervisor no aparecia hasta refrescar.
+        if (type === "app-state-entries-applied") {
+            handleTimelineStateChange(
+                { keys: event.detail.keys || [] },
+                { renderIfVisible: true }
+            );
+            return;
+        }
+
+        if (
+            type === "app-state-applied" ||
+            type === "app-state-module-applied"
+        ) {
             clearTimelineCache();
             if (timelineIsVisibleView()) {
                 void renderTimeline({ skipCache: true });
