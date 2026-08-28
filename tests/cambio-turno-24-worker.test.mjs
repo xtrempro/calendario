@@ -27,6 +27,8 @@ const api = new Function(`
   ${grab("shiftLabel")}
   ${grab("shiftClass")}
   ${grab("isFreeTurnDay")}
+  ${grab("isDiurnoTurnDay")}
+  ${grab("receiverExtendsDiurnoToLarga")}
   ${grab("swapTurnCodeFromDay")}
   ${grab("isComplementary24")}
   ${grab("receiverCanCoverDay")}

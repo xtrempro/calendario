@@ -19,7 +19,7 @@ import {
     addAuditLog,
     AUDIT_CATEGORY
 } from "./auditLog.js";
-import { getTurnoBase } from "./turnEngine.js";
+import { getTurnoBase, getTurnoProgramado } from "./turnEngine.js";
 import { isReplacementProfile } from "./contracts.js";
 import { getReplacementTurnForWorker } from "./replacements.js";
 import { getBlockedDayForProfile } from "./workerAvailability.js";
@@ -122,6 +122,18 @@ function usesProfessionCompatibility(profile = {}) {
     );
 }
 
+// Dos rotativas Diurno son identicas dia a dia, asi que `haveSameBaseRotation`
+// siempre da true y el par quedaba descartado. Pero lo que estos trabajadores
+// intercambian no es la rotativa: es la Larga por extension de horario que el
+// supervisor les asigno sobre un dia Diurno suelto. Ahi si difieren, y el
+// intercambio tiene sentido.
+export function bothUseDiurnoRotation(fromName, toName) {
+    return (
+        getRotativa(fromName).type === "diurno" &&
+        getRotativa(toName).type === "diurno"
+    );
+}
+
 export function canSwapProfiles(fromName, toName) {
     if (!getTurnChangeConfig().allowSwaps) return false;
 
@@ -130,7 +142,11 @@ export function canSwapProfiles(fromName, toName) {
 
     if (!from || !to || from.name === to.name) return false;
     if (from.estamento !== to.estamento) return false;
-    if (haveSameBaseRotation(fromName, toName)) return false;
+
+    if (
+        !bothUseDiurnoRotation(fromName, toName) &&
+        haveSameBaseRotation(fromName, toName)
+    ) return false;
 
     if (usesProfessionCompatibility(from)) {
         return normalizeTextKey(from.profession) ===
@@ -500,9 +516,38 @@ export function getSwapTurnState(profile, keyDay) {
 
     const extra = getReplacementTurnForWorker(profile, keyDay);
 
-    return isSwapExchangeableTurn(extra)
-        ? extra
+    if (isSwapExchangeableTurn(extra)) {
+        return extra;
+    }
+
+    // Extension de horario: el supervisor subio el Diurno a Larga y eso vive
+    // como override en `data_`, no como reemplazo. Sin mirar el turno
+    // programado, la Larga de un diurno era invisible para los cambios y su
+    // dia se ofrecia como un Diurno cualquiera (no intercambiable).
+    const programado = getTurnoProgramado(profile, keyDay);
+
+    return isSwapExchangeableTurn(programado)
+        ? programado
         : base;
+}
+
+// El turno de rotativa detras del dia, ignorando extras. Sirve para distinguir
+// "este trabajador esta libre" de "este trabajador viene en Diurno y puede
+// extender su jornada a Larga".
+export function getSwapBaseRotationTurn(profile, keyDay) {
+    return getTurnoBase(profile, keyDay);
+}
+
+// Un diurno que recibe una Larga extiende su jornada: no queda con dos turnos
+// ni con un 24, queda Larga ese dia (lo mismo que hace `fusionarTurnos`).
+export function receivesLargaByExtendingDiurno(
+    incomingTurn,
+    receiverBaseTurn
+) {
+    return (
+        Number(incomingTurn) === TURNO.LARGA &&
+        Number(receiverBaseTurn) === TURNO.DIURNO
+    );
 }
 
 export function isSwapExchangeableTurn(turno) {
@@ -569,6 +614,13 @@ function projectedReceiverTurn(incomingTurn, receiverTurn) {
     if (!current) return incoming;
     if (isComplementarySwapTurn(incoming, current)) {
         return TURNO.TURNO24;
+    }
+
+    // El diurno que recibe una Larga termina el dia en Larga, no en Diurno. Si
+    // devolvieramos `current`, las reglas de adyacencia con un 24 mirarian un
+    // turno que no es el que va a quedar.
+    if (receivesLargaByExtendingDiurno(incoming, current)) {
+        return TURNO.LARGA;
     }
 
     return current;
@@ -761,11 +813,30 @@ export function getSwapDateBlockReason({
         return `La configuracion solo permite devolver el mismo tipo de turno (${swapTurnLabel(requiredTurn)} por ${swapTurnLabel(requiredTurn)}).`;
     }
 
+    // Un diurno que recibe una Larga extiende su jornada ese dia: no queda con
+    // dos turnos ni con un 24, queda Larga. Es el caso de dos trabajadores de
+    // rotativa Diurno que se intercambian su dia de extension horaria; antes
+    // caia en "no tiene calendario libre" porque ese dia igual venia a trabajar.
+    const receiverExtendsDiurno = receivesLargaByExtendingDiurno(
+        giverTurn,
+        getSwapBaseRotationTurn(receiver, keyDay)
+    );
+
     if (
         receiverTurn !== 0 &&
+        !receiverExtendsDiurno &&
         !isComplementarySwapTurn(giverTurn, receiverTurn)
     ) {
         return `${receiver} no tiene calendario libre ni turno complementario para recibir.`;
+    }
+
+    // Ya tiene una Larga propia ese dia: recibir otra no le agrega jornada, solo
+    // dejaria el cambio sin efecto visible.
+    if (
+        receiverExtendsDiurno &&
+        isSwapExchangeableTurn(receiverTurn)
+    ) {
+        return `${receiver} ya tiene un turno Larga o Noche ese dia.`;
     }
 
     if (

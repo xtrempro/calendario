@@ -922,7 +922,7 @@ async function applySwapRequest(request, profile) {
     if (!canSwapProfiles(from, to)) {
         return {
             ok: false,
-            message: "Los trabajadores no cumplen la regla de compatibilidad para cambios de turno: revisa estamento, profesion y que no tengan la misma rotativa base."
+            message: "Los trabajadores no cumplen la regla de compatibilidad para cambios de turno: revisa estamento, profesion y que no tengan la misma rotativa base (salvo dos rotativas Diurno, que si pueden intercambiar su dia de extension horaria)."
         };
     }
 

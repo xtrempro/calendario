@@ -30,6 +30,7 @@
     "deploy:security-rules:test:mfa": "npm run security:rules:test:build:mfa && firebase deploy --only firestore:rules,storage --config firebase.test.security.json --project turnoplus-test-7c4d9",
     "test:state-modules": "node --test tests/state-modules.test.mjs",
     "test:sincronizacion": "node --test tests/sincronizacion-tiempo-real.test.mjs tests/firebase-state-entry-retry.test.mjs",
+    "test:cambio-diurno-larga": "node --test tests/cambio-turno-diurno-larga.test.mjs tests/cambio-turno-diurno-larga-backend.test.mjs",
     "test:shift-assignment": "node --test tests/shift-assignment-history.test.mjs",
     "test:replacement-leaves": "node --test tests/replacement-leave-grouping.test.mjs",
     "test:replacement-candidates": "node --test tests/replacement-contract-candidates.test.mjs",

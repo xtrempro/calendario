@@ -427,6 +427,28 @@ export function aplicarCambiosTurno(
 
         return true;
     };
+    // Un trabajador de rotativa Diurno puede tener una Larga por extension de
+    // horario: a diferencia del caso de arriba, ese extra NO viene de un
+    // reemplazo sino de un override en `data_`, asi que llega aqui dentro del
+    // propio `turno`. Al entregarlo vuelve a su Diurno base, no a Libre: ese
+    // dia igual viene a trabajar, solo deja de hacer la extension.
+    const entregaLargaSobreBaseDiurno = entregado => {
+        if (
+            entregado !== TURNO.LARGA ||
+            turno !== TURNO.LARGA ||
+            getRotativa(nombre).type !== "diurno" ||
+            getTurnoBase(nombre, key) !== TURNO.DIURNO
+        ) {
+            return false;
+        }
+
+        turno = TURNO.DIURNO;
+
+        return true;
+    };
+    const entregaSinQuedarLibre = entregado =>
+        entregaExtraSinAlterarBaseDiurno(entregado) ||
+        entregaLargaSobreBaseDiurno(entregado);
 
     const swaps = Array.isArray(options.swaps)
         ? options.swaps
@@ -450,7 +472,7 @@ export function aplicarCambiosTurno(
                 const entregado =
                     turnoDesdeCodigoSwap(s.turno);
 
-                if (!entregaExtraSinAlterarBaseDiurno(entregado)) {
+                if (!entregaSinQuedarLibre(entregado)) {
                     turno = TURNO.LIBRE;
                 }
             }
@@ -480,7 +502,7 @@ export function aplicarCambiosTurno(
                         s.turnoDevuelto
                     );
 
-                if (entregaExtraSinAlterarBaseDiurno(devuelve)) {
+                if (entregaSinQuedarLibre(devuelve)) {
                     continue;
                 }
 

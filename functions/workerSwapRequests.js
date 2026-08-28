@@ -172,6 +172,24 @@ function isFreeTurnDay(day) {
   return label === "libre" || className === "libre";
 }
 
+// Un dia de rotativa Diurno sin extension. No esta libre -ese dia igual viene a
+// trabajar-, pero puede recibir una Larga extendiendo su jornada.
+function isDiurnoTurnDay(day) {
+  if (!day || day.hasLeave === true) return false;
+
+  const label = normalizeTextKey(shiftLabel(day));
+  const className = shiftClass(day);
+
+  return label === "diurno" || className === "diurno";
+}
+
+// Dos trabajadores de rotativa Diurno intercambiando su dia de extension
+// horaria: el que recibe pasa de Diurno a Larga ese dia. No forma un 24 ni deja
+// a nadie libre, asi que no depende de `allowTwentyFour`.
+function receiverExtendsDiurnoToLarga(receiverDay, giverTurn) {
+  return Number(giverTurn) === 1 && isDiurnoTurnDay(receiverDay);
+}
+
 // Codigo de turno intercambiable: 1 = Larga, 2 = Noche (0 = ninguno).
 function swapTurnCodeFromDay(day) {
   if (!day || day.hasLeave === true) return 0;
@@ -194,6 +212,7 @@ function isComplementary24(a, b) {
 // y la materializacion los valida el motor del supervisor al aprobar el cambio.
 function receiverCanCoverDay(receiverDay, giverTurn, allowTwentyFour) {
   if (isFreeTurnDay(receiverDay)) return true;
+  if (receiverExtendsDiurnoToLarga(receiverDay, giverTurn)) return true;
 
   return Boolean(
     allowTwentyFour &&
@@ -367,7 +386,7 @@ function assertReceiverCanCoverDate(
     callableError(
       HttpsError,
       "failed-precondition",
-      "El trabajador seleccionado no esta libre ni tiene un turno complementario (para 24) para recibir ese turno."
+      "El trabajador seleccionado no esta libre, ni viene en Diurno para extender su jornada, ni tiene un turno complementario (para 24) para recibir ese turno."
     );
   }
 
@@ -568,9 +587,11 @@ async function createWorkerSwapRequestHandler(request, dependencies) {
     HttpsError,
     nowDate
   );
-  // El receptor puede estar libre O tener el turno complementario (queda con 24)
-  // si la unidad lo permite. El motor del supervisor valida el 24/invertido al
-  // aprobar; aqui solo se habilita que la solicitud se pueda crear.
+  // El receptor puede estar libre, venir en Diurno (extiende su jornada a Larga:
+  // es el intercambio del dia de extension horaria entre dos rotativas Diurno),
+  // O tener el turno complementario (queda con 24) si la unidad lo permite. El
+  // motor del supervisor valida el 24/invertido al aprobar; aqui solo se
+  // habilita que la solicitud se pueda crear.
   assertReceiverCanCoverDate(targetCandidate, ownDate, HttpsError, {
     // En un dia 24 el que entrega da su turno BASE (no el 24), asi que la
     // compatibilidad se evalua contra ese base.
