@@ -2366,6 +2366,15 @@ body[data-active-view="home"] .secondary-grid {
 .ws-table .ws-role span { display: block; font-size: 0.7rem; color: var(--text-muted); }
 .ws-cell { min-width: 108px; color: var(--text); }
 
+/* Fecha de la ultima edicion, bajo la tabla. Sin ella, una programacion vieja
+   y una recien tocada se ven exactamente igual. */
+.ws-updated {
+    margin: 8px 2px 0;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
 /* Fila con color en el visor de programacion. El fondo pastel va inline, pero
    el nombre de la tarea y su detalle tienen color propio por clase: en tema
    oscuro son claros, y sobre pastel quedarian ilegibles. */

@@ -139,10 +139,23 @@ test("el visor solo lee: no publica ni borra", () => {
     assert.doesNotMatch(tasks, /export function clearScheduleAttachment/);
 });
 
-test("dibuja la tabla del Excel y, si no hay, la imagen", () => {
-    assert.match(preview, /if \(attachment\.grid\?\.rows\?\.length\) \{[\s\S]{0,80}gridTableHTML/);
-    assert.match(preview, /ws-image-scroll/);
-    assert.match(preview, /No hay programación publicada para esta semana/);
+test("dibuja la asignacion de tareas, no el Excel que sube el supervisor", () => {
+    // Antes se dibujaba el adjunto: eso obligaba a mantener dos verdades -lo
+    // repartido en el tablero y lo subido a mano- y a que no coincidieran.
+    assert.match(preview, /const grid = taskScheduleGrid\(weekStart\);/);
+    assert.match(preview, /gridTableHTML\(grid\)/);
+    assert.match(preview, /Todavía no hay tareas asignadas en esta semana/);
+
+    // Y ya no se resuelve ninguna imagen de Storage: no hay nada que dibujar
+    // con ella.
+    assert.doesNotMatch(preview, /ws-image-scroll/);
+});
+
+test("muestra cuando fue la ultima modificacion", () => {
+    // Sin esto, una programacion vieja y una recien tocada se ven igual.
+    assert.match(preview, /export function scheduleUpdatedHTML\(updatedAtISO\)/);
+    assert.match(preview, /Última modificación:/);
+    assert.match(styles, /\.ws-updated \{/);
 });
 
 test("respeta las celdas combinadas del fin de semana", () => {

@@ -36,6 +36,7 @@ import {
 
 const TASKS_KEY = "weekly_task_assignment_tasks";
 const ASSIGNMENTS_KEY = "weekly_task_assignment_entries";
+const TASK_SCHEDULE_UPDATED_KEY = "weekly_task_assignment_updated";
 const SCHEDULE_ATTACHMENT_KEY = "weekly_task_schedule_attachment";
 const SCHEDULE_ATTACHMENTS_KEY = "weekly_task_schedule_attachments";
 const TASK_ASSIGNMENT_PUBLISH_DELAY_MS = 3000;
@@ -1004,6 +1005,7 @@ function getTasks() {
 }
 
 function saveTasks(tasks) {
+    markTaskScheduleUpdated();
     setJSON(
         TASKS_KEY,
         tasks.map((task, index) => ({
@@ -1178,11 +1180,36 @@ function getWeekAssignments(start = currentWeekStart) {
         : {};
 }
 
-function saveWeekAssignments(assignments, start = currentWeekStart) {
+// Cuando el supervisor toco por ultima vez la programacion de esa semana. Es lo
+// que se le muestra al trabajador para que sepa si lo que ve es reciente.
+function markTaskScheduleUpdated(start = currentWeekStart) {
+    const raw = getJSON(TASK_SCHEDULE_UPDATED_KEY, {});
+    const map = raw && typeof raw === "object" && !Array.isArray(raw)
+        ? { ...raw }
+        : {};
+
+    map[weekKey(start)] = new Date().toISOString();
+    setJSON(TASK_SCHEDULE_UPDATED_KEY, map);
+}
+
+export function taskScheduleUpdatedAt(start = currentWeekStart) {
+    const raw = getJSON(TASK_SCHEDULE_UPDATED_KEY, {});
+    const value = raw && typeof raw === "object" ? raw[weekKey(start)] : "";
+
+    return typeof value === "string" ? value : "";
+}
+
+// `touch: false` es para el saneado que corre en cada pintado: aplica reglas
+// predefinidas y limpia restos, y si eso marcara la semana como modificada, la
+// fecha saltaria sola con solo MIRAR el tablero. La marca es de ediciones
+// deliberadas.
+function saveWeekAssignments(assignments, start = currentWeekStart, { touch = true } = {}) {
     const all = getAllAssignments();
 
     all[weekKey(start)] = assignments;
     setJSON(ASSIGNMENTS_KEY, all);
+
+    if (touch) markTaskScheduleUpdated(start);
 }
 
 function assignmentKey(shift, taskId, keyDay) {
@@ -1610,8 +1637,8 @@ function applyDefaultAssignments(days, tasks, assignments) {
     return changed;
 }
 
-function cleanAssignmentsForWeek(days, tasks) {
-    const assignments = getWeekAssignments();
+function cleanAssignmentsForWeek(days, tasks, start = currentWeekStart) {
+    const assignments = getWeekAssignments(start);
     const taskIds = new Set(tasks.map(task => task.id));
     let changed = false;
 
@@ -1674,7 +1701,7 @@ function cleanAssignmentsForWeek(days, tasks) {
         changed = true;
     }
 
-    if (changed) saveWeekAssignments(assignments);
+    if (changed) saveWeekAssignments(assignments, start, { touch: false });
     return assignments;
 }
 
@@ -4814,10 +4841,10 @@ function eventsExcelTable(days) {
 // Se omiten las tareas sin nadie asignado en toda la semana y los turnos que
 // quedan enteros vacios: en el tablero las filas vacias sirven para soltar
 // trabajadores, pero en la tabla publicada solo son ruido.
-export function getTaskScheduleWeek() {
-    const days = weekDays();
+export function getTaskScheduleWeek(start = currentWeekStart) {
+    const days = weekDays(start);
     const tasks = getTasks();
-    const assignments = cleanAssignmentsForWeek(days, tasks);
+    const assignments = cleanAssignmentsForWeek(days, tasks, start);
 
     let sections = SHIFT_TYPES.map(shift => ({
         shift,
@@ -4920,7 +4947,7 @@ export function getTaskScheduleWeek() {
     });
 
     return {
-        weekStart: new Date(currentWeekStart),
+        weekStart: new Date(start),
         days: days.map(day => ({
             keyDay: keyFromDate(day),
             weekday: formatWeekday(day),
@@ -4928,6 +4955,57 @@ export function getTaskScheduleWeek() {
             dayNumber: day.getDate()
         })),
         sections
+    };
+}
+
+// La programacion de tareas, con la MISMA forma de `grid` que ya renderizan el
+// widget de Inicio y la PWA del trabajador (`{days, rows:[{title, detail,
+// cells}]}`, con `{text, rowSpan}` para las casillas fusionadas).
+//
+// Reusar esa forma es deliberado: las dos superficies ya saben dibujarla, asi
+// que pasar de mostrar el Excel a mostrar esto no les cambia una linea de
+// render. El nombre del turno viaja como fila `fullWidth`, que es como esas
+// tablas ya separan bloques.
+export function taskScheduleGrid(start = currentWeekStart) {
+    const week = getTaskScheduleWeek(start);
+    const rows = [];
+
+    week.sections.forEach(section => {
+        rows.push({
+            title: "",
+            detail: "",
+            fullWidth: true,
+            fullText: section.label.toUpperCase()
+        });
+
+        section.rows.forEach(row => {
+            rows.push({
+                title: row.title,
+                detail: row.detail,
+                // Las tapadas por un rowspan NO se emiten: el renderer lleva su
+                // propia cuenta de columnas ocupadas y se correrian todas.
+                cells: row.cells
+                    .filter(cell => !cell.covered)
+                    .map(cell => {
+                        const text = [
+                            cell.workers.join("-"),
+                            cell.note
+                        ].filter(Boolean).join("\n");
+
+                        return cell.rowSpan > 1
+                            ? { text, rowSpan: cell.rowSpan }
+                            : text;
+                    })
+            });
+        });
+    });
+
+    return {
+        days: week.days.map(day =>
+            `${day.weekday.toUpperCase()} ${day.dayNumber}`
+        ),
+        rows,
+        updatedAtISO: taskScheduleUpdatedAt(start)
     };
 }
 

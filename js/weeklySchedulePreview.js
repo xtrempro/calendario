@@ -1,17 +1,20 @@
-// Visor de la programacion semanal publicada, para el supervisor.
+// Visor de la programacion semanal, para el supervisor.
 //
-// Hasta ahora la programacion solo se VEIA en la PWA del trabajador: el menu de
-// Asignacion de Tareas la sube y dice "Tabla leida del Excel · 34 filas", pero
-// no la muestra. Este modulo la dibuja igual que la ve el trabajador, para que
-// el supervisor pueda revisar lo que publico sin pedirle el telefono a nadie.
+// La fuente es la ASIGNACION DE TAREAS: lo que se ve aca es la misma tabla de
+// "Ver programación" del menu de tareas. Antes se dibujaba el Excel que subia
+// el supervisor, que obligaba a mantener dos verdades -lo repartido en el
+// tablero y lo subido a mano- y a que no coincidieran.
 //
-// Solo LEE. Publicar, corregir o borrar sigue siendo del menu de tareas.
+// El Excel se sigue pudiendo adjuntar; simplemente ya no es lo que se muestra.
+//
+// Solo LEE. Repartir tareas sigue siendo del menu de Asignacion de Tareas.
 
 import { escapeHTML } from "./htmlUtils.js";
 import {
     getScheduleAttachment,
     getScheduleAttachments,
-    scheduleWeekStartISO
+    scheduleWeekStartISO,
+    taskScheduleGrid
 } from "./taskAssignments.js";
 
 const DIAS_POR_DEFECTO = [
@@ -175,51 +178,51 @@ function gridTableHTML(grid) {
 }
 
 /**
- * Cuerpo del visor para una semana. Devuelve HTML.
- *
- * Si la programacion de esa semana se publico como Excel, se dibuja la tabla.
- * Si se publico como imagen, el llamador tiene que resolver su URL de descarga
- * y pasarla en imageUrl: leerla de Storage es asincrono y este modulo se
- * mantiene sincrono para poder repintarse sin esperas.
+ * Fecha y hora de la ultima edicion, para saber si lo que se esta mirando es
+ * reciente. Sin esto, una programacion vieja y una recien tocada se ven igual.
  */
-export function weeklyScheduleBody(weekStart, { imageUrl = "", loading = false } = {}) {
-    const attachment = getScheduleAttachment(weekStart);
+export function scheduleUpdatedHTML(updatedAtISO) {
+    if (!updatedAtISO) return "";
 
-    if (!attachment) {
-        return `<div class="ws-empty">No hay programación publicada para esta semana.</div>`;
-    }
+    const date = new Date(updatedAtISO);
 
-    if (attachment.grid?.rows?.length) {
-        return gridTableHTML(attachment.grid);
-    }
-
-    if (imageUrl) {
-        return `
-            <div class="ws-image-scroll" role="region" aria-label="Programación semanal" tabindex="0">
-                <img src="${escapeHTML(imageUrl)}" alt="${escapeHTML(attachment.name || "Programación")}">
-            </div>`;
-    }
+    if (Number.isNaN(date.getTime())) return "";
 
     return `
-        <div class="ws-empty">${
-            loading
-                ? "Cargando la programación publicada..."
-                : "No se pudo cargar la imagen de la programación."
-        }</div>`;
+        <p class="ws-updated">Última modificación: ${escapeHTML(
+            date.toLocaleString("es-CL", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit"
+            })
+        )}</p>`;
+}
+
+/**
+ * El cuerpo del visor sale de la ASIGNACION DE TAREAS, no del Excel que sube el
+ * supervisor: es la misma tabla que se ve en "Ver programación" del menu de
+ * tareas. El Excel se sigue pudiendo adjuntar, pero ya no es lo que se muestra.
+ */
+export function weeklyScheduleBody(weekStart) {
+    const grid = taskScheduleGrid(weekStart);
+
+    if (!grid.rows.length) {
+        return `<div class="ws-empty">Todavía no hay tareas asignadas en esta semana.</div>`;
+    }
+
+    return `${gridTableHTML(grid)}${scheduleUpdatedHTML(grid.updatedAtISO)}`;
 }
 
 /**
  * Indica si esa semana se publico como imagen (y por lo tanto hay que ir a
  * buscar su URL a Storage antes de poder mostrarla).
  */
-export function weekNeedsImage(weekStart) {
-    const attachment = getScheduleAttachment(weekStart);
-
-    return Boolean(
-        attachment &&
-        !attachment.grid?.rows?.length &&
-        (attachment.storagePath || attachment.dataUrl || attachment.downloadURL)
-    );
+export function weekNeedsImage() {
+    // El visor ya no dibuja la imagen del Excel, sino la asignacion de tareas,
+    // asi que no hay nada que ir a buscar a Storage.
+    return false;
 }
 
 export function weekAttachment(weekStart) {
