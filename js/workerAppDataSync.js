@@ -2850,6 +2850,11 @@ async function publishHotNow() {
     hotPublishRequested = false;
     hotPublishNeedsLocalStateFlush = false;
 
+    // La programacion del workspace se publica SIEMPRE, antes del corte de
+    // abajo: no depende de que haya perfiles sucios, y si dependiera, editar el
+    // tablero sin tocar a nadie en particular no republicaria nada.
+    void publishSharedScheduleNow();
+
     if (!dirtyNames.size) return;
 
     const requestWorkspace = currentWorkspace();
@@ -2896,7 +2901,6 @@ async function publishHotNow() {
     // hot legacy: sin ellos, el trabajador no aparece en Mensajes y
     // compatibleWorkerUids queda vacio. Livianos y solo para los enlazados (pocos).
     void publishLinkedWorkerDocs();
-    void publishSharedScheduleNow();
 }
 
 // La programacion es la MISMA para todo el workspace, asi que va en UN doc
@@ -2946,8 +2950,17 @@ async function publishSharedScheduleNow() {
             workspaceId,
             weekCount: Object.keys(weeklyScheduleAttachments).length
         });
+        console.info(
+            "[TurnoPlus] Programacion publicada al workspace:",
+            Object.keys(weeklyScheduleAttachments).length,
+            "semanas",
+            Object.keys(weeklyScheduleAttachments)
+        );
     } catch (error) {
-        console.warn("No se pudo publicar la programacion del workspace.", error);
+        console.error(
+            "[TurnoPlus] NO se pudo publicar la programacion del workspace.",
+            error
+        );
     }
 }
 
