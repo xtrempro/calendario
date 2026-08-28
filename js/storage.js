@@ -979,6 +979,11 @@ export const DEFAULT_TURN_CHANGE_CONFIG = {
     allowDifferentTurnTypes: true,
     allowTwentyFourHourShifts: true,
     allowInvertedTwentyFourHourShifts: true,
+    // Un Diurno pegado al dia siguiente de un 24h encadena 33 horas de jornada
+    // (08:00 del dia 1 a las 17:00 del dia 2), asi que arranca DESACTIVADO: es
+    // una excepcion que la unidad habilita a proposito, no el comportamiento
+    // por defecto. Solo tiene sentido con los turnos 24 permitidos.
+    allowDiurnoAfterTwentyFour: false,
     limitMonthlySwaps: false,
     monthlySwapLimit: 2
 };
@@ -1012,6 +1017,12 @@ function normalizeTurnChangeConfig(config = {}) {
             config.allowTwentyFourHourShifts !== false,
         allowInvertedTwentyFourHourShifts:
             config.allowInvertedTwentyFourHourShifts !== false,
+        // Depende de los turnos 24: sin ellos no hay dia siguiente a un 24 que
+        // habilitar, y dejar el flag suelto en true escondia una excepcion
+        // activa detras de un ajuste apagado.
+        allowDiurnoAfterTwentyFour:
+            config.allowDiurnoAfterTwentyFour === true &&
+            config.allowTwentyFourHourShifts !== false,
         limitMonthlySwaps:
             config.limitMonthlySwaps === true,
         monthlySwapLimit:

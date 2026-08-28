@@ -669,15 +669,33 @@ function createsForbiddenTwentyFourAdjacency({
         Number(getSwapTurnState(receiver, offsetKey(keyDay, 1))) || TURNO.LIBRE;
     const isTwentyFour = turno => turno === TURNO.TURNO24;
 
+    // Excepcion habilitable por la unidad: un Diurno puro pegado al dia
+    // siguiente de un 24h. Solo el Diurno; Larga, D+N u otro 24 pegados a un 24
+    // siguen prohibidos siempre. Aplica en las dos direcciones: poner el Diurno
+    // despues del 24, y poner el 24 cuando el dia siguiente ya es Diurno.
+    const permiteDiurnoPost24 =
+        getTurnChangeConfig().allowDiurnoAfterTwentyFour === true;
+    const esDiurno = turno => turno === TURNO.DIURNO;
+
     return (
         // Inicio diurno el dia siguiente a un 24h.
-        (isTwentyFour(previousTurn) && includesDaytimeStart(projected)) ||
+        (
+            isTwentyFour(previousTurn) &&
+            includesDaytimeStart(projected) &&
+            !(permiteDiurnoPost24 && esDiurno(projected))
+        ) ||
         // Noche el dia anterior a un 24h.
         (isTwentyFour(nextTurn) && includesNoche(projected)) ||
         // El propio proyectado es un 24h y su vecino lo hace imposible.
         (
             isTwentyFour(projected) &&
-            (includesNoche(previousTurn) || includesDaytimeStart(nextTurn))
+            (
+                includesNoche(previousTurn) ||
+                (
+                    includesDaytimeStart(nextTurn) &&
+                    !(permiteDiurnoPost24 && esDiurno(nextTurn))
+                )
+            )
         )
     );
 }

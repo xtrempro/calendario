@@ -474,6 +474,13 @@ function renderTurnChangesPanel() {
                     description: "Si se desactiva, no se podran generar turnos 24 manuales ni cambios que dejen a un trabajador con turno 24."
                 })}
 
+                ${config.allowTwentyFourHourShifts ? checkboxHTML({
+                    id: "settingsAllowDiurnoAfterTwentyFour",
+                    checked: config.allowDiurnoAfterTwentyFour,
+                    title: "Permitir agregar turno diurno post 24h",
+                    description: "Habilita un turno Diurno el dia siguiente a un 24h. El reporte marca los tres turnos: Larga y Noche en la fila del 24, y el Diurno en la del dia siguiente."
+                }) : ""}
+
                 ${checkboxHTML({
                     id: "settingsAllowInvertedTwentyFourHourShifts",
                     checked: config.allowInvertedTwentyFourHourShifts,
@@ -1089,6 +1096,15 @@ function readTurnChangeConfig(backdrop) {
             hasInput("settingsAllowInvertedTwentyFourHourShifts")
                 ? checked("settingsAllowInvertedTwentyFourHourShifts")
                 : fallback.allowInvertedTwentyFourHourShifts,
+        // El checkbox solo existe en el DOM con los turnos 24 activos. Al
+        // desactivarlos desaparece, y sin este `false` explicito el fallback
+        // conservaria la excepcion encendida de forma invisible.
+        allowDiurnoAfterTwentyFour:
+            hasInput("settingsAllowDiurnoAfterTwentyFour")
+                ? checked("settingsAllowDiurnoAfterTwentyFour")
+                : hasInput("settingsAllowTwentyFourHourShifts")
+                ? false
+                : fallback.allowDiurnoAfterTwentyFour,
         limitMonthlySwaps:
             hasInput("settingsLimitMonthlySwaps")
                 ? checked("settingsLimitMonthlySwaps")
@@ -1392,6 +1408,9 @@ function bindBackdrop(backdrop) {
             ![
                 "settingsAllowSwaps",
                 "settingsLimitMonthlySwaps",
+                // Cuelga de el la opcion de Diurno post 24h: sin reconstruir, el
+                // hijo quedaba en pantalla despues de apagar el padre.
+                "settingsAllowTwentyFourHourShifts",
                 "settingsEnableWorkerAcceptanceRequest",
                 "settingsTurnChangeReturnEnabled"
             ].includes(event.target?.id)

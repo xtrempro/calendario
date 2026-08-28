@@ -636,6 +636,13 @@ export function turnoBloqueadoPorTurno24(nombre, key, turno) {
     const anterior = estadoTurno(nombre, offsetKey(key, -1));
     const siguiente = estadoTurno(nombre, offsetKey(key, 1));
 
+    // Excepcion que la unidad habilita a proposito: un Diurno pegado al dia
+    // siguiente de un 24h. Encadena 33 horas (08:00 del dia 1 a las 17:00 del
+    // dia 2), por eso viene apagada. Vale SOLO para el Diurno puro: una Larga,
+    // un D+N u otro 24 pegados a un 24 siguen prohibidos siempre.
+    const diurnoPost24Permitido =
+        config.allowDiurnoAfterTwentyFour === true;
+
     if (candidate === TURNO.TURNO24) {
         if (
             [
@@ -643,7 +650,8 @@ export function turnoBloqueadoPorTurno24(nombre, key, turno) {
                 TURNO.TURNO24,
                 TURNO.DIURNO,
                 TURNO.DIURNO_NOCHE
-            ].includes(siguiente)
+            ].includes(siguiente) &&
+            !(diurnoPost24Permitido && siguiente === TURNO.DIURNO)
         ) {
             return true;
         }
@@ -677,7 +685,8 @@ export function turnoBloqueadoPorTurno24(nombre, key, turno) {
             candidate === TURNO.TURNO24 ||
             candidate === TURNO.DIURNO ||
             candidate === TURNO.DIURNO_NOCHE
-        )
+        ) &&
+        !(diurnoPost24Permitido && candidate === TURNO.DIURNO)
     ) {
         return true;
     }
