@@ -2896,6 +2896,59 @@ async function publishHotNow() {
     // hot legacy: sin ellos, el trabajador no aparece en Mensajes y
     // compatibleWorkerUids queda vacio. Livianos y solo para los enlazados (pocos).
     void publishLinkedWorkerDocs();
+    void publishSharedScheduleNow();
+}
+
+// La programacion es la MISMA para todo el workspace, asi que va en UN doc
+// compartido (workspaces/{id}/published/schedule) en vez de duplicarla en el doc
+// de cada trabajador: escribir N docs excedia el limite de commit de Firestore
+// con muchos enlazados ("Transaction too big"). Asi es O(1). La PWA lo lee de
+// ahi y no de otro lado.
+//
+// Se escribe SIN merge a proposito. `setDoc(..., { merge: true })` fusiona los
+// mapas en PROFUNDIDAD, de modo que las semanas viejas del mapa se quedaban
+// pegadas para siempre: por eso, tras quitar el Excel, en el telefono seguian
+// apareciendo las programaciones anteriores en imagen. Reemplazar el documento
+// es lo unico que las saca. Nadie mas escribe en el, asi que es seguro.
+async function publishSharedScheduleNow() {
+    if (!activeWorkspace?.id) return;
+
+    const workspaceId = activeWorkspace.id;
+    const weeklyScheduleAttachments = getPublishedScheduleAttachments();
+    const currentWeekPayload = getPublishedScheduleAttachment(
+        new Date(),
+        weeklyScheduleAttachments
+    );
+
+    try {
+        const { db, firestoreModule } = await getFirebaseServices();
+
+        if (workspaceId !== activeWorkspace?.id) return;
+
+        await firestoreModule.setDoc(
+            firestoreModule.doc(
+                db,
+                "workspaces",
+                workspaceId,
+                "published",
+                "schedule"
+            ),
+            {
+                weeklyScheduleAttachment: currentWeekPayload || null,
+                weeklyScheduleAttachments,
+                updatedAtISO: new Date().toISOString(),
+                updatedAt: firestoreModule.serverTimestamp()
+            }
+        );
+
+        recordPerformanceEvent("worker-app:publish-schedule", {
+            type: "worker-app",
+            workspaceId,
+            weekCount: Object.keys(weeklyScheduleAttachments).length
+        });
+    } catch (error) {
+        console.warn("No se pudo publicar la programacion del workspace.", error);
+    }
 }
 
 // Publica, por cada trabajador ENLAZADO, los dos docs livianos que el navegador
@@ -3191,6 +3244,12 @@ export async function startWorkerAppDataSync(workspace) {
                 // compatibles para cambiar turno.
                 if (initial) {
                     void publishLinkedWorkerDocs();
+                    // La programacion se republica al arrancar, no solo cuando
+                    // el supervisor edita algo. Es UNA escritura O(1) por
+                    // sesion, y es lo que hace que un documento publicado con
+                    // el formato anterior se corrija solo en el telefono del
+                    // trabajador, sin obligar a tocar el tablero.
+                    void publishSharedScheduleNow();
                     return;
                 }
 

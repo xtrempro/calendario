@@ -51,8 +51,15 @@ test("dedup por perfil: conserva el enlace mas reciente y retira los duplicados"
 });
 
 test("se dispara en el arranque (primer snapshot) y en cada publicacion", () => {
-  assert.match(src, /if \(initial\) \{\s*\n\s*void publishLinkedWorkerDocs\(\);\s*\n\s*return;\s*\n\s*\}/);
+  // En el arranque tambien se republica la programacion del workspace, para
+  // que un documento publicado con el formato anterior se corrija solo, sin
+  // obligar al supervisor a editar el tablero.
+  assert.match(
+    src,
+    /if \(initial\) \{\s*\n\s*void publishLinkedWorkerDocs\(\);[\s\S]{0,420}void publishSharedScheduleNow\(\);\s*\n\s*return;\s*\n\s*\}/
+  );
   assert.match(grab("publishHotNow"), /void publishLinkedWorkerDocs\(\);/);
+  assert.match(grab("publishHotNow"), /void publishSharedScheduleNow\(\);/);
 });
 
 test("buildSwapCandidatePayload sigue publicando compatibilidad y la config del 24", () => {

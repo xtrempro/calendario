@@ -81,3 +81,32 @@ test("la publicacion sigue siendo diferida y agrupada", async () => {
         /clearTimeout\(hotPublishTimer\);\s*\n\s*hotPublishTimer = setTimeout\(\(\) => publishHotNow\(\), delay\);/
     );
 });
+
+test("el documento compartido se reemplaza, no se fusiona", async () => {
+    const sync = await readSync();
+
+    // `setDoc(..., { merge: true })` fusiona los mapas en PROFUNDIDAD: las
+    // semanas viejas del mapa se quedaban pegadas para siempre, y tras quitar
+    // el Excel seguian apareciendo en el telefono las programaciones anteriores
+    // en imagen. Reemplazar el documento es lo unico que las saca.
+    assert.match(
+        sync,
+        /async function publishSharedScheduleNow[\s\S]{0,900}"published",\s*\n\s*"schedule"\s*\n\s*\),\s*\n\s*\{[\s\S]{0,400}\}\s*\n\s*\);/
+    );
+    assert.doesNotMatch(
+        sync,
+        /async function publishSharedScheduleNow[\s\S]{0,1200}\{ merge: true \}/
+    );
+});
+
+test("la programacion se republica al arrancar y en cada publicacion", async () => {
+    const sync = await readSync();
+
+    // Sin la del arranque, un workspace con el documento en el formato anterior
+    // se quedaria mostrando lo viejo hasta que alguien editara el tablero.
+    assert.match(sync, /void publishSharedScheduleNow\(\);/);
+    assert.match(
+        sync,
+        /if \(initial\) \{[\s\S]*?void publishSharedScheduleNow\(\);[\s\S]*?return;/
+    );
+});
