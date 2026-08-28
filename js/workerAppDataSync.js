@@ -1560,6 +1560,54 @@ function normalizePublishedScheduleAttachmentMap(value) {
     );
 }
 
+// La programacion que ve el trabajador sale de la ASIGNACION DE TAREAS, no del
+// Excel. La grilla la construye `taskAssignments.js`, que YA importa este
+// modulo: importarlo de vuelta cerraria un ciclo, asi que el proveedor se
+// registra al cargar en vez de importarse.
+let taskScheduleGridProvider = null;
+
+export function registerTaskScheduleGridProvider(provider) {
+    taskScheduleGridProvider = typeof provider === "function" ? provider : null;
+}
+
+// Ventana de tres semanas: la anterior, la actual y la siguiente. Es lo que el
+// trabajador consulta en la practica, y mantiene acotado un documento que se
+// escribe entero en cada publicacion.
+const TASK_SCHEDULE_PUBLISHED_WEEKS = [-1, 0, 1];
+
+function taskScheduleAttachments() {
+    if (!taskScheduleGridProvider) return [];
+
+    const base = schedulePublicationWeekStart(new Date());
+
+    return TASK_SCHEDULE_PUBLISHED_WEEKS.map(offset => {
+        const start = new Date(base);
+
+        start.setDate(start.getDate() + offset * 7);
+
+        let grid = null;
+
+        try {
+            grid = taskScheduleGridProvider(start);
+        } catch (error) {
+            console.warn(
+                "No se pudo armar la programacion de tareas para publicar.",
+                error
+            );
+            return null;
+        }
+
+        if (!grid?.rows?.length) return null;
+
+        return normalizePublishedScheduleAttachment({
+            name: "Programación de tareas",
+            grid: { days: grid.days, rows: grid.rows },
+            updatedAtISO: grid.updatedAtISO,
+            weekStartISO: schedulePublicationWeekStartISO(start)
+        }, start);
+    }).filter(Boolean);
+}
+
 function getPublishedScheduleAttachments() {
     const attachments = normalizePublishedScheduleAttachmentMap(
         getJSON("weekly_task_schedule_attachments", {})
@@ -1572,6 +1620,12 @@ function getPublishedScheduleAttachments() {
     if (legacy && !attachments[legacy.weekStartISO]) {
         attachments[legacy.weekStartISO] = legacy;
     }
+
+    // Va DESPUES del Excel a proposito: donde haya tareas repartidas, esa es la
+    // programacion buena y pisa al adjunto de esa semana.
+    taskScheduleAttachments().forEach(entry => {
+        attachments[entry.weekStartISO] = entry;
+    });
 
     return attachments;
 }

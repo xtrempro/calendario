@@ -31,6 +31,7 @@ import { getActiveWorkspace } from "./workspaces.js";
 import {
     getWorkerAppLinks,
     publishWorkerScheduleAttachmentNow,
+    registerTaskScheduleGridProvider,
     scheduleWorkerAppDataPublish
 } from "./workerAppDataSync.js";
 
@@ -5076,3 +5077,8 @@ export async function renderTaskAssignmentsPanel() {
     // colgarlo -y reanclarlo a su casilla- despues de cada pintado.
     syncCellPicker(root);
 }
+
+// Le entrega a la publicacion la grilla de la semana que pida. Se registra en
+// vez de importarse al reves porque este modulo YA importa el de publicacion, y
+// hacerlo mutuo cerraria un ciclo de imports.
+registerTaskScheduleGridProvider(taskScheduleGrid);
