@@ -100,9 +100,14 @@ test("sin programacion adjunta el widget no aparece", () => {
 test("el widget muestra cuando se actualizo cada semana", () => {
     assert.match(home, /label: "Esta semana"/);
     assert.match(home, /label: "Próxima semana", start: addScheduleDays\(estaSemana, 7\)/);
-    // Solo las semanas que tienen tareas repartidas.
-    assert.match(home, /const updatedAtISO = taskScheduleUpdatedAt\(semana\.start\);/);
-    assert.match(home, /return updatedAtISO\s*\n\s*\? \{ label: semana\.label, \.\.\.actualizacion\(updatedAtISO\) \}\s*\n\s*: null;/);
+    // La condicion es TENER TAREAS, no tener fecha de edicion. La marca solo
+    // existe desde que se empezo a escribir: condicionar el widget a ella
+    // dejaba invisible toda la programacion anterior, hasta que alguien la
+    // tocara. La fecha es un dato de la tarjeta, no su requisito.
+    assert.match(home, /if \(!taskScheduleHasAssignments\(semana\.start\)\) return null;/);
+    assert.match(home, /\.\.\.actualizacion\(taskScheduleUpdatedAt\(semana\.start\)\)/);
+    // Y sin fecha la tarjeta igual se dibuja.
+    assert.match(home, /fecha: "sin fecha"/);
 });
 
 test("desde el inicio ya no se adjunta ningun Excel", () => {

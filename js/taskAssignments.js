@@ -4024,6 +4024,16 @@ export function getTaskScheduleWeek(start = currentWeekStart) {
 // Semanas (ISO del lunes) que tienen algo repartido. Es lo que reemplaza a la
 // lista de semanas con Excel adjunto: ahora "tener programacion" es "tener
 // tareas asignadas".
+// Si esa semana tiene algo repartido. Es la pregunta correcta para decidir si
+// hay programacion que mostrar: la marca de ultima edicion NO sirve, porque
+// solo existe desde que se empezo a escribir y las semanas anteriores quedarian
+// invisibles hasta que alguien las tocara.
+export function taskScheduleHasAssignments(start = currentWeekStart) {
+    const week = getAllAssignments()[weekKey(start)];
+
+    return Boolean(week && Object.keys(week).length);
+}
+
 export function taskScheduleWeeks() {
     const all = getAllAssignments();
 

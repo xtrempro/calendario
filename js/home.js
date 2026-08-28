@@ -72,7 +72,10 @@ import {
     weeklyScheduleBody
 } from "./weeklySchedulePreview.js";
 import { openAttachmentFile } from "./attachmentUtils.js";
-import { taskScheduleUpdatedAt } from "./taskAssignments.js";
+import {
+    taskScheduleHasAssignments,
+    taskScheduleUpdatedAt
+} from "./taskAssignments.js";
 import {
     buildTaskAssignmentContext,
     getDayTaskAssignments
@@ -725,11 +728,15 @@ function programacionSemanas() {
         { label: "Próxima semana", start: addScheduleDays(estaSemana, 7) }
     ]
         .map(semana => {
-            const updatedAtISO = taskScheduleUpdatedAt(semana.start);
+            // La condicion es TENER TAREAS, no tener fecha de edicion: la marca
+            // solo existe desde que se empezo a escribir, y condicionar el
+            // widget a ella dejaba invisible toda la programacion anterior.
+            if (!taskScheduleHasAssignments(semana.start)) return null;
 
-            return updatedAtISO
-                ? { label: semana.label, ...actualizacion(updatedAtISO) }
-                : null;
+            return {
+                label: semana.label,
+                ...actualizacion(taskScheduleUpdatedAt(semana.start))
+            };
         })
         .filter(Boolean);
 }
