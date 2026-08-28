@@ -27,6 +27,12 @@ import {
     leaveRequestCoversISODate,
     pendingLeaveColorValue
 } from "./pendingLeaveRequests.js";
+import {
+    getPendingSwapRequestForDate,
+    getPendingSwapRequestsForProfile,
+    pendingSwapColorValue,
+    pendingSwapRoleForDate
+} from "./pendingSwapRequests.js";
 import { fetchHolidays } from "./holidays.js";
 import { calcularHorasMesPerfil } from "./hoursEngine.js";
 import { readPublishedRrhhSummary } from "./rrhhSummaryPublisher.js";
@@ -2722,12 +2728,38 @@ function buildTimelineRowAuxiliaryContext(
         }
     }
 
+    // Solicitudes de CAMBIO DE TURNO pendientes, mismo criterio: se precomputa
+    // una vez por perfil en vez de recorrer todas las solicitudes por casilla.
+    const pendingSwapByKey = new Map();
+    const profilePendingSwaps =
+        getPendingSwapRequestsForProfile(profileName);
+
+    if (profilePendingSwaps.length) {
+        for (const keyDay of keys) {
+            const iso = isoByKey.get(keyDay) || isoFromKey(keyDay);
+
+            for (const request of profilePendingSwaps) {
+                const role = pendingSwapRoleForDate(
+                    request,
+                    profileName,
+                    iso
+                );
+
+                if (!role) continue;
+
+                pendingSwapByKey.set(keyDay, { request, role });
+                break;
+            }
+        }
+    }
+
     const aux = {
         data,
         keys,
         isoByKey,
         dateByKey,
         pendingLeaveByKey,
+        pendingSwapByKey,
         blockedByIso,
         hourReturns: getTimelineCachedHourReturns(profileName, renderCache),
         pendingRequestIndex: getTimelineCachedPendingRequests(renderCache),
@@ -3279,6 +3311,14 @@ function renderTimelineDayCell(profile, d, {
     const pendingLeave = rowAux?.pendingLeaveByKey?.has(key)
         ? rowAux.pendingLeaveByKey.get(key)
         : getPendingLeaveRequestForDate(profile.name, iso);
+    // Solicitud de cambio de turno pendiente de aprobacion: misma casilla
+    // parpadeante, otro color. Manda el permiso si coinciden, igual que en el
+    // calendario principal.
+    const pendingSwap = pendingLeave
+        ? null
+        : rowAux?.pendingSwapByKey?.has(key)
+        ? rowAux.pendingSwapByKey.get(key)
+        : getPendingSwapRequestForDate(profile.name, iso);
     const realTurn = rowAux?.realTurnByKey?.has(key)
         ? rowAux.realTurnByKey.get(key)
         : getTurnoReal(profile.name, key);
@@ -3497,6 +3537,8 @@ function renderTimelineDayCell(profile, d, {
 
     const pendingLeaveStyle = pendingLeave
         ? `;--pending-leave-color:${pendingLeaveColorValue(pendingLeave.type)}`
+        : pendingSwap
+        ? `;--pending-leave-color:${pendingSwapColorValue()}`
         : "";
 
     // Permiso/ausencia sobre un dia LIBRE por rotativa (sin turno base): se pinta al
@@ -3513,7 +3555,7 @@ function renderTimelineDayCell(profile, d, {
         <td
             data-timeline-profile="${escapeHtml(profile.name)}"
             data-timeline-key="${escapeHtml(key)}"
-            class="mini ${isLeaveFreeDay ? "leave-free-day" : ""} ${pendingLeave ? "timeline-leave-pending" : ""} ${workerBlockedDay ? "worker-blocked-mini" : ""} ${isInhabil ? "timeline-inhabil" : ""} ${contractError ? "contract-error-day" : ""} ${honorariaExcess ? "honoraria-limit-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement && !preassignedCovered && !waitingForRequest ? "needs-replacement" : ""} ${waitingForRequest ? "request-wait-day" : ""} ${preassignedCovered || preassignedWorker ? "preassign-day" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${hourReturn ? "hours-return-mini" : ""} ${replacement ? "replacement-day" : ""}"
+            class="mini ${isLeaveFreeDay ? "leave-free-day" : ""} ${pendingLeave ? "timeline-leave-pending" : ""} ${pendingSwap ? "timeline-leave-pending timeline-swap-pending" : ""} ${workerBlockedDay ? "worker-blocked-mini" : ""} ${isInhabil ? "timeline-inhabil" : ""} ${contractError ? "contract-error-day" : ""} ${honorariaExcess ? "honoraria-limit-day" : ""} ${severeClockIncident ? "clock-severe-day" : ""} ${simpleClockIncident ? "clock-incident-day" : ""} ${needsReplacement && !preassignedCovered && !waitingForRequest ? "needs-replacement" : ""} ${waitingForRequest ? "request-wait-day" : ""} ${preassignedCovered || preassignedWorker ? "preassign-day" : ""} ${showExtraReason || showClockExtra ? "needs-extra-reason" : ""} ${hourReturn ? "hours-return-mini" : ""} ${replacement ? "replacement-day" : ""}"
             style="${escapeHtml(`background:${preassignBackground || background}${pendingLeaveStyle}`)}"
             title="${escapeHtml(titleText)}"
             ${preassignedCovered || preassignedWorker ? `data-preassign-profile="${escapeHtml(profile.name)}" data-preassign-key="${escapeHtml(key)}"` : ""}
@@ -3525,7 +3567,7 @@ function renderTimelineDayCell(profile, d, {
             ${showExtraReason ? `data-extra-profile="${escapeHtml(profile.name)}" data-extra-key="${escapeHtml(key)}" data-extra-turn="${escapeHtml(showExtraReason)}"` : ""}
             ${showClockExtra && !showExtraReason ? `data-clock-extra-profile="${escapeHtml(profile.name)}" data-clock-extra-key="${escapeHtml(key)}" data-clock-extra-turn="${escapeHtml(realTurn)}"` : ""}
         >
-            ${pendingLeave ? `<span class="timeline-leave-overlay" aria-hidden="true"></span>` : ""}
+            ${pendingLeave || pendingSwap ? `<span class="timeline-leave-overlay" aria-hidden="true"></span>` : ""}
             ${marker ? `<span class="timeline-replacement-marker">${marker}</span>` : ""}
         </td>
     `;

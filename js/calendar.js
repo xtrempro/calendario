@@ -84,6 +84,13 @@ import {
     pendingLeaveColorValue
 } from "./pendingLeaveRequests.js";
 import {
+    getPendingSwapRequestsForProfile,
+    pendingSwapColorValue,
+    pendingSwapLabel,
+    pendingSwapLongLabel,
+    pendingSwapRoleForDate
+} from "./pendingSwapRequests.js";
+import {
     cancelTimelineRender,
     renderTimeline,
     showTimelinePendingMonth,
@@ -938,6 +945,31 @@ function buildPendingLeaveRequestIndex(profileName, year, month, days) {
         );
 
         if (request) index.set(keyDay, request);
+    }
+
+    return index;
+}
+
+// Mismo patron que el indice de permisos pendientes: se precomputa una vez por
+// render en vez de consultar por casilla.
+function buildPendingSwapRequestIndex(profileName, year, month, days) {
+    const index = new Map();
+    const requests = getPendingSwapRequestsForProfile(profileName);
+
+    if (!requests.length) return index;
+
+    for (let d = 1; d <= days; d++) {
+        const keyDay = key(year, month, d);
+        const iso = isoFromKeyDay(keyDay);
+
+        for (const request of requests) {
+            const role = pendingSwapRoleForDate(request, profileName, iso);
+
+            if (!role) continue;
+
+            index.set(keyDay, { request, role });
+            break;
+        }
     }
 
     return index;
@@ -2436,6 +2468,28 @@ function pendingLeaveHoverTitle(request, profileName, keyDay, baseState) {
         request.days ? `Dias: ${request.days}` : "",
         `Turno base: ${baseLabel}`,
         request.note ? `Detalle: ${request.note}` : ""
+    ].filter(Boolean).join("\n");
+}
+
+function pendingSwapHoverTitle(pendingSwap, profileName, state) {
+    if (!pendingSwap) return "";
+
+    const { request, role } = pendingSwap;
+    const counterpart =
+        (request.from === profileName ? request.to : request.from) ||
+        request.targetProfile ||
+        "Sin contraparte";
+    const changeDate = request.fecha || request.date || "";
+    const returnDate = request.devolucion || request.returnDate || "";
+
+    return [
+        "Cambio de turno pendiente de aprobacion",
+        `Trabajador: ${profileName}`,
+        `Con: ${counterpart}`,
+        `${pendingSwapLongLabel(role)}: ${turnoLabel(state) || "Libre"}`,
+        changeDate ? `Cambio: ${formatISODateForHover(changeDate)}` : "",
+        returnDate ? `Devolucion: ${formatISODateForHover(returnDate)}` : "",
+        request.detail ? `Detalle: ${request.detail}` : ""
     ].filter(Boolean).join("\n");
 }
 
@@ -8322,6 +8376,8 @@ async function renderCalendarImpl(options = {}) {
         buildCalendarBlockedDayIndex(activeProfile);
     const pendingLeaveIndex =
         buildPendingLeaveRequestIndex(activeProfile, y, m, days);
+    const pendingSwapIndex =
+        buildPendingSwapRequestIndex(activeProfile, y, m, days);
     const contractIndex =
         buildCalendarContractIndex(activeProfile, y, m, days);
     const honorariaSummary = getHonorariaMonthlySummary(
@@ -8368,6 +8424,11 @@ async function renderCalendarImpl(options = {}) {
             pendingLeaveRequest
                 ? turnoLabel(baseState) || "Libre"
                 : "";
+        // Un permiso pendiente y un cambio pendiente sobre el mismo dia: manda
+        // el permiso, que es el que puede dejar el turno sin cubrir.
+        const pendingSwap = pendingLeaveRequest
+            ? null
+            : (pendingSwapIndex.get(keyDay) || null);
 
         const state = aplicarCambiosTurno(
             activeProfile,
@@ -8582,6 +8643,8 @@ async function renderCalendarImpl(options = {}) {
             label,
             alternateLabel: pendingLeaveRequest
                 ? pendingLeaveBaseLabel
+                : pendingSwap
+                ? pendingSwapLabel(pendingSwap.role)
                 : "",
             badge,
             badges: calendarBadges.length
@@ -8648,6 +8711,11 @@ async function renderCalendarImpl(options = {}) {
                         keyDay,
                         baseState
                     ),
+                    pendingSwapHoverTitle(
+                        pendingSwap,
+                        activeProfile,
+                        state
+                    ),
                     turnChangeTitle,
                     shiftMoveTitle,
                     baseTitle,
@@ -8711,6 +8779,24 @@ async function renderCalendarImpl(options = {}) {
             div.style.setProperty(
                 "--pending-leave-color",
                 pendingLeaveColorValue(pendingLeaveRequest.type)
+            );
+            const pendingOverlay = document.createElement("span");
+            pendingOverlay.className = "pending-leave-color-overlay";
+            pendingOverlay.setAttribute("aria-hidden", "true");
+            div.insertBefore(pendingOverlay, div.firstChild);
+        }
+
+        if (pendingSwap) {
+            // Se reutiliza la maquinaria de parpadeo de los permisos: mismas
+            // clases, mismo periodo y mismo sincronizador de fase, asi los dos
+            // tipos de solicitud parpadean juntos en vez de desfasados. Lo unico
+            // propio es el color y la clase que marca de que solicitud se trata.
+            div.classList.add("pending-leave-request-day");
+            div.classList.add("pending-swap-request-day");
+            div.dataset.workerRequestId = pendingSwap.request.id;
+            div.style.setProperty(
+                "--pending-leave-color",
+                pendingSwapColorValue()
             );
             const pendingOverlay = document.createElement("span");
             pendingOverlay.className = "pending-leave-color-overlay";

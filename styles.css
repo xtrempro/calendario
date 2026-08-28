@@ -6272,6 +6272,15 @@ body.theme-light .day.worker-blocked-day {
     text-align: center;
 }
 
+/* Solicitud de CAMBIO DE TURNO pendiente. Reutiliza la maquinaria de parpadeo de
+   los permisos (misma clase, mismo periodo, mismo sincronizador de fase) y solo
+   cambia el color, para que los dos tipos de solicitud parpadeen juntos y el
+   supervisor los distinga por color: naranja permiso, azul cambio de turno. */
+.day.pending-swap-request-day,
+td.mini.timeline-swap-pending {
+    --pending-leave-color: linear-gradient(135deg, #0089c5, #38bdf8);
+}
+
 /* Solicitud de permiso pendiente: la celda conserva el color del turno y parpadea
    alternando con el color del permiso (overlay), en sincronia con el nombre. */
 .day.pending-leave-request-day {

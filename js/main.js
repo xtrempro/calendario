@@ -13073,6 +13073,14 @@ window.addEventListener("proturnos:workerRequestsChanged", () => {
     }
 
     void updateVisibleCalendarDays({ updateSummary: true });
+
+    // Una solicitud pendiente hace parpadear el dia tambien en el timeline. Su
+    // cache ya se limpia por `persistenceChanged`, pero si el supervisor esta
+    // parado en esa vista nadie le pedia repintar: la solicitud recien llegada
+    // no aparecia hasta cambiar de mes o de menu.
+    if (document.body.dataset.activeView === "timeline") {
+        void renderTimeline({ skipCache: true });
+    }
 });
 
 // Al modificar un marcaje (recuperación de horas / horas extra / reducción), el
