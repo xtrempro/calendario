@@ -307,10 +307,12 @@ test("las flechas mueven un dia y repintan sin cerrar el modal", () => {
         home,
         /dot-prev"\], \[data-hm="dot-next"\]'\);\s*\n\s*if \(paso\) \{\s*\n\s*irADia\(addDays\(dotacionDate, paso\.dataset\.hm === "dot-next" \? 1 : -1\)\);/
     );
-    // Y el repintado usa la fecha que se esta mirando, no new Date().
+    // Y el repintado usa la fecha que se esta mirando, no new Date(). El
+    // detalle se guarda en una variable porque los chips de estamento tambien
+    // lo necesitan; lo que importa sigue siendo de donde sale la fecha.
     assert.match(
         home,
-        /getDotacionDetalle\(dotacionDate\)\.byEstamento\[dotacionEst\]/
+        /const detalle = getDotacionDetalle\(dotacionDate\);\s*\n\s*const e = detalle\.byEstamento\[dotacionEst\];/
     );
 });
 

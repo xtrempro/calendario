@@ -1964,6 +1964,38 @@ body[data-active-view="home"] .secondary-grid {
    vez de recortarlos y sacar una barra de scroll lateral. El limite de 100% deja
    que en pantallas chicas siga entrando. */
 .hm-modal--dotacion { width: min(1080px, 100%); }
+/* Chips de estamento del modal de dotacion: cambian de estamento sin cerrar,
+   conservando la fecha elegida. Toman el mismo lenguaje visual que la pastilla
+   de conteo del encabezado de columna (.hm-dot-colhead b). */
+.hm-dot-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.hm-dot-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel-alt);
+    color: var(--text-soft);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.hm-dot-chip b {
+    font-size: 0.74rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.75;
+}
+.hm-dot-chip:hover { border-color: var(--text-soft); color: var(--text); }
+.hm-dot-chip.is-active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--panel);
+}
+.hm-dot-chip.is-active b { opacity: 0.85; }
+
 .hm-dot-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 /* Sin esto las columnas de la grilla no pueden encoger por debajo de su
    contenido y es el nombre largo el que empuja el modal a lo ancho. */

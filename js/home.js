@@ -435,6 +435,39 @@ function serviceScheduleToday(profile, keyDay, date) {
     return (sched.dia || sched.noche) ? sched : null;
 }
 
+// Minutos desde medianoche de un "HH:MM". Sirve para ordenar por tramo horario
+// sin depender del texto.
+function serviceTimeMinutes(value) {
+    const [hours, minutes] = String(value || "").split(":").map(Number);
+
+    return Number.isFinite(hours)
+        ? hours * 60 + (Number(minutes) || 0)
+        : 0;
+}
+
+// Orden de la lista de un turno: PRIMERO agrupa a quienes entran y salen a la
+// misma hora, y dentro de cada grupo va alfabetico.
+//
+// Antes era solo alfabetico y los horarios quedaban entreverados: en el turno de
+// dia se mezclaba quien sale a las 20:00 con quien sale a las 17:00, y no se
+// podia ver de un vistazo cuanta gente cubre la tarde.
+//
+// Los grupos van por hora de ENTRADA ascendente y, a igual entrada, por hora de
+// SALIDA descendente: la jornada mas larga primero. Asi en el turno de dia
+// quedan arriba los de 08:00 a 20:00 y al final los de 08:00 a 17:00 (16:00 los
+// viernes). En el de noche todos comparten "20:00 a 08:00", asi que el desempate
+// alfabetico es el unico que se aplica.
+function compareServiceRows(a, b) {
+    const [entryA = "", exitA = ""] = String(a.time || "").split(" a ");
+    const [entryB = "", exitB = ""] = String(b.time || "").split(" a ");
+
+    return (
+        serviceTimeMinutes(entryA) - serviceTimeMinutes(entryB) ||
+        serviceTimeMinutes(exitB) - serviceTimeMinutes(exitA) ||
+        a.name.localeCompare(b.name)
+    );
+}
+
 // Detalle de dotación por estamento: listas de trabajadores de día y de noche
 // (con su horario). Un mismo trabajador puede aparecer en ambos (24h/D+N/18h).
 //
@@ -486,8 +519,8 @@ export function getDotacionDetalle(date = new Date()) {
         .sort((a, b) => canonicalOrder(a) - canonicalOrder(b) || a.localeCompare(b));
 
     estamentos.forEach(est => {
-        byEstamento[est].dia.sort((a, b) => a.name.localeCompare(b.name));
-        byEstamento[est].noche.sort((a, b) => a.name.localeCompare(b.name));
+        byEstamento[est].dia.sort(compareServiceRows);
+        byEstamento[est].noche.sort(compareServiceRows);
     });
 
     return { byEstamento, estamentos };
@@ -2223,6 +2256,31 @@ function dotBodyHTML(e) {
         </div>`;
 }
 
+// Chips para saltar de estamento sin cerrar el modal. Antes habia que cerrarlo,
+// apretar otra tarjeta y volver a buscar la fecha: la fecha elegida se perdia en
+// cada salto, que es lo caro cuando se esta mirando un dia puntual.
+//
+// Se listan TODOS los estamentos con gente ese dia, no solo el abierto, y el
+// conteo va en el chip para no tener que entrar a cada uno para saber si hay
+// alguien. Un estamento que ese dia no tiene a nadie no aparece: el detalle se
+// arma solo con quienes estan en servicio.
+function dotEstChipsHTML(estamentos, byEstamento, activo) {
+    if (estamentos.length <= 1) return "";
+
+    return `
+        <div class="hm-dot-chips" role="tablist" aria-label="Estamento">
+            ${estamentos.map(est => {
+                const detalle = byEstamento[est] || { dia: [], noche: [] };
+                const total = detalle.dia.length + detalle.noche.length;
+                const activa = est === activo;
+
+                return `<button type="button" class="hm-dot-chip${activa ? " is-active" : ""}"
+                    data-hm="dot-est" data-est="${esc(est)}" role="tab"
+                    aria-selected="${activa ? "true" : "false"}">${esc(est)}<b>${total}</b></button>`;
+            }).join("")}
+        </div>`;
+}
+
 // ---- Calendario para saltar a otra fecha desde el modal de dotacion ----
 //
 // Es un mes compacto, dentro del propio modal: elegir "el jueves que viene" a
@@ -2328,16 +2386,22 @@ function renderDotacion(panel) {
     const modal = panel.querySelector('[data-hm="dotacion-modal"]');
     if (!modal) return;
 
-    const e = getDotacionDetalle(dotacionDate).byEstamento[dotacionEst];
+    const detalle = getDotacionDetalle(dotacionDate);
+    const e = detalle.byEstamento[dotacionEst];
     const esHoy = keyFromDate(dotacionDate) === keyFromDate(new Date());
     const picker = modal.querySelector('[data-hm="dot-picker"]');
+    const chips = dotEstChipsHTML(
+        detalle.estamentos,
+        detalle.byEstamento,
+        dotacionEst
+    );
 
     modal.querySelector('[data-hm="dot-title"]').textContent = esHoy
         ? `${dotacionEst} · en servicio hoy`
         : `${dotacionEst} · en servicio el ${dotDateLabel(dotacionDate)}`;
-    modal.querySelector('[data-hm="dot-body"]').innerHTML = e
+    modal.querySelector('[data-hm="dot-body"]').innerHTML = chips + (e
         ? dotBodyHTML(e)
-        : `<div class="hm-dot-empty">Sin trabajadores en servicio.</div>`;
+        : `<div class="hm-dot-empty">Sin trabajadores en servicio.</div>`);
 
     picker.innerHTML = dotacionPickerOpen
         ? dotPickerHTML(dotacionPickerMonth, isoFromDate(dotacionDate))
@@ -2711,6 +2775,17 @@ function wire(panel) {
 
             if (paso) {
                 irADia(addDays(dotacionDate, paso.dataset.hm === "dot-next" ? 1 : -1));
+                return;
+            }
+
+            // Cambiar de estamento CONSERVA la fecha y el calendario como
+            // estan: es justamente lo que se perdia al tener que cerrar el
+            // modal y abrir otra tarjeta.
+            const chip = target.closest('[data-hm="dot-est"]');
+
+            if (chip) {
+                dotacionEst = chip.dataset.est;
+                renderDotacion(panel);
                 return;
             }
 
