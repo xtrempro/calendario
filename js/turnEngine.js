@@ -757,10 +757,22 @@ function baseAllowedTurns(baseTurno, isHab) {
         // El diurno puede extender su jornada a Larga (hasta las 20:00): la
         // edicion directa cicla Diurno -> Larga -> D+N. Larga suma las horas
         // diurnas extra sobre el diurno (3 de lunes a jueves, 4 los viernes).
+        //
+        // El 24 completo entra al ciclo solo con "Permitir agregar turno diurno
+        // post 24h" puesto. Sin el, un dia de base Diurno no llegaba nunca a
+        // 24h por mas clicks que se dieran, y la excepcion de adyacencia no
+        // servia de nada para un trabajador de rotativa Diurno: es justo el que
+        // hace el 24 y al dia siguiente vuelve a su Diurno. Va al final, que es
+        // el orden por duracion (Diurno 9h -> Larga 12h -> D+N ~21h -> 24h).
         return [
             TURNO.DIURNO,
             TURNO.LARGA,
-            ...(isHab ? [TURNO.DIURNO_NOCHE] : [])
+            ...(isHab ? [TURNO.DIURNO_NOCHE] : []),
+            ...(
+                getTurnChangeConfig().allowDiurnoAfterTwentyFour === true
+                    ? [TURNO.TURNO24]
+                    : []
+            )
         ];
     }
 

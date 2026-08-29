@@ -478,7 +478,7 @@ function renderTurnChangesPanel() {
                     id: "settingsAllowDiurnoAfterTwentyFour",
                     checked: config.allowDiurnoAfterTwentyFour,
                     title: "Permitir agregar turno diurno post 24h",
-                    description: "Habilita un turno Diurno el dia siguiente a un 24h. El reporte marca los tres turnos: Larga y Noche en la fila del 24, y el Diurno en la del dia siguiente."
+                    description: "Habilita un turno Diurno el dia siguiente a un 24h, y permite que un dia de rotativa Diurno llegue a 24h en el calendario (sin esto no podria armarse la secuencia). El reporte marca los tres turnos: Larga y Noche en la fila del 24, y el Diurno en la del dia siguiente."
                 }) : ""}
 
                 ${checkboxHTML({

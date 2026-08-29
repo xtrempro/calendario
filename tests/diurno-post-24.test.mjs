@@ -195,6 +195,61 @@ test("el checkbox solo se dibuja con los turnos 24 activos", async () => {
     );
 });
 
+test("un dia de rotativa Diurno puede llegar a 24h con el ajuste puesto", async () => {
+    // Este era el bloqueo real, y NO era la adyacencia: el ciclo de clicks lo
+    // limita el turno BASE, y con base Diurno la lista era [Diurno, Larga, D+N].
+    // El 24h no aparecia por mas clicks que se dieran, asi que la excepcion de
+    // adyacencia no servia de nada para un trabajador de rotativa Diurno, que
+    // es justo el que hace el 24 y al dia siguiente vuelve a su Diurno.
+    const { siguienteTurnoValido } = await import("../js/turnEngine.js");
+
+    const cicloDesde = (inicial) => {
+        const visto = [];
+        let actual = inicial;
+
+        for (let i = 0; i < 6; i += 1) {
+            actual = siguienteTurnoValido(
+                "Juan",
+                "2026-5-16",
+                actual,
+                true,
+                { baseTurno: TURNO.DIURNO }
+            );
+
+            if (visto.includes(actual)) break;
+            visto.push(actual);
+        }
+
+        return visto;
+    };
+
+    configurar({ allowDiurnoAfterTwentyFour: false });
+    assert.ok(
+        !cicloDesde(TURNO.DIURNO).includes(TURNO.TURNO24),
+        "sin el ajuste, el 24h no entra al ciclo"
+    );
+
+    configurar({ allowDiurnoAfterTwentyFour: true });
+    assert.ok(
+        cicloDesde(TURNO.DIURNO).includes(TURNO.TURNO24),
+        "con el ajuste, el 24h entra al ciclo"
+    );
+});
+
+test("el 24h va al final del ciclo del Diurno, por duracion", async () => {
+    // Diurno 9h -> Larga 12h -> D+N ~21h -> 24h. Ponerlo antes cambiaria el
+    // recorrido de clicks que el supervisor ya tiene aprendido.
+    const source = await readFile(
+        new URL("../js/turnEngine.js", import.meta.url),
+        "utf8"
+    );
+
+    assert.match(
+        source,
+        /TURNO\.DIURNO,\s*\n\s*TURNO\.LARGA,\s*\n\s*\.\.\.\(isHab \? \[TURNO\.DIURNO_NOCHE\] : \[\]\),\s*\n\s*\.\.\.\(\s*\n\s*getTurnChangeConfig\(\)\.allowDiurnoAfterTwentyFour === true/
+    );
+});
+
 test("las tres marcas del encadenado salen en los horarios pedidos", async () => {
     const { getScheduledSegmentsForState } =
         await import("../js/clockMarks.js");
