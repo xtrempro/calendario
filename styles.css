@@ -6242,6 +6242,17 @@ body.theme-light .day.worker-blocked-day {
     letter-spacing: 0.08em;
 }
 
+/* Turno trasladado (TTMM). Es la insignia mas larga de todas y ahora comparte
+   celda con el "!" de sin cubrir: se achica para que la que exige una accion
+   siga siendo la que se ve primero. */
+.day-badge--move {
+    min-width: 0;
+    min-height: 15px;
+    padding: 1px 5px;
+    font-size: 0.5rem;
+    letter-spacing: 0.03em;
+}
+
 .day-badge--clock {
     padding: 2px;
     background: rgba(var(--brand-blue-rgb), 0.92);

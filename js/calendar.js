@@ -108,7 +108,8 @@ import {
 import {
     cancelShiftMoveById,
     getShiftMoveMarkers,
-    getShiftMoves
+    getShiftMoves,
+    SHIFT_MOVE_BADGE
 } from "./shiftMoves.js";
 import {
     getAbsenceLabelForProfileDate,
@@ -155,6 +156,8 @@ import {
     getClockMarkAuditInfo,
     getNoCoverageAuditInfo,
     getPreassignmentAuditInfo,
+    getShiftMoveAuditInfo,
+    getSwapAuditInfo,
     undoAuditLogEntry
 } from "./auditLog.js";
 import {
@@ -2798,6 +2801,8 @@ function buildDayCell({
 
                     const className = item === "No disp."
                         ? "day-badge day-badge--worker-blocked"
+                        : item === SHIFT_MOVE_BADGE
+                            ? "day-badge day-badge--move"
                         : "day-badge";
 
                     return `<span class="${className}">${escapeHTML(item)}</span>`;
@@ -2857,6 +2862,19 @@ function confirmUndoTurnChange(swap) {
                             <strong>${escapeHTML(formatISODateForSwapHover(swap.devolucion))} &middot; ${escapeHTML(swapCodeLabel(swap.turnoDevuelto))}</strong>
                         </li>
                     ` : ""}
+                    ${(() => {
+                        // Quien lo registro. Sale del LOG, asi que un cambio
+                        // anterior a esta pantalla -o cuyo log ya fue evicto-
+                        // simplemente no muestra la fila, en vez de inventar.
+                        const audit = getSwapAuditInfo(swap.id);
+
+                        return audit ? `
+                            <li>
+                                <span>Registrado por</span>
+                                <strong>${escapeHTML(audit.actorName)}</strong>
+                            </li>
+                        ` : "";
+                    })()}
                 </ul>
                 <div class="turn-change-dialog__actions">
                     <button class="secondary-button" type="button" data-action="cancel">
@@ -3507,7 +3525,19 @@ async function openShiftMoveDetailDialog(marker) {
                     : "Formo 24 con turno extra"
             ]
             : null,
-        ["Registrado", shiftMoveCreatedLabel(move.createdAt)]
+        ["Registrado", shiftMoveCreatedLabel(move.createdAt)],
+        // Quien lo hizo. Sale del LOG de auditoria, no del propio movimiento:
+        // los traslados viejos no guardaron actor, y ahi cae en "No registrado"
+        // en vez de mostrar un dato inventado.
+        (() => {
+            const audit = getShiftMoveAuditInfo(
+                move.profile,
+                move.sourceKey,
+                move.targetKey
+            );
+
+            return audit ? ["Movido por", audit.actorName] : null;
+        })()
     ].filter(Boolean);
     const backdrop = document.createElement("div");
 
@@ -7870,6 +7900,33 @@ function openPreassignmentDialog({ profile, keyDay }) {
 
 window.openPreassignmentDialog = openPreassignmentDialog;
 
+// Si ese dia hay un turno sin cubrir. Se extrajo del cuerpo de `clickDia`
+// porque ahora hace falta ANTES, para decidir a que dialogo lleva el click.
+function dayNeedsReplacement(
+    profileName,
+    keyDay,
+    admin,
+    legal,
+    comp,
+    absences
+) {
+    return (
+        Boolean(getReplacementNeededTurn(profileName, keyDay)) &&
+        requiereReemplazoTurnoBase(
+            keyDay,
+            getTurnoBase(profileName, keyDay),
+            admin,
+            legal,
+            comp,
+            absences,
+            getRotativa(profileName).type
+        ) &&
+        !getReplacementForCoveredShift(profileName, keyDay) &&
+        !getInheritedReplacementContractForCoveredShift(profileName, keyDay) &&
+        !isNoCoverageDay(profileName, keyDay)
+    );
+}
+
 async function clickDia(
     keyDay,
     isHab,
@@ -7902,8 +7959,24 @@ async function clickDia(
 
     const shiftMoveMarker =
         getShiftMoveMarkers(profileName, keyDay)[0] || null;
+    // Un turno trasladado al que despues se le aplico un permiso necesita
+    // cubrirse, y eso MANDA sobre el detalle del traslado: apretar el "!" tiene
+    // que llevar a buscar quien lo cubra, no a la ficha para anular el
+    // movimiento. Sin esto el corto-circuito de abajo se comia el click y el
+    // turno no habia forma de cubrirlo.
+    //
+    // El traslado no queda inalcanzable: su dia de ORIGEN lleva el mismo
+    // marcador y ahi no hay nada que cubrir, asi que desde alli se anula.
+    const pendingCoverage = dayNeedsReplacement(
+        profileName,
+        keyDay,
+        admin,
+        legal,
+        comp,
+        absences
+    );
 
-    if (shiftMoveMarker) {
+    if (shiftMoveMarker && !pendingCoverage) {
         return openShiftMoveDetailDialog(shiftMoveMarker);
     }
 
@@ -7925,28 +7998,9 @@ async function clickDia(
     if (window.selectionMode === "halfadmin") return;
     if (window.selectionMode) return;
 
-    const replacementNeededTurn =
-        getReplacementNeededTurn(profileName, keyDay);
-    const needsReplacement =
-        Boolean(replacementNeededTurn) &&
-        requiereReemplazoTurnoBase(
-            keyDay,
-            getTurnoBase(profileName, keyDay),
-            admin,
-            legal,
-            comp,
-            absences,
-            getRotativa(profileName).type
-        ) &&
-        !getReplacementForCoveredShift(
-            profileName,
-            keyDay
-        ) &&
-        !getInheritedReplacementContractForCoveredShift(
-            profileName,
-            keyDay
-        ) &&
-        !isNoCoverageDay(profileName, keyDay);
+    // Ya se calculo arriba, para decidir si el click iba al detalle del
+    // traslado o a cubrir el turno.
+    const needsReplacement = pendingCoverage;
 
     // Turno preasignado (del ausente o del reemplazante): abre el modal de
     // confirmar/cancelar en vez del de reemplazo.
@@ -8623,8 +8677,14 @@ async function renderCalendarImpl(options = {}) {
         const workerBlockedDay =
             blockedDayIndex.get(isoDay) ||
             getBlockedDayForProfile(activeProfile, keyDay);
+        // La insignia PRINCIPAL va primero y siempre. `buildDayCell` usa
+        // `badges` en lugar de `badge` cuando viene con algo, asi que dejarla
+        // fuera la borraba: un turno movido al que despues se le aplica un
+        // permiso mostraba solo "TTMM" y perdia el "!" de sin cubrir, con lo
+        // que no habia por donde cubrirlo aunque el turno lo necesitara.
         const calendarBadges =
             Array.from(new Set([
+                ...(badge ? [badge] : []),
                 ...(pendingLeaveRequest ? ["Pend."] : []),
                 ...(workerBlockedDay ? ["No disp."] : []),
                 ...turnChangeMarkers.map(marker => marker.label),

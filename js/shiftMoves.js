@@ -4,6 +4,10 @@ import {
     setJSON,
     setRaw
 } from "./persistence.js";
+
+// Insignia del turno trasladado. Vive aca -y no como texto suelto en el
+// calendario- porque el estilo que la achica la busca por este mismo valor.
+export const SHIFT_MOVE_BADGE = "TTMM";
 import {
     isDateKeyOnOrAfter,
     calendarKeyToInputDate,
@@ -296,6 +300,6 @@ export function getShiftMoveMarkers(profile, keyDay) {
                     : move.sourceKey === keyDay
                         ? "source"
                         : "target",
-            label: "TTMM"
+            label: SHIFT_MOVE_BADGE
         }));
 }

@@ -592,6 +592,62 @@ export function getPreassignmentAuditInfo(profile, keyDay) {
     return latestCalendarActionInfo(profile, keyDay, "Preasigno turno");
 }
 
+// Quien registro el cambio de turno, para el modal de "Cambio de turno
+// aplicado". Se busca por el id del cambio, que es lo unico estable: las fechas
+// del swap pueden coincidir con las de otro.
+export function getSwapAuditInfo(swapId) {
+    const id = String(swapId || "");
+
+    if (!id) return null;
+
+    const log = getAuditLogs()
+        .filter(item =>
+            item?.category === AUDIT_CATEGORY.TURN_CHANGES &&
+            String(item?.action || "") === "Registro cambio de turno" &&
+            String(item?.meta?.swapId || "") === id
+        )
+        .sort((a, b) =>
+            String(b.createdAt).localeCompare(String(a.createdAt))
+        )[0];
+
+    if (!log) return null;
+
+    return {
+        createdAt: log.createdAt,
+        createdAtLabel: formatTimestamp(log.createdAt),
+        actorName: logActorName(log) || "No registrado"
+    };
+}
+
+// Quien movio el turno, para el modal de "Turno movido". No sirve
+// `latestCalendarActionInfo`: el traslado no guarda `meta.keyDay` sino el par
+// `sourceKey`/`targetKey`, y el modal se abre desde cualquiera de los dos dias.
+export function getShiftMoveAuditInfo(profile, sourceKey, targetKey) {
+    if (!profile || (!sourceKey && !targetKey)) return null;
+
+    const source = String(sourceKey || "");
+    const target = String(targetKey || "");
+    const log = getAuditLogs()
+        .filter(item =>
+            item?.category === AUDIT_CATEGORY.CALENDAR &&
+            String(item?.action || "") === "Movio turno base" &&
+            sameProfileName(String(item?.meta?.profile || ""), profile) &&
+            String(item?.meta?.sourceKey || "") === source &&
+            String(item?.meta?.targetKey || "") === target
+        )
+        .sort((a, b) =>
+            String(b.createdAt).localeCompare(String(a.createdAt))
+        )[0];
+
+    if (!log) return null;
+
+    return {
+        createdAt: log.createdAt,
+        createdAtLabel: formatTimestamp(log.createdAt),
+        actorName: logActorName(log) || "No registrado"
+    };
+}
+
 function canUndoAuditLog(log) {
     if (log?.canceledAt) return false;
 

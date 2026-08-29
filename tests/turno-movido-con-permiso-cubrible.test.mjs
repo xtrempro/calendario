@@ -1,0 +1,173 @@
+// Se mueve el turno de un trabajador y despues se le aplica un permiso a ese
+// turno (F. Legal, administrativo, compensatorio, licencia...). El turno deberia
+// poder cubrirse como cualquier otro, pero el "!" no aparecia y no habia por
+// donde hacerlo.
+//
+// La regla SI lo detectaba: el traslado escribe el turno en `baseData` del dia
+// destino, asi que `requiereReemplazoTurnoBase` da true. El problema era de
+// pintado: `buildDayCell` usa `badges` EN LUGAR de `badge` cuando le llega con
+// algo, y la insignia principal quedaba fuera de esa lista. Con un traslado
+// presente, "TTMM" ocupaba el lugar y borraba el "!".
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+async function read(path) {
+    const source = await readFile(new URL(path, import.meta.url), "utf8");
+
+    return source.replace(/\r\n/g, "\n");
+}
+
+const calendar = await read("../js/calendar.js");
+const shiftMoves = await read("../js/shiftMoves.js");
+const styles = await read("../styles.css");
+
+const { SHIFT_MOVE_BADGE } = await import("../js/shiftMoves.js");
+const { requiereReemplazoTurnoBase } = await import("../js/rulesEngine.js");
+
+const TURNO = { LIBRE: 0, LARGA: 1, NOCHE: 2 };
+const DIA = "2026-7-28";
+
+test("un turno trasladado con permiso SI requiere reemplazo", () => {
+    // El traslado deja el turno en el `baseData` del dia destino, asi que la
+    // regla lo ve igual que a un turno de rotativa. Esto ya funcionaba: lo que
+    // fallaba era mostrarlo.
+    const legal = { [DIA]: true };
+
+    assert.equal(
+        requiereReemplazoTurnoBase(
+            DIA,
+            TURNO.NOCHE,
+            {},
+            legal,
+            {},
+            {},
+            "4turno"
+        ),
+        true
+    );
+});
+
+test("sin turno no hay nada que cubrir, aunque haya permiso", () => {
+    // El dia ORIGEN del traslado queda en Libre: ahi no debe salir el "!".
+    assert.equal(
+        requiereReemplazoTurnoBase(
+            DIA,
+            TURNO.LIBRE,
+            {},
+            { [DIA]: true },
+            {},
+            {},
+            "4turno"
+        ),
+        false
+    );
+});
+
+test("la insignia principal entra en la lista y no la desplaza TTMM", () => {
+    // Este es el arreglo: sin el `badge` adelante, `buildDayCell` lo descartaba
+    // por completo apenas hubiera un traslado, un cambio de turno o un "Pend.".
+    assert.match(
+        calendar,
+        /const calendarBadges =\s*\n\s*Array\.from\(new Set\(\[\s*\n\s*\.\.\.\(badge \? \[badge\] : \[\]\),/
+    );
+
+    // Y sigue siendo `badges` lo que gana sobre `badge` en el pintado: por eso
+    // la principal tiene que ir DENTRO de la lista, no al lado.
+    assert.match(
+        calendar,
+        /const visibleBadges = Array\.isArray\(badges\)\s*\n\s*\? badges\.filter\(Boolean\)\s*\n\s*: \(badge \? \[badge\] : \[\]\);/
+    );
+});
+
+test("la insignia principal va primero, antes que las secundarias", () => {
+    // El "!" es la que exige una accion; TTMM y "Pend." solo informan.
+    const bloque = calendar.slice(
+        calendar.indexOf("const calendarBadges ="),
+        calendar.indexOf("const calendarBadges =") + 520
+    );
+
+    assert.ok(
+        bloque.indexOf("badge ? [badge]") <
+            bloque.indexOf("shiftMoveMarkers.map"),
+        "el badge principal debe listarse antes que el traslado"
+    );
+});
+
+test("TTMM sale de una constante compartida, no de texto suelto", () => {
+    // El estilo que la achica la busca por este mismo valor: con la cadena
+    // repetida en dos archivos, cambiar uno dejaba el otro sin estilo.
+    assert.equal(SHIFT_MOVE_BADGE, "TTMM");
+    assert.match(shiftMoves, /export const SHIFT_MOVE_BADGE = "TTMM";/);
+    assert.match(shiftMoves, /label: SHIFT_MOVE_BADGE/);
+    assert.doesNotMatch(shiftMoves, /label: "TTMM"/);
+});
+
+test("TTMM se pinta mas chica que el resto", () => {
+    assert.match(
+        calendar,
+        /item === SHIFT_MOVE_BADGE\s*\n\s*\? "day-badge day-badge--move"/
+    );
+    assert.match(styles, /\.day-badge--move \{/);
+
+    // Mas chica que la insignia base (0.65rem).
+    const base = styles.match(/\.day-badge \{[\s\S]*?font-size: ([\d.]+)rem/);
+    const move = styles.match(/\.day-badge--move \{[\s\S]*?font-size: ([\d.]+)rem/);
+
+    assert.ok(base && move, "faltan los tamaños de fuente");
+    assert.ok(
+        Number(move[1]) < Number(base[1]),
+        `TTMM (${move[1]}rem) debe ser menor que la base (${base[1]}rem)`
+    );
+});
+
+test("el click en un turno trasladado sin cubrir va a la cobertura", () => {
+    // El corto-circuito del traslado corria ANTES de saber si el turno
+    // necesitaba cobertura, asi que apretar el "!" abria la ficha para anular
+    // el movimiento y no habia forma de cubrirlo.
+    assert.match(
+        calendar,
+        /if \(shiftMoveMarker && !pendingCoverage\) \{\s*\n\s*return openShiftMoveDetailDialog\(shiftMoveMarker\);/
+    );
+
+    // Y la condicion se calcula antes de esa bifurcacion.
+    const posCoverage = calendar.indexOf("const pendingCoverage = dayNeedsReplacement(");
+    const posDialog = calendar.indexOf("if (shiftMoveMarker && !pendingCoverage)");
+
+    assert.ok(posCoverage !== -1 && posDialog !== -1);
+    assert.ok(
+        posCoverage < posDialog,
+        "pendingCoverage debe calcularse antes de decidir el dialogo"
+    );
+});
+
+test("la condicion de cobertura vive en un solo lugar", () => {
+    // Estaba escrita dos veces -una en el render y otra dentro del click- y
+    // ahora hace falta ANTES del corto-circuito del traslado. Duplicarla una
+    // tercera vez era garantizar que se desalinearan.
+    assert.match(calendar, /function dayNeedsReplacement\(/);
+    assert.match(calendar, /const needsReplacement = pendingCoverage;/);
+
+    // Una sola definicion del helper.
+    assert.equal(
+        (calendar.match(/function dayNeedsReplacement\(/g) || []).length,
+        1
+    );
+});
+
+test("cubierto el turno, deja de pedir cobertura en el inicio", async () => {
+    // El widget de cobertura del inicio usa la MISMA regla que el calendario y
+    // descuenta lo ya cubierto o preasignado, asi que un turno trasladado con
+    // permiso entra en la cuenta y sale de ella al cubrirlo. Lo que se fija aca
+    // es que siga apoyandose en esas condiciones y no en una lista propia.
+    const home = await read("../js/home.js");
+
+    assert.match(
+        home,
+        /const requires = requiereReemplazoTurnoBase\(\s*\n\s*keyDay,\s*\n\s*getTurnoBase\(name, keyDay\)/
+    );
+    assert.match(
+        home,
+        /!getReplacementForCoveredShift\(name, keyDay\) &&\s*\n\s*!getPreassignmentForCoveredShift\(name, keyDay\) &&\s*\n\s*!isNoCoverageDay\(name, keyDay\)/
+    );
+});
