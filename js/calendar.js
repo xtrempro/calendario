@@ -1771,10 +1771,29 @@ function calendarDirectEditMessage(label, affectedDates = []) {
     return `${label} en ${affectedDates.length} días de tu calendario.`;
 }
 
+// Un dia solo cuenta como modificado si su turno quedo DISTINTO del que tenia
+// al empezar la edicion. `recordCalendarDirectEditChange` descarta el click
+// individual que no cambia nada, pero no el NETO de varios: el supervisor
+// cicla una casilla -Larga, Noche, 24, Libre, Larga- y la deja como estaba, y
+// esa entrada quedaba en el mapa con previousTurn === nextTurn. Al cerrar el
+// switch se le avisaba al trabajador que le habian modificado el calendario
+// cuando en realidad no habia cambiado nada.
+function calendarDirectEditChangedKeys(changes) {
+    return [...changes.keys()]
+        .filter(keyDay => {
+            const change = changes.get(keyDay);
+
+            return (
+                Number(change?.previousTurn) !== Number(change?.nextTurn)
+            );
+        })
+        .sort();
+}
+
 function consumeCalendarDirectEditPendingChanges() {
     const batches = [...calendarDirectEditPendingChanges.entries()]
         .map(([profileName, changes]) => {
-            const affectedKeys = [...changes.keys()].sort();
+            const affectedKeys = calendarDirectEditChangedKeys(changes);
             const affectedDates = affectedKeys
                 .map(keyDay => isoFromKeyDay(keyDay))
                 .filter(Boolean);
