@@ -319,7 +319,7 @@ test("las flechas mueven un dia y repintan sin cerrar el modal", () => {
 test("elegir un dia en el calendario lo cierra y muestra ese dia", () => {
     assert.match(
         home,
-        /if \(dia\) irADia\(dateFromISO\(dia\.dataset\.iso\), \{ cerrarCalendario: true \}\)/
+        /if \(dia\) \{\s*\n\s*irADia\(dateFromISO\(dia\.dataset\.iso\), \{ cerrarCalendario: true \}\);/
     );
     // Las casillas del calendario llevan la fecha en ISO.
     assert.match(home, /data-hm="dot-day"/);

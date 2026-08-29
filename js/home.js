@@ -63,6 +63,9 @@ import {
     rejectWorkerRequestById
 } from "./workerRequests.js";
 import { fetchHolidays, getCachedHolidays } from "./holidays.js";
+// La misma definicion de dia habil que usa el resto del app (fin de semana o
+// feriado), para que el calendario del modal no invente su propio criterio.
+import { isBusinessDay } from "./calculations.js";
 import { getActiveWorkspace } from "./workspaces.js";
 import {
     addDays as addScheduleDays,
@@ -2293,13 +2296,20 @@ function dotPickerHTML(view, selectedIso) {
     // getDay() da 0 en domingo; con la semana en lunes, domingo es la columna 6.
     const lead = (new Date(year, month, 1).getDay() + 6) % 7;
     const todayIso = todayISO();
+    // Feriados ya cargados de ese año. Si aun no llegaron, quedan solo los fines
+    // de semana marcados: es informacion de apoyo, no bloquea elegir el dia.
+    const holidays = getCachedHolidays(year);
     const cells = new Array(lead).fill('<span class="hm-dp-cell hm-dp-cell--blank"></span>');
 
     for (let day = 1; day <= daysInMonth; day += 1) {
-        const iso = isoFromDate(new Date(year, month, day));
+        const date = new Date(year, month, day);
+        const iso = isoFromDate(date);
         const marks = [
             iso === selectedIso ? "is-sel" : "",
-            iso === todayIso ? "is-today" : ""
+            iso === todayIso ? "is-today" : "",
+            // Inhabil = fin de semana o feriado. Se pinta en rojo suave para
+            // ubicar de un vistazo los dias con dotacion distinta.
+            isBusinessDay(date, holidays) ? "" : "is-inhabil"
         ].join(" ").trim();
 
         cells.push(
@@ -2345,12 +2355,20 @@ function dotacionModal() {
                         <button type="button" data-hm="dot-prev" aria-label="Día anterior" title="Día anterior">&#8249;</button>
                         <button type="button" data-hm="dot-next" aria-label="Día siguiente" title="Día siguiente">&#8250;</button>
                     </div>
-                    <button class="hm-modal-action" type="button" data-hm="dot-cal"
-                        aria-label="Elegir fecha" title="Elegir otra fecha">${svg(IC.calendar)}</button>
+                    <!--
+                        El calendario cuelga del PROPIO boton, no del cuerpo del
+                        modal: asi nace de donde se lo apreto y se superpone a la
+                        info en vez de empujarla hacia abajo. El ancla es este
+                        contenedor relativo.
+                    -->
+                    <div class="hm-dp-anchor">
+                        <button class="hm-modal-action" type="button" data-hm="dot-cal"
+                            aria-label="Elegir fecha" title="Elegir otra fecha">${svg(IC.calendar)}</button>
+                        <div class="hm-dp-pop" data-hm="dot-picker" hidden></div>
+                    </div>
                     <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
                 </div>
                 <div class="hm-modal-body">
-                    <div data-hm="dot-picker" hidden></div>
                     <div data-hm="dot-body"></div>
                 </div>
             </div>
@@ -2407,6 +2425,19 @@ function renderDotacion(panel) {
         ? dotPickerHTML(dotacionPickerMonth, isoFromDate(dotacionDate))
         : "";
     picker.hidden = !dotacionPickerOpen;
+
+    // Los feriados del año que se esta mirando pueden no estar en cache todavia
+    // (sobre todo al saltar de año con las flechas). Se pinta con lo que haya
+    // -solo fines de semana- y se repinta al llegar, en vez de dejar el
+    // calendario esperando o marcando de menos para siempre.
+    if (dotacionPickerOpen) {
+        void ensureHolidaysLoaded(
+            dotacionPickerMonth.getFullYear(),
+            () => {
+                if (dotacionPickerOpen) renderDotacion(panel);
+            }
+        );
+    }
 
     // Repintar el calendario borra el boton que se acaba de apretar y con el se
     // va el foco: sin esto, tras elegir un dia las flechas del teclado ya no
@@ -2818,7 +2849,19 @@ function wire(panel) {
 
             const dia = target.closest('[data-hm="dot-day"]');
 
-            if (dia) irADia(dateFromISO(dia.dataset.iso), { cerrarCalendario: true });
+            if (dia) {
+                irADia(dateFromISO(dia.dataset.iso), { cerrarCalendario: true });
+                return;
+            }
+
+            // Ahora que se superpone a la lista, un click en cualquier otro
+            // lado lo cierra: dejarlo abierto tapando los trabajadores es
+            // justamente lo que se venia a evitar. Antes no hacia falta, porque
+            // empujaba la info hacia abajo en vez de cubrirla.
+            if (dotacionPickerOpen && !target.closest('[data-hm="dot-picker"]')) {
+                dotacionPickerOpen = false;
+                renderDotacion(panel);
+            }
         });
 
         dotModal.addEventListener("keydown", event => {

@@ -2028,31 +2028,95 @@ body[data-active-view="home"] .secondary-grid {
    agosto'): que envuelva en dos lineas antes que aplastar los botones. */
 .hm-modal--dotacion .hm-modal-head h3 { min-width: 0; overflow-wrap: anywhere; }
 .hm-modal--dotacion .hm-modal-close { flex: none; }
-.hm-dp { border: 1px solid var(--border); border-radius: 14px; padding: 12px; background: var(--panel-alt); }
-.hm-dp-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.hm-dp-head strong { font-size: 0.86rem; font-weight: 800; color: var(--text); min-width: 132px; }
+/* Calendario del modal de dotacion: compacto, al estilo del selector de fecha
+   nativo del navegador. Antes cada dia era un boton con borde y fondo propio y
+   la grilla ocupaba mas alto que la lista de trabajadores que uno venia a
+   mirar. Ahora son numeros sueltos en una grilla apretada: el cuadro solo se
+   dibuja al pasar por encima o en el dia elegido.
+
+   No se estira: se centra y queda del ancho que necesita, para que en el modal
+   ancho no aparezca una grilla gigante de celdas vacias. */
+/* El calendario se SUPERPONE a la info, colgando del boton que lo abre. Antes
+   vivia en el cuerpo del modal y empujaba la lista de trabajadores hacia abajo:
+   se abria para elegir una fecha y de paso tapaba lo que uno venia a mirar. */
+/* El calendario cuelga del encabezado y es mas alto que el modal cuando hay
+   pocos trabajadores: con el `overflow-y: auto` del modal quedaba CORTADO a la
+   mitad del mes (se veia hasta la tercera semana y se perdia el resto).
+   No alcanza con position:fixed, porque el backdrop tiene `backdrop-filter` y
+   eso lo vuelve bloque contenedor.
+   La salida es mover el scroll al CUERPO: el modal deja de recortar y el popover
+   puede salirse, mientras la lista de trabajadores conserva su propio scroll. */
+.hm-modal--dotacion {
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+}
+/* Sin scroll propio en el modal, el encabezado ya queda arriba por si mismo; el
+   sticky solo creaba un contexto de apilamiento de mas. */
+.hm-modal--dotacion .hm-modal-head { position: static; }
+/* min-height:0 para que el cuerpo pueda encogerse y hacer scroll dentro de la
+   columna flex en vez de desbordar el max-height del modal. */
+.hm-modal--dotacion .hm-modal-body { overflow-y: auto; min-height: 0; }
+
+.hm-dp-anchor { position: relative; display: flex; flex: none; }
+/* El ancla se metio entre las flechas y el boton de cerrar, asi que hereda el
+   papel que tenia el boton del calendario en esa fila: sin esto, el `margin-left:
+   auto` suelto del boton de cerrar abria un hueco entre ambos. */
+.hm-bday-nav + .hm-dp-anchor { margin-left: 0; }
+.hm-dp-anchor + .hm-modal-close { margin-left: 0; }
+.hm-dp-pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 40;
+    /* La sombra es lo que lo despega de la lista de abajo; sin ella los numeros
+       del calendario se confunden con los de la tabla que tapan. */
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.22);
+    border-radius: 14px;
+}
+.hm-dp {
+    width: max-content;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 13px 15px;
+    background: var(--panel);
+}
+.hm-dp-head { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.hm-dp-head strong { font-size: 1rem; font-weight: 800; color: var(--text); min-width: 148px; }
 .hm-dp-head button:not(.hm-dp-today) {
     width: 28px; height: 28px; flex: none; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--panel);
-    color: var(--text-soft); font-size: 1rem; line-height: 1; cursor: pointer;
+    border: none; background: transparent;
+    color: var(--text-soft); font-size: 1.15rem; line-height: 1; cursor: pointer;
 }
-.hm-dp-head button:hover { border-color: var(--accent); color: var(--accent); }
+.hm-dp-head button:not(.hm-dp-today):hover { background: var(--panel-alt); color: var(--text); }
 .hm-dp-today {
-    margin-left: auto; height: 28px; padding: 0 12px; flex: none;
-    border-radius: 8px; border: 1px solid var(--border); background: var(--panel);
-    color: var(--text-soft); font-size: 0.76rem; font-weight: 800; cursor: pointer;
+    margin-left: auto; height: 28px; padding: 0 10px; flex: none;
+    border-radius: 8px; border: none; background: transparent;
+    color: var(--accent); font-size: 0.9rem; font-weight: 800; cursor: pointer;
 }
-.hm-dp-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
-.hm-dp-dow { text-align: center; font-size: 0.68rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; padding-bottom: 2px; }
+.hm-dp-today:hover { background: var(--accent-soft); }
+.hm-dp-grid { display: grid; grid-template-columns: repeat(7, 38px); gap: 2px; }
+.hm-dp-dow {
+    text-align: center; font-size: 0.78rem; font-weight: 700;
+    color: var(--text-muted); text-transform: lowercase;
+    letter-spacing: 0; padding-bottom: 5px;
+}
 .hm-dp-cell {
-    height: 34px; border-radius: 9px; border: 1px solid var(--border);
-    background: var(--panel); color: var(--text); cursor: pointer;
-    font-size: 0.8rem; font-weight: 700; font-variant-numeric: tabular-nums;
+    height: 35px; border-radius: 9px; border: 1px solid transparent;
+    background: transparent; color: var(--text); cursor: pointer;
+    font-size: 0.98rem; font-weight: 600; font-variant-numeric: tabular-nums;
+    padding: 0;
 }
-.hm-dp-cell--blank { border-color: transparent; background: transparent; }
-.hm-dp-cell:hover:not(.hm-dp-cell--blank) { border-color: var(--accent); background: var(--accent-soft); }
-.hm-dp-cell.is-today { color: var(--accent); border-color: var(--accent); }
-.hm-dp-cell.is-sel { background: var(--accent); border-color: var(--accent); color: #fff; }
+.hm-dp-cell--blank { cursor: default; }
+.hm-dp-cell:hover:not(.hm-dp-cell--blank) { background: var(--accent-soft); }
+/* Inhabil (fin de semana o feriado): rojo suave, solo como pista visual. El dia
+   se puede elegir igual -mirar la dotacion de un domingo es justamente uno de
+   los usos-, por eso se tine el numero y no se bloquea el boton. */
+.hm-dp-cell.is-inhabil { color: #dc2626; }
+.hm-dp-cell.is-inhabil:hover:not(.hm-dp-cell--blank) { background: rgba(220, 38, 38, 0.1); }
+.hm-dp-cell.is-today { border-color: var(--accent); }
+.hm-dp-cell.is-sel,
+.hm-dp-cell.is-sel.is-inhabil { background: var(--accent); border-color: var(--accent); color: #fff; }
 .hm-modal--absence { width: min(720px, 100%); }
 .hm-absence-detail-list { display: flex; flex-direction: column; gap: 8px; }
 .hm-absence-worker { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

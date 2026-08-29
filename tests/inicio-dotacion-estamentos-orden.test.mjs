@@ -199,3 +199,96 @@ test("los chips tienen estilo propio y estado activo", () => {
     assert.match(styles, /\.hm-dot-chip \{/);
     assert.match(styles, /\.hm-dot-chip\.is-active \{/);
 });
+
+test("el calendario marca los inhabiles con el mismo criterio del app", () => {
+    // Fin de semana o feriado, vía isBusinessBay compartido: inventar el
+    // criterio aca lo dejaria desalineado del resto del sistema.
+    assert.match(home, /import \{ isBusinessDay \} from "\.\/calculations\.js";/);
+    assert.match(
+        home,
+        /const holidays = getCachedHolidays\(year\);/
+    );
+    assert.match(
+        home,
+        /isBusinessDay\(date, holidays\) \? "" : "is-inhabil"/
+    );
+});
+
+test("un inhabil se puede elegir igual: es una pista, no un bloqueo", () => {
+    // Mirar la dotacion de un domingo es justamente uno de los usos del modal,
+    // asi que el boton no se deshabilita: solo se tine el numero.
+    assert.doesNotMatch(home, /is-inhabil[^\n]*disabled/);
+    assert.match(styles, /\.hm-dp-cell\.is-inhabil \{ color: #dc2626; \}/);
+});
+
+test("el calendario es compacto y no se estira a lo ancho del modal", () => {
+    // Antes cada dia era un boton con borde y fondo propio, y la grilla ocupaba
+    // mas alto que la lista de trabajadores que uno viene a mirar.
+    assert.match(styles, /\.hm-dp \{\s*\n\s*width: max-content;/);
+    assert.match(styles, /\.hm-dp-grid \{ display: grid; grid-template-columns: repeat\(7, 38px\);/);
+    assert.match(styles, /\.hm-dp-cell \{\s*\n\s*height: 35px;[\s\S]{0,80}border: 1px solid transparent;/);
+});
+
+test("el calendario se superpone colgando del boton, sin empujar la info", () => {
+    // Vivia en el cuerpo del modal y empujaba la lista hacia abajo: se abria
+    // para elegir una fecha y de paso tapaba lo que uno venia a mirar.
+    assert.match(home, /<div class="hm-dp-anchor">/);
+    assert.match(
+        home,
+        /data-hm="dot-cal"[\s\S]{0,160}<div class="hm-dp-pop" data-hm="dot-picker" hidden><\/div>/
+    );
+    // Y ya no queda un hueco reservado en el cuerpo.
+    assert.doesNotMatch(
+        home,
+        /<div class="hm-modal-body">\s*\n\s*<div data-hm="dot-picker"/
+    );
+
+    assert.match(styles, /\.hm-dp-anchor \{ position: relative;/);
+    assert.match(styles, /\.hm-dp-pop \{\s*\n\s*position: absolute;\s*\n\s*top: calc\(100% \+ 8px\);\s*\n\s*right: 0;/);
+});
+
+test("el calendario puede salirse del modal sin quedar cortado", () => {
+    // Con el `overflow-y: auto` del modal, el calendario quedaba cortado a la
+    // mitad del mes cuando habia pocos trabajadores: se veia hasta la tercera
+    // semana y se perdia el resto. position:fixed no sirve porque el backdrop
+    // tiene backdrop-filter y eso lo vuelve bloque contenedor.
+    assert.match(styles, /\.hm-modal--dotacion \{\s*\n\s*overflow: visible;/);
+    // El scroll se muda al cuerpo, o el modal crece sin limite.
+    assert.match(
+        styles,
+        /\.hm-modal--dotacion \.hm-modal-body \{ overflow-y: auto; min-height: 0; \}/
+    );
+});
+
+test("al superponerse, un click fuera lo cierra", () => {
+    // Dejarlo abierto tapando la lista es justo lo que se venia a evitar.
+    assert.match(
+        home,
+        /if \(dotacionPickerOpen && !target\.closest\('\[data-hm="dot-picker"\]'\)\) \{\s*\n\s*dotacionPickerOpen = false;/
+    );
+});
+
+test("el ancla no rompe la fila de botones del encabezado", () => {
+    // Se metio entre las flechas y el boton de cerrar: sin heredar las reglas
+    // de margen del boton que envuelve, el `margin-left: auto` suelto del cerrar
+    // abria un hueco.
+    assert.match(styles, /\.hm-bday-nav \+ \.hm-dp-anchor \{ margin-left: 0; \}/);
+    assert.match(styles, /\.hm-dp-anchor \+ \.hm-modal-close \{ margin-left: 0; \}/);
+});
+
+test("si los feriados de ese año no estaban, se cargan y repinta", () => {
+    // Al saltar de año con las flechas, la cache puede no tenerlos: sin esto el
+    // calendario marcaria solo los fines de semana para siempre en ese año.
+    assert.match(
+        home,
+        /if \(dotacionPickerOpen\) \{\s*\n\s*void ensureHolidaysLoaded\(\s*\n\s*dotacionPickerMonth\.getFullYear\(\)/
+    );
+});
+
+test("el dia elegido gana al rojo del inhabil", () => {
+    // Sin esto, elegir un domingo dejaba el numero rojo sobre el fondo azul.
+    assert.match(
+        styles,
+        /\.hm-dp-cell\.is-sel,\s*\n\.hm-dp-cell\.is-sel\.is-inhabil \{/
+    );
+});
