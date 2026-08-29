@@ -37,6 +37,7 @@ globalThis.document = {
 globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
 const {
+    DEFAULT_GRADE_HOUR_CONFIG,
     getGradeHourConfig,
     getGradeHourPeriodAt,
     getGradeHourValue,
@@ -194,6 +195,13 @@ test("sin fecha se resuelve el periodo vigente", () => {
     // No romperse cuando el llamador no pasa fecha: se asume hoy.
     assert.ok(getGradeHourPeriodAt());
     assert.ok(getGradeHourValue("Profesional", "10") > 0);
+});
+
+test("profesionales incluye grado 16 por defecto", () => {
+    localStorage.clear();
+
+    assert.equal(DEFAULT_GRADE_HOUR_CONFIG.professional["16"], 6072.8);
+    assert.equal(getGradeHourValue("Profesional", "16"), 6072.8);
 });
 
 /* =========================================================
