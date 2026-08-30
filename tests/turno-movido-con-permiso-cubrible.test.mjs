@@ -103,6 +103,38 @@ test("TTMM sale de una constante compartida, no de texto suelto", () => {
     assert.doesNotMatch(shiftMoves, /label: "TTMM"/);
 });
 
+test("una casilla con dos insignias conserva el alto de sus vecinas", () => {
+    // Al sumar el "!" junto al TTMM, la casilla pasa a tener dos insignias y se
+    // activa `has-multiple-badges`. Esa regla ademas la soltaba del alto de su
+    // fila y quedaba visiblemente mas chica que las de al lado: parecia otro
+    // tipo de dia. Solo debe apretar los espacios internos.
+    const bloque = styles.slice(
+        styles.indexOf(".day.has-multiple-badges {"),
+        styles.indexOf(".day.has-multiple-badges {") + 260
+    );
+
+    assert.doesNotMatch(bloque, /min-height: auto;/);
+    assert.doesNotMatch(bloque, /height: max-content;/);
+    assert.doesNotMatch(bloque, /align-self: start;/);
+    // Lo que si conserva: espacios apretados para que entren las dos.
+    assert.match(bloque, /gap: 2px;/);
+    assert.match(bloque, /overflow: visible;/);
+});
+
+test("tampoco se suelta del alto en la vista responsive", () => {
+    // La misma regla estaba repetida dentro de la media query de la vista de
+    // turnos, deshaciendo el piso de 78px solo para esa casilla.
+    assert.doesNotMatch(
+        styles,
+        /\.calendar-panel \.day\.has-multiple-badges \{\s*\n\s*min-height: auto;/
+    );
+    // El piso comun sigue existiendo para todas.
+    assert.match(
+        styles,
+        /\.calendar-panel\.has-multiple-badge-days \.day \{\s*\n\s*min-height: 78px;/
+    );
+});
+
 test("TTMM se pinta mas chica que el resto", () => {
     assert.match(
         calendar,

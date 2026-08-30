@@ -6300,12 +6300,15 @@ body.theme-light .day.worker-blocked-day {
     color: #fff;
 }
 
+/* Una casilla con dos insignias (por ejemplo el "!" de sin cubrir junto al
+   TTMM de un turno trasladado) solo necesita APRETAR sus espacios internos para
+   que entren las dos. Antes ademas se soltaba del alto de su fila
+   -min-height:auto, height:max-content, align-self:start-, y quedaba
+   visiblemente mas chica que las casillas vecinas: parecia otro tipo de dia.
+   Conserva el alto base y crece sola si el contenido lo pide. */
 .day.has-multiple-badges {
-    min-height: auto;
-    height: max-content;
-    align-self: start;
     gap: 2px;
-    padding: 6px;
+    padding: 8px;
     justify-content: flex-start;
     overflow: visible;
 }
@@ -16639,9 +16642,11 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
         align-self: start;
     }
 
-    body[data-active-view="turnos"] .calendar-panel .day.has-multiple-badges {
-        min-height: auto;
-    }
+    /* Aqui pasaba lo mismo: este `min-height: auto` deshacia justo para la
+       casilla de dos insignias el piso de 78px que la regla de arriba le da a
+       todas, y quedaba mas baja que sus vecinas. La regla se elimino; el piso
+       comun ya alcanza, porque el panel lleva `has-multiple-badge-days` en
+       cuanto existe una casilla asi. */
 
     body[data-active-view="turnos"] .stacked-panels {
         align-self: start;
