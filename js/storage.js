@@ -867,7 +867,7 @@ export function getProfiles(){
         return PROFILES_CACHE.value.slice();
     }
 
-    const value = getJSON("profiles", []).map(profile => {
+    const value = asRecordList(getJSON("profiles", [])).map(profile => {
         if (typeof profile === "string") {
             return {
                 id: createProfileId({ name: profile }),
@@ -910,8 +910,33 @@ export function isProfileActive(profileOrName){
     return profile.active !== false;
 }
 
+/**
+ * Devuelve una lista de registros aunque lo guardado haya quedado como objeto.
+ *
+ * Un delta mal aplicado puede dejar una lista convertida en un mapa
+ * `{ id: registro }`. Los registros siguen ahi, solo cambio el envase: se
+ * recuperan con Object.values en vez de perderlos. Y un valor que no sea ni
+ * lista ni objeto devuelve lista vacia, para que un dato roto no reviente cada
+ * pantalla que lo recorre.
+ *
+ * Es una lectura tolerante a proposito: estas listas las escriben varios
+ * supervisores a la vez, y una pantalla en blanco es mucho peor que un dato
+ * raro.
+ */
+export function asRecordList(value) {
+    if (Array.isArray(value)) return value;
+
+    if (value && typeof value === "object") {
+        return Object.values(value).filter(item =>
+            item && typeof item === "object"
+        );
+    }
+
+    return [];
+}
+
 export function getSwaps(){
-    return getJSON("swaps", []);
+    return asRecordList(getJSON("swaps", []));
 }
 
 export function saveSwaps(data){
@@ -919,7 +944,7 @@ export function saveSwaps(data){
 }
 
 export function getReplacements(){
-    return getJSON("replacements", []);
+    return asRecordList(getJSON("replacements", []));
 }
 
 export function saveReplacements(data){
@@ -1203,7 +1228,7 @@ export function saveReportSignatureConfig(config) {
 }
 
 export function getReplacementRequests() {
-    return getJSON("replacementRequests", [])
+    return asRecordList(getJSON("replacementRequests", []))
         .map(normalizeReplacementRequest)
         .filter(Boolean);
 }
@@ -1395,7 +1420,7 @@ function normalizeWorkerRequest(request = {}) {
 }
 
 export function getWorkerRequests() {
-    return getJSON("workerRequests", [])
+    return asRecordList(getJSON("workerRequests", []))
         .map(normalizeWorkerRequest)
         .filter(Boolean)
         .sort((a, b) =>

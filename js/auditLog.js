@@ -2,6 +2,7 @@ import { keyFromDate } from "./dateUtils.js";
 import { escapeHTML } from "./htmlUtils.js";
 import { getJSON, getRaw, setJSON } from "./persistence.js";
 import {
+    asRecordList,
     getCurrentProfile,
     getProfiles,
     getReplacementRequests,
@@ -1268,7 +1269,7 @@ function filterLogsBySelectedMonth(logs) {
 }
 
 export function getAuditLogs() {
-    return normalizeLogs(getJSON(KEY, []));
+    return normalizeLogs(asRecordList(getJSON(KEY, [])));
 }
 
 export function addAuditLog(category, action, details = "", meta = {}) {
