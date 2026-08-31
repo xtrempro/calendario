@@ -38,6 +38,17 @@ function parseArray(raw) {
     }
 }
 
+function parseStored(raw) {
+    if (raw === null || raw === undefined || raw === "") return null;
+    if (typeof raw !== "string") return raw;
+
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return null;
+    }
+}
+
 function listItemId(item) {
     if (!item || typeof item !== "object" || Array.isArray(item)) return "";
 
@@ -414,7 +425,14 @@ export function applyPartialStateEntry(snapshot = {}, entry = {}) {
         return snapshot;
     }
 
-    if (entry.container === PARTIAL_LIST_CONTAINER) {
+    // El marcador dice como parchear, pero no se depende solo de el: si lo que
+    // hay guardado YA es una lista, tratarla como mapa la convertiria en objeto
+    // y reventaria todo lo que la recorre. Ante la duda manda la forma real del
+    // dato, que es la que el resto del programa va a leer.
+    if (
+        entry.container === PARTIAL_LIST_CONTAINER ||
+        Array.isArray(parseStored(snapshot[storageKey]))
+    ) {
         return applyListStateEntry(snapshot, storageKey, entry);
     }
 

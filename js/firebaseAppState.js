@@ -323,8 +323,20 @@ export function normalizeQueuedStateEntries(entries = []) {
                 ...Object.keys(deletedItems)
             ]);
 
+            // El contenedor viaja con cada elemento. Perderlo aqui convertia
+            // una lista en objeto al reaplicar un cambio local pendiente, y todo
+            // lo que la recorre reventaba: el calendario quedaba sin pintar una
+            // sola casilla.
+            // Solo se agrega cuando existe: un mapa por dia no lleva
+            // contenedor, y sumarle un campo vacio cambiaria la forma de la
+            // entrada para todos los demas caminos.
+            const container = String(entry.container || "");
+            const withContainer = base => (
+                container ? { ...base, container } : base
+            );
+
             if (itemKeys.size) {
-                return [...itemKeys].map(itemKey => ({
+                return [...itemKeys].map(itemKey => withContainer({
                     moduleId,
                     storageKey,
                     itemKey: decodePartialStateItemKey(itemKey),
@@ -333,13 +345,13 @@ export function normalizeQueuedStateEntries(entries = []) {
                 }));
             }
 
-            return [{
+            return [withContainer({
                 moduleId,
                 storageKey,
                 itemKey: String(entry.itemKey || ""),
                 value: entry.value,
                 deleted: entry.deleted === true
-            }];
+            })];
         });
 }
 

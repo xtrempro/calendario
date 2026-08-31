@@ -444,6 +444,88 @@ test("el servidor sigue leyendo los mapas por dia como siempre", () => {
 });
 
 /* ======================================================================
+   Una lista NUNCA se convierte en objeto
+   ====================================================================== */
+
+// Esto rompio produccion: normalizeQueuedStateEntries descartaba el marcador de
+// contenedor, asi que al reaplicar un cambio local pendiente la lista se
+// parcheaba como si fuera un mapa. `swaps` pasaba de [] a {} y todo lo que la
+// recorre reventaba: el calendario no pintaba una sola casilla.
+
+test("sin el marcador, la forma real del dato manda", () => {
+    const snapshot = {
+        replacements: JSON.stringify([reemplazo("r1", "ANA", "2026-08-25")])
+    };
+
+    // Entry SIN container, como llegaba despues de pasar por la cola.
+    applyPartialStateEntry(snapshot, {
+        storageKey: "replacements",
+        itemKey: "r2",
+        value: JSON.stringify(reemplazo("r2", "BETO", "2026-08-28"))
+    });
+
+    const resultado = JSON.parse(snapshot.replacements);
+
+    assert.ok(Array.isArray(resultado), "sigue siendo una lista");
+    assert.deepEqual(resultado.map(item => item.id), ["r1", "r2"]);
+});
+
+test("la cola conserva el marcador de contenedor", async () => {
+    const { normalizeQueuedStateEntries } =
+        await import("../js/firebaseAppState.js");
+    const [entry] = normalizeQueuedStateEntries([{
+        moduleId: "turnos",
+        storageKey: "replacements",
+        container: "array",
+        items: { r1: JSON.stringify(reemplazo("r1", "ANA", "2026-08-25")) },
+        deletedItems: {}
+    }]);
+
+    assert.equal(entry.container, "array");
+
+    // Y tambien en el camino del valor entero.
+    const [suelto] = normalizeQueuedStateEntries([{
+        moduleId: "turnos",
+        storageKey: "replacements",
+        itemKey: "r1",
+        container: "array",
+        value: JSON.stringify(reemplazo("r1", "ANA", "2026-08-25"))
+    }]);
+
+    assert.equal(suelto.container, "array");
+});
+
+test("un mapa por dia sigue siendo un mapa", () => {
+    // La guarda mira la forma real: un calendario no es lista y no debe
+    // tratarse como tal.
+    const snapshot = { data_ANA: JSON.stringify({ "2026-7-20": 1 }) };
+
+    applyPartialStateEntry(snapshot, {
+        storageKey: "data_ANA",
+        itemKey: "2026-7-25",
+        value: "2"
+    });
+
+    const resultado = JSON.parse(snapshot.data_ANA);
+
+    assert.ok(!Array.isArray(resultado));
+    assert.deepEqual(resultado, { "2026-7-20": 1, "2026-7-25": 2 });
+});
+
+test("una clave que todavia no existe no se rompe", () => {
+    const snapshot = {};
+
+    applyPartialStateEntry(snapshot, {
+        storageKey: "replacements",
+        itemKey: "r1",
+        container: "array",
+        value: JSON.stringify(reemplazo("r1", "ANA", "2026-08-25"))
+    });
+
+    assert.ok(Array.isArray(JSON.parse(snapshot.replacements)));
+});
+
+/* ======================================================================
    Areas distintas nunca compiten
    ====================================================================== */
 
