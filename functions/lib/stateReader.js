@@ -34,9 +34,84 @@ function decodeItemKey(itemKey) {
   }
 }
 
+// Espejo de applyListStateEntry (js/firebasePartialState.js). Las listas
+// compartidas -reemplazos, cambios de turno, preasignaciones- se sincronizan
+// elemento por elemento para que dos supervisores no se pisen; el servidor tiene
+// que reconstruirlas igual que el navegador o leeria una lista incompleta.
+// Cualquier cambio alla va aqui.
+function parseStoredArray(value) {
+  if (Array.isArray(value)) return value;
+
+  const parsed = parseStoredJSON(value, []);
+
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function listItemId(item) {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return "";
+
+  return String(item.id ?? "").trim();
+}
+
+function applyListEntry(state, storageKey, entry) {
+  const list = parseStoredArray(state[storageKey]);
+  const deletedItems = entry.deletedItems || {};
+  const itemKeys = new Set([
+    ...Object.keys(entry.items || {}),
+    ...Object.keys(deletedItems)
+  ]);
+
+  itemKeys.forEach((encodedKey) => {
+    const itemKey = decodeItemKey(encodedKey);
+    const index = list.findIndex((item) => listItemId(item) === itemKey);
+
+    if (deletedItems[encodedKey] === true) {
+      if (index >= 0) list.splice(index, 1);
+      return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(entry.items || {}, encodedKey)) {
+      return;
+    }
+
+    const parsed = parseStoredJSON(entry.items[encodedKey], null);
+
+    if (!parsed || typeof parsed !== "object") return;
+
+    if (index >= 0) {
+      list[index] = parsed;
+    } else {
+      list.push(parsed);
+    }
+  });
+
+  state[storageKey] = JSON.stringify(list);
+
+  return state;
+}
+
 function applyEntry(state, entry = {}) {
   const storageKey = cleanText(entry.storageKey, 260);
   if (!storageKey) return state;
+
+  // Una clave que antes viajaba entera deja su `value` viejo en el documento
+  // (merge no borra campos). Es una foto anterior a los items, asi que se
+  // aplica primero y los items la parchean encima.
+  if (
+    entry.items &&
+    typeof entry.items === "object" &&
+    Object.prototype.hasOwnProperty.call(entry, "value")
+  ) {
+    if (entry.deleted === true) {
+      delete state[storageKey];
+    } else {
+      state[storageKey] = entry.value;
+    }
+  }
+
+  if (entry.container === "array" && entry.items) {
+    return applyListEntry(state, storageKey, entry);
+  }
 
   if (entry.items && typeof entry.items === "object") {
     const current = parseStoredJSON(state[storageKey], {});

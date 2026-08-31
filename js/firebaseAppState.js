@@ -86,6 +86,22 @@ let stateSyncStarting = false;
 let entrySyncTimer = null;
 let applyingRemoteState = false;
 let waitingInitialState = false;
+// Modulos que se estan aplicando en este momento. El estado del entorno viene
+// partido en 13 modulos con un listener cada uno, y el turno de UNA casilla se
+// calcula con datos de tres de ellos (profile, turnos y swap). Aplicados de a
+// uno, la interfaz alcanza a pintar mezclas incompletas: la casilla muestra el
+// turno sin el cambio de turno todavia aplicado, despues con el, despues con la
+// base nueva. Es el "las casillas cambian solas" que reportaron los
+// supervisores.
+//
+// IMPORTANTE: esto retiene el AVISO a la interfaz, nunca la aplicacion. El
+// estado se sigue guardando en el momento en que llega. Diferir la aplicacion
+// ensancharia la ventana en la que un cambio local se sube con una copia vieja
+// y pisaria el de otro supervisor.
+let modulesApplying = 0;
+let settleTimer = null;
+let settledSnapshot = null;
+let settledPending = false;
 let entrySyncInFlight = false;
 let urgentEntrySyncPending = false;
 let remoteApplyTimer = null;
@@ -394,6 +410,70 @@ function locallyProtectedEntries(moduleId = "") {
             entry.moduleId === moduleId ||
             stateModuleForKey(entry.storageKey) === moduleId
         );
+}
+
+// Cuanto se espera sin que llegue otro modulo antes de repintar. Un poco mas
+// que el viaje tipico entre modulos y bastante menos que lo que el ojo tolera
+// como "lento".
+const SETTLE_QUIET_MS = 400;
+// Techo: en un entorno con edicion continua los modulos podrian no callarse
+// nunca, y la pantalla no puede quedarse sin refrescar por eso.
+const SETTLE_MAX_MS = 2500;
+
+let settleStartedAt = 0;
+
+function notifyStateSettled() {
+    settleTimer = null;
+    settleStartedAt = 0;
+
+    if (!settledPending) return;
+
+    const snapshot = settledSnapshot || {};
+
+    settledPending = false;
+    settledSnapshot = null;
+
+    recordPerformanceEvent("firebase-app-state:settled", {
+        type: "firebase",
+        keyCount: Object.keys(snapshot).length
+    });
+    onStateChanged(snapshot);
+}
+
+/**
+ * Junta los avisos de varios modulos en uno solo. Se repinta cuando pasan
+ * SETTLE_QUIET_MS sin que llegue otro modulo, o al llegar al techo.
+ */
+function scheduleSettledNotify(snapshot) {
+    settledPending = true;
+    settledSnapshot = { ...(settledSnapshot || {}), ...(snapshot || {}) };
+
+    const now = Date.now();
+
+    if (!settleStartedAt) settleStartedAt = now;
+
+    const delay = settleDelay(now - settleStartedAt);
+
+    clearTimeout(settleTimer);
+
+    if (delay <= 0) {
+        notifyStateSettled();
+        return;
+    }
+
+    settleTimer = setTimeout(notifyStateSettled, delay);
+}
+
+/**
+ * Cuanto mas esperar antes de repintar, sabiendo cuanto lleva la espera.
+ * Devuelve 0 cuando ya se llego al techo y hay que repintar ahora.
+ */
+export function settleDelay(elapsedMs) {
+    const elapsed = Math.max(0, Number(elapsedMs) || 0);
+
+    if (elapsed >= SETTLE_MAX_MS) return 0;
+
+    return Math.min(SETTLE_QUIET_MS, SETTLE_MAX_MS - elapsed);
 }
 
 function mergeLocalDirtyStateEntries(snapshot = {}, moduleId = "") {
@@ -777,6 +857,10 @@ async function commitPartialStateDocumentsNow(
         ) {
             payload.items = entry.items || {};
             payload.deletedItems = entry.deletedItems || {};
+
+            // Igual que en el envio normal: quien lea el documento tiene que
+            // saber si parchea una lista o un mapa.
+            if (entry.container) payload.container = entry.container;
         }
 
         if (Object.prototype.hasOwnProperty.call(entry, "value")) {
@@ -1007,6 +1091,10 @@ async function flushPartialStateEntries() {
                 ) {
                     payload.items = entry.items;
                     payload.deletedItems = entry.deletedItems;
+
+                    // Una lista se parchea elemento por elemento; un mapa, por
+                    // clave. Quien lea el documento tiene que saber cual es.
+                    if (entry.container) payload.container = entry.container;
                 }
 
                 if (Object.prototype.hasOwnProperty.call(entry, "value")) {
@@ -1186,13 +1274,31 @@ function stateEntriesFromDoc(docSnap) {
             ...Object.keys(data.items),
             ...Object.keys(deletedItems)
         ]);
-
-        return [...itemKeys].map(itemKey => ({
+        const items = [...itemKeys].map(itemKey => ({
             ...base,
             itemKey: decodePartialStateItemKey(itemKey),
+            container: String(data.container || ""),
             value: data.items[itemKey],
             deleted: deletedItems[itemKey] === true
         }));
+
+        // Una clave que ANTES viajaba entera y ahora se parte por elemento deja
+        // su `value` viejo en el documento: merge no borra campos. Ese valor es
+        // una foto anterior a los items, asi que se aplica PRIMERO y los items
+        // la parchean encima. Ignorarlo perderia lo que solo viviera ahi.
+        if (Object.prototype.hasOwnProperty.call(data, "value")) {
+            return [
+                {
+                    ...base,
+                    itemKey: "",
+                    value: data.value,
+                    deleted: data.deleted === true
+                },
+                ...items
+            ];
+        }
+
+        return items;
     }
 
     return [{
@@ -1394,7 +1500,7 @@ async function applyRemoteModule(
         moduleId,
         hash: lastAppliedHashes.get(moduleId)
     });
-    onStateChanged(mergedSnapshot);
+    scheduleSettledNotify(mergedSnapshot);
 }
 
 async function applyInitialModules(
@@ -1491,6 +1597,8 @@ async function handleModuleSnapshot(
         return;
     }
 
+    modulesApplying += 1;
+
     try {
         if (!docSnap.exists()) {
             const localSnapshot = mergeLocalDirtyStateEntries({}, moduleId);
@@ -1513,7 +1621,7 @@ async function handleModuleSnapshot(
                 } finally {
                     applyingRemoteState = false;
                 }
-                onStateChanged(localSnapshot);
+                scheduleSettledNotify(localSnapshot);
                 return;
             }
 
@@ -1536,7 +1644,7 @@ async function handleModuleSnapshot(
                 applyingRemoteState = false;
             }
             lastAppliedHashes.delete(moduleId);
-            onStateChanged({});
+            scheduleSettledNotify({});
             return;
         }
 
@@ -1553,7 +1661,14 @@ async function handleModuleSnapshot(
             moduleId,
             message: error.message || "Error leyendo estado remoto"
         });
+    } finally {
+        modulesApplying = Math.max(0, modulesApplying - 1);
     }
+}
+
+/** Modulos que se estan aplicando ahora. Lo usan las pruebas y el diagnostico. */
+export function pendingStateModuleCount() {
+    return modulesApplying;
 }
 
 export async function startFirebaseAppStateSync(
@@ -1695,6 +1810,12 @@ export async function startFirebaseAppStateSync(
 }
 
 export function stopFirebaseAppStateSync() {
+    clearTimeout(settleTimer);
+    settleTimer = null;
+    settleStartedAt = 0;
+    settledPending = false;
+    settledSnapshot = null;
+    modulesApplying = 0;
     clearTimeout(entrySyncTimer);
     entrySyncTimer = null;
     clearTimeout(remoteApplyTimer);
