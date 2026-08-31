@@ -13,102 +13,6 @@ const PARTIAL_MAP_PREFIXES = [
     "hheeReturnTransfers_"
 ];
 
-// Listas compartidas de toda la unidad -reemplazos, cambios de turno,
-// preasignaciones, memos, bitacora- que viajaban como UN solo valor: el ultimo
-// que escribia pisaba la lista entera, asi que dos supervisores registrando
-// cosas DISTINTAS al mismo tiempo perdian una de las dos.
-//
-// No hay lista blanca de claves: se detecta en tiempo de ejecucion. Una lista se
-// parte por elemento solo si TODOS sus elementos son objetos con un `id` unico y
-// no vacio. Si no lo son -o si la clave no es una lista- se sigue mandando
-// entera, exactamente como antes. Esa es la red de seguridad: ante una forma que
-// no se reconoce, el comportamiento no cambia.
-export const PARTIAL_LIST_CONTAINER = "array";
-
-function parseArray(raw) {
-    if (Array.isArray(raw)) return raw;
-    if (raw === null || raw === undefined || raw === "") return [];
-
-    try {
-        const value = JSON.parse(raw);
-
-        return Array.isArray(value) ? value : [];
-    } catch {
-        return [];
-    }
-}
-
-function parseStored(raw) {
-    if (raw === null || raw === undefined || raw === "") return null;
-    if (typeof raw !== "string") return raw;
-
-    try {
-        return JSON.parse(raw);
-    } catch {
-        return null;
-    }
-}
-
-function listItemId(item) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return "";
-
-    return String(item.id ?? "").trim();
-}
-
-/**
- * Indexa una lista por el `id` de sus elementos, o devuelve null si no se puede
- * partir con seguridad (algun elemento sin id, o dos con el mismo).
- */
-export function indexListById(value) {
-    if (!Array.isArray(value)) return null;
-
-    const byId = new Map();
-
-    for (const item of value) {
-        const id = listItemId(item);
-
-        if (!id || byId.has(id)) return null;
-
-        byId.set(id, item);
-    }
-
-    return byId;
-}
-
-export function isSplittableList(raw) {
-    if (raw === null || raw === undefined || raw === "") return false;
-
-    let value = raw;
-
-    if (typeof raw === "string") {
-        try {
-            value = JSON.parse(raw);
-        } catch {
-            return false;
-        }
-    }
-
-    if (!Array.isArray(value) || !value.length) return false;
-
-    return indexListById(value) !== null;
-}
-
-function isPlainObject(raw) {
-    let value = raw;
-
-    if (typeof raw === "string") {
-        try {
-            value = JSON.parse(raw);
-        } catch {
-            return false;
-        }
-    }
-
-    return Boolean(value) &&
-        typeof value === "object" &&
-        !Array.isArray(value);
-}
-
 function parseObject(raw) {
     if (raw === null || raw === undefined || raw === "") return {};
 
@@ -155,8 +59,6 @@ export function groupPartialStateEntries(entries = []) {
         if (entry.itemKey) {
             const itemKey = encodePartialStateItemKey(entry.itemKey);
 
-            if (entry.container) group.container = entry.container;
-
             group.items[itemKey] = entry.deleted
                 ? "null"
                 : String(entry.value ?? "");
@@ -195,37 +97,6 @@ export function planPartialStateEntries({
         if (!moduleId) return;
 
         if (!isPartialStateMapKey(storageKey)) {
-            const listEntries = planListStateEntries({
-                moduleId,
-                storageKey,
-                previousRaw,
-                nextRaw,
-                removed: change.removed === true
-            });
-
-            if (listEntries) {
-                entries.push(...listEntries);
-                return;
-            }
-
-            // Un objeto tambien se parte por sus claves de primer nivel. Es el
-            // mismo mecanismo de los calendarios, pero decidido por la FORMA del
-            // valor y no por una lista de prefijos: asi quedan cubiertas las
-            // areas que guardan un objeto -la asignacion de tareas, por
-            // ejemplo- sin tener que ir anotandolas una por una.
-            const objectEntries = planObjectStateEntries({
-                moduleId,
-                storageKey,
-                previousRaw,
-                nextRaw,
-                removed: change.removed === true
-            });
-
-            if (objectEntries) {
-                entries.push(...objectEntries);
-                return;
-            }
-
             entries.push({
                 moduleId,
                 storageKey,
@@ -269,147 +140,6 @@ export function planPartialStateEntries({
     return entries;
 }
 
-/**
- * Diferencia dos versiones de una lista, elemento por elemento. Devuelve null
- * cuando la clave no es una lista partible: ahi el llamador vuelve al valor
- * entero de siempre.
- *
- * Solo se parte si las DOS versiones son partibles. Si una de ellas no lo es
- * -por ejemplo la primera vez que se crea la lista, o si un registro perdio su
- * id- se manda entera, que siempre es correcto.
- */
-export function planListStateEntries({
-    moduleId,
-    storageKey,
-    previousRaw,
-    nextRaw,
-    removed = false
-} = {}) {
-    if (removed || nextRaw === null || nextRaw === undefined) return null;
-    if (!isSplittableList(previousRaw) || !isSplittableList(nextRaw)) return null;
-
-    const previous = indexListById(parseArray(previousRaw));
-    const next = indexListById(parseArray(nextRaw));
-
-    if (!previous || !next) return null;
-
-    const entries = [];
-    const ids = new Set([...previous.keys(), ...next.keys()]);
-
-    ids.forEach(id => {
-        const previousValue = previous.get(id);
-        const nextHasValue = next.has(id);
-        const nextValue = next.get(id);
-
-        if (
-            nextHasValue &&
-            JSON.stringify(previousValue) === JSON.stringify(nextValue)
-        ) return;
-
-        entries.push({
-            moduleId,
-            storageKey,
-            itemKey: id,
-            container: PARTIAL_LIST_CONTAINER,
-            value: nextHasValue ? JSON.stringify(nextValue) : null,
-            deleted: !nextHasValue
-        });
-    });
-
-    return entries;
-}
-
-/**
- * Aplica el cambio de UN elemento sobre la lista que ya hay.
- *
- * Se parchea la lista existente en vez de reconstruirla: asi el elemento que
- * cambio se actualiza en su sitio, el que llega nuevo se agrega al final y el
- * orden de los demas no se toca. Reconstruirla desde los items habria barajado
- * listas donde el orden importa.
- */
-function applyListStateEntry(snapshot, storageKey, entry) {
-    const list = parseArray(snapshot[storageKey]);
-    const itemKey = String(entry.itemKey || "");
-    const index = list.findIndex(item => listItemId(item) === itemKey);
-
-    if (entry.deleted) {
-        if (index >= 0) list.splice(index, 1);
-    } else {
-        let parsed = null;
-
-        try {
-            parsed = JSON.parse(String(entry.value ?? "null"));
-        } catch {
-            return snapshot;
-        }
-
-        if (!parsed || typeof parsed !== "object") return snapshot;
-
-        if (index >= 0) {
-            list[index] = parsed;
-        } else {
-            list.push(parsed);
-        }
-    }
-
-    snapshot[storageKey] = JSON.stringify(list);
-
-    return snapshot;
-}
-
-/**
- * Diferencia dos versiones de un objeto por sus claves de primer nivel.
- * Devuelve null si no es un objeto plano no vacio: ahi vuelve el valor entero.
- *
- * Un valor escalar -una fecha, un numero- no tiene nada que partir, y un objeto
- * vacio tampoco: mandarlo entero es mas barato y significa lo mismo.
- */
-export function planObjectStateEntries({
-    moduleId,
-    storageKey,
-    previousRaw,
-    nextRaw,
-    removed = false
-} = {}) {
-    if (removed || nextRaw === null || nextRaw === undefined) return null;
-
-    const previous = parseObject(previousRaw);
-    const next = parseObject(nextRaw);
-
-    if (!Object.keys(next).length && !Object.keys(previous).length) return null;
-    // parseObject devuelve {} tanto para un objeto vacio como para algo que no
-    // es objeto: hay que distinguirlos o un escalar se mandaria como si fuera un
-    // objeto y se perderia.
-    if (!isPlainObject(nextRaw)) return null;
-
-    const entries = [];
-    const keys = new Set([
-        ...Object.keys(previous),
-        ...Object.keys(next)
-    ]);
-
-    keys.forEach(itemKey => {
-        const previousValue = previous[itemKey];
-        const nextHasValue = Object.prototype.hasOwnProperty.call(next, itemKey);
-        const nextValue = next[itemKey];
-
-        if (
-            nextHasValue &&
-            JSON.stringify(previousValue) === JSON.stringify(nextValue)
-        ) return;
-
-        entries.push({
-            moduleId,
-            storageKey,
-            itemKey,
-            value: nextHasValue ? JSON.stringify(nextValue) : null,
-            deleted: !nextHasValue
-        });
-    });
-
-    return entries;
-}
-
 export function applyPartialStateEntry(snapshot = {}, entry = {}) {
     const storageKey = String(entry.storageKey || "");
     const itemKey = String(entry.itemKey || "");
@@ -423,17 +153,6 @@ export function applyPartialStateEntry(snapshot = {}, entry = {}) {
             snapshot[storageKey] = String(entry.value ?? "");
         }
         return snapshot;
-    }
-
-    // El marcador dice como parchear, pero no se depende solo de el: si lo que
-    // hay guardado YA es una lista, tratarla como mapa la convertiria en objeto
-    // y reventaria todo lo que la recorre. Ante la duda manda la forma real del
-    // dato, que es la que el resto del programa va a leer.
-    if (
-        entry.container === PARTIAL_LIST_CONTAINER ||
-        Array.isArray(parseStored(snapshot[storageKey]))
-    ) {
-        return applyListStateEntry(snapshot, storageKey, entry);
     }
 
     const map = parseObject(snapshot[storageKey]);
