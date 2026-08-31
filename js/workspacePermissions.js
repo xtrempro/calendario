@@ -37,7 +37,10 @@ const TARGET_TO_MENU = MENU_PERMISSION_DEFS.reduce((map, menu) => {
     map[menu.target] = menu.key;
     return map;
 }, {
-    timelinePanel: "turnos"
+    timelinePanel: "turnos",
+    // Titulares de Turnos es una lectura del calendario de la unidad: quien no
+    // puede ver Turnos tampoco tiene por que ver en que grupo va cada persona.
+    shiftHoldersPanel: "turnos"
 });
 
 let permissionState = {

@@ -225,6 +225,7 @@ import {
 } from "./staffing.js";
 import { renderTaskAssignmentsPanel } from "./taskAssignments.js";
 import { renderKanbanBoard } from "./kanban.js";
+import { renderShiftHoldersPanel } from "./shiftHolders.js";
 import { renderAgendaPanel } from "./agenda.js";
 import { renderDashboardPanel } from "./dashboard.js";
 import { renderHomePanel, refreshHomeTasks } from "./home.js";
@@ -5893,6 +5894,10 @@ async function setActiveShortcut(targetId, options = {}) {
 
         if (nextView === "kanban") {
             renderKanbanBoard();
+        }
+
+        if (nextView === "holders") {
+            void renderShiftHoldersPanel();
         }
 
         if (nextView === "agenda") {

@@ -67,6 +67,10 @@ export function getViewForTarget(targetId) {
         return "kanban";
     }
 
+    if (targetId === "shiftHoldersPanel") {
+        return "holders";
+    }
+
     if (targetId === "agendaPanel") {
         return "agenda";
     }

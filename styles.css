@@ -1358,6 +1358,7 @@ body:not([data-active-view="hours"]) .hours-charts-panel,
 body:not([data-active-view="weekly"]) #staffingWeeklyCalendar,
 body:not([data-active-view="tasks"]) #taskAssignmentsPanel,
 body:not([data-active-view="kanban"]) #kanbanPanel,
+body:not([data-active-view="holders"]) #shiftHoldersPanel,
 body:not([data-active-view="agenda"]) #agendaPanel,
 body:not([data-active-view="turnos"]) .staffing-report-panel,
 body:not([data-active-view="reports"]) #reportsPanel,
@@ -1418,6 +1419,12 @@ body[data-active-view="kanban"] #turnChangesView,
 body[data-active-view="agenda"] .primary-grid,
 body[data-active-view="agenda"] .timeline-panel,
 body[data-active-view="agenda"] #turnChangesView,
+body[data-active-view="holders"] .calendar-panel,
+body[data-active-view="holders"] .leave-panel,
+body[data-active-view="holders"] .timeline-panel,
+body[data-active-view="holders"] #turnChangesView,
+body[data-active-view="holders"] .primary-grid,
+body[data-active-view="holders"] .secondary-grid,
 body[data-active-view="reports"] .timeline-panel,
 body[data-active-view="reports"] .primary-grid,
 body[data-active-view="reports"] .secondary-grid,
@@ -1869,6 +1876,231 @@ body[data-active-view="home"] .secondary-grid {
 .hm-cob-btn:disabled {
     opacity: 0.6;
     cursor: default;
+}
+
+
+/* ==========================================================================
+   Titulares de Turnos
+   Los cuatro grupos del 4to turno. Las letras son fijas; lo que cambia cada dia
+   es el subtitulo de la columna.
+   ========================================================================== */
+
+.shift-holders-panel {
+    padding: 18px;
+}
+
+.tt-root {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.tt-head h2 {
+    margin: 0 0 4px;
+    font-size: 1.15rem;
+    font-weight: 800;
+}
+
+.tt-head p {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--text-soft);
+    line-height: 1.45;
+}
+
+.tt-head-date {
+    display: block;
+    margin-top: 2px;
+    font-weight: 700;
+    color: var(--text);
+    text-transform: capitalize;
+}
+
+.tt-loading {
+    margin: 0;
+    padding: 24px 0;
+    color: var(--text-soft);
+    font-size: 0.9rem;
+}
+
+/* --- Leyenda de colores --- */
+.tt-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-alt);
+}
+
+.tt-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--tt-accent);
+}
+
+.tt-legend-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--tt-accent);
+    flex: none;
+}
+
+/* --- Las cuatro columnas --- */
+.tt-board {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+}
+
+.tt-column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel-alt);
+    min-width: 0;
+}
+
+.tt-column-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding-bottom: 9px;
+    border-bottom: 2px solid var(--border);
+}
+
+.tt-letter {
+    font-size: 1.5rem;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.5px;
+}
+
+.tt-today {
+    font-size: 0.74rem;
+    font-weight: 800;
+    padding: 3px 9px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.tt-count {
+    margin-left: auto;
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: var(--text-soft);
+}
+
+/* El encabezado se tiñe con el turno que ese grupo hace HOY: es lo que permite
+   leer la columna de un vistazo sin que las letras se muevan. */
+.tt-column-head--larga { border-bottom-color: rgba(0, 137, 197, 0.6); }
+.tt-column-head--larga .tt-today { background: rgba(0, 137, 197, 0.2); color: #46b6e8; }
+.tt-column-head--noche { border-bottom-color: rgba(16, 73, 139, 0.7); }
+.tt-column-head--noche .tt-today { background: rgba(16, 73, 139, 0.28); color: #7aa5dd; }
+.tt-column-head--libre { border-bottom-color: var(--border); }
+.tt-column-head--libre .tt-today { background: rgba(148, 163, 184, 0.18); color: var(--text-soft); }
+
+.tt-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tt-worker {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border-left: 4px solid var(--tt-accent);
+    background: var(--tt-soft);
+    min-width: 0;
+}
+
+.tt-worker-name {
+    font-size: 0.87rem;
+    font-weight: 700;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.tt-worker-meta {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--tt-accent);
+    overflow-wrap: anywhere;
+}
+
+.tt-worker-note {
+    font-size: 0.72rem;
+    color: var(--text-soft);
+}
+
+.tt-worker-note.is-warn {
+    color: var(--hm-warn, #ea8a10);
+    font-weight: 700;
+}
+
+.tt-empty {
+    margin: 4px 0 0;
+    font-size: 0.82rem;
+    color: var(--text-soft);
+}
+
+.tt-note {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--text-soft);
+    line-height: 1.45;
+}
+
+/* --- Paleta por estamento / profesion ---
+   Un tono por ranura; el color se deriva del matiz para no repetir doce pares
+   de valores en cada tema. */
+.tt-color-0 { --tt-h: 210; }
+.tt-color-1 { --tt-h: 145; }
+.tt-color-2 { --tt-h: 25; }
+.tt-color-3 { --tt-h: 280; }
+.tt-color-4 { --tt-h: 340; }
+.tt-color-5 { --tt-h: 190; }
+.tt-color-6 { --tt-h: 55; }
+.tt-color-7 { --tt-h: 0; }
+.tt-color-8 { --tt-h: 258; }
+.tt-color-9 { --tt-h: 165; }
+.tt-color-10 { --tt-h: 310; }
+.tt-color-11 { --tt-h: 95; }
+
+.tt-legend-item,
+.tt-worker {
+    --tt-accent: hsl(var(--tt-h, 210) 72% 68%);
+    --tt-soft: hsl(var(--tt-h, 210) 60% 50% / 0.16);
+}
+
+body.theme-light .tt-legend-item,
+body.theme-light .tt-worker {
+    --tt-accent: hsl(var(--tt-h, 210) 65% 36%);
+    --tt-soft: hsl(var(--tt-h, 210) 70% 45% / 0.12);
+}
+
+@media (max-width: 1100px) {
+    .tt-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+    .tt-board { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* --- Alerta de cobertura automatica sin respuesta (punto D) ---------------
