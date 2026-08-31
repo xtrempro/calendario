@@ -672,6 +672,14 @@ service cloud.firestore {
           );
       }
 
+      // Campañas de cobertura automatica. Solo las tocan quienes gestionan
+      // solicitudes y la Cloud Function que hace avanzar las etapas (que usa el
+      // SDK de administrador y no pasa por estas reglas). El trabajador no las
+      // ve: lo que le llega es la solicitud de reemplazo.
+      match /autoCoverageCampaigns/{campaignId} {
+        allow read, write: if canManageRequests(workspaceId);
+      }
+
       match /workerBlockedDays/{blockedDayId} {
         allow read: if canReadRequests(workspaceId) ||
           (signedIn() && resource.data.workerUid == request.auth.uid);

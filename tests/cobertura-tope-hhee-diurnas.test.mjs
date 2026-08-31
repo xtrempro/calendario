@@ -51,19 +51,27 @@ globalThis.document = {
 globalThis.alert = () => {};
 globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
+// El motor de candidatos se movio a js/replacementCandidates.js: lo comparten
+// el navegador y la Cloud Function que hace avanzar la cobertura automatica.
 const {
     MAX_MONTHLY_DIURNAL_OVERTIME,
     coverageOvertimeHours,
     exceedsDiurnalOvertimeLimit
-} = await import("../js/calendar.js");
+} = await import("../js/replacementCandidates.js");
 const { TURNO } = await import("../js/constants.js");
 
 const calendar = (await readFile(
-    new URL("../js/calendar.js", import.meta.url),
+    new URL("../js/replacementCandidates.js", import.meta.url),
     "utf8"
 )).replace(/\r\n/g, "\n");
 const home = (await readFile(
     new URL("../js/home.js", import.meta.url),
+    "utf8"
+)).replace(/\r\n/g, "\n");
+// El reparto de las etapas (y con el, el filtro del tope) es puro y vive
+// aparte: lo comparten el navegador y la Cloud Function.
+const autoCoverage = (await readFile(
+    new URL("../js/autoCoveragePlan.js", import.meta.url),
     "utf8"
 )).replace(/\r\n/g, "\n");
 
@@ -189,18 +197,25 @@ test("una noche de sabado es toda nocturna y no gasta cupo", () => {
 });
 
 test("el filtro corre en la cobertura automatica", () => {
+    // El calculo sigue en calendar.js, donde cada candidato se arma con el mes
+    // DEL TURNO a cubrir.
     assert.match(
         calendar,
-        /const overLimit = compatible\.filter\(candidate =>\s*\n\s*exceedsDiurnalOvertimeLimit\(candidate, date, neededTurn, holidays\)\s*\n\s*\);/
+        /exceedsDiurnalLimit: exceedsDiurnalOvertimeLimit\(/
     );
-    // Y los excluidos salen de la lista a la que se le envia.
-    assert.match(calendar, /!overLimit\.includes\(candidate\)/);
-    assert.match(calendar, /overLimit: overLimit\.length,/);
+    // Y la campaña por etapas lo aplica en TODAS las etapas, incluida la
+    // masiva: es la unica regla que la solicitud masiva no levanta.
+    assert.match(autoCoverage, /!candidate\.exceedsDiurnalLimit/);
+    assert.match(
+        autoCoverage,
+        /if \(step\?\.kind === "mass"\) return base;/
+    );
+    // El supervisor tiene que poder saber cuantos quedaron fuera por el tope.
+    assert.match(autoCoverage, /const overLimit = \(candidates \|\| \[\]\)\.filter/);
 });
 
 test("el supervisor se entera de por que no les llego", () => {
     // "Nadie puede cubrir" y "todos pasarian el tope" se resuelven distinto:
     // el segundo se arregla repartiendo el turno, no buscando mas gente.
     assert.match(home, /superarían las 40 horas extras diurnas del mes/);
-    assert.match(home, /superarían las 40 h extras diurnas/);
 });

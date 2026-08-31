@@ -1,5 +1,14 @@
 import { keyFromDate, toISODate } from "./dateUtils.js";
 import { normalizeText } from "./stringUtils.js";
+// El registro de enlaces vive aparte para que replacements.js -y con el, el
+// motor del servidor- pueda consultarlo sin arrastrar el cliente Firebase.
+import {
+    findProfileForLink,
+    getWorkerAppLinkForProfile,
+    getWorkerAppLinkList,
+    getWorkerAppLinks,
+    setWorkerAppLinks
+} from "./workerAppLinks.js";
 import { TURNO } from "./constants.js";
 import {
     getCurrentFirebaseUser,
@@ -160,7 +169,6 @@ let hotPublishTimer = null;
 let hotPublishInFlight = false;
 let hotPublishRequested = false;
 let hotPublishNeedsLocalStateFlush = false;
-let workerLinks = [];
 let workerLinksInitialized = false;
 let syncGeneration = 0;
 let workerAppLastUserActivityAt = Date.now();
@@ -323,52 +331,9 @@ function normalizeWorkerLink(docSnap) {
     };
 }
 
-function findProfileForLink(link, profiles) {
-    const linkRut = normalizeRut(link.profileRut);
-    const linkName = normalizeText(link.profileName);
-
-    if (linkRut) {
-        const rutMatch = profiles.find(profile =>
-            normalizeRut(profile.rut) === linkRut
-        );
-
-        if (rutMatch) return rutMatch;
-    }
-
-    if (linkName) {
-        const exactNameMatch = profiles.find(profile =>
-            normalizeText(profile.name) === linkName
-        );
-
-        if (exactNameMatch) return exactNameMatch;
-    }
-
-    return null;
-}
-
-export function getWorkerAppLinkForProfile(profileOrName) {
-    const profiles = getProfiles();
-    const profile = typeof profileOrName === "string"
-        ? profiles.find(item => item.name === profileOrName)
-        : profileOrName;
-
-    if (!profile) return null;
-
-    return workerLinks.find(link => {
-        const linkedProfile = findProfileForLink(link, profiles);
-
-        return linkedProfile?.name === profile.name;
-    }) || null;
-}
-
-export function getWorkerAppLinks() {
-    const profiles = getProfiles();
-
-    return workerLinks.map(link => ({
-        ...link,
-        profile: findProfileForLink(link, profiles)
-    }));
-}
+// Se reexportan para no tocar a los diez modulos que ya los importaban desde
+// aqui; la implementacion vive en workerAppLinks.js.
+export { getWorkerAppLinkForProfile, getWorkerAppLinks };
 
 // Ubica el enlace de un perfil recien renombrado. Primero con la tolerancia
 // habitual (RUT o nombre normalizado contra el perfil ya guardado con el nombre
@@ -383,7 +348,7 @@ function findWorkerLinkForRename(oldName, newName) {
 
     if (!previous) return null;
 
-    return workerLinks.find(link =>
+    return getWorkerAppLinkList().find(link =>
         normalizeText(link.profileName) === previous
     ) || null;
 }
@@ -2635,7 +2600,7 @@ function shouldDeferDirectEditCalendarEvent(metadata) {
 }
 
 function applyDirtyFromKeys(keys, changes = {}) {
-    if (!activeWorkspace?.id || !workerLinks.length) return;
+    if (!activeWorkspace?.id || !getWorkerAppLinkList().length) return;
     if (!Array.isArray(keys) || !keys.length) return;
 
     const profiles = getProfiles();
@@ -2704,7 +2669,7 @@ function currentWorkspace() {
 }
 
 function linkedProfilePairs(profiles) {
-    return workerLinks.map(link => ({
+    return getWorkerAppLinkList().map(link => ({
         link,
         profile: findProfileForLink(link, profiles)
     }));
@@ -2786,12 +2751,12 @@ function deferWorkerAppItemIfForeground(item, reason = "foreground-during-publis
 // ───────── Publicacion caliente (mes actual + siguiente) ─────────
 
 export function scheduleHotPublish(delay = HOT_PUBLISH_DELAY_MS) {
-    if (!activeWorkspace?.id || !workerLinks.length) return;
+    if (!activeWorkspace?.id || !getWorkerAppLinkList().length) return;
 
     recordPerformanceEvent("worker-app:schedule-hot-publish", {
         type: "worker-app",
         delay,
-        linkedCount: workerLinks.length,
+        linkedCount: getWorkerAppLinkList().length,
         dirtyProfiles: dirtyProfileNames.size,
         dirtyWorkers: dirtyWorkerUids.size
     });
@@ -2828,7 +2793,7 @@ async function flushWorkerAppProjectionState(profileNames = []) {
 }
 
 async function publishHotNow() {
-    if (!activeWorkspace?.id || !workerLinks.length) return;
+    if (!activeWorkspace?.id || !getWorkerAppLinkList().length) return;
 
     // El cómputo de la proyección del worker-app se movió al servidor (Cloud
     // Function buildWorkerAppProjection). El navegador ya NO calcula ni escribe
@@ -2839,7 +2804,7 @@ async function publishHotNow() {
     const dirtyNames = new Set(dirtyProfileNames);
 
     dirtyWorkerUids.forEach(uid => {
-        const link = workerLinks.find(item => item.uid === uid);
+        const link = getWorkerAppLinkList().find(item => item.uid === uid);
         const profile = link ? findProfileForLink(link, profiles) : null;
         if (profile?.name) dirtyNames.add(profile.name);
     });
@@ -2883,7 +2848,7 @@ async function publishHotNow() {
             type: "worker-app",
             workspaceId: requestWorkspace.id,
             profileCount: dirtyNames.size,
-            linkedCount: workerLinks.length
+            linkedCount: getWorkerAppLinkList().length
         });
     } catch (error) {
         dirtyNames.forEach(name => dirtyProfileNames.add(name));
@@ -3013,10 +2978,10 @@ async function retireDuplicateWorkerLinkDocs(uid, workspaceId) {
 async function publishLinkedWorkerDocs() {
     const workspace = currentWorkspace();
 
-    if (!workspace?.id || !workerLinks.length) return;
+    if (!workspace?.id || !getWorkerAppLinkList().length) return;
 
     const profiles = getProfiles();
-    const linkedProfiles = workerLinks
+    const linkedProfiles = getWorkerAppLinkList()
         .map(link => ({ link, profile: findProfileForLink(link, profiles) }))
         .filter(item => item.profile && item.link?.uid);
 
@@ -3092,7 +3057,7 @@ export function scheduleWorkerAppDataPublish(
     changeMetadata = null,
     options = {}
 ) {
-    if (!activeWorkspace?.id || !workerLinks.length) return;
+    if (!activeWorkspace?.id || !getWorkerAppLinkList().length) return;
 
     const normalizedTargets = normalizeProfileTargets(profileTargets);
 
@@ -3138,7 +3103,7 @@ export function scheduleWorkerAppDataPublish(
         requestedTargets: Array.isArray(profileTargets)
             ? profileTargets.length
             : 1,
-        linkedCount: workerLinks.length,
+        linkedCount: getWorkerAppLinkList().length,
         dirtyProfiles: dirtyProfileNames.size,
         dirtyWorkers: dirtyWorkerUids.size
     });
@@ -3194,7 +3159,7 @@ export async function startWorkerAppDataSync(workspace) {
             snap => {
                 if (generation !== syncGeneration) return;
 
-                const previousLinks = workerLinks;
+                const previousLinks = getWorkerAppLinkList();
                 const nextLinks = snap.docs
                     .map(normalizeWorkerLink)
                     .filter(Boolean);
@@ -3209,7 +3174,7 @@ export async function startWorkerAppDataSync(workspace) {
                     workerLinksInitialized
                 );
 
-                workerLinks = nextLinks;
+                setWorkerAppLinks(nextLinks);
                 workerLinksInitialized = true;
                 if (initial || removedUids.length) {
                     const previousByUid = new Map(
@@ -3228,7 +3193,7 @@ export async function startWorkerAppDataSync(workspace) {
                 recordPerformanceEvent("worker-app:links-snapshot", {
                     type: "worker-app",
                     initial,
-                    linkCount: workerLinks.length,
+                    linkCount: getWorkerAppLinkList().length,
                     changedCount: changedUids.length,
                     removedCount: removedUids.length,
                     shouldPublish
@@ -3244,7 +3209,7 @@ export async function startWorkerAppDataSync(workspace) {
                                 initial,
                                 changedUids,
                                 removedUids,
-                                count: workerLinks.length
+                                count: getWorkerAppLinkList().length
                             }
                         })
                     );
@@ -3308,7 +3273,7 @@ export function stopWorkerAppDataSync() {
     }
 
     activeWorkspace = null;
-    workerLinks = [];
+    setWorkerAppLinks([]);
     workerLinksInitialized = false;
     hotPublishInFlight = false;
     hotPublishRequested = false;

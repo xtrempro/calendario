@@ -275,16 +275,29 @@ test("consultar quien tiene la solicitud no exige permiso de edicion", () => {
 
 test("cobertura automatica queda deshabilitada mientras la solicitud vive", () => {
     // Volver a apretarlo mandaria una segunda tanda a los mismos telefonos.
-    assert.match(home, /waiting \? `disabled title=/);
-    assert.match(home, /waiting \? "SOLICITUD ENVIADA" : "COBERTURA AUTOMÁTICA"/);
+    assert.match(home, /waiting\s*\n\s*\? `disabled title=/);
+    assert.match(home, /: waiting\s*\n\s*\? "SOLICITUD ENVIADA"/);
+});
+
+test("y tambien mientras la campaña por etapas sigue abierta", () => {
+    // Entre el vencimiento de una oleada y el envio de la siguiente pasan horas
+    // sin ninguna solicitud pendiente. Si el boton se rehabilitara ahi, el
+    // supervisor arrancaria una segunda campaña sobre el mismo turno.
+    assert.match(home, /campaign\s*\n\s*\? `disabled title="La cobertura automática ya está en curso/);
+    assert.match(home, /"COBERTURA EN CURSO"/);
 });
 
 test("el bloqueo sale del dato, no de una marca local", () => {
     // Si fuera una variable en memoria, recargar la pagina lo soltaria; y no
-    // sabria cuando caduco la solicitud. Sale de las pendientes del turno.
+    // sabria cuando caduco la solicitud. Sale de las pendientes del turno y de
+    // la campaña guardada.
     assert.match(
         home,
         /const waiting = kind === "sincubrir" && \(item\.pendingRequests\?\.length \|\| 0\) > 0;/
+    );
+    assert.match(
+        home,
+        /const campaign = kind === "sincubrir" \? \(item\.campaign \|\| null\) : null;/
     );
 });
 

@@ -2073,6 +2073,19 @@ export function updateProfile(oldName, nextProfile){
 
     saveReplacementRequests(replacementRequests);
 
+    // Campañas de cobertura automatica. Se tocan por su clave cruda y no por
+    // autoCoverage.js: ese modulo importa storage.js, y al reves quedaria un
+    // ciclo entre los dos.
+    const autoCoverageCampaigns = getJSON("autoCoverageCampaigns", [])
+        .map(campaign => ({
+            ...campaign,
+            replaced: campaign.replaced === oldName
+                ? targetName
+                : campaign.replaced
+        }));
+
+    setJSON("autoCoverageCampaigns", autoCoverageCampaigns);
+
     const workerRequests = getWorkerRequests().map(request => ({
         ...request,
         profile: request.profile === oldName

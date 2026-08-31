@@ -26,6 +26,9 @@ const {
   findCompatibleReplacementCandidates
 } = require("./linkedReplacementSearch");
 const {
+  advanceAutoCoverageCampaigns
+} = require("./autoCoverageScheduler");
+const {
   memberCanManageRequests,
   memberCanReadWorkerCalendar,
   memberHasExplicitAccess
@@ -4589,6 +4592,38 @@ exports.sendReminderAlerts = onSchedule(
     }
 
     logger.info("reminder alerts procesados", { workers: snap.size, pushed });
+  }
+);
+
+// Temporizador de la cobertura automatica por etapas.
+//
+// El navegador arranca la campaña y manda la primera oleada; de la segunda en
+// adelante manda esto, porque las etapas son de 24 horas y no pueden depender de
+// que alguien tenga la pagina abierta.
+//
+// Cada 15 minutos: una etapa que vencia a las 03:00 sale a mas tardar 03:15. Con
+// etapas de 24 h ese desfase no cambia nada, y bajar el intervalo multiplicaria
+// el barrido de campañas sin ganar nada.
+//
+// La memoria va en 1 GiB porque una oleada recorre TODOS los trabajadores del
+// entorno calculando sus horas extras del mes: es el mismo trabajo que en el
+// navegador dispara el barrido cooperativo.
+exports.advanceAutoCoverage = onSchedule(
+  {
+    schedule: "every 15 minutes",
+    region: "us-central1",
+    timeZone: "America/Santiago",
+    timeoutSeconds: 540,
+    memory: "1GiB"
+  },
+  async () => {
+    const summary = await advanceAutoCoverageCampaigns({
+      db,
+      logger,
+      serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    logger.info("cobertura automatica procesada", summary);
   }
 );
 

@@ -43,7 +43,7 @@ import {
     addAuditLog,
     AUDIT_CATEGORY
 } from "./auditLog.js";
-import { getWorkerAppLinkForProfile } from "./workerAppDataSync.js";
+import { getWorkerAppLinkForProfile } from "./workerAppLinks.js";
 import { removePreassignment } from "./preassignments.js";
 
 function formatNotificationDate(value) {
@@ -1389,32 +1389,48 @@ export function buildReplacementRequestWhatsAppUrl(request) {
     return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
+// Un turno, no un grupo de envio: la cobertura automatica reparte la misma
+// cobertura en varias oleadas y cada oleada es un groupId distinto. Agrupando
+// por groupId, quien aceptaba en la segunda oleada dejaba viva la primera -los
+// del primer tercio seguian viendo la solicitud pendiente en su telefono- y dos
+// aceptaciones de oleadas distintas creaban DOS reemplazos para el mismo turno.
+function requestShiftKey(request) {
+    return [
+        request.replaced,
+        request.date,
+        request.turno
+    ].join("|");
+}
+
 export function applyAcceptedReplacementRequests() {
     let changed = false;
     const replacements = getReplacements();
     const requests = getReplacementRequests();
     const nextRequests = requests.map(request => ({ ...request }));
-    const groupIds = [...new Set(
+    const shiftKeys = [...new Set(
         nextRequests
             .filter(request =>
                 request.status === "accepted" &&
                 !request.appliedAt
             )
-            .map(request => request.groupId || request.id)
+            .map(requestShiftKey)
     )];
 
-    groupIds.forEach(groupId => {
-        const groupRequests = nextRequests.filter(request =>
-            (request.groupId || request.id) === groupId
+    shiftKeys.forEach(shiftKey => {
+        const shiftRequests = nextRequests.filter(request =>
+            requestShiftKey(request) === shiftKey
         );
-        const hasAppliedRequest = groupRequests.some(request =>
+        const groupIds = new Set(
+            shiftRequests.map(request => request.groupId || request.id)
+        );
+        const hasAppliedRequest = shiftRequests.some(request =>
             Boolean(request.appliedAt)
         );
         const hasAppliedReplacement = replacements.some(replacement =>
             !replacement.canceled &&
             (
-                replacement.requestGroupId === groupId ||
-                groupRequests.some(request =>
+                groupIds.has(replacement.requestGroupId) ||
+                shiftRequests.some(request =>
                     replacement.requestId === request.id
                 )
             )
@@ -1424,7 +1440,7 @@ export function applyAcceptedReplacementRequests() {
             return;
         }
 
-        const winner = groupRequests
+        const winner = shiftRequests
             .filter(request => request.status === "accepted")
             .sort((a, b) =>
                 String(a.acceptedAt || a.createdAt).localeCompare(
@@ -1434,15 +1450,21 @@ export function applyAcceptedReplacementRequests() {
 
         if (!winner) return;
 
+        // `winner.turno` es la letra que guarda el documento ("L", "N", "24") y
+        // `replacement.turno` es el estado numerico: hay que convertir antes de
+        // comparar o el cotejo nunca da verdadero.
+        const winnerTurno = codeToTurno(winner.turno);
+        // El turno se cubre UNA vez, lo tome quien lo tome. Antes se exigia
+        // ademas el mismo trabajador, asi que dos aceptaciones de oleadas
+        // distintas pasaban las dos y el dia quedaba con dos reemplazos.
         const alreadyApplied = replacements.some(replacement =>
             !replacement.canceled &&
             (
                 replacement.requestId === winner.id ||
                 (
-                    replacement.worker === winner.worker &&
                     replacement.replaced === winner.replaced &&
                     replacement.date === winner.date &&
-                    replacement.turno === winner.turno
+                    Number(replacement.turno) === Number(winnerTurno)
                 )
             )
         );
@@ -1452,7 +1474,7 @@ export function applyAcceptedReplacementRequests() {
                 worker: winner.worker,
                 replaced: winner.replaced,
                 keyDay: winner.keyDay,
-                turno: codeToTurno(winner.turno),
+                turno: winnerTurno,
                 absenceType: winner.absenceType,
                 source:
                     winner.source === "forced_replacement_request"
@@ -1462,15 +1484,16 @@ export function applyAcceptedReplacementRequests() {
                     Boolean(winner.diurnoLongCoverage),
                 overtimeHours: winner.overtimeHours,
                 requestId: winner.id,
-                requestGroupId: groupId
+                requestGroupId: winner.groupId || winner.id
             });
         }
 
         const now = new Date().toISOString();
 
-        groupRequests.forEach(groupRequest => {
+        // Caduca TODAS las solicitudes vivas del turno, de cualquier oleada.
+        shiftRequests.forEach(shiftRequest => {
             const target = nextRequests.find(request =>
-                request.id === groupRequest.id
+                request.id === shiftRequest.id
             );
 
             if (!target) return;

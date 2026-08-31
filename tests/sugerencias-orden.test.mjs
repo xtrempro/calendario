@@ -127,23 +127,37 @@ test("los dos criterios nuevos se comparan primero", async () => {
    Que el dato llegue
 ========================================================= */
 
-test("el candidato viaja con la bandera del tope ya calculada", () => {
+test("el candidato viaja con la bandera del tope ya calculada", async () => {
     // El worker que ordena no tiene la fecha ni los feriados para resolverlo,
     // asi que se calcula al armar el candidato.
+    const candidatos = (await readFile(
+        new URL("../js/replacementCandidates.js", import.meta.url),
+        "utf8"
+    )).replace(/\r\n/g, "\n");
+
     assert.match(
-        calendar,
+        candidatos,
         /exceedsDiurnalLimit: exceedsDiurnalOvertimeLimit\(\s*\n\s*\{ overtimeHours, hheeDiurnas \},\s*\n\s*date,\s*\n\s*neededTurn,\s*\n\s*holidays\s*\n\s*\)/
     );
 });
 
-test("se usa el MISMO tope que la cobertura automatica", () => {
+test("se usa el MISMO tope que la cobertura automatica", async () => {
     // Si fueran dos reglas distintas, la lista podria ofrecer a alguien a quien
-    // el envio masivo deja fuera.
-    assert.match(calendar, /export function exceedsDiurnalOvertimeLimit/);
-    assert.match(
-        calendar,
-        /const overLimit = compatible\.filter\(candidate =>\s*\n\s*exceedsDiurnalOvertimeLimit\(/
-    );
+    // el envio masivo deja fuera. La bandera se calcula una sola vez, al armar
+    // el candidato, y la campaña por etapas consume esa misma.
+    const candidatos = (await readFile(
+        new URL("../js/replacementCandidates.js", import.meta.url),
+        "utf8"
+    )).replace(/\r\n/g, "\n");
+
+    assert.match(candidatos, /export function exceedsDiurnalOvertimeLimit/);
+
+    const plan = (await readFile(
+        new URL("../js/autoCoveragePlan.js", import.meta.url),
+        "utf8"
+    )).replace(/\r\n/g, "\n");
+
+    assert.match(plan, /!candidate\.exceedsDiurnalLimit/);
 });
 
 test("la tarjeta dice por que quedo al final", () => {

@@ -101,8 +101,15 @@ test("integracion: modo, handler, modal, badge, compatibilidad y sync", async ()
     assert.match(replacements, /saveReplacement\(\{[\s\S]{0,260}?source: "replacement"/);
     assert.match(calendar, /return openPreassignmentDialog\(\{ profile: profileName, keyDay \}\)/);
     // Compatibilidad 24h con preasignaciones.
-    assert.match(calendar, /function preassignmentBlocksReplacementCandidate\(/);
-    assert.match(calendar, /!preassignmentBlocksReplacementCandidate\(/);
+    // La regla de adyacencia de 24h se movio con el resto del motor de
+    // candidatos a js/replacementCandidates.js.
+    const candidatos = await readFile(
+        new URL("../js/replacementCandidates.js", import.meta.url),
+        "utf8"
+    );
+
+    assert.match(candidatos, /function preassignmentBlocksReplacementCandidate\(/);
+    assert.match(candidatos, /!preassignmentBlocksReplacementCandidate\(/);
     // Timeline: marker + routing.
     assert.match(timeline, /const TIMELINE_PREASSIGN_MARKER =/);
     assert.match(timeline, /data-preassign-profile/);

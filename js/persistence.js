@@ -9,7 +9,13 @@ const INTERNAL_KEYS = new Set([
     // La agenda es local por supervisor (no se sincroniza entre usuarios del
     // mismo entorno): cada uno edita/borra su propia copia.
     "agenda_contacts",
-    "agenda_seeded_v1"
+    "agenda_seeded_v1",
+    // Copia local de las campañas de cobertura automatica. Viven en su propia
+    // coleccion (workspaces/{ws}/autoCoverageCampaigns) porque quien hace
+    // avanzar las etapas es la Cloud Function. Si ademas viajaran dentro de la
+    // foto del modulo compartido, un navegador con una copia de hace un rato
+    // devolveria la campaña a la etapa anterior al subir la suya.
+    "autoCoverageCampaigns"
 ]);
 const INTERNAL_KEY_PREFIXES = [
     "firebase:",

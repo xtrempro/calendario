@@ -1871,6 +1871,131 @@ body[data-active-view="home"] .secondary-grid {
     cursor: default;
 }
 
+/* --- Alerta de cobertura automatica sin respuesta (punto D) ---------------
+   Banda propia entre las estadisticas y el tablero, no una tarjeta mas de la
+   grilla: la tarjeta de cobertura se puede dejar plegada en modo resumen y una
+   alarma que se puede esconder deja de servir. Sin alertas la seccion queda
+   vacia y :empty la saca del flujo, para no dejar un hueco en el layout. */
+.hm-alertband { display: flex; flex-direction: column; gap: 12px; }
+.hm-alertband:empty { display: none; }
+
+.hm-cobalert {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    background: var(--hm-red-soft);
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.08);
+}
+
+.hm-cobalert-ico {
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(239, 68, 68, 0.18);
+    color: var(--hm-red);
+    /* Latido lento y de baja amplitud: llama la atencion al entrar sin quedar
+       parpadeando encima del texto que hay que leer. */
+    animation: hm-cobalert-pulse 2.4s ease-in-out infinite;
+}
+
+.hm-cobalert-ico svg { width: 20px; height: 20px; }
+
+@keyframes hm-cobalert-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.09); opacity: 0.78; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hm-cobalert-ico { animation: none; }
+}
+
+.hm-cobalert-main { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.hm-cobalert-title { font-size: 0.92rem; font-weight: 800; color: var(--text); line-height: 1.3; }
+.hm-cobalert-shift { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.hm-cobalert-date { font-size: 0.86rem; font-weight: 700; color: var(--text); }
+.hm-cobalert-origin { font-size: 0.83rem; color: var(--text-soft); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hm-cobalert-left { font-size: 0.86rem; color: var(--text-soft); }
+.hm-cobalert-left b { color: var(--hm-red); font-weight: 800; }
+
+.hm-cobalert-actions {
+    flex: 0 1 340px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-self: center;
+}
+
+.hm-cobalert-actions .hm-cob-btn { flex: 1 1 150px; }
+.hm-cobalert-actions .hm-cob-btn--ver { background: var(--panel); }
+
+@media (max-width: 720px) {
+    .hm-cobalert { flex-wrap: wrap; }
+    .hm-cobalert-actions { flex-basis: 100%; }
+}
+
+/* Etapa en curso de la campaña, dentro de la fila de cobertura. */
+.hm-cob-meta--stage {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+/* Modal "ver quienes recibieron la solicitud": una lista por oleada, en el
+   orden en que salieron. */
+.hm-cobwho-wave { display: flex; flex-direction: column; gap: 6px; }
+.hm-cobwho-wave + .hm-cobwho-wave { margin-top: 14px; }
+
+.hm-cobwho-wave-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.83rem;
+    color: var(--text-soft);
+}
+
+.hm-cobwho-wave-head b { color: var(--text); font-weight: 800; }
+.hm-cobwho-when { margin-left: auto; font-size: 0.78rem; }
+
+.hm-cobwho-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+
+.hm-cobwho-list li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 2px;
+    font-size: 0.85rem;
+}
+
+.hm-cobwho-name { font-weight: 700; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.hm-cobwho-chan { font-size: 0.76rem; color: var(--text-soft); }
+
+.hm-cobwho-state {
+    margin-left: auto;
+    font-size: 0.71rem;
+    font-weight: 800;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+    background: var(--panel-alt);
+    color: var(--text-soft);
+}
+
+.hm-cobwho-state--pending { background: #dbeafe; color: #1d4ed8; }
+.hm-cobwho-state--accepted { background: var(--hm-good-soft); color: var(--hm-good); }
+.hm-cobwho-state--rejected { background: var(--hm-red-soft); color: var(--hm-red); }
+.hm-cobwho-state--expired,
+.hm-cobwho-state--superseded { background: var(--hm-warn-soft); color: var(--hm-warn); }
+
 .hm-turno { font-size: 0.71rem; font-weight: 800; padding: 3px 8px; border-radius: 7px; letter-spacing: 0.2px; white-space: nowrap; }
 .hm-turno--larga { background: rgba(59, 130, 246, 0.16); color: #2563eb; }
 .hm-turno--noche { background: rgba(109, 75, 216, 0.18); color: #6d3bd4; }

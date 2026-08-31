@@ -154,7 +154,7 @@ test("las tres superficies del extra usan el mismo helper", async () => {
     // las otras muestran 9, que es justo el bug que se corrigio.
     const [calculations, calendar, report, replacements] = await Promise.all([
         read("../js/calculations.js"),
-        read("../js/calendar.js"),
+        read("../js/replacementCandidates.js"),
         read("../js/hoursReport.js"),
         read("../js/replacements.js")
     ]);

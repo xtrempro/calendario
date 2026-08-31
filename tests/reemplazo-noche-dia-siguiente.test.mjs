@@ -44,7 +44,10 @@ globalThis.document = {
 globalThis.alert = () => {};
 globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
-const { nextDayMorningShiftAfterNight } = await import("../js/calendar.js");
+// El motor de candidatos se movio a js/replacementCandidates.js: lo comparten
+// el navegador y la Cloud Function que hace avanzar la cobertura automatica.
+const { nextDayMorningShiftAfterNight } =
+    await import("../js/replacementCandidates.js");
 const { TURNO } = await import("../js/constants.js");
 
 const NAME = "Candidato";

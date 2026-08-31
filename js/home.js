@@ -88,6 +88,13 @@ import {
     attendanceIncidentContext,
     buildAttendanceIncidents
 } from "./hoursReport.js";
+import {
+    campaignStatusLabel,
+    formatCoverageTimeLeft,
+    getAutoCoverageAlerts,
+    getAutoCoverageCampaigns,
+    getCampaignRecipients
+} from "./autoCoverage.js";
 
 // Nombre por defecto para entornos que aun no tienen "Nombre del supervisor"
 // cargado al crearse (entornos de prueba previos al requerimiento).
@@ -612,6 +619,16 @@ function getUncoveredShifts() {
     const rows = [];
     // Una sola pasada para toda la ventana de cobertura.
     const pendingRequestIndex = buildPendingRequestIndex();
+    // Igual que el indice de solicitudes: preguntar campaña por campaña
+    // releeria el almacen una vez por casilla de la ventana de 14 dias.
+    const campaignIndex = new Map(
+        getAutoCoverageCampaigns()
+            .filter(campaign => campaign.status === "active")
+            .map(campaign => [
+                `${campaign.replaced}|${campaign.keyDay}`,
+                campaign
+            ])
+    );
 
     for (let offset = 0; offset < COVERAGE_WINDOW_DAYS; offset++) {
         const date = new Date(
@@ -641,7 +658,11 @@ function getUncoveredShifts() {
                     pendingRequestIndex,
                     profile.name,
                     isoFromKey(keyDay)
-                )
+                ),
+                // Campaña de cobertura automatica en curso, si la hay: es lo
+                // que convierte el boton en "en curso" y explica en que etapa
+                // va el envio.
+                campaign: campaignIndex.get(`${profile.name}|${keyDay}`) || null
             });
 
             if (rows.length >= COVERAGE_MAX_ROWS) return rows;
@@ -2072,6 +2093,10 @@ function coberturaRow(item, kind) {
     // espera de respuesta. El celular es el mismo marcador del calendario y del
     // timeline, para que las tres superficies digan lo mismo.
     const waiting = kind === "sincubrir" && (item.pendingRequests?.length || 0) > 0;
+    // La campaña por etapas sigue viva aunque en este momento no haya ninguna
+    // solicitud pendiente: entre la caducidad de una oleada y el envio de la
+    // siguiente pasan horas, y el boton no debe volver a habilitarse ahi.
+    const campaign = kind === "sincubrir" ? (item.campaign || null) : null;
     const status = waiting
         ? `<button class="hm-cob-status hm-cob-status--espera" type="button"
                 data-hm="cob-espera" data-cob-profile="${esc(item.origin)}" data-cob-key="${esc(item.keyDay)}"
@@ -2079,6 +2104,11 @@ function coberturaRow(item, kind) {
         : kind === "sincubrir"
             ? '<span class="hm-cob-status hm-cob-status--sincubrir">Sin cubrir</span>'
             : '<span class="hm-cob-status hm-cob-status--preasignado">Preasignado</span>';
+    const stageNote = campaign
+        ? `<div class="hm-cob-meta hm-cob-meta--stage">${esc(
+            campaignStatusLabel(campaign)
+        )}</div>`
+        : "";
     const third = waiting
         ? `<div class="hm-cob-meta"><b>Solicitud enviada a:</b> ${esc(
             item.pendingRequests.map(request => request.worker).join(", ")
@@ -2103,8 +2133,16 @@ function coberturaRow(item, kind) {
                 <button class="hm-cob-btn hm-cob-btn--ver" type="button" data-hm="cob-ver" data-cob-profile="${esc(item.origin)}" data-cob-iso="${esc(item.iso)}">VER EN CALENDARIO</button>
                 <button class="hm-cob-btn hm-cob-btn--auto" type="button" data-hm="cob-auto"
                     data-cob-profile="${esc(item.origin)}" data-cob-key="${esc(item.keyDay)}"
-                    ${waiting ? `disabled title="Ya se envió la solicitud. Se habilita cuando caduque o cuando alguien acepte el turno."` : ""}>${
-                    waiting ? "SOLICITUD ENVIADA" : "COBERTURA AUTOMÁTICA"}</button>
+                    ${campaign
+                        ? `disabled title="La cobertura automática ya está en curso. Sigue sola hasta que alguien acepte el turno o hasta la alerta al supervisor."`
+                        : waiting
+                            ? `disabled title="Ya se envió la solicitud. Se habilita cuando caduque o cuando alguien acepte el turno."`
+                            : ""}>${
+                    campaign
+                        ? "COBERTURA EN CURSO"
+                        : waiting
+                            ? "SOLICITUD ENVIADA"
+                            : "COBERTURA AUTOMÁTICA"}</button>
             </div>`
             : "";
     return `
@@ -2116,8 +2154,117 @@ function coberturaRow(item, kind) {
             </div>
             <div class="hm-cob-meta"><b>Origina:</b> ${esc(item.origin)}${reason}</div>
             ${third}
+            ${stageNote}
             ${actions}
         </div>`;
+}
+
+// ---- Alerta de cobertura sin respuesta (punto D del requerimiento) ----
+//
+// Es el aviso que se levanta cuando la cobertura automatica agoto sus etapas y
+// el turno sigue sin nadie. Va como banda propia sobre el tablero y no dentro
+// de la tarjeta de cobertura: la tarjeta se puede tener plegada en "resumen" y
+// una alarma que se puede esconder no es una alarma.
+function coverageAlertCardHTML(alert) {
+    const left = formatCoverageTimeLeft(alert.msLeft);
+    const origin = alert.absenceType
+        ? `${alert.replaced} · ${alert.absenceType}`
+        : alert.replaced;
+
+    return `
+        <article class="hm-cobalert" role="alert" data-hm="cobalert" data-cob-campaign="${esc(alert.id)}">
+            <span class="hm-cobalert-ico">${svg(IC.alertTri)}</span>
+            <div class="hm-cobalert-main">
+                <strong class="hm-cobalert-title">Turno sin cubrir: nadie aceptó la cobertura automática</strong>
+                <div class="hm-cobalert-shift">
+                    <span class="hm-turno hm-turno--${turnoCssClass(alert.turno)}">${esc(alert.turnoLabel || "Turno")}</span>
+                    <span class="hm-cobalert-date">${esc(shortDateFromISO(alert.date))}</span>
+                    <span class="hm-cobalert-origin">${esc(origin)}</span>
+                </div>
+                <div class="hm-cobalert-left">Queda <b>${esc(left)}</b> para cubrirlo.</div>
+            </div>
+            <div class="hm-cobalert-actions">
+                <button class="hm-cob-btn hm-cob-btn--ver" type="button" data-hm="cobalert-ver"
+                    data-cob-profile="${esc(alert.replaced)}" data-cob-iso="${esc(alert.date)}">VER EN CALENDARIO</button>
+                <button class="hm-cob-btn hm-cob-btn--auto" type="button" data-hm="cobalert-who"
+                    data-cob-campaign="${esc(alert.id)}">VER QUIÉNES RECIBIERON LA SOLICITUD</button>
+            </div>
+        </article>`;
+}
+
+function coverageAlertsHTML() {
+    return getAutoCoverageAlerts().map(coverageAlertCardHTML).join("");
+}
+
+function coverageRecipientsModal() {
+    return `
+        <div class="hm-modal-backdrop" data-hm="cobwho-modal" hidden>
+            <div class="hm-modal hm-modal--absence" role="dialog" aria-modal="true" aria-label="Destinatarios de la cobertura">
+                <div class="hm-modal-head">
+                    <span class="hm-modal-ico">${svg(IC.phone)}</span>
+                    <h3 data-hm="cobwho-title">Solicitudes de cobertura enviadas</h3>
+                    <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="hm-modal-body" data-hm="cobwho-body"></div>
+            </div>
+        </div>`;
+}
+
+const COVERAGE_REQUEST_STATUS = {
+    pending: "Pendiente",
+    accepted: "Aceptada",
+    rejected: "Rechazada",
+    expired: "Caducada",
+    superseded: "Caducada (la tomó otro)",
+    canceled: "Anulada"
+};
+
+function openCoverageRecipients(panel, campaignId) {
+    const modal = panel.querySelector('[data-hm="cobwho-modal"]');
+
+    if (!modal) return;
+
+    const waves = getCampaignRecipients(campaignId);
+    const body = waves.length
+        ? waves.map(wave => `
+            <div class="hm-cobwho-wave">
+                <div class="hm-cobwho-wave-head">
+                    <b>Etapa ${wave.stage}</b>
+                    <span>${esc(wave.label)}</span>
+                    <span class="hm-cobwho-when">${esc(shortDateTime(wave.sentAt))}</span>
+                </div>
+                <ul class="hm-cobwho-list">
+                    ${wave.workers.map(worker => `
+                        <li>
+                            <span class="hm-cobwho-name">${esc(worker.worker)}</span>
+                            <span class="hm-cobwho-chan">${esc(
+                                worker.channel === "app"
+                                    ? "Aplicación"
+                                    : "WhatsApp"
+                            )}</span>
+                            <span class="hm-cobwho-state hm-cobwho-state--${esc(worker.status)}">${esc(
+                                COVERAGE_REQUEST_STATUS[worker.status] || worker.status
+                            )}</span>
+                        </li>`).join("")}
+                </ul>
+            </div>`).join("")
+        : `<div class="hm-dot-empty">Todavía no salió ninguna solicitud de esta cobertura.</div>`;
+
+    modal.querySelector('[data-hm="cobwho-body"]').innerHTML = body;
+    modal.hidden = false;
+}
+
+function shortDateTime(iso) {
+    const date = new Date(iso);
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    return date.toLocaleString("es-CL", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+    });
 }
 
 function coberturaBody() {
@@ -2485,6 +2632,8 @@ function homeHTML() {
                 ${statsSection()}
             </section>
 
+            <section class="hm-alertband" data-hm="cobalert-band">${coverageAlertsHTML()}</section>
+
             <!--
                 Tres PILAS, no tres filas. Cada tarjeta se apoya directamente en
                 la de arriba de su columna: si "Tareas diarias" tiene una sola
@@ -2532,7 +2681,8 @@ function homeHTML() {
         ${absenceModal()}
         ${weeklyScheduleModal()}
         ${taskCalendarModal()}
-        ${dayTasksModal()}`;
+        ${dayTasksModal()}
+        ${coverageRecipientsModal()}`;
 }
 
 // ---- Interactividad ----
@@ -3030,6 +3180,26 @@ function wire(panel) {
         });
     });
 
+    // --- Alerta de cobertura: las dos acciones del recuadro ---
+    panel.querySelectorAll('[data-hm="cobalert-ver"]').forEach(button => {
+        button.addEventListener("click", () => {
+            window.dispatchEvent(
+                new CustomEvent("proturnos:viewWorkerRequestInCalendar", {
+                    detail: {
+                        profile: button.dataset.cobProfile,
+                        date: button.dataset.cobIso
+                    }
+                })
+            );
+        });
+    });
+
+    panel.querySelectorAll('[data-hm="cobalert-who"]').forEach(button => {
+        button.addEventListener("click", () => {
+            openCoverageRecipients(panel, button.dataset.cobCampaign);
+        });
+    });
+
     // --- Calendario de tareas: se abre desde la fecha del encabezado ---
     const taskCal = panel.querySelector('[data-hm="taskcal-modal"]');
     const dayTasks = panel.querySelector('[data-hm="dayTasks-modal"]');
@@ -3270,7 +3440,7 @@ function announceAutomaticCoverage(result) {
         (window.showAppToast || (message => alert(message)))(text, options);
 
     if (!result || result.status === "error") {
-        toast("No se pudo enviar la cobertura automática.", {
+        toast("No se pudo iniciar la cobertura automática.", {
             title: "Cobertura automática",
             variant: "warn"
         });
@@ -3280,6 +3450,14 @@ function announceAutomaticCoverage(result) {
     if (result.status === "disabled") {
         toast(
             "La solicitud de aprobación al trabajador está desactivada en la configuración del entorno.",
+            { title: "Cobertura automática", variant: "warn" }
+        );
+        return;
+    }
+
+    if (result.status === "already-running") {
+        toast(
+            "Ese turno ya tiene una cobertura automática en curso; sigue sola hasta que alguien acepte.",
             { title: "Cobertura automática", variant: "warn" }
         );
         return;
@@ -3301,32 +3479,32 @@ function announceAutomaticCoverage(result) {
         return;
     }
 
-    if (result.status === "no-targets") {
-        // "Nadie puede cubrir" y "todos pasarian las 40 horas" son cosas
-        // distintas: la segunda se resuelve repartiendo el turno, no buscando
-        // mas gente.
-        const motivo = !result.candidates
-            ? (result.overLimit
-                ? `Los ${result.overLimit} candidatos superarían las 40 horas extras diurnas del mes con este turno.`
-                : "No hay trabajadores que puedan cubrir ese turno.")
-            : result.alreadyPending
-                ? "Los candidatos con la app enlazada ya tienen una solicitud pendiente."
-                : "Ninguno de los candidatos tiene la app enlazada para recibir la solicitud.";
+    // El plazo decide el camino: con mas de 72 h se reparte por tercios, con
+    // menos se manda de una a todos. Decirlo evita que el supervisor crea que
+    // el boton "solo mando a tres personas".
+    const plan = result.path === "short"
+        ? "Faltan menos de 72 h: la solicitud salió a todos los que pueden cubrirlo."
+        : "Primera etapa: el tercio con menos horas extras del mes del turno. Si nadie acepta, en 24 h sale la segunda y en 48 h la masiva.";
 
-        toast(motivo, { title: "Cobertura automática", variant: "warn" });
+    if (!result.sent) {
+        // "Nadie puede cubrir" y "todos pasarían el tope" se resuelven
+        // distinto: el segundo se arregla repartiendo el turno, no buscando más
+        // gente.
+        const motivo = result.poolSize
+            ? "Los candidatos de esta etapa no tienen la app enlazada o ya tenían una solicitud pendiente."
+            : result.overLimit
+                ? `Los ${result.overLimit} candidatos superarían las 40 horas extras diurnas del mes con este turno.`
+                : "No hay trabajadores que puedan cubrir ese turno.";
+
+        toast(
+            `${motivo} La cobertura queda en curso y avanza a la etapa siguiente en 24 h.`,
+            { title: "Cobertura automática", variant: "warn" }
+        );
         return;
     }
 
-    const extra = [
-        result.overLimit
-            ? `${result.overLimit} superarían las 40 h extras diurnas`
-            : "",
-        result.withoutApp ? `${result.withoutApp} sin app` : "",
-        result.alreadyPending ? `${result.alreadyPending} ya tenían solicitud` : ""
-    ].filter(Boolean).join(" · ");
-
     toast(
-        `Solicitud enviada a ${result.sent} trabajador(es)${extra ? `. ${extra}.` : "."}`,
+        `Solicitud enviada a ${result.sent} trabajador(es). ${plan}`,
         { title: "Cobertura automática", variant: "good" }
     );
 }

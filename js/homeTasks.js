@@ -606,6 +606,23 @@ function fireAlert(task) {
     showToast(task);
 }
 
+/**
+ * Alerta sonora + aviso visible para OTROS avisos del inicio que necesitan la
+ * misma atencion que una tarea vencida (hoy: la cobertura automatica que se
+ * quedo sin respuesta).
+ *
+ * Se expone desde aca y no se duplica el oscilador porque el desbloqueo de
+ * audio del navegador se hace una sola vez, al arrancar el programador de
+ * tareas: un segundo AudioContext creado en otro modulo quedaria suspendido.
+ */
+export function fireHomeAlert(title, message) {
+    playBeep();
+
+    const body = pushToast(IC_WARN, title);
+
+    if (body) body.textContent = message;
+}
+
 function checkAlerts() {
     if (!cache.length) return;
 

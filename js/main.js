@@ -234,11 +234,22 @@ import {
     workerScheduleSummary
 } from "./workerScheduleDialog.js";
 import {
+    fireHomeAlert,
     startHomeTasksSync,
     stopHomeTasksSync,
     startTaskAlertScheduler,
     stopTaskAlertScheduler
 } from "./homeTasks.js";
+import {
+    formatCoverageTimeLeft,
+    runAutoCoverageCycle,
+    startAutoCoverageScheduler,
+    stopAutoCoverageScheduler
+} from "./autoCoverage.js";
+import {
+    startFirebaseAutoCoverageSync,
+    stopFirebaseAutoCoverageSync
+} from "./firebaseAutoCoverage.js";
 import { initSystemSettings } from "./systemSettings.js";
 import { initPlansUI } from "./plansUI.js";
 import {
@@ -13136,6 +13147,37 @@ window.addEventListener("proturnos:replacementRequestsChanged", () => {
     }
 
     void updateVisibleCalendarDays({ updateSummary: true });
+
+    // Si alguien acepto, el turno quedo cubierto: el barrido cierra la campaña
+    // y caduca lo que siguiera vivo en los otros telefonos sin esperar al
+    // proximo tic del reloj.
+    void runAutoCoverageCycle();
+});
+
+// La alerta del punto D: suena y deja el aviso a la vista aunque el supervisor
+// este en otra pagina del app. El recuadro con el detalle lo pinta el inicio.
+window.addEventListener("proturnos:autoCoverageAlert", event => {
+    const campaign = event.detail?.campaign;
+
+    if (!campaign) return;
+
+    const msLeft = campaign.shiftStartAt
+        ? new Date(campaign.shiftStartAt).getTime() - Date.now()
+        : NaN;
+    const left = formatCoverageTimeLeft(msLeft);
+
+    fireHomeAlert(
+        "Cobertura sin respuesta",
+        `${campaign.turnoLabel || "Turno"} de ${campaign.replaced} el ${campaign.date}: nadie aceptó la cobertura automática${left ? `. Queda ${left}` : ""}.`
+    );
+});
+
+// Una etapa que avanza o una campaña que se cierra cambia el recuadro de
+// alerta y el estado del boton de la tarjeta de cobertura.
+window.addEventListener("proturnos:autoCoverageChanged", () => {
+    if (document.body.dataset.activeView === "home") {
+        renderHomePanel();
+    }
 });
 
 window.addEventListener("proturnos:memosChanged", () => {
@@ -13790,6 +13832,17 @@ initFirebaseShell({
                 refreshHomeTasks();
             });
             startTaskAlertScheduler();
+            // Campañas de cobertura automatica. Las etapas las hace avanzar la
+            // Cloud Function advanceAutoCoverage; aca solo se escuchan los
+            // cambios y se corre el barrido de cierre, que no calcula nada.
+            void startFirebaseAutoCoverageSync(workspace, {
+                onChange: () => {
+                    if (document.body.dataset.activeView === "home") {
+                        renderHomePanel();
+                    }
+                }
+            });
+            startAutoCoverageScheduler();
         } else {
             stopFirebaseReplacementRequestSync();
             stopFirebaseWorkerRequestSync();
@@ -13802,6 +13855,8 @@ initFirebaseShell({
             stopWorkspacePermissionListener();
             stopHomeTasksSync();
             stopTaskAlertScheduler();
+            stopAutoCoverageScheduler();
+            stopFirebaseAutoCoverageSync();
             await loadWorkspacePermissions(workspace);
             syncWorkspacePermissionUI();
             syncCalendarDirectEditToggle();

@@ -233,7 +233,29 @@ import {
     acceptWorkerRequestById,
     rejectWorkerRequestById
 } from "./workerRequests.js";
-import { getWorkerAppLinkForProfile } from "./workerAppDataSync.js";
+import {
+    buildReplacementCandidates,
+    MAX_MONTHLY_DIURNAL_OVERTIME,
+    canCoverShift,
+    candidatePositionLabel,
+    diurnoLongCoverageHours,
+    exceedsDiurnalOvertimeLimit,
+    getActualState,
+    getReplacementNeededTurn,
+    getTrainingCoverageHours,
+    halfAdminAfternoonCoverageHours,
+    isDiurnoLongCoverageCandidate,
+    isHalfAdminAfternoonCoverage,
+    nextDayMorningShiftAfterNight,
+    preassignmentBlocksReplacementCandidate,
+    replacementCreatesInvertedTwentyFour,
+    replacementPriorityForCandidate,
+    replacementScopeProfiles
+} from "./replacementCandidates.js";
+import {
+    setAutoCoverageCandidateProvider,
+    startAutoCoverage
+} from "./autoCoverage.js";
 import { runCooperativeRange } from "./mainThreadScheduler.js";
 import {
     canEditTarget,
@@ -3275,23 +3297,6 @@ function sameRoleProfiles(profileName) {
     );
 }
 
-function replacementScopeProfiles(profileName, scope = "compatible") {
-    const profiles = getProfiles();
-    const base = profiles.find(profile =>
-        profile.name === profileName
-    );
-
-    if (!base || !isProfileActive(base)) return [];
-
-    return profiles.filter(profile =>
-        profile.name !== profileName &&
-        isProfileActive(profile) &&
-        (
-            scope === "all-local" ||
-            profileCanCoverProfile(profile, base)
-        )
-    );
-}
 
 function keyToISODate(keyDay) {
     const parts = String(keyDay || "").split("-");
@@ -4536,251 +4541,6 @@ function replacementCoverageFromDataset(dataset = {}) {
     return coverage;
 }
 
-function getActualState(profileName, keyDay) {
-    return aplicarCambiosTurno(
-        profileName,
-        keyDay,
-        getTurnoProgramado(profileName, keyDay)
-    );
-}
-
-function offsetCalendarKey(keyDay, offset) {
-    const parts = String(keyDay || "")
-        .split("-")
-        .map(Number);
-
-    if (parts.length !== 3 || parts.some(Number.isNaN)) return "";
-
-    const date = new Date(parts[0], parts[1], parts[2] + offset);
-
-    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-}
-
-function replacementTurnIncludesDaytimeStart(turn) {
-    const value = Number(turn) || TURNO.LIBRE;
-
-    return (
-        value === TURNO.LARGA ||
-        value === TURNO.TURNO24 ||
-        value === TURNO.DIURNO ||
-        value === TURNO.DIURNO_NOCHE ||
-        value === TURNO.MEDIA_MANANA ||
-        value === TURNO.MEDIA_TARDE
-    );
-}
-
-function replacementTurnIncludesNight(turn) {
-    const value = Number(turn) || TURNO.LIBRE;
-
-    return (
-        value === TURNO.NOCHE ||
-        value === TURNO.TURNO24 ||
-        value === TURNO.DIURNO_NOCHE ||
-        value === TURNO.TURNO18
-    );
-}
-
-// Turnos que ENTRAN por la mañana (08:00). La media tarde queda fuera a
-// proposito: parte a las 14:00, asi que despues de una noche todavia queda la
-// mañana para dormir.
-function replacementTurnStartsInTheMorning(turn) {
-    const value = Number(turn) || TURNO.LIBRE;
-
-    return (
-        value === TURNO.LARGA ||
-        value === TURNO.TURNO24 ||
-        value === TURNO.DIURNO ||
-        value === TURNO.DIURNO_NOCHE ||
-        value === TURNO.MEDIA_MANANA
-    );
-}
-
-/**
- * Turno que el candidato tiene al dia siguiente cuando lo que se va a cubrir es
- * una noche, y ese turno empieza por la mañana. La noche termina a las 08:00 y
- * el turno siguiente parte a las 08:00: encadena la jornada sin dormir (el "24
- * invertido" o noche + diurno). No bloquea al candidato -a veces es la unica
- * opcion disponible- pero la tarjeta tiene que decirlo antes de asignar.
- *
- * Se mira el estado COMPROMETIDO (real/proyectado mas preasignaciones), no la
- * rotativa base: si al dia siguiente ya le movieron la Larga, no hay advertencia
- * que dar.
- */
-export function nextDayMorningShiftAfterNight(profileName, keyDay, neededTurn) {
-    if (!profileName || !keyDay) return TURNO.LIBRE;
-    if (!replacementTurnIncludesNight(neededTurn)) return TURNO.LIBRE;
-
-    const next = committedStateWithPreassign(
-        profileName,
-        offsetCalendarKey(keyDay, 1)
-    );
-
-    return replacementTurnStartsInTheMorning(next)
-        ? next
-        : TURNO.LIBRE;
-}
-
-function candidateFreePositionKind(positionLabel = "") {
-    const normalized = String(positionLabel || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
-
-    if (normalized.includes("segundo libre")) return "segundo-libre";
-    if (normalized.includes("primer libre")) return "primer-libre";
-
-    return "";
-}
-
-function preferredFreePositionKind(neededTurn) {
-    if (
-        replacementTurnIncludesNight(neededTurn) &&
-        !replacementTurnIncludesDaytimeStart(neededTurn)
-    ) {
-        return "primer-libre";
-    }
-
-    if (replacementTurnIncludesDaytimeStart(neededTurn)) {
-        return "segundo-libre";
-    }
-
-    return "";
-}
-
-function replacementPriorityForCandidate(candidate, neededTurn) {
-    const preferred = preferredFreePositionKind(neededTurn);
-    const kind = candidateFreePositionKind(candidate.positionLabel);
-
-    if (!preferred || !kind) return 20;
-
-    if (kind === preferred) return 0;
-
-    if (
-        kind === "primer-libre" ||
-        kind === "segundo-libre"
-    ) {
-        return 5;
-    }
-
-    return 20;
-}
-
-function replacementCreatesInvertedTwentyFour(
-    profileName,
-    keyDay,
-    currentState,
-    neededTurn,
-    config = getTurnChangeConfig()
-) {
-    if (
-        !profileName ||
-        !keyDay ||
-        config.allowInvertedTwentyFourHourShifts !== false
-    ) {
-        return false;
-    }
-
-    const projected = fusionarTurnos(
-        currentState,
-        neededTurn
-    );
-    // Importante: se consulta el estado real/proyectado del dia siguiente,
-    // no solo la rotativa base. Si el supervisor ya movio la Larga del dia
-    // siguiente, getActualState devolvera Libre y el Segundo libre podra cubrir
-    // Noche sin generar 24 invertido.
-    const previous = getActualState(
-        profileName,
-        offsetCalendarKey(keyDay, -1)
-    );
-    const next = getActualState(
-        profileName,
-        offsetCalendarKey(keyDay, 1)
-    );
-
-    return (
-        (
-            replacementTurnIncludesDaytimeStart(projected) &&
-            replacementTurnIncludesNight(previous)
-        ) ||
-        (
-            replacementTurnIncludesNight(projected) &&
-            replacementTurnIncludesDaytimeStart(next)
-        )
-    );
-}
-
-// Estado COMPROMETIDO del trabajador ese dia: su estado real/proyectado fusionado
-// con lo que tenga PREASIGNADO (aun sin proyectar). Sirve para las reglas de
-// compatibilidad: una preasignacion cuenta como si el turno ya estuviera tomado.
-function committedStateWithPreassign(profileName, keyDay) {
-    return fusionarTurnos(
-        getActualState(profileName, keyDay),
-        getPreassignmentTurnForWorker(profileName, keyDay)
-    );
-}
-
-// Un candidato NO debe sugerirse si, al cubrir el turno buscado, se formaria un 24
-// incompatible con un dia adyacente (larga despues de un 24, noche antes de un 24)
-// considerando sus preasignaciones. Es la regla SIEMPRE prohibida de adyacencia de
-// 24h; al cancelar una preasignacion, el candidato vuelve a ser elegible.
-function preassignmentBlocksReplacementCandidate(profileName, keyDay, neededTurn) {
-    const projected = fusionarTurnos(
-        committedStateWithPreassign(profileName, keyDay),
-        neededTurn
-    );
-    const previous = committedStateWithPreassign(
-        profileName,
-        offsetCalendarKey(keyDay, -1)
-    );
-    const next = committedStateWithPreassign(
-        profileName,
-        offsetCalendarKey(keyDay, 1)
-    );
-    const isTwentyFour = turno => Number(turno) === TURNO.TURNO24;
-
-    return (
-        (isTwentyFour(previous) &&
-            replacementTurnIncludesDaytimeStart(projected)) ||
-        (isTwentyFour(next) &&
-            replacementTurnIncludesNight(projected)) ||
-        (isTwentyFour(projected) &&
-            (replacementTurnIncludesNight(previous) ||
-                replacementTurnIncludesDaytimeStart(next)))
-    );
-}
-
-// Etiqueta de posicion del candidato dentro del bloque consecutivo del mismo
-// turno (p.ej. "Primer libre", "Segunda larga"). Cuenta hacia atras cuantos dias
-// seguidos tiene el mismo estado que el dia objetivo. Solo aplica a rotativas de
-// tercer y cuarto turno; en otras (diurno, etc.) devuelve "" para caer en la
-// etiqueta previa.
-function candidatePositionLabel(profileName, keyDay, currentState) {
-    const rotationType = getRotativa(profileName).type;
-
-    if (rotationType !== "3turno" && rotationType !== "4turno") {
-        return "";
-    }
-
-    const parts = keyDay.split("-");
-    const year = Number(parts[0]);
-    const month = Number(parts[1]);
-    const day = Number(parts[2]);
-    let position = 1;
-
-    for (let back = 1; back <= 10; back++) {
-        const previous = new Date(year, month, day - back);
-        const previousKey =
-            `${previous.getFullYear()}-${previous.getMonth()}-${previous.getDate()}`;
-
-        if (getActualState(profileName, previousKey) !== currentState) {
-            break;
-        }
-
-        position++;
-    }
-
-    return rotationPositionLabel(currentState, position);
-}
 
 // Texto de estado del candidato en la lista de reemplazos. Prioriza la posicion
 // en la rotativa (3er/4to turno); el diurno se muestra como "Diurno" sin prefijo.
@@ -4802,139 +4562,6 @@ function candidateStateLabel(candidate, pendingRequest) {
     return `Turno actual: ${turnoReplacementLabel(candidate.currentState)}`;
 }
 
-function isHalfAdminValue(value) {
-    return (
-        value === "0.5M" ||
-        value === "0.5T" ||
-        value === 0.5
-    );
-}
-
-function getHalfAdminCoverageTurn(profileName, keyDay) {
-    const baseTurn = getTurnoBase(profileName, keyDay);
-
-    if (baseTurn !== TURNO.LARGA) {
-        return TURNO.LIBRE;
-    }
-
-    const admin = getJSON(`admin_${profileName}`, {});
-
-    if (admin[keyDay] === "0.5M") {
-        return TURNO.MEDIA_MANANA;
-    }
-
-    if (admin[keyDay] === "0.5T") {
-        return TURNO.MEDIA_TARDE;
-    }
-
-    return TURNO.LIBRE;
-}
-
-function getReplacementNeededTurn(profileName, keyDay) {
-    const admin = getJSON(`admin_${profileName}`, {});
-
-    if (isHalfAdminValue(admin[keyDay])) {
-        return getHalfAdminCoverageTurn(profileName, keyDay);
-    }
-
-    return getTurnoBase(profileName, keyDay);
-}
-
-function getTrainingAbsence(profileName, keyDay) {
-    const absence = getJSON(`absences_${profileName}`, {})[keyDay];
-
-    return getAbsenceType(absence) === "training"
-        ? absence
-        : null;
-}
-
-function getTrainingCoverageHours(profileName, keyDay) {
-    const absence = getTrainingAbsence(profileName, keyDay);
-    const hours = absence?.overtimeHours;
-
-    if (!hours) return null;
-
-    return {
-        d: Number(hours.d) || 0,
-        n: Number(hours.n) || 0
-    };
-}
-
-function canCoverShift(
-    currentState,
-    neededTurn,
-    config = getTurnChangeConfig(),
-    options = {}
-) {
-    if (!neededTurn) return false;
-
-    if (
-        currentState === TURNO.DIURNO &&
-        neededTurn === TURNO.LARGA
-    ) {
-        return options.allowDiurnoLongCoverage === true;
-    }
-
-    const merged = fusionarTurnos(
-        currentState,
-        neededTurn
-    );
-
-    if (merged === currentState) return false;
-
-    if (
-        merged === TURNO.TURNO24 &&
-        config.allowTwentyFourHourShifts === false
-    ) {
-        return false;
-    }
-
-    return true;
-}
-
-function diurnoLongCoverageHours(date) {
-    return {
-        d: date.getDay() === 5 ? 4 : 3,
-        n: 0
-    };
-}
-
-function isHalfAdminAfternoonCoverage(profileName, keyDay, neededTurn) {
-    if (neededTurn !== TURNO.MEDIA_TARDE) return false;
-
-    const admin = getJSON(`admin_${profileName}`, {});
-
-    return admin[keyDay] === "0.5T";
-}
-
-function halfAdminAfternoonCoverageHours(currentState, date) {
-    if (
-        currentState === TURNO.DIURNO ||
-        currentState === TURNO.DIURNO_NOCHE
-    ) {
-        return diurnoLongCoverageHours(date);
-    }
-
-    return {
-        d: 6,
-        n: 0
-    };
-}
-
-function isDiurnoLongCoverageCandidate(
-    profile,
-    currentState,
-    neededTurn,
-    date,
-    holidays
-) {
-    return (
-        getRotativa(profile.name).type === "diurno" &&
-        currentState === TURNO.DIURNO &&
-        neededTurn === TURNO.LARGA &&
-        isBusinessDay(date, holidays)
-    );
-}
 
 function getManualExtraTurn(
     profileName,
@@ -5081,17 +4708,6 @@ async function getReplacementCandidates(
     const neededTurn =
         options.neededTurn ||
         getReplacementNeededTurn(profileName, keyDay);
-    const trainingCoverageHours =
-        getTrainingCoverageHours(profileName, keyDay);
-    const isHalfAfternoonCoverage =
-        isHalfAdminAfternoonCoverage(
-            profileName,
-            keyDay,
-            neededTurn
-        );
-    const baseProfile = getProfiles().find(profile =>
-        profile.name === profileName
-    );
     const scope = options.scope || "compatible";
 
     if (scope === "linked") {
@@ -5112,129 +4728,24 @@ async function getReplacementCandidates(
             : null;
     }
 
-    const scopeProfiles = replacementScopeProfiles(profileName, scope);
-    const candidates = [];
-    const progress = await runCooperativeRange(
-        0,
-        scopeProfiles.length - 1,
-        index => {
-            const profile = scopeProfiles[index];
-            const currentState =
-                getActualState(profile.name, keyDay);
-            const positionLabel = candidatePositionLabel(
-                profile.name,
-                keyDay,
-                currentState
-            );
-            const isDiurnoLongCoverage =
-                isDiurnoLongCoverageCandidate(
-                    profile,
-                    currentState,
-                    neededTurn,
-                    date,
-                    holidays
-                );
-            const overtimeHours = trainingCoverageHours ||
-                (
-                    isDiurnoLongCoverage
-                        ? diurnoLongCoverageHours(date)
-                        : isHalfAfternoonCoverage
-                            ? halfAdminAfternoonCoverageHours(
-                                currentState,
-                                date
-                            )
-                            : null
-                );
-            const stats = calculateWorkerMonthTotals(
-                profile.name,
-                y,
-                m,
-                days,
-                holidays,
-                getProfileData(profile.name),
-                {},
-                { d: 0, n: 0 }
-            );
-            const hheeDiurnas = Number(stats.hheeDiurnas) || 0;
-            const hheeNocturnas = Number(stats.hheeNocturnas) || 0;
-            const blockedDay =
-                getBlockedDayForProfile(profile.name, keyDay);
+    // El calculo vive en replacementCandidates.js porque lo comparte con la
+    // Cloud Function que hace avanzar la cobertura automatica. Aqui se le pasa
+    // el recorrido cooperativo -que cede el hilo entre trabajador y trabajador
+    // para no congelar la pagina- y el corte por peticion obsoleta.
+    const built = await buildReplacementCandidates(profileName, keyDay, {
+        neededTurn,
+        scope,
+        holidays,
+        runRange: runCooperativeRange,
+        shouldContinue: () => requestId === replacementCandidateRequest
+    });
 
-            const nextDayMorningShift = nextDayMorningShiftAfterNight(
-                profile.name,
-                keyDay,
-                neededTurn
-            );
+    if (!built.completed) return null;
 
-            candidates.push({
-                profile,
-                currentState,
-                isFree: currentState === 0,
-                positionLabel,
-                replacementPriority: replacementPriorityForCandidate(
-                    { positionLabel },
-                    neededTurn
-                ),
-                isDiurnoLongCoverage,
-                overtimeHours,
-                nextDayMorningShift,
-                // Se calcula aca y viaja con el candidato: el worker que los
-                // ordena no tiene la fecha ni los feriados para resolverlo. Es
-                // el mismo tope que aplica la cobertura automatica del inicio.
-                exceedsDiurnalLimit: exceedsDiurnalOvertimeLimit(
-                    { overtimeHours, hheeDiurnas },
-                    date,
-                    neededTurn,
-                    holidays
-                ),
-                isForced:
-                    !profileCanCoverProfile(profile, baseProfile),
-                blockedDay,
-                hheeDiurnas,
-                hheeNocturnas,
-                hhee: hheeDiurnas + hheeNocturnas
-            });
-        }, {
-            shouldContinue: () =>
-                requestId === replacementCandidateRequest
-        }
-    );
-
-    if (!progress.completed) return null;
-
-    const eligible = candidates.filter(candidate =>
-            !workerHasAbsence(candidate.profile.name, keyDay) &&
-            !replacementCreatesInvertedTwentyFour(
-                candidate.profile.name,
-                keyDay,
-                candidate.currentState,
-                neededTurn,
-                getTurnChangeConfig()
-            ) &&
-            !preassignmentBlocksReplacementCandidate(
-                candidate.profile.name,
-                keyDay,
-                neededTurn
-            ) &&
-            !cededSwapTurnBlocks(
-                candidate.profile.name,
-                keyDay,
-                neededTurn
-            ) &&
-            canCoverShift(
-                candidate.currentState,
-                neededTurn,
-                getTurnChangeConfig(),
-                {
-                    allowDiurnoLongCoverage:
-                        candidate.isDiurnoLongCoverage
-                }
-            )
-        );
     try {
         const result = await searchReplacementsInWorker({
             mode: "turnoplus-prepared",
-            candidates: eligible
+            candidates: built.candidates
         }, {
             channel: `replacement:${profileName}:${keyDay}`,
             timeoutMs: 15000
@@ -5249,143 +4760,50 @@ async function getReplacementCandidates(
     }
 }
 
+
 /**
- * "Cobertura automatica" de la tarjeta de inicio: manda la solicitud de
- * reemplazo a TODOS los candidatos que podrian cubrir el turno y tienen la app
- * enlazada. Es el equivalente a abrir el cuadro de sugerencias, activar
- * "Solicitar aprobacion" y marcar a todos, sin abrirlo.
+ * Motor de candidatos para la cobertura automatica por etapas.
  *
- * Usa getReplacementCandidates -el motor real, con las reglas de 24 invertido,
- * preasignaciones, contrato y ausencias- y NO la heuristica del inicio: mandar
- * solicitudes con una lista aproximada es peor que no mandarlas.
+ * autoCoverage.js lleva el reloj de las etapas pero no sabe calcular
+ * candidatos: eso necesita el DOM, los feriados y el worker de busqueda, que
+ * viven aca. Se lo entrega por este proveedor en vez de importarlo, para que el
+ * modulo del reloj no dependa de calendar.js.
  *
- * Devuelve un resumen para que quien lo llama avise que paso.
+ * Devuelve la lista COMPLETA (sin filtrar por etapa): cada candidato ya trae
+ * `blockedDay`, `nextDayMorningShift`, `hhee` y `exceedsDiurnalLimit` medidos
+ * contra el mes del turno, que es lo que las etapas necesitan para elegir.
  */
-// Tope mensual de horas extras DIURNAS. La cobertura automatica no le ofrece un
-// turno a quien quedaria por encima: seria pedirle que acepte algo que despues
-// no se le puede pagar.
-export const MAX_MONTHLY_DIURNAL_OVERTIME = 40;
+setAutoCoverageCandidateProvider(async (profileName, keyDay) => {
+    const neededTurn = getReplacementNeededTurn(profileName, keyDay);
 
-// Horas extras que le sumaria al candidato cubrir este turno. Para los casos
-// parciales -capacitacion, diurno cubriendo larga, media tarde- el candidato ya
-// trae calculado cuanto suma; para el resto es el turno completo.
-export function coverageOvertimeHours(candidate, date, neededTurn, holidays) {
-    // calcExtraHours aplica la regla del turno extra: un diurno vale 9 h de
-    // lunes a jueves y 8 el viernes, no el promedio de 8,8 que devolveria
-    // calcHours. Sin eso el tope compararia contra un numero distinto del que
-    // el motor le va a acreditar al trabajador.
-    return candidate?.overtimeHours ||
-        calcExtraHours(date, Number(neededTurn), holidays || {});
-}
+    // Ojo con la diferencia: `neededTurn` vacio significa que ya no hay nada
+    // que cubrir y la campaña debe cerrarse, mientras que `null` significa que
+    // el calculo quedo obsoleto y hay que reintentarlo. Devolver null en los dos
+    // casos dejaba reintentando el barrido completo de la unidad cada minuto.
+    if (!neededTurn) return { neededTurn: 0, candidates: [], absenceType: "" };
 
-export function exceedsDiurnalOvertimeLimit(
-    candidate,
-    date,
-    neededTurn,
-    holidays,
-    limit = MAX_MONTHLY_DIURNAL_OVERTIME
-) {
-    const accumulated = Number(candidate?.hheeDiurnas) || 0;
-    const adding = Number(
-        coverageOvertimeHours(candidate, date, neededTurn, holidays).d
-    ) || 0;
+    const candidates = await getReplacementCandidates(profileName, keyDay);
 
-    // Quedar EN el tope esta permitido; pasarlo, no.
-    return accumulated + adding > limit;
-}
+    if (!candidates) return null;
 
-window.runAutomaticCoverage = async (profileName, keyDay) => {
-    const name = String(profileName || "").trim();
-
-    if (!name || !keyDay) {
-        return { status: "invalid" };
-    }
-
-    if (getReplacementRequestConfig().enableWorkerAcceptanceRequest === false) {
-        return { status: "disabled" };
-    }
-
-    const neededTurn = getReplacementNeededTurn(name, keyDay);
-
-    if (!neededTurn) return { status: "nothing-to-cover" };
-
-    const candidates = await getReplacementCandidates(name, keyDay);
-
-    if (!candidates) return { status: "canceled" };
-
-    // Un forzado no cumple el perfil del ausente y un dia bloqueado es una
-    // peticion expresa del trabajador: ninguno entra en un envio masivo.
-    const compatible = candidates.filter(candidate =>
-        !candidate.isForced &&
-        !candidate.blockedDay &&
-        !candidate.isLinked
-    );
-    // Y tampoco se le ofrece a quien pasaria el tope de horas extras diurnas
-    // del mes si acepta: la solicitud le llegaria al telefono para algo que
-    // despues habria que rechazarle.
-    const date = dateFromKeyDay(keyDay);
-    const holidays = await fetchHolidays(date.getFullYear());
-    const overLimit = compatible.filter(candidate =>
-        exceedsDiurnalOvertimeLimit(candidate, date, neededTurn, holidays)
-    );
-    const eligible = compatible.filter(candidate =>
-        !overLimit.includes(candidate)
-    );
-    const pending = new Set(
-        getPendingReplacementRequestsForShift(name, keyDay, neededTurn)
-            .map(request => request.worker)
-    );
-    const withApp = eligible.filter(candidate =>
-        Boolean(getWorkerAppLinkForProfile(candidate.profile.name))
-    );
-    const targets = withApp.filter(candidate =>
-        !pending.has(candidate.profile.name)
-    );
-    const summary = {
-        status: "ok",
-        candidates: eligible.length,
-        overLimit: overLimit.length,
-        withoutApp: eligible.length - withApp.length,
-        alreadyPending: withApp.length - targets.length,
-        sent: 0
+    return {
+        neededTurn,
+        candidates,
+        absenceType: getAbsenceLabelForProfileDate(profileName, keyDay)
     };
+});
 
-    if (!targets.length) return { ...summary, status: "no-targets" };
+// El boton de la tarjeta de inicio. Ya no manda una tanda unica: abre la
+// campaña por etapas de autoCoverage.js, que se encarga del resto.
+window.runAutomaticCoverage = async (profileName, keyDay) => {
+    const result = await startAutoCoverage(profileName, keyDay);
 
-    if (typeof window.pushUndoState === "function") {
-        window.pushUndoState("Cobertura automatica");
+    if (result?.status === "ok") {
+        await updateDayCell(profileName, keyDay);
+        updateTimelineCells(profileName, [keyDay]);
     }
 
-    const requests = createReplacementRequests(
-        {
-            replaced: name,
-            keyDay,
-            turno: neededTurn,
-            absenceType: getAbsenceLabelForProfileDate(name, keyDay),
-            scope: "compatible",
-            source: "replacement_request",
-            diurnoLongCoverageWorkers: targets
-                .filter(candidate => candidate.isDiurnoLongCoverage)
-                .map(candidate => candidate.profile.name),
-            workerCoverage: Object.fromEntries(
-                targets.map(candidate => [
-                    candidate.profile.name,
-                    {
-                        diurnoLongCoverage: Boolean(candidate.isDiurnoLongCoverage),
-                        overtimeHours: candidate.overtimeHours || null
-                    }
-                ])
-            )
-        },
-        targets.map(candidate => candidate.profile.name)
-    );
-
-    summary.sent = requests.length;
-
-    await updateDayCell(name, keyDay);
-    updateTimelineCells(name, [keyDay]);
-
-    return summary;
+    return result;
 };
 
 function replacementDialogHTML({

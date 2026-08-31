@@ -104,9 +104,11 @@ async function readModuleState(db, workspaceId, moduleId) {
     return state;
 }
 
-async function loadWorkspaceState(db, workspaceId) {
+// `moduleIds` permite pedir mas modulos que los de la proyeccion. La cobertura
+// automatica necesita ademas "requests" (configuracion de solicitudes).
+async function loadWorkspaceState(db, workspaceId, moduleIds = STATE_MODULES) {
     const modules = await Promise.all(
-        STATE_MODULES.map(moduleId => readModuleState(db, workspaceId, moduleId))
+        moduleIds.map(moduleId => readModuleState(db, workspaceId, moduleId))
     );
 
     return Object.assign({}, ...modules);
@@ -288,6 +290,7 @@ async function computeProjectionsForProfiles(db, {
 }
 
 module.exports = {
+    STATE_MODULES,
     computeProjectionsForProfiles,
     findWorkerLinkForProfile,
     findWorkerLinksForProfile,

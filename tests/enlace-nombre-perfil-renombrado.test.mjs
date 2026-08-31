@@ -50,7 +50,10 @@ const normalizeText = value => String(value || "")
 function build({ links, profiles, workspace = { id: "WS1" } }) {
     const written = [];
     const env = {
-        workerLinks: links,
+        // La lista de enlaces vive en workerAppLinks.js desde que replacements.js
+        // -y con el, el motor del servidor- necesito consultarla sin arrastrar el
+        // cliente Firebase.
+        getWorkerAppLinkList: () => links,
         normalizeText,
         getActiveWorkspace: () => workspace,
         // El perfil ya esta guardado con el nombre nuevo cuando llega el evento.

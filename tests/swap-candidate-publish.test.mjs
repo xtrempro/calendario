@@ -25,7 +25,7 @@ function grab(name) {
 
 test("publishLinkedWorkerDocs publica directorio de mensajes Y candidato por enlazado", () => {
   const fn = grab("publishLinkedWorkerDocs");
-  assert.match(fn, /workerLinks\s*\n?\s*\.map\(link => \(\{ link, profile: findProfileForLink\(link, profiles\) \}\)\)/);
+  assert.match(fn, /getWorkerAppLinkList\(\)\s*\n?\s*\.map\(link => \(\{ link, profile: findProfileForLink\(link, profiles\) \}\)\)/);
   // Directorio de mensajes.
   assert.match(fn, /writeWorkerMessageDirectoryEntry\(\s*\n\s*buildWorkerMessageDirectoryPayload\(/);
   // Candidato de cambio de turno.

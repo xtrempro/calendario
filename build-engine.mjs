@@ -25,6 +25,26 @@ await esbuild.build({
 
 console.log("OK: functions/engine/engine.mjs");
 
+// Motor de la cobertura automatica por etapas. Va en su propio bundle y no
+// dentro de engine.mjs porque son dos trabajos distintos: la proyeccion se
+// recalcula por trabajador cuando cambia su calendario, y esto corre en un
+// temporizador que barre las campañas abiertas. Comparte los modulos de
+// computo, que esbuild duplica en cada salida (son puros, sin estado global
+// compartido entre invocaciones salvo la cache de feriados, que se limpia).
+await esbuild.build({
+    entryPoints: ["js/serverAutoCoverage.js"],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: ["node22"],
+    charset: "utf8",
+    legalComments: "none",
+    outfile: "functions/engine/autoCoverage.mjs",
+    logLevel: "info"
+});
+
+console.log("OK: functions/engine/autoCoverage.mjs");
+
 // El importador de programación (Excel -> grid) es un módulo puro compartido con
 // el cliente y los tests. Se empaqueta a CJS para que la Cloud Function lo use
 // (require) sin duplicar la lógica. Queda en functions/engine (gitignored) como
