@@ -1909,6 +1909,49 @@ test("reglas modulares de Firestore y Storage", async t => {
     );
 
     await t.test(
+        "el trabajador enlazado lee el adjunto que le mandaron a el",
+        async () => {
+            // El destinatario NO es miembro del entorno: entra por su enlace de
+            // PWA. Lo unico que lo habilita es que el ownerId de la ruta sea su
+            // propio uid. Sin esta prueba, un cambio en el orden de los OR de
+            // `allow read` deja al trabajador sin poder abrir lo que recibe.
+            const messagePath = [
+                "workspaces",
+                WORKSPACE_ID,
+                "attachments",
+                "messages",
+                "worker-a",
+                "msg-1",
+                "adjunto_plan.pdf"
+            ].join("/");
+
+            await assertSucceeds(
+                uploadBytes(
+                    ref(owner.storage(), messagePath),
+                    new Uint8Array([37, 80, 68, 70]),
+                    attachmentMetadata(
+                        "messages",
+                        "worker-a",
+                        "msg-1",
+                        "owner"
+                    )
+                )
+            );
+
+            await assertSucceeds(
+                getBytes(ref(workerA.storage(), messagePath))
+            );
+            // Enlazado al mismo entorno, pero no es el destinatario.
+            await assertFails(
+                getBytes(ref(workerB.storage(), messagePath))
+            );
+            await assertFails(
+                getBytes(ref(outsider.storage(), messagePath))
+            );
+        }
+    );
+
+    await t.test(
         "el cargador original puede borrar tras perder edicion",
         async () => {
             const path = [
