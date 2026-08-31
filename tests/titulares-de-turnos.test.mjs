@@ -54,6 +54,7 @@ const {
     buildShiftHolders,
     cyclePositionAt,
     detectHolderPlacement,
+    compareHolders,
     formatHolderStreak,
     holderColorKey,
     renderShiftHoldersPanel
@@ -457,6 +458,83 @@ test("dentro de la columna la gente va por nombre", async () => {
         columna.workers.map(worker => worker.profile.name),
         ["Ana", "Mia", "Zoe"]
     );
+});
+
+test("primero el estamento: profesionales, tecnicos, administrativos, auxiliares", async () => {
+    sembrar([
+        { name: "Aux", start: "2026-01-05", estamento: "Auxiliar", profession: "Auxiliar de servicio" },
+        { name: "Tec", start: "2026-01-05", estamento: "Técnico", profession: "Técnico en Enfermería" },
+        { name: "Adm", start: "2026-01-05", estamento: "Administrativo", profession: "Secretaria" },
+        { name: "Pro", start: "2026-01-05", estamento: "Profesional", profession: "Enfermería" }
+    ]);
+
+    const board = await buildShiftHolders(HOY);
+    const columna = board.columns.find(column => column.workers.length);
+
+    assert.deepEqual(
+        columna.workers.map(worker => worker.profile.name),
+        ["Pro", "Tec", "Adm", "Aux"]
+    );
+});
+
+test("dentro del estamento, por profesion; dentro de la profesion, por abecedario", async () => {
+    sembrar([
+        { name: "Zulema", start: "2026-01-05", estamento: "Profesional", profession: "Obstetricia" },
+        { name: "Ana", start: "2026-01-05", estamento: "Profesional", profession: "Obstetricia" },
+        { name: "Bruno", start: "2026-01-05", estamento: "Profesional", profession: "Enfermería" },
+        { name: "Aida", start: "2026-01-05", estamento: "Profesional", profession: "Kinesiología" }
+    ]);
+
+    const board = await buildShiftHolders(HOY);
+    const columna = board.columns.find(column => column.workers.length);
+
+    assert.deepEqual(
+        columna.workers.map(worker => `${worker.profile.profession}/${worker.profile.name}`),
+        [
+            "Enfermería/Bruno",
+            "Kinesiología/Aida",
+            "Obstetricia/Ana",
+            "Obstetricia/Zulema"
+        ]
+    );
+});
+
+test("un estamento fuera del catalogo va al final, no al principio", () => {
+    // indexOf devuelve -1 para lo desconocido; sin corregirlo se colaria arriba
+    // de los profesionales.
+    const raro = { profile: { estamento: "Directivo", profession: "X", name: "A" } };
+    const profesional = { profile: { estamento: "Profesional", profession: "Z", name: "Z" } };
+    const auxiliar = { profile: { estamento: "Auxiliar", profession: "A", name: "A" } };
+
+    assert.ok(compareHolders(profesional, raro) < 0);
+    assert.ok(compareHolders(auxiliar, raro) < 0);
+});
+
+test("el orden no depende de como vengan los perfiles", async () => {
+    const gente = [
+        { name: "Tec2", estamento: "Técnico", profession: "Técnico en Farmacia" },
+        { name: "Pro1", estamento: "Profesional", profession: "Enfermería" },
+        { name: "Tec1", estamento: "Técnico", profession: "Técnico en Enfermería" },
+        { name: "Pro2", estamento: "Profesional", profession: "Obstetricia" }
+    ].map(worker => ({ ...worker, start: "2026-01-05" }));
+    const esperado = ["Pro1", "Pro2", "Tec1", "Tec2"];
+
+    sembrar(gente);
+
+    const directo = await buildShiftHolders(HOY);
+
+    sembrar([...gente].reverse());
+
+    const alReves = await buildShiftHolders(HOY);
+
+    [directo, alReves].forEach(board => {
+        const columna = board.columns.find(column => column.workers.length);
+
+        assert.deepEqual(
+            columna.workers.map(worker => worker.profile.name),
+            esperado
+        );
+    });
 });
 
 /* ======================================================================

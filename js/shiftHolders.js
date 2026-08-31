@@ -237,6 +237,38 @@ export function holderColorKey(profile, splitProfessions) {
 }
 
 /**
+ * Posicion del estamento en el orden del listado. Uno fuera del catalogo -dato
+ * antiguo- va al final y no al principio, que es lo que haria el -1 de indexOf.
+ */
+function estamentoRank(profile) {
+    const index = ESTAMENTO_ORDER.indexOf(profileEstamento(profile));
+
+    return index === -1 ? ESTAMENTO_ORDER.length : index;
+}
+
+/**
+ * Orden dentro de la columna: primero el estamento -profesionales, tecnicos,
+ * administrativos y al final auxiliares-, dentro de cada uno por profesion, y
+ * dentro de la profesion por abecedario.
+ *
+ * Es el mismo criterio con el que se reparten los colores, asi que la columna se
+ * lee por bloques de color en vez de alternarlos linea por linea.
+ */
+export function compareHolders(left, right) {
+    return (
+        estamentoRank(left.profile) - estamentoRank(right.profile) ||
+        profileProfession(left.profile).localeCompare(
+            profileProfession(right.profile),
+            "es"
+        ) ||
+        String(left.profile.name).localeCompare(
+            String(right.profile.name),
+            "es"
+        )
+    );
+}
+
+/**
  * Asigna un indice de paleta a cada clave presente, en un orden estable: los
  * estamentos en el orden de siempre y, dentro de Profesional, las profesiones
  * alfabeticamente. Sin esto, agregar un trabajador podria recolorear la
@@ -317,9 +349,7 @@ export async function buildShiftHolders(today = new Date()) {
                     holderColorKey(item.profile, splitProfessions)
                 ) ?? 0
             }))
-            .sort((left, right) =>
-                left.profile.name.localeCompare(right.profile.name, "es")
-            );
+            .sort(compareHolders);
         // El turno de hoy se saca de cualquiera de sus integrantes: por
         // definicion todos van en la misma fase. Si la columna esta vacia se
         // proyecta desde el ancla, para que el encabezado no quede mudo.
