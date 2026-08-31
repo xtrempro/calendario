@@ -17,6 +17,46 @@ import { showConfirm } from "./dialogs.js";
 
 const KEY = "auditLog";
 const MAX_LOGS = 1500;
+// Tope de TAMAÑO, ademas del de cantidad.
+//
+// La bitacora viaja a Firestore como un solo valor y las reglas lo limitan a
+// 900.000 caracteres. Con el tope por cantidad solamente, una unidad activa la
+// llevaba al limite: al llegar ahi, CUALQUIER guardado que sumara una entrada
+// era rechazado con "Missing or insufficient permissions", y como la bitacora
+// viaja en la misma tanda que el resto del cambio, arrastraba consigo lo demas
+// -el cambio se guardaba en el equipo pero no llegaba nunca a los otros-.
+//
+// Se deja margen sobre el tope de la regla: entre una poda y la siguiente
+// pueden entrar varias entradas, y una sola puede ser larga.
+const MAX_LOG_CHARS = 600000;
+
+/**
+ * Deja la bitacora dentro de los dos topes, botando siempre lo mas viejo.
+ */
+function trimLogs(logs) {
+    const trimmed = (Array.isArray(logs) ? logs : []).slice(-MAX_LOGS);
+
+    while (
+        trimmed.length > 1 &&
+        JSON.stringify(trimmed).length > MAX_LOG_CHARS
+    ) {
+        // De a poco al final y a saltos cuando sobra mucho: serializar la lista
+        // entera en cada vuelta seria caro con miles de entradas.
+        const sobra = JSON.stringify(trimmed).length - MAX_LOG_CHARS;
+        const promedio = Math.max(
+            1,
+            Math.round(JSON.stringify(trimmed).length / trimmed.length)
+        );
+        const botar = Math.min(
+            trimmed.length - 1,
+            Math.max(1, Math.ceil(sobra / promedio))
+        );
+
+        trimmed.splice(0, botar);
+    }
+
+    return trimmed;
+}
 let selectedMonth = "";
 const selectedCategories = new Set();
 let expandedLogId = "";
@@ -673,7 +713,7 @@ function updateLog(logId, updater) {
         log.id === logId ? updater(log) : log
     );
 
-    setJSON(KEY, nextLogs.slice(-MAX_LOGS));
+    setJSON(KEY, trimLogs(nextLogs));
 }
 
 function cleanBlockedDays(profile, keys) {
@@ -1041,7 +1081,7 @@ function cancelReplacementAuditLogs(
     });
 
     if (changed) {
-        setJSON(KEY, nextLogs.slice(-MAX_LOGS));
+        setJSON(KEY, trimLogs(nextLogs));
     }
 }
 
@@ -1268,6 +1308,8 @@ function filterLogsBySelectedMonth(logs) {
     );
 }
 
+export { trimLogs as trimAuditLogs };
+
 export function getAuditLogs() {
     return normalizeLogs(asRecordList(getJSON(KEY, [])));
 }
@@ -1297,7 +1339,7 @@ export function addAuditLog(category, action, details = "", meta = {}) {
     };
 
     logs.push(entry);
-    setJSON(KEY, logs.slice(-MAX_LOGS));
+    setJSON(KEY, trimLogs(logs));
 
     if (document.body.dataset.activeView === "log") {
         renderAuditLogPanel();
