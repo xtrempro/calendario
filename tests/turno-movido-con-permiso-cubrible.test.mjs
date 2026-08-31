@@ -108,16 +108,19 @@ test("una casilla con dos insignias conserva el alto de sus vecinas", () => {
     // activa `has-multiple-badges`. Esa regla ademas la soltaba del alto de su
     // fila y quedaba visiblemente mas chica que las de al lado: parecia otro
     // tipo de dia. Solo debe apretar los espacios internos.
-    const bloque = styles.slice(
-        styles.indexOf(".day.has-multiple-badges {"),
-        styles.indexOf(".day.has-multiple-badges {") + 260
-    );
+    const inicio = styles.indexOf(".day.has-multiple-badges {");
+    const bloque = styles.slice(inicio, styles.indexOf("}", inicio) + 1);
 
-    assert.doesNotMatch(bloque, /min-height: auto;/);
-    assert.doesNotMatch(bloque, /height: max-content;/);
-    assert.doesNotMatch(bloque, /align-self: start;/);
-    // Lo que si conserva: espacios apretados para que entren las dos.
-    assert.match(bloque, /gap: 2px;/);
+    // La caja no se redefine: hereda alto, padding y el `space-between` de
+    // `.day`, que es lo que apoya las insignias abajo. Redefinir cualquiera de
+    // estas la desalinea de sus vecinas.
+    assert.doesNotMatch(bloque, /min-height/);
+    assert.doesNotMatch(bloque, /height: max-content/);
+    assert.doesNotMatch(bloque, /align-self/);
+    assert.doesNotMatch(bloque, /justify-content/);
+    assert.doesNotMatch(bloque, /padding/);
+
+    // Lo unico que de verdad hace falta.
     assert.match(bloque, /overflow: visible;/);
 });
 
@@ -150,6 +153,31 @@ test("TTMM se pinta mas chica que el resto", () => {
     assert.ok(
         Number(move[1]) < Number(base[1]),
         `TTMM (${move[1]}rem) debe ser menor que la base (${base[1]}rem)`
+    );
+});
+
+test("compartiendo celda, TTMM sigue siendo mas chica que el \"!\"", () => {
+    // En una casilla con dos insignias, `.day.has-multiple-badges .day-badge`
+    // las igualaba a todas. TTMM solo informa; el "!" pide una accion, asi que
+    // no pueden pesar lo mismo.
+    const compartida = styles.match(
+        /\.day\.has-multiple-badges \.day-badge \{[\s\S]*?font-size: ([\d.]+)rem/
+    );
+    const movida = styles.match(
+        /\.day\.has-multiple-badges \.day-badge--move \{[\s\S]*?font-size: ([\d.]+)rem/
+    );
+
+    assert.ok(compartida && movida, "faltan los tamaños en celda compartida");
+    assert.ok(
+        Number(movida[1]) < Number(compartida[1]),
+        `TTMM (${movida[1]}rem) debe ser menor que el resto (${compartida[1]}rem)`
+    );
+
+    // Y va DESPUES, o con la misma especificidad no ganaria.
+    assert.ok(
+        styles.indexOf(".day.has-multiple-badges .day-badge--move") >
+            styles.indexOf(".day.has-multiple-badges .day-badge {"),
+        "la regla de TTMM debe ir despues para ganar el desempate"
     );
 });
 
