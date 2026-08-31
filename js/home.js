@@ -1387,6 +1387,75 @@ function reRenderTaskCalendar(panel) {
 let incidenciasMes = new Date();
 let incidenciasCache = null;
 let incidenciasRequest = 0;
+
+// Claves cuyo cambio altera lo que cuenta como incidencia de marcaje. La lista
+// se guarda calculada -tarda- pero estaba indexada SOLO por mes: una vez
+// calculado un mes no se volvia a calcular pasara lo que pasara con los datos.
+// Aplicar un cambio de turno dejaba al trabajador Libre ese dia y la incidencia
+// seguia listada, porque el detalle se recalcula al abrirlo y la lista no.
+const INCIDENT_STATE_PREFIXES = [
+    "data_",
+    "baseData_",
+    "admin_",
+    "legal_",
+    "comp_",
+    "absences_",
+    "clockMarks_",
+    "rotativa_",
+    "shift_",
+    "shiftAssignmentHistory_"
+];
+const INCIDENT_STATE_KEYS = new Set([
+    "swaps",
+    "shiftMoves",
+    "replacements",
+    "attendanceMarks",
+    "attendanceMarksImportedAt",
+    "workerSchedules",
+    "profiles",
+    "manualHolidays",
+    "turnChangeConfig"
+]);
+
+function affectsAttendanceIncidents(keys = []) {
+    return keys.some(key => {
+        const cleanKey = String(key || "");
+
+        return INCIDENT_STATE_KEYS.has(cleanKey) ||
+            INCIDENT_STATE_PREFIXES.some(prefix => cleanKey.startsWith(prefix));
+    });
+}
+
+/**
+ * Tira la lista guardada de incidencias. La siguiente pintada la recalcula.
+ */
+export function invalidateAttendanceIncidents() {
+    incidenciasCache = null;
+}
+
+if (typeof window !== "undefined") {
+    const alCambiarEstado = event => {
+        if (!affectsAttendanceIncidents(event.detail?.keys || [])) return;
+
+        invalidateAttendanceIncidents();
+
+        // Solo se repinta si el inicio esta a la vista; si no, ya se recalcula
+        // al entrar.
+        if (document.body?.dataset?.activeView === "home") {
+            const panel = document.getElementById("homePanel");
+
+            if (panel) void cargarIncidencias(panel);
+        }
+    };
+
+    window.addEventListener("proturnos:persistenceChanged", alCambiarEstado);
+    // Los cambios que llegan de otro supervisor entran por aqui.
+    window.addEventListener("proturnos:firebaseAppState", event => {
+        if (event.detail?.type !== "app-state-entries-applied") return;
+
+        alCambiarEstado({ detail: { keys: event.detail.keys || [] } });
+    });
+}
 // Lo que se esta listando en el modal, en el orden en que se ve: la fila
 // abierta se ubica por su posicion en esta lista.
 let incidenciasDetalle = [];
@@ -1527,6 +1596,7 @@ async function cargarIncidencias(panel) {
             ...resultado
         };
         lista.innerHTML = incidenciasListHTML(resultado.totals);
+        refrescarDetalleIncidencias(panel);
     } catch (error) {
         if (requestId !== incidenciasRequest) return;
 
@@ -1534,6 +1604,23 @@ async function cargarIncidencias(panel) {
         lista.innerHTML =
             `<div class="hm-empty">No se pudieron calcular las incidencias.</div>`;
     }
+}
+
+/**
+ * Si el cuadro de detalle esta abierto, se repinta con lo recien calculado. Sin
+ * esto seguiria mostrando la incidencia que acaba de dejar de existir.
+ */
+function refrescarDetalleIncidencias(panel) {
+    const modal = panel.querySelector('[data-hm="inc-modal"]');
+
+    if (!modal || modal.hidden) return;
+
+    const cuerpo = modal.querySelector('[data-hm="inc-body"]');
+    const kind = cuerpo?.dataset.kind;
+
+    if (!cuerpo || !kind) return;
+
+    cuerpo.innerHTML = incidenciasDetalleHTML(kind);
 }
 
 function incidenciasDetalleHTML(kind) {
@@ -2869,8 +2956,12 @@ function wire(panel) {
 
         panel.querySelector('[data-hm="inc-title"]').textContent =
             `${label} · ${incidenciasMesLabel(incidenciasMes)}`;
-        panel.querySelector('[data-hm="inc-body"]').innerHTML =
-            incidenciasDetalleHTML(kind);
+        const cuerpo = panel.querySelector('[data-hm="inc-body"]');
+
+        // Queda anotado para poder repintarlo si los datos cambian mientras
+        // esta abierto.
+        cuerpo.dataset.kind = kind;
+        cuerpo.innerHTML = incidenciasDetalleHTML(kind);
         incModal.hidden = false;
     });
 
