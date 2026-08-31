@@ -1419,12 +1419,9 @@ body[data-active-view="kanban"] #turnChangesView,
 body[data-active-view="agenda"] .primary-grid,
 body[data-active-view="agenda"] .timeline-panel,
 body[data-active-view="agenda"] #turnChangesView,
-body[data-active-view="holders"] .calendar-panel,
-body[data-active-view="holders"] .leave-panel,
+body[data-active-view="holders"] .primary-grid,
 body[data-active-view="holders"] .timeline-panel,
 body[data-active-view="holders"] #turnChangesView,
-body[data-active-view="holders"] .primary-grid,
-body[data-active-view="holders"] .secondary-grid,
 body[data-active-view="reports"] .timeline-panel,
 body[data-active-view="reports"] .primary-grid,
 body[data-active-view="reports"] .secondary-grid,
@@ -3042,6 +3039,10 @@ body[data-active-view="kanban"] .secondary-grid {
 }
 
 body[data-active-view="agenda"] .secondary-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-active-view="holders"] .secondary-grid {
     grid-template-columns: minmax(0, 1fr);
 }
 
@@ -4765,60 +4766,64 @@ body[data-active-view="profile"] .profile-view-layout > .sidebar .profile-item__
     order: 3;
 }
 
-#turnChangesNav {
+.actionbar .nav-tile[data-target="shiftHoldersPanel"] {
     order: 4;
 }
 
-.actionbar .nav-tile[data-target="clockMarksPanel"] {
+#turnChangesNav {
     order: 5;
 }
 
-.actionbar .nav-tile[data-target="reportsPanel"] {
+.actionbar .nav-tile[data-target="clockMarksPanel"] {
     order: 6;
 }
 
-.actionbar .nav-tile[data-target="workerRequestsPanel"] {
+.actionbar .nav-tile[data-target="reportsPanel"] {
     order: 7;
 }
 
-.actionbar .nav-tile[data-target="staffingWeeklyCalendar"] {
+.actionbar .nav-tile[data-target="workerRequestsPanel"] {
     order: 8;
 }
 
-.actionbar .nav-tile[data-target="taskAssignmentsPanel"] {
+.actionbar .nav-tile[data-target="staffingWeeklyCalendar"] {
     order: 9;
 }
 
-.actionbar .nav-tile[data-target="kanbanPanel"] {
+.actionbar .nav-tile[data-target="taskAssignmentsPanel"] {
     order: 10;
 }
 
-.actionbar .nav-tile[data-target="agendaPanel"] {
+.actionbar .nav-tile[data-target="kanbanPanel"] {
     order: 11;
 }
 
-.actionbar .nav-tile[data-target="hoursPanel"] {
+.actionbar .nav-tile[data-target="agendaPanel"] {
     order: 12;
 }
 
-.actionbar .nav-tile[data-target="memosPanel"] {
+.actionbar .nav-tile[data-target="hoursPanel"] {
     order: 13;
 }
 
-.actionbar .nav-tile[data-target="dashboardPanel"] {
+.actionbar .nav-tile[data-target="memosPanel"] {
     order: 14;
 }
 
-.actionbar .nav-tile[data-target="auditLogPanel"] {
+.actionbar .nav-tile[data-target="dashboardPanel"] {
     order: 15;
 }
 
-#undoBtn {
+.actionbar .nav-tile[data-target="auditLogPanel"] {
     order: 16;
 }
 
-#redoBtn {
+#undoBtn {
     order: 17;
+}
+
+#redoBtn {
+    order: 18;
 }
 
 .nav-tile {

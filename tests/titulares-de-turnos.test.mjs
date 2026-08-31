@@ -522,6 +522,72 @@ test("el menu esta enganchado a su vista y a su panel", async () => {
     assert.match(css, /body:not\(\[data-active-view="holders"\]\) #shiftHoldersPanel/);
 });
 
+test("el menu va justo despues de Turnos", async () => {
+    // El orden del menu lateral lo pone el CSS: un tile sin regla de `order`
+    // cae con order 0, es decir, arriba de todo.
+    const css = await read("../styles.css");
+    const ORDENES = [
+        ["homePanel", null],
+        ["profileSection", null],
+        ["calendarPanel", null],
+        ["shiftHoldersPanel", null],
+        [null, "#turnChangesNav"],
+        ["clockMarksPanel", null],
+        ["reportsPanel", null],
+        ["workerRequestsPanel", null],
+        ["staffingWeeklyCalendar", null],
+        ["taskAssignmentsPanel", null],
+        ["kanbanPanel", null],
+        ["agendaPanel", null],
+        ["hoursPanel", null],
+        ["memosPanel", null],
+        ["dashboardPanel", null],
+        ["auditLogPanel", null],
+        [null, "#undoBtn"],
+        [null, "#redoBtn"]
+    ];
+    const orden = ([target, id]) => {
+        const bloque = id
+            ? css.slice(css.indexOf(`${id} {`))
+            : css.slice(css.indexOf(
+                `.actionbar .nav-tile[data-target="${target}"] {`
+            ));
+        const match = /order:\s*(\d+)/.exec(bloque.slice(0, 120));
+
+        assert.ok(match, `sin orden: ${target || id}`);
+
+        return Number(match[1]);
+    };
+    const numeros = ORDENES.map(orden);
+
+    // Titulares queda entre Turnos y Cambios de Turno.
+    assert.equal(numeros[3], numeros[2] + 1, "va después de Turnos");
+    assert.equal(numeros[4], numeros[3] + 1, "y antes de Cambios de Turno");
+    // Y nadie quedó con el mismo número al correr la lista.
+    assert.equal(new Set(numeros).size, numeros.length, "hay órdenes repetidos");
+    assert.deepEqual(numeros, [...numeros].sort((a, b) => a - b), "sin saltos");
+});
+
+test("su vista no oculta la grilla que contiene al panel", async () => {
+    // El panel vive dentro de .secondary-grid, el mismo contenedor que usa
+    // Kanban: ocultarla en esta vista lo dejaba en blanco.
+    const css = await read("../styles.css");
+    const html = await read("../index.html");
+
+    assert.match(
+        html,
+        /<section class="secondary-grid">[\s\S]*?id="shiftHoldersPanel"/
+    );
+    assert.doesNotMatch(
+        css,
+        /body\[data-active-view="holders"\] \.secondary-grid,/
+    );
+    assert.match(
+        css,
+        /body\[data-active-view="holders"\] \.secondary-grid \{\s*\n\s*grid-template-columns/
+    );
+});
+
 test("el barrido cede el hilo entre trabajador y trabajador", async () => {
     // Cada trabajador mira hasta 92 dias de calendario: hacerlo de corrido en
     // una unidad grande congelaria la pagina.
