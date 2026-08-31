@@ -9011,10 +9011,91 @@ body.theme-light .replacement-candidate-warning {
     grid-template-columns: 1fr 1fr;
 }
 
+/* El que scrollea es el CUERPO, no el modal entero: antes las acciones se iban
+   con el scroll y habia que bajar hasta el fondo para guardar, incluso con un
+   solo tramo que respaldar. */
 .overtime-backup-dialog {
     width: min(560px, 100%);
     max-height: min(86vh, 760px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Con dos tramos hay el doble de contenido: el modal se ensancha y los tramos
+   se reparten en dos columnas, en vez de uno debajo del otro fuera de la
+   pantalla. */
+.overtime-backup-dialog--split {
+    width: min(900px, 100%);
+}
+
+.overtime-backup-body {
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: auto;
+    padding-right: 4px;
+    margin-right: -4px;
+}
+
+.overtime-backup-dialog .turn-change-dialog__actions {
+    flex: none;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+.overtime-backup-grid {
+    display: grid;
+    gap: 12px;
+}
+
+.overtime-backup-grid--split {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+}
+
+/* Estado de cada tramo. Sin esto, que un turno extra de dos tramos necesita DOS
+   respaldos solo se descubria al guardar. */
+.overtime-backup-state {
+    flex: none;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--hm-warn-soft, rgba(249, 115, 22, 0.16));
+    color: var(--hm-warn, #ea8a10);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+}
+
+.overtime-backup-state.is-done {
+    background: var(--hm-good-soft, rgba(34, 197, 94, 0.16));
+    color: var(--hm-good, #16a34a);
+}
+
+.overtime-backup-subsection.is-missing {
+    border-color: rgba(249, 115, 22, 0.55);
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.14);
+}
+
+/* Los motivos predefinidos son catorce botones POR TRAMO: son los que estiraban
+   el modal. Con scroll propio dejan de empujar al resto. */
+.overtime-backup-subsection .replacement-dialog-toolbar {
+    max-height: 168px;
+    overflow: auto;
+    margin-bottom: 0;
+    padding-right: 4px;
+}
+
+/* Y la lista de ausencias compatibles no necesita 420px aqui: suele traer una o
+   dos, y lo que hace falta es que quepa el resto del tramo. */
+.overtime-backup-subsection .replacement-candidate-list {
+    max-height: 180px;
+}
+
+@media (max-width: 820px) {
+    .overtime-backup-grid--split {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .overtime-backup-section {
@@ -9077,10 +9158,6 @@ body.theme-dark .overtime-backup-subsection {
     color: var(--text-strong);
     font-size: 0.9rem;
     font-weight: 800;
-}
-
-.overtime-backup-subsection .replacement-candidate-list {
-    max-height: 240px;
 }
 
 .overtime-backup-subsection .extra-reason-field {

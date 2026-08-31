@@ -6637,6 +6637,7 @@ function extraReasonDialogHTML({
                 <div class="overtime-backup-subsection" data-manual-section="${escapeHTML(section.id)}">
                     <div class="overtime-backup-subsection__head">
                         <span>${escapeHTML(section.label)}</span>
+                        <small class="overtime-backup-state" data-section-state="${escapeHTML(section.id)}">Falta</small>
                     </div>
                     <div class="replacement-candidate-list">
                         ${items}
@@ -6657,7 +6658,7 @@ function extraReasonDialogHTML({
                                 </svg>
                             </button>
                         </div>
-                        <textarea rows="3" data-manual-reason="${escapeHTML(section.id)}" placeholder="Ej: Campana de Invierno, Estacion de Trabajo"></textarea>
+                        <textarea rows="2" data-manual-reason="${escapeHTML(section.id)}" placeholder="Ej: Campana de Invierno, Estacion de Trabajo"></textarea>
                         <div class="replacement-dialog-toolbar" data-manual-reason-presets="${escapeHTML(section.id)}">
                             ${manualExtraReasonPresetButtonsHTML(section.id)}
                         </div>
@@ -6692,23 +6693,32 @@ function extraReasonDialogHTML({
                     <small>${turnoReplacementLabel(pendingTurn)}</small>
                 </div>
                 <p>
-                    Puedes asociar cada tramo a una ausencia compatible o escribir
-                    un motivo manual por separado.
+                    ${hasMultipleManualSections
+                        ? "Este turno extra tiene DOS tramos y cada uno necesita su respaldo: asocialo a una ausencia compatible o escribe el motivo."
+                        : "Puedes asociar el tramo a una ausencia compatible o escribir un motivo manual."}
                 </p>
-                ${manualItems}
+                <div class="overtime-backup-grid ${
+                    hasMultipleManualSections ? "overtime-backup-grid--split" : ""
+                }">
+                    ${manualItems}
+                </div>
             </section>
         `
         : "";
 
     return `
-        <div class="turn-change-dialog replacement-dialog extra-reason-dialog overtime-backup-dialog" role="dialog" aria-modal="true" aria-labelledby="extraReasonDialogTitle">
+        <div class="turn-change-dialog replacement-dialog extra-reason-dialog overtime-backup-dialog ${
+            hasMultipleManualSections ? "overtime-backup-dialog--split" : ""
+        }" role="dialog" aria-modal="true" aria-labelledby="extraReasonDialogTitle">
             <strong id="extraReasonDialogTitle">Respaldar horas extras</strong>
             <p>
                 ${profileName} tiene horas extras pendientes de respaldo.
                 Completa ${savesMultipleBackups ? "las secciones" : "el motivo"} para validar el pago.
             </p>
-            ${clockSection}
-            ${manualSection}
+            <div class="overtime-backup-body">
+                ${clockSection}
+                ${manualSection}
+            </div>
             <div class="turn-change-dialog__actions">
                 <button class="secondary-button" type="button" data-action="cancel">
                     Cancelar
@@ -6843,7 +6853,16 @@ async function openExtraReasonDialog(
         }
 
         if (pendingTurn && missingManualBackup) {
-            alert(`Selecciona una ausencia compatible o escribe el motivo del turno ${missingManualBackup.section.label}.`);
+            const pendiente = backdrop.querySelector(
+                `[data-manual-section="${missingManualBackup.section.id}"]`
+            );
+
+            // Se marca y se trae a la vista antes de avisar: con dos tramos, el
+            // que falta puede ser el que quedo fuera de pantalla.
+            pendiente?.classList.add("is-missing");
+            pendiente?.scrollIntoView({ block: "nearest" });
+
+            alert(`Falta respaldar el tramo ${missingManualBackup.section.label}: selecciona una ausencia compatible o escribe su motivo.`);
             backdrop
                 .querySelector(`[data-manual-reason="${missingManualBackup.section.id}"]`)
                 ?.focus();
@@ -6891,6 +6910,20 @@ async function openExtraReasonDialog(
         // Refresca la fila del timeline (casillas del dia + columna de HH.EE) del
         // trabajador que tomo el turno extra, sin reconstruir todo el timeline.
         updateTimelineCells(profileName, [keyDay]);
+    };
+
+    // "Falta" / "Listo" por tramo. Es lo que faltaba para darse cuenta de que
+    // un turno extra de dos tramos necesita DOS respaldos: antes el modal
+    // cortaba la informacion y el segundo tramo pasaba desapercibido hasta que
+    // el guardado reclamaba por el.
+    const setSectionState = (sectionId, done) => {
+        const chip = backdrop
+            .querySelector(`[data-section-state="${sectionId}"]`);
+
+        if (!chip) return;
+
+        chip.textContent = done ? "Listo" : "Falta";
+        chip.classList.toggle("is-done", done);
     };
 
     const bindManualReasonPresetButtons = () => {
@@ -6966,6 +6999,8 @@ async function openExtraReasonDialog(
                 if (manualTextarea) {
                     manualTextarea.value = "";
                 }
+
+                setSectionState(sectionId, true);
             };
         });
 
@@ -6973,10 +7008,19 @@ async function openExtraReasonDialog(
         .querySelectorAll("[data-manual-reason]")
         .forEach(textarea => {
             textarea.addEventListener("input", event => {
-                if (!event.target.value.trim()) return;
-
                 const sectionId = event.target.dataset.manualReason;
 
+                if (!event.target.value.trim()) {
+                    // Borrar el motivo escrito deja el tramo sin respaldo otra
+                    // vez, salvo que ya hubiera una ausencia elegida.
+                    setSectionState(
+                        sectionId,
+                        selectedMatches.has(sectionId)
+                    );
+                    return;
+                }
+
+                setSectionState(sectionId, true);
                 selectedMatches.delete(sectionId);
                 backdrop
                     .querySelectorAll(
