@@ -13,6 +13,7 @@ import {
     calendarKeyToInputDate,
     compareISODate
 } from "./dateUtils.js";
+import { asRecordList } from "./storage.js";
 
 const STORAGE_KEY = "shiftMoves";
 const MIGRATION_KEY = "shiftMovesAuditMigrationV1";
@@ -115,7 +116,7 @@ function compactReverseShiftMoves(moves = []) {
 }
 
 export function getShiftMoves() {
-    const stored = getJSON(STORAGE_KEY, [])
+    const stored = asRecordList(getJSON(STORAGE_KEY, []))
         .map(normalizeShiftMove)
         .filter(Boolean);
 

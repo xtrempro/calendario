@@ -8,13 +8,12 @@ import { getJSON, setJSON } from "./persistence.js";
 import { isoFromKey } from "./dateUtils.js";
 import { getTurnoComponentes, turnoDesdeComponentes } from "./rulesEngine.js";
 import { TURNO } from "./constants.js";
+import { asRecordList } from "./storage.js";
 
 const STORAGE_KEY = "preassignments";
 
 export function getPreassignments() {
-    const list = getJSON(STORAGE_KEY, []);
-
-    return Array.isArray(list) ? list : [];
+    return asRecordList(getJSON(STORAGE_KEY, []));
 }
 
 export function savePreassignments(list) {
