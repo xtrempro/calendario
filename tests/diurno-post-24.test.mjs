@@ -42,6 +42,14 @@ class MemoryStorage {
 }
 
 globalThis.localStorage = new MemoryStorage();
+globalThis.window = globalThis.window || {
+    dispatchEvent: () => true,
+    addEventListener() {},
+    removeEventListener() {}
+};
+globalThis.CustomEvent = globalThis.CustomEvent || class {
+    constructor(type, init = {}) { this.type = type; this.detail = init.detail; }
+};
 
 const {
     DEFAULT_TURN_CHANGE_CONFIG,
@@ -53,6 +61,10 @@ const {
 } = await import("../js/storage.js");
 const { turnoBloqueadoPorTurno24 } =
     await import("../js/turnEngine.js");
+const {
+    buildReplacementCandidates,
+    preassignmentBlocksReplacementCandidate
+} = await import("../js/replacementCandidates.js");
 
 const TURNO = { LIBRE: 0, LARGA: 1, NOCHE: 2, TURNO24: 3, DIURNO: 4, DIURNO_NOCHE: 5 };
 
@@ -340,5 +352,154 @@ test("el 24h sigue entrando 08:00 y saliendo 08:00 del dia siguiente", async () 
     assert.match(
         source,
         /id: "turno24",[\s\S]{0,200}start: dateAt\(date, 8\),\s*\n\s*end: nextDateAt\(date, 8\)/
+    );
+});
+
+/* ======================================================================
+   La misma excepcion, en el cuadro de sugerencias de reemplazo
+   ====================================================================== */
+
+// La regla de adyacencia de 24h vive DOS veces: turnoBloqueadoPorTurno24 mira el
+// turno programado y preassignmentBlocksReplacementCandidate el estado
+// comprometido (real mas preasignaciones). La segunda ignoraba la excepcion, asi
+// que en una unidad que la tiene puesta el cuadro escondia justo al trabajador
+// que podia cubrir el turno, y el supervisor terminaba armando el 24 a mano.
+
+// Martes 2026-08-25 (el turno a cubrir) y miercoles 2026-08-26.
+const DIA_COBERTURA = "2026-7-25";
+const DIA_POSTERIOR = "2026-7-26";
+
+function sembrarCobertura() {
+    globalThis.localStorage.clear();
+    saveProfiles([
+        {
+            name: "Ausente",
+            estamento: "Profesional",
+            profession: "TM Imagenología",
+            contractType: "Planta",
+            active: true
+        },
+        {
+            name: "Cubre",
+            estamento: "Profesional",
+            profession: "TM Imagenología",
+            contractType: "Planta",
+            active: true
+        }
+    ]);
+
+    // A la ausente le toca Noche y ese dia tiene feriado legal.
+    saveBaseProfileData({ [DIA_COBERTURA]: TURNO.NOCHE }, "Ausente");
+    globalThis.localStorage.setItem(
+        "legal_Ausente",
+        JSON.stringify({ [DIA_COBERTURA]: true })
+    );
+
+    // Quien cubre ya tiene una Larga ese dia y su Diurno al dia siguiente:
+    // tomar la Noche le arma un 24h con Diurno pegado.
+    saveBaseProfileData({
+        [DIA_COBERTURA]: TURNO.LARGA,
+        [DIA_POSTERIOR]: TURNO.DIURNO
+    }, "Cubre");
+}
+
+test("sin el ajuste, el cuadro no ofrece el 24 con Diurno al dia siguiente", () => {
+    sembrarCobertura();
+    configurar({ allowDiurnoAfterTwentyFour: false });
+
+    assert.equal(
+        preassignmentBlocksReplacementCandidate(
+            "Cubre",
+            DIA_COBERTURA,
+            TURNO.NOCHE
+        ),
+        true
+    );
+});
+
+test("con el ajuste, el cuadro si lo ofrece", () => {
+    sembrarCobertura();
+    configurar({ allowDiurnoAfterTwentyFour: true });
+
+    assert.equal(
+        preassignmentBlocksReplacementCandidate(
+            "Cubre",
+            DIA_COBERTURA,
+            TURNO.NOCHE
+        ),
+        false
+    );
+});
+
+test("y aparece de verdad entre los candidatos", async () => {
+    sembrarCobertura();
+    configurar({ allowDiurnoAfterTwentyFour: true });
+
+    const { candidates } = await buildReplacementCandidates(
+        "Ausente",
+        DIA_COBERTURA,
+        { holidays: {} }
+    );
+
+    assert.deepEqual(
+        candidates.map(candidate => candidate.profile.name),
+        ["Cubre"]
+    );
+});
+
+test("apagado el ajuste, vuelve a quedar fuera de los candidatos", async () => {
+    sembrarCobertura();
+    configurar({ allowDiurnoAfterTwentyFour: false });
+
+    const { candidates } = await buildReplacementCandidates(
+        "Ausente",
+        DIA_COBERTURA,
+        { holidays: {} }
+    );
+
+    assert.deepEqual(candidates.map(candidate => candidate.profile.name), []);
+});
+
+test("la excepcion tampoco alcanza al D+N en el cuadro", async () => {
+    // El dia anterior es un 24h y quien cubre tiene Diurno: tomar la Noche le
+    // deja un D+N pegado al 24, que encadena casi dos jornadas. Sigue prohibido
+    // aunque el ajuste este puesto, igual que en turnoBloqueadoPorTurno24.
+    sembrarCobertura();
+    saveBaseProfileData({
+        "2026-7-24": TURNO.TURNO24,
+        [DIA_COBERTURA]: TURNO.DIURNO,
+        [DIA_POSTERIOR]: TURNO.DIURNO
+    }, "Cubre");
+    configurar({ allowDiurnoAfterTwentyFour: true });
+
+    assert.equal(
+        preassignmentBlocksReplacementCandidate(
+            "Cubre",
+            DIA_COBERTURA,
+            TURNO.NOCHE
+        ),
+        true
+    );
+
+    const { candidates } = await buildReplacementCandidates(
+        "Ausente",
+        DIA_COBERTURA,
+        { holidays: {} }
+    );
+
+    assert.deepEqual(candidates.map(candidate => candidate.profile.name), []);
+});
+
+test("el candidato recibe la configuracion, no la relee por cada uno", async () => {
+    // El barrido ya la leyo una vez; releer el JSON por candidato es lo que hace
+    // lento el cuadro en una unidad grande.
+    const source = (await readFile(
+        new URL("../js/replacementCandidates.js", import.meta.url),
+        "utf8"
+    )).replace(/\r\n/g, "\n");
+
+    assert.match(
+        source,
+        /preassignmentBlocksReplacementCandidate\([\s\S]{0,120}turnChangeConfig\s*\n\s*\)/
     );
 });

@@ -262,9 +262,26 @@ export function committedStateWithPreassign(profileName, keyDay) {
 
 // Un candidato NO debe sugerirse si, al cubrir el turno buscado, se formaria un 24
 // incompatible con un dia adyacente (larga despues de un 24, noche antes de un 24)
-// considerando sus preasignaciones. Es la regla SIEMPRE prohibida de adyacencia de
-// 24h; al cancelar una preasignacion, el candidato vuelve a ser elegible.
-export function preassignmentBlocksReplacementCandidate(profileName, keyDay, neededTurn) {
+// considerando sus preasignaciones. Al cancelar una preasignacion, el candidato
+// vuelve a ser elegible.
+//
+// La adyacencia de 24h tiene UNA excepcion, que la unidad habilita a proposito:
+// un Diurno pegado al dia siguiente de un 24h. Encadena 33 horas (08:00 del dia
+// 1 a las 17:00 del dia 2), por eso viene apagada, y vale SOLO para el Diurno
+// puro: una Larga, un D+N u otro 24 pegados a un 24 siguen prohibidos siempre.
+// Es la misma condicion de turnoBloqueadoPorTurno24 (turnEngine.js), que es la
+// regla canonica; aqui se repite porque esta version mira el estado COMPROMETIDO
+// -real mas preasignaciones- y aquella mira el programado.
+//
+// Sin la excepcion, en una unidad que la tiene puesta el cuadro de sugerencias
+// escondia justo al trabajador que podia cubrir el turno, y el supervisor
+// terminaba armando el 24 a mano.
+export function preassignmentBlocksReplacementCandidate(
+    profileName,
+    keyDay,
+    neededTurn,
+    config = getTurnChangeConfig()
+) {
     const projected = fusionarTurnos(
         committedStateWithPreassign(profileName, keyDay),
         neededTurn
@@ -278,15 +295,20 @@ export function preassignmentBlocksReplacementCandidate(profileName, keyDay, nee
         offsetCalendarKey(keyDay, 1)
     );
     const isTwentyFour = turno => Number(turno) === TURNO.TURNO24;
+    const isPlainDiurno = turno => Number(turno) === TURNO.DIURNO;
+    const diurnoPost24Permitido =
+        config.allowDiurnoAfterTwentyFour === true;
 
     return (
         (isTwentyFour(previous) &&
-            replacementTurnIncludesDaytimeStart(projected)) ||
+            replacementTurnIncludesDaytimeStart(projected) &&
+            !(diurnoPost24Permitido && isPlainDiurno(projected))) ||
         (isTwentyFour(next) &&
             replacementTurnIncludesNight(projected)) ||
         (isTwentyFour(projected) &&
             (replacementTurnIncludesNight(previous) ||
-                replacementTurnIncludesDaytimeStart(next)))
+                (replacementTurnIncludesDaytimeStart(next) &&
+                    !(diurnoPost24Permitido && isPlainDiurno(next)))))
     );
 }
 
@@ -645,7 +667,8 @@ export async function buildReplacementCandidates(profileName, keyDay, {
         !preassignmentBlocksReplacementCandidate(
             candidate.profile.name,
             keyDay,
-            neededTurn
+            neededTurn,
+            turnChangeConfig
         ) &&
         !cededSwapTurnBlocks(
             candidate.profile.name,
