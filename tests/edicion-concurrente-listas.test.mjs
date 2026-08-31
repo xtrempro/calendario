@@ -591,3 +591,123 @@ test("un valor sin sentido devuelve lista vacia, no una excepcion", async () => 
         assert.deepEqual(asRecordList(valor), []);
     });
 });
+
+/* ======================================================================
+   El camino REAL, de punta a punta
+   ====================================================================== */
+
+// Esta es la prueba que faltaba y que habria atrapado el incidente. Las otras
+// ejercitaban las piezas por separado con un Firestore simulado; el fallo vivia
+// en la COLA, que ninguna tocaba: normalizeQueuedStateEntries descartaba el
+// marcador de contenedor, y al reaplicar el cambio local pendiente la lista se
+// convertia en objeto.
+//
+// Aqui se recorre la cadena completa tal como corre en el navegador:
+//   editar -> planPartialStateEntries -> cola (normalize) -> reaplicar
+
+test("el camino completo deja la lista como lista, no como objeto", async () => {
+    const { normalizeQueuedStateEntries } =
+        await import("../js/firebaseAppState.js");
+
+    const antes = JSON.stringify([reemplazo("s1", "AMBAR", "2026-09-01")]);
+    const despues = JSON.stringify([
+        reemplazo("s1", "AMBAR", "2026-09-01"),
+        reemplazo("s2", "SEBASTIAN", "2026-09-04")
+    ]);
+
+    // 1. El supervisor edita.
+    const planeadas = planPartialStateEntries({
+        keys: ["swaps"],
+        changes: { swaps: { previous: antes, next: despues } },
+        readRaw: () => despues,
+        moduleForKey: stateModuleForKey
+    });
+
+    // 2. Pasan por la cola, que es donde se perdia el marcador.
+    const enCola = normalizeQueuedStateEntries(planeadas);
+
+    // 3. Se reaplican sobre el estado, como hace mergeLocalDirtyStateEntries
+    //    cada vez que llega un modulo.
+    const snapshot = { swaps: antes };
+
+    mergePartialStateEntries(snapshot, enCola);
+
+    const resultado = JSON.parse(snapshot.swaps);
+
+    assert.ok(
+        Array.isArray(resultado),
+        "la lista no puede volverse objeto al pasar por la cola"
+    );
+    assert.deepEqual(
+        resultado.map(item => item.worker),
+        ["AMBAR", "SEBASTIAN"]
+    );
+});
+
+test("y lo mismo para un objeto, que debe seguir siendo objeto", async () => {
+    const { normalizeQueuedStateEntries } =
+        await import("../js/firebaseAppState.js");
+
+    const antes = JSON.stringify({ allowSwaps: true, monthlySwapLimit: 2 });
+    const despues = JSON.stringify({ allowSwaps: false, monthlySwapLimit: 2 });
+    const enCola = normalizeQueuedStateEntries(planPartialStateEntries({
+        keys: ["turnChangeConfig"],
+        changes: { turnChangeConfig: { previous: antes, next: despues } },
+        readRaw: () => despues,
+        moduleForKey: stateModuleForKey
+    }));
+    const snapshot = { turnChangeConfig: antes };
+
+    mergePartialStateEntries(snapshot, enCola);
+
+    const resultado = JSON.parse(snapshot.turnChangeConfig);
+
+    assert.ok(!Array.isArray(resultado));
+    assert.deepEqual(resultado, { allowSwaps: false, monthlySwapLimit: 2 });
+});
+
+test("el documento que sube la cola conserva el marcador", async () => {
+    // Sin esto, otro equipo leeria los elementos sin saber que son una lista.
+    const { normalizeQueuedStateEntries } =
+        await import("../js/firebaseAppState.js");
+    const planeadas = planPartialStateEntries({
+        keys: ["swaps"],
+        changes: {
+            swaps: {
+                previous: JSON.stringify([reemplazo("s1", "AMBAR", "2026-09-01")]),
+                next: JSON.stringify([
+                    reemplazo("s1", "AMBAR", "2026-09-01"),
+                    reemplazo("s2", "SEBASTIAN", "2026-09-04")
+                ])
+            }
+        },
+        readRaw: () => "",
+        moduleForKey: stateModuleForKey
+    });
+    const [documento] = groupPartialStateEntries(
+        normalizeQueuedStateEntries(planeadas)
+    );
+
+    assert.equal(documento.container, "array");
+});
+
+test("una lista que nace vacia viaja entera, no por elemento", () => {
+    // Solo se parte cuando las DOS versiones son partibles. Una lista vacia no
+    // lo es -no hay ids que mirar-, asi que el primer elemento sube el valor
+    // completo. Es correcto y ademas deja el documento en el formato que
+    // entiende cualquier version anterior.
+    const entries = planPartialStateEntries({
+        keys: ["swaps"],
+        changes: {
+            swaps: {
+                previous: JSON.stringify([]),
+                next: JSON.stringify([reemplazo("s1", "AMBAR", "2026-09-01")])
+            }
+        },
+        readRaw: () => "",
+        moduleForKey: stateModuleForKey
+    });
+
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].itemKey, "", "va como valor entero");
+});
