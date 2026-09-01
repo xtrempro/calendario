@@ -280,7 +280,10 @@ test("la semana actual se reconoce y se puede volver a ella", () => {
 test("el filtro de problemas apaga las celdas sin hueco, no las esconde", () => {
     // Con display:none la rejilla correria las columnas y la semana perderia
     // la alineacion.
-    assert.match(source, /if \(onlyTrouble && summary\.status\.key !== "gap"\)/);
+    assert.match(
+        source,
+        /if \(onlyTrouble && !\["gap", "rota"\]\.includes\(summary\.status\.key\)\)/
+    );
     assert.match(source, /staffing-weekly-cell--quiet/);
     // Y las filas de ausencia no aportan: no son un hueco.
     assert.match(source, /\$\{\(onlyTrouble \? \[\] : visibleLeaveRows\)\.map/);

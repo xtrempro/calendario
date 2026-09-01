@@ -60,7 +60,7 @@ import {
     AUDIT_CATEGORY
 } from "./auditLog.js";
 import { getHourReturn } from "./hourReturns.js";
-import { getShiftGroupMap } from "./shiftHolders.js";
+import { getShiftGroupMap, getShiftGroupGaps } from "./shiftHolders.js";
 import { runCooperativeRange } from "./mainThreadScheduler.js";
 import {
     measurePerformance,
@@ -2722,7 +2722,34 @@ const WEEKLY_ESTAMENTO_SHORT = {
  * ausencia sin reemplazo aplicado. Lo unico nuevo es contarlos y decirlo con
  * palabras, en vez de dejar que el supervisor cuente tarjetas.
  */
-function weeklyCellSummary(people) {
+/**
+ * De que grupo del 4to turno es esta celda: el que comparte la gente que
+ * trabaja en ella. Se saca de los propios trabajadores y no del ciclo, para
+ * que no haya dos formas distintas de contestar lo mismo.
+ */
+function weeklyCellGroup(people) {
+    const counts = new Map();
+
+    people.forEach(item => {
+        if (!item.group) return;
+
+        counts.set(item.group, (counts.get(item.group) || 0) + 1);
+    });
+
+    let best = "";
+    let most = 0;
+
+    counts.forEach((count, group) => {
+        if (count > most) {
+            most = count;
+            best = group;
+        }
+    });
+
+    return best;
+}
+
+function weeklyCellSummary(people, rotaMissing = 0) {
     const working = people.filter(item => item.type !== "replacement-slot");
     const gaps = people.filter(item => item.type === "replacement-slot");
     const covering = working.filter(item => item.covers?.length);
@@ -2748,16 +2775,20 @@ function weeklyCellSummary(people) {
         .map(label => `${counts.get(label)} ${label}`)
         .join(" · ");
 
+    // Lo que falta hoy manda sobre la rotativa corta: una licencia es aguda y
+    // se acaba, una rotativa incompleta es cronica y vuelve cada ciclo.
     const status = gaps.length
         ? {
             key: "gap",
             label: gaps.length === 1 ? "falta 1" : `faltan ${gaps.length}`
         }
-        : covering.length
-            ? { key: "cover", label: "cubierto" }
-            : working.length
-                ? { key: "ok", label: "completo" }
-                : { key: "empty", label: "" };
+        : rotaMissing
+            ? { key: "rota", label: `rotativa −${rotaMissing}` }
+            : covering.length
+                ? { key: "cover", label: "cubierto" }
+                : working.length
+                    ? { key: "ok", label: "completo" }
+                    : { key: "empty", label: "" };
 
     return { total: working.length, mix, status };
 }
@@ -2896,6 +2927,89 @@ function renderWeeklyProfileChip(item) {
     `;
 }
 
+// El plural va a mano: "profesionals" y "auxiliars" no existen.
+const WEEKLY_ESTAMENTO_PLURAL = {
+    "Profesional": "profesionales",
+    "Técnico": "técnicos",
+    "Administrativo": "administrativos",
+    "Auxiliar": "auxiliares"
+};
+
+function weeklyEstamentoPlural(estamento) {
+    return WEEKLY_ESTAMENTO_PLURAL[estamento] ||
+        `${String(estamento).toLowerCase()}s`;
+}
+
+function weeklyRotaMotive(estamento, group) {
+    return `Completar rotativa de ${weeklyEstamentoPlural(estamento)} del grupo ${group}`;
+}
+
+/**
+ * Cupo por rotativa incompleta: el grupo esta constituido con un trabajador
+ * menos que el mejor dotado, asi que le falta uno CADA VEZ que entra.
+ *
+ * Va en ambar y no en rojo a proposito. Una licencia de hoy es aguda y se
+ * acaba; una rotativa corta es cronica. Si las dos gritaran igual, la semana
+ * se veria peor de lo que esta y el rojo dejaria de significar "esto hay que
+ * resolverlo ahora".
+ */
+function weeklyRotaReference(people, group, estamento) {
+    // Alguien del grupo que SI esta trabajando ese turno: sirve de molde para
+    // los candidatos -"otro como Angelica"- y, por estar presente, no arrastra
+    // capacitaciones ni medias jornadas que le cambiarian las horas al calculo.
+    const working = people.filter(item =>
+        item.type !== "replacement-slot" && item.group === group
+    );
+    const sameEstamento = working.find(item =>
+        normalizeStaffingEstamento(item.profile?.estamento) === estamento
+    );
+
+    if (sameEstamento) return sameEstamento.profile.name;
+    if (working.length) return working[0].profile.name;
+
+    // Grupo entero ausente: se cae a cualquier activo del estamento, que es
+    // suficiente para saber quien puede cubrir.
+    const anyone = getProfiles()
+        .filter(isProfileActive)
+        .find(profile =>
+            normalizeStaffingEstamento(profile.estamento) === estamento
+        );
+
+    return anyone?.name || "";
+}
+
+function weeklyRotaGapHTML(gap, group, date, shift, people) {
+    const keyDay = key(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate()
+    );
+    const turno = shift.key === "noche" ? TURNO.NOCHE : TURNO.LARGA;
+    const motive = weeklyRotaMotive(gap.estamento, group);
+    const reference = weeklyRotaReference(people, group, gap.estamento);
+
+    if (!reference) return "";
+
+    return Array.from({ length: gap.missing }, () => `
+        <button
+            class="staffing-weekly-rota-gap"
+            type="button"
+            data-weekly-rota-group="${escapeHTML(group)}"
+            data-weekly-rota-estamento="${escapeHTML(gap.estamento)}"
+            data-weekly-rota-reference="${escapeHTML(reference)}"
+            data-weekly-rota-key="${escapeHTML(keyDay)}"
+            data-weekly-rota-turno="${turno}"
+            title="${escapeHTML(motive)}"
+        >
+            <span class="staffing-weekly-rota-gap__badge" aria-hidden="true">!</span>
+            <span class="staffing-weekly-rota-gap__body">
+                <strong>Falta 1 ${escapeHTML(gap.estamento)}</strong>
+                <small>Grupo ${escapeHTML(group)} · ${gap.count} de ${gap.reference} ${escapeHTML(weeklyEstamentoPlural(gap.estamento))}</small>
+            </span>
+        </button>
+    `).join("");
+}
+
 function renderStaffingWeeklyCell(
     date,
     shift,
@@ -2913,11 +3027,20 @@ function renderStaffingWeeklyCell(
         roleFilter,
         professionFilter
     );
-    const summary = weeklyCellSummary(people);
+    // Carencias del grupo que entra hoy, solo en los turnos que trabaja.
+    const cellGroup = shift.key === "diurno" ? "" : weeklyCellGroup(people);
+    const rotaGaps = cellGroup
+        ? (getShiftGroupGaps(currentDate).get(cellGroup) || [])
+        : [];
+    const rotaMissing = rotaGaps.reduce(
+        (total, gap) => total + gap.missing,
+        0
+    );
+    const summary = weeklyCellSummary(people, rotaMissing);
 
     // Fuera de foco la celda se encoge, no se esconde: con display:none la
     // rejilla correria las columnas y la semana perderia la alineacion.
-    if (onlyTrouble && summary.status.key !== "gap") {
+    if (onlyTrouble && !["gap", "rota"].includes(summary.status.key)) {
         return `
             <article class="staffing-weekly-cell staffing-weekly-cell--${shift.key} staffing-weekly-cell--quiet${isToday ? " staffing-weekly-cell--today" : ""}">
                 <span>&mdash;</span>
@@ -2926,7 +3049,7 @@ function renderStaffingWeeklyCell(
     }
 
     return `
-        <article class="staffing-weekly-cell staffing-weekly-cell--${shift.key}${isInhabil ? " staffing-weekly-cell--inhabil" : ""}${isToday ? " staffing-weekly-cell--today" : ""}${summary.status.key === "gap" ? " staffing-weekly-cell--gap" : ""}${summary.status.key === "cover" ? " staffing-weekly-cell--covered" : ""}">
+        <article class="staffing-weekly-cell staffing-weekly-cell--${shift.key}${isInhabil ? " staffing-weekly-cell--inhabil" : ""}${isToday ? " staffing-weekly-cell--today" : ""}${summary.status.key === "gap" ? " staffing-weekly-cell--gap" : ""}${summary.status.key === "rota" ? " staffing-weekly-cell--rota" : ""}${summary.status.key === "cover" ? " staffing-weekly-cell--covered" : ""}">
             <div class="staffing-weekly-cell__shift">
                 <span>${escapeHTML(shift.label)}</span>
                 ${
@@ -2967,10 +3090,15 @@ function renderStaffingWeeklyCell(
                     : ""
             }
             <div class="staffing-weekly-people">
+                ${rotaGaps.map(gap =>
+                    weeklyRotaGapHTML(gap, cellGroup, date, shift, people)
+                ).join("")}
                 ${
                     people.length
                         ? people.map(renderWeeklyProfileChip).join("")
-                        : `<span class="staffing-weekly-empty">Sin personal disponible</span>`
+                        : (rotaGaps.length
+                            ? ""
+                            : `<span class="staffing-weekly-empty">Sin personal disponible</span>`)
                 }
             </div>
         </article>
@@ -3572,6 +3700,33 @@ function activateStaffingWeeklyCalendar(target, view, options = {}) {
                         "Todos"
                     )
                 });
+            });
+        });
+    target
+        .querySelectorAll("[data-weekly-rota-group]")
+        .forEach(button => {
+            button.addEventListener("click", event => {
+                event.stopPropagation();
+
+                if (typeof window.openReplacementDialog !== "function") {
+                    return;
+                }
+
+                const estamento = button.dataset.weeklyRotaEstamento;
+                const group = button.dataset.weeklyRotaGroup;
+
+                window.openReplacementDialog(
+                    button.dataset.weeklyRotaReference,
+                    button.dataset.weeklyRotaKey,
+                    {
+                        rota: {
+                            group,
+                            estamento,
+                            turno: Number(button.dataset.weeklyRotaTurno),
+                            motive: weeklyRotaMotive(estamento, group)
+                        }
+                    }
+                );
             });
         });
     target

@@ -359,9 +359,42 @@ export function getShiftGroupMap(today = new Date()) {
             if (placement) map.set(profile.name, placement.letter);
         });
 
-    groupMapMemo = { key: memoKey, map };
+    groupMapMemo = { key: memoKey, map, gaps: null };
 
     return map;
+}
+
+/**
+ * Que le falta a cada grupo frente a los demas, por estamento.
+ *
+ * Es la misma comparacion del tablero de Titulares, disponible para las otras
+ * pantallas. Se guarda junto al mapa de grupos porque sale de el y se invalida
+ * con lo mismo.
+ */
+export function getShiftGroupGaps(today = new Date()) {
+    const map = getShiftGroupMap(today);
+
+    if (groupMapMemo.gaps) return groupMapMemo.gaps;
+
+    const byName = new Map(
+        getProfiles().map(profile => [profile.name, profile])
+    );
+    const columns = COLUMN_LETTERS.map(letter => ({
+        letter,
+        workers: [...map.entries()]
+            .filter(([, group]) => group === letter)
+            .map(([name]) => ({ profile: byName.get(name) }))
+            .filter(item => item.profile)
+    }));
+    const gaps = new Map();
+
+    buildEstamentoGaps(columns).forEach((columnGaps, index) => {
+        if (columnGaps.length) gaps.set(COLUMN_LETTERS[index], columnGaps);
+    });
+
+    groupMapMemo.gaps = gaps;
+
+    return gaps;
 }
 
 export function invalidateShiftGroupMap() {

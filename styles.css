@@ -12125,6 +12125,7 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 /* Franja de estado en el borde de arriba: el color del turno ya ocupa el
    fondo de la celda y no conviene pelearselo. */
 .staffing-weekly-cell--gap::before,
+.staffing-weekly-cell--rota::before,
 .staffing-weekly-cell--covered::before {
     content: "";
     position: absolute;
@@ -12135,6 +12136,75 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 
 .staffing-weekly-cell--gap::before { background: #dc2626; }
 .staffing-weekly-cell--covered::before { background: #b45309; }
+
+/* Cupo por rotativa incompleta: al grupo le falta un trabajador frente al
+   mejor dotado, asi que le falta CADA VEZ que entra.
+
+   Va en ambar y no en rojo a proposito. Una licencia de hoy es aguda y se
+   acaba; una rotativa corta es cronica y vuelve cada ciclo. Si las dos
+   gritaran igual, la semana se veria peor de lo que esta y el rojo dejaria de
+   significar "esto hay que resolverlo ahora". */
+.staffing-weekly-rota-gap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 8px;
+    border-radius: 10px;
+    border: 1px dashed rgba(180, 83, 9, 0.5);
+    background: rgba(180, 83, 9, 0.1);
+    text-align: left;
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.16s, transform 0.16s;
+}
+
+.staffing-weekly-rota-gap:hover {
+    border-color: #b45309;
+    transform: translateY(-1px);
+}
+
+.staffing-weekly-rota-gap:focus-visible {
+    outline: 2px solid #b45309;
+    outline-offset: 2px;
+}
+
+.staffing-weekly-rota-gap__badge {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: #b45309;
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.staffing-weekly-rota-gap__body {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+}
+
+.staffing-weekly-rota-gap__body strong {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #b45309;
+}
+
+.staffing-weekly-rota-gap__body small {
+    font-size: 0.68rem;
+    color: var(--text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.staffing-weekly-cell--rota::before { background: #b45309; }
 
 /* Letra del grupo del 4to turno. Conecta esta pantalla con Titulares de
    Turnos sin tener que cambiar de menu. */

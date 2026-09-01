@@ -227,7 +227,10 @@ test("el calendario pide el mapa una vez, con la fecha de hoy", async () => {
     // Con la fecha de la celda serian siete calculos completos por semana.
     assert.match(source, /const groupByWorker = getShiftGroupMap\(currentDate\);/);
     assert.match(source, /group: groupByWorker\.get\(profile\.name\) \|\| ""/);
-    assert.match(source, /import \{ getShiftGroupMap \} from "\.\/shiftHolders\.js"/);
+    assert.match(
+        source,
+        /import \{ getShiftGroupMap, getShiftGroupGaps \} from "\.\/shiftHolders\.js"/
+    );
     // Y se pinta al lado del nombre.
     assert.match(source, /class="staffing-weekly-group"/);
 });
