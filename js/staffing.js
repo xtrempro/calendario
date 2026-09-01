@@ -52,7 +52,8 @@ import {
     requiereReemplazoTurnoBase
 } from "./rulesEngine.js";
 import {
-    getReplacementForCoveredShift
+    getReplacementForCoveredShift,
+    getReplacementsByWorkerForDay
 } from "./replacements.js";
 import {
     addAuditLog,
@@ -2670,6 +2671,63 @@ function staffingEstamentoOrder(profile) {
     return index === -1 ? STAFFING_ESTAMENTOS.length : index;
 }
 
+// Etiqueta corta del estamento para la linea de mezcla de la celda. El
+// nombre completo no cabe: en una columna de 146px, "Profesional 3 ·
+// Tecnico 3 · Administrativo 1" se parte en tres lineas.
+const WEEKLY_ESTAMENTO_SHORT = {
+    "Profesional": "Prof",
+    "Técnico": "Téc",
+    "Administrativo": "Adm",
+    "Auxiliar": "Aux"
+};
+
+/**
+ * Resumen de la celda: cuanta gente hay, como se reparte y que le falta.
+ *
+ * El hueco -"replacement-slot"- ya lo calculaba weeklyShiftProfiles: es una
+ * ausencia sin reemplazo aplicado. Lo unico nuevo es contarlos y decirlo con
+ * palabras, en vez de dejar que el supervisor cuente tarjetas.
+ */
+function weeklyCellSummary(people) {
+    const working = people.filter(item => item.type !== "replacement-slot");
+    const gaps = people.filter(item => item.type === "replacement-slot");
+    const covering = working.filter(item => item.covers?.length);
+    const counts = new Map();
+
+    working.forEach(item => {
+        const estamento =
+            normalizeStaffingEstamento(item.profile?.estamento);
+        const label = WEEKLY_ESTAMENTO_SHORT[estamento] || "s/e";
+
+        counts.set(label, (counts.get(label) || 0) + 1);
+    });
+
+    // En el orden del catalogo, y los sin estamento al final.
+    const order = [
+        ...STAFFING_ESTAMENTOS.map(estamento =>
+            WEEKLY_ESTAMENTO_SHORT[estamento]
+        ),
+        "s/e"
+    ];
+    const mix = order
+        .filter(label => counts.has(label))
+        .map(label => `${counts.get(label)} ${label}`)
+        .join(" · ");
+
+    const status = gaps.length
+        ? {
+            key: "gap",
+            label: gaps.length === 1 ? "falta 1" : `faltan ${gaps.length}`
+        }
+        : covering.length
+            ? { key: "cover", label: "cubierto" }
+            : working.length
+                ? { key: "ok", label: "completo" }
+                : { key: "empty", label: "" };
+
+    return { total: working.length, mix, status };
+}
+
 function weeklyShiftProfiles(
     date,
     shiftKey,
@@ -2677,6 +2735,15 @@ function weeklyShiftProfiles(
     roleFilter,
     professionFilter
 ) {
+    const shiftKeyDay = key(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate()
+    );
+    // Se arma UNA vez por celda. Preguntarlo por persona obligaria a recorrer
+    // la lista de reemplazos decenas de veces para el mismo dia.
+    const coveredByWorker = getReplacementsByWorkerForDay(shiftKeyDay);
+
     return getProfiles()
         .filter(isProfileActive)
         .filter(profile =>
@@ -2706,7 +2773,8 @@ function weeklyShiftProfiles(
                 items.push({
                     type: "profile",
                     profile,
-                    segments
+                    segments,
+                    covers: coveredByWorker.get(profile.name) || []
                 });
             }
 
@@ -2763,6 +2831,10 @@ function renderWeeklyProfileChip(item) {
 
     const partial = weeklySegmentSummary(item.segments);
     const needsReplacement = item.needsReplacement;
+    const covers = item.covers?.length
+        ? `<span class="staffing-weekly-covers" title="Cubre a ${
+            escapeHTML(item.covers.join(", "))}">cubre</span>`
+        : "";
 
     return `
         <span class="staffing-weekly-person${needsReplacement ? " staffing-weekly-person--needs-replacement" : ""}">
@@ -2775,6 +2847,7 @@ function renderWeeklyProfileChip(item) {
                 <strong>${escapeHTML(item.profile.name)}</strong>
                 <small>${escapeHTML(weeklyProfileMeta(item.profile))}${partial ? ` | ${escapeHTML(partial)}` : ""}</small>
             </span>
+            ${covers}
         </span>
     `;
 }
@@ -2785,7 +2858,8 @@ function renderStaffingWeeklyCell(
     absenceCache,
     roleFilter,
     professionFilter,
-    isInhabil
+    isInhabil,
+    isToday = false
 ) {
     const people = weeklyShiftProfiles(
         date,
@@ -2794,9 +2868,10 @@ function renderStaffingWeeklyCell(
         roleFilter,
         professionFilter
     );
+    const summary = weeklyCellSummary(people);
 
     return `
-        <article class="staffing-weekly-cell staffing-weekly-cell--${shift.key}${isInhabil ? " staffing-weekly-cell--inhabil" : ""}">
+        <article class="staffing-weekly-cell staffing-weekly-cell--${shift.key}${isInhabil ? " staffing-weekly-cell--inhabil" : ""}${isToday ? " staffing-weekly-cell--today" : ""}${summary.status.key === "gap" ? " staffing-weekly-cell--gap" : ""}${summary.status.key === "cover" ? " staffing-weekly-cell--covered" : ""}">
             <div class="staffing-weekly-cell__shift">
                 <span>${escapeHTML(shift.label)}</span>
                 ${
@@ -2820,7 +2895,22 @@ function renderStaffingWeeklyCell(
                             </svg>
                         `
                 }
+                ${
+                    summary.total || summary.status.key === "gap"
+                        ? `
+                            <span class="staffing-weekly-cell__count">
+                                <b>${summary.total}</b>
+                                <i class="is-${summary.status.key}">${escapeHTML(summary.status.label)}</i>
+                            </span>
+                        `
+                        : ""
+                }
             </div>
+            ${
+                summary.mix
+                    ? `<div class="staffing-weekly-cell__mix">${escapeHTML(summary.mix)}</div>`
+                    : ""
+            }
             <div class="staffing-weekly-people">
                 ${
                     people.length
@@ -3156,6 +3246,16 @@ async function buildStaffingWeeklyCalendarView({
         : selectedLeaveKey
             ? allLeaveRows.filter(row => row.key === selectedLeaveKey)
             : allLeaveRows;
+    const todayKey = key(
+        currentDate.getFullYear(),
+        currentDate.getMonth(),
+        currentDate.getDate()
+    );
+    const isTodayColumn = day => key(
+        day.getFullYear(),
+        day.getMonth(),
+        day.getDate()
+    ) === todayKey;
     const weeklyRowsHTML = `
         ${visibleShifts.map(shift =>
             days.map(day =>
@@ -3165,7 +3265,8 @@ async function buildStaffingWeeklyCalendarView({
                     absenceCache,
                     roleFilter,
                     professionFilter,
-                    weeklyIsInhabil(day, holidays)
+                    weeklyIsInhabil(day, holidays),
+                    isTodayColumn(day)
                 )
             ).join("")
         ).join("")}
@@ -3185,8 +3286,9 @@ async function buildStaffingWeeklyCalendarView({
         </div>
     `;
     const dayHeadersHTML = days.map(day => `
-        <div class="staffing-weekly-day${weeklyIsInhabil(day, holidays) ? " staffing-weekly-day--inhabil" : ""}">
+        <div class="staffing-weekly-day${weeklyIsInhabil(day, holidays) ? " staffing-weekly-day--inhabil" : ""}${isTodayColumn(day) ? " staffing-weekly-day--today" : ""}">
             <strong>${escapeHTML(formatFullWeekday(day))} ${escapeHTML(formatShortDate(day))}</strong>
+            ${isTodayColumn(day) ? `<span class="staffing-weekly-day__today">HOY</span>` : ""}
         </div>
     `).join("");
     const html = `

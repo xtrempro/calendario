@@ -11769,11 +11769,14 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     --staffing-weekly-cell-bg: var(--field);
     --staffing-weekly-cell-border: var(--border);
     display: grid;
-    grid-template-rows: auto minmax(82px, 1fr);
+    /* Encabezado, mezcla por estamento y la gente. La del medio se cierra
+       sola cuando la celda esta vacia. */
+    grid-template-rows: auto auto minmax(82px, 1fr);
     align-content: start;
     padding: 10px;
     background: var(--staffing-weekly-cell-bg);
     border-color: var(--staffing-weekly-cell-border);
+    position: relative;
 }
 
 .staffing-weekly-day--inhabil {
@@ -11866,6 +11869,113 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     width: 15px;
     height: 15px;
     flex: 0 0 15px;
+}
+
+/* Dotacion de la celda. Antes habia que contar tarjetas para saber si el
+   turno del jueves tenia cuatro personas o siete. */
+.staffing-weekly-cell__count {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+.staffing-weekly-cell__count b {
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text);
+}
+
+/* Estado de cobertura. El signo de admiracion solo decia "pasa algo": no
+   cuantos faltan, ni si alguien ya lo resolvio. */
+.staffing-weekly-cell__count i {
+    font-style: normal;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+    padding: 2px 6px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.staffing-weekly-cell__count i.is-ok {
+    background: rgba(11, 136, 83, 0.14);
+    color: #0b8853;
+}
+
+.staffing-weekly-cell__count i.is-cover {
+    background: rgba(180, 83, 9, 0.16);
+    color: #b45309;
+}
+
+.staffing-weekly-cell__count i.is-gap {
+    background: rgba(220, 38, 38, 0.14);
+    color: #dc2626;
+}
+
+/* Mezcla por estamento: no da lo mismo que los siete sean todos tecnicos. */
+.staffing-weekly-cell__mix {
+    margin: -4px 0 8px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+/* Franja de estado en el borde de arriba: el color del turno ya ocupa el
+   fondo de la celda y no conviene pelearselo. */
+.staffing-weekly-cell--gap::before,
+.staffing-weekly-cell--covered::before {
+    content: "";
+    position: absolute;
+    inset: -1px -1px auto -1px;
+    height: 3px;
+    border-radius: 12px 12px 0 0;
+}
+
+.staffing-weekly-cell--gap::before { background: #dc2626; }
+.staffing-weekly-cell--covered::before { background: #b45309; }
+
+/* Quien esta en el turno cubriendo a otro. */
+.staffing-weekly-covers {
+    flex: none;
+    align-self: center;
+    font-size: 0.58rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 5px;
+    border-radius: 5px;
+    background: rgba(180, 83, 9, 0.16);
+    color: #b45309;
+}
+
+/* Hoy. Es de las primeras cosas que el ojo busca y no habia nada que lo
+   dijera: habia que leer la fecha de cada encabezado para ubicarse. */
+.staffing-weekly-day--today {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    gap: 8px;
+}
+
+.staffing-weekly-day__today {
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.24);
+}
+
+.staffing-weekly-cell--today {
+    box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .staffing-weekly-people {
