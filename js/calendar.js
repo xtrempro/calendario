@@ -4818,7 +4818,10 @@ function replacementDialogHTML({
     selectedRequestWorkers,
     linkedStatus = "",
     optionsOpen = false,
-    preassignMode = false
+    preassignMode = false,
+    // Cupo por rotativa incompleta. Cambia el encabezado: no hay una persona
+    // ausente que nombrar, sino un grupo al que le falta alguien.
+    rota = null
 }) {
     // Respaldo de la licencia, junto a "Anular permiso": si todavia no hay
     // documento el boton invita a subirlo, y si ya lo hay lo abre. Solo aparece
@@ -6185,6 +6188,7 @@ async function openReplacementDialog(profileName, keyDay, options = {}) {
             selectedRequestWorkers,
             optionsOpen,
             preassignMode,
+            rota,
             linkedStatus: scope === "linked"
                 ? linkedReplacementStatus
                 : ""
