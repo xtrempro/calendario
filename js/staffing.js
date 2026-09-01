@@ -61,6 +61,12 @@ import {
 } from "./auditLog.js";
 import { getHourReturn } from "./hourReturns.js";
 import { getShiftGroupMap, getShiftGroupGaps } from "./shiftHolders.js";
+import { getActiveCampaignForShift } from "./autoCoverage.js";
+import {
+    campaignStatusLabel,
+    formatCoverageTimeLeft,
+    stageLabel
+} from "./autoCoveragePlan.js";
 import { runCooperativeRange } from "./mainThreadScheduler.js";
 import {
     measurePerformance,
@@ -2885,6 +2891,40 @@ function weeklyClassModifier(value) {
         .replace(/^-+|-+$/g, "");
 }
 
+/**
+ * En que va la cobertura automatica de ese hueco.
+ *
+ * La campaña ya corre por etapas en el servidor, pero hasta ahora solo se veia
+ * en Inicio, que es justo donde el supervisor no esta cuando planifica la
+ * semana. Aca va en corto -los puntos y el tiempo que queda- con el detalle
+ * completo en el titulo, porque la columna es angosta.
+ */
+function weeklyCampaignHTML(profileName, keyDay) {
+    const campaign = getActiveCampaignForShift(profileName, keyDay);
+
+    if (!campaign) return "";
+
+    const done = campaign.steps
+        .filter(step => step.ranAt || step.skipped).length;
+    const current = [...campaign.steps].reverse().find(step => step.ranAt);
+    const startAt = Date.parse(campaign.shiftStartAt);
+    const left = Number.isFinite(startAt)
+        ? formatCoverageTimeLeft(startAt - Date.now())
+        : "";
+    const dots = campaign.steps.map((step, index) => `
+        <i class="${index < done ? "is-done" : ""}"></i>
+    `).join("");
+
+    return `
+        <span class="staffing-weekly-slot__stage" title="${escapeHTML(campaignStatusLabel(campaign))}">
+            <span class="staffing-weekly-slot__dots">${dots}</span>
+            ${escapeHTML(current ? stageLabel(current) : "en curso")}${
+                left ? ` · quedan ${escapeHTML(left)}` : ""
+            }
+        </span>
+    `;
+}
+
 function renderWeeklyProfileChip(item) {
     if (item.type === "replacement-slot") {
         const label = item.absence?.label
@@ -2893,7 +2933,14 @@ function renderWeeklyProfileChip(item) {
 
         return `
             <button class="staffing-weekly-replacement-slot" type="button" data-weekly-replacement-profile="${escapeHTML(item.profile.name)}" data-weekly-replacement-key="${escapeHTML(item.keyDay)}" title="${escapeHTML(label)}: ${escapeHTML(item.profile.name)}" aria-label="${escapeHTML(label)}: ${escapeHTML(item.profile.name)}">
-                <span>!</span>
+                <span class="staffing-weekly-replacement-slot__badge" aria-hidden="true">!</span>
+                <span class="staffing-weekly-slot__body">
+                    <strong>Falta 1</strong>
+                    <small>${escapeHTML(item.profile.name)}${
+                        item.absence?.label ? ` · ${escapeHTML(item.absence.label)}` : ""
+                    }</small>
+                    ${weeklyCampaignHTML(item.profile.name, item.keyDay)}
+                </span>
             </button>
         `;
     }

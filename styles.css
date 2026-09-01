@@ -12310,35 +12310,93 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     transform: translateY(-1px);
 }
 
+/* El hueco por cubrir. Antes era un signo de admiracion solo: decia que
+   pasaba algo, pero no a quien, ni por que, ni si la cobertura automatica ya
+   estaba buscando. */
 .staffing-weekly-replacement-slot {
-    min-height: 54px;
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 8px;
+    width: 100%;
     padding: 7px 8px;
-    border: 1px solid rgba(17, 24, 39, 0.42);
+    border: 1px dashed rgba(220, 38, 38, 0.55);
     border-radius: 10px;
-    background: var(--panel);
+    background: rgba(248, 113, 113, 0.1);
+    text-align: left;
 }
 
-.staffing-weekly-replacement-slot span {
-    width: 28px;
-    height: 28px;
+.staffing-weekly-replacement-slot__badge {
+    flex: none;
+    width: 24px;
+    height: 24px;
     display: grid;
     place-items: center;
     border-radius: 999px;
     background: #ef4444;
     color: #fff;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     font-weight: 900;
     line-height: 1;
-    box-shadow: 0 8px 18px rgba(239, 68, 68, 0.28);
 }
 
+.staffing-weekly-slot__body {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+}
+
+.staffing-weekly-slot__body strong {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #dc2626;
+}
+
+.staffing-weekly-slot__body small {
+    font-size: 0.68rem;
+    color: var(--text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* En que va la cobertura automatica: los puntos son las etapas hechas. */
+.staffing-weekly-slot__stage {
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.64rem;
+    font-weight: 700;
+    color: var(--text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.staffing-weekly-slot__dots {
+    flex: none;
+    display: inline-flex;
+    gap: 2px;
+}
+
+.staffing-weekly-slot__dots i {
+    width: 10px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(17, 24, 39, 0.2);
+}
+
+.staffing-weekly-slot__dots i.is-done { background: #dc2626; }
+
 .staffing-weekly-replacement-slot:hover {
-    border-color: rgba(239, 68, 68, 0.48);
-    background: rgba(248, 113, 113, 0.08);
+    border-color: #dc2626;
+    background: rgba(248, 113, 113, 0.16);
     transform: translateY(-1px);
+}
+
+.staffing-weekly-replacement-slot:focus-visible {
+    outline: 2px solid #dc2626;
+    outline-offset: 2px;
 }
 
 .staffing-weekly-person strong,
