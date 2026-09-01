@@ -11689,38 +11689,232 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     box-shadow: 0 12px 24px rgba(17, 32, 56, 0.08);
 }
 
-.staffing-weekly-nav {
+.staffing-weekly-filters {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 14px 20px;
+}
+
+/* ==========================================================================
+   Barra del calendario semanal.
+
+   Dos columnas: los filtros ocupan lo que necesiten a la izquierda y la
+   navegacion se apila a la derecha, en las mismas lineas. Uno sobre otro
+   gastaban una banda entera de alto para media pantalla vacia.
+   ========================================================================== */
+
+.staffing-weekly-filter-grid {
+    flex: 1 1 460px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px 12px;
+    min-width: 0;
+}
+
+.staffing-weekly-filter-label {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    white-space: nowrap;
+}
+
+.staffing-weekly-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+/* Chips en vez de desplegables: se ven sin abrir nada y se combinan -Larga y
+   Noche juntos, que es la pregunta del 4to turno-, cosa que un desplegable de
+   opcion unica no permitia. */
+.staffing-weekly-chip {
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 6px 13px 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text-soft);
+    cursor: pointer;
     display: inline-flex;
     align-items: center;
-    justify-self: end;
-    align-self: end;
-    gap: 8px;
-    margin-left: 0;
-    transform: translateY(1px);
+    gap: 6px;
+    transition: border-color 0.16s, background 0.16s, color 0.16s;
 }
 
-.staffing-weekly-nav .secondary-button {
-    min-height: 34px;
-    border-radius: 10px;
-    padding: 0 12px;
-    font-size: 0.82rem;
+.staffing-weekly-chip i {
+    width: 8px;
+    height: 8px;
+    border-radius: 3px;
+    background: var(--staffing-chip-tone, var(--text-soft));
 }
 
-.staffing-weekly-filters {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 220px)) minmax(0, 1fr);
-    gap: 12px;
-    align-items: end;
+/* Los de estamento y profesion van sin punto: no son un turno, y conviene
+   que los grupos de chips se distingan de un vistazo. */
+.staffing-weekly-chip--plain { padding-left: 13px; }
+.staffing-weekly-chip--plain[aria-pressed="true"] { --staffing-chip-tone: var(--accent); }
+
+.staffing-weekly-chip--diurno { --staffing-chip-tone: #0b8853; }
+.staffing-weekly-chip--larga { --staffing-chip-tone: #22c55e; }
+.staffing-weekly-chip--noche { --staffing-chip-tone: #1d6cff; }
+.staffing-weekly-chip--leave { --staffing-chip-tone: var(--text-soft); }
+
+.staffing-weekly-chip:hover {
+    border-color: var(--staffing-chip-tone, var(--accent));
 }
 
-.staffing-weekly-filters label {
-    display: grid;
-    gap: 7px;
-    min-width: 0;
+.staffing-weekly-chip:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.staffing-weekly-chip[aria-pressed="true"] {
+    color: var(--text);
+    border-color: var(--staffing-chip-tone);
+    background: color-mix(in srgb, var(--staffing-chip-tone) 14%, transparent);
+}
+
+.staffing-weekly-chip__count {
+    font-size: 0.73rem;
+    font-weight: 700;
     color: var(--text-soft);
-    font-size: 0.84rem;
-    font-weight: 800;
+    font-variant-numeric: tabular-nums;
 }
+
+.staffing-weekly-side {
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+/* La semana orienta: las flechas van pegadas a la fecha en vez de sueltas
+   entre los demas botones. */
+.staffing-weekly-weeknav {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+}
+
+.staffing-weekly-weeknav__arrow {
+    font: inherit;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-soft);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.16s, color 0.16s;
+}
+
+.staffing-weekly-weeknav__arrow:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.staffing-weekly-weeknav__arrow:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.staffing-weekly-weeknav__label {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.92rem;
+    padding: 0 8px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+
+.staffing-weekly-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.staffing-weekly-button {
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: border-color 0.16s, background 0.16s, color 0.16s;
+}
+
+.staffing-weekly-button:hover { border-color: var(--accent); }
+.staffing-weekly-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.staffing-weekly-button[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+/* El mismo signo con que se marca un hueco en la rejilla: el boton dice asi
+   que es lo que deja en pantalla. Se invierte al quedar encendido, porque un
+   circulo rojo sobre el azul del boton se ensucia. */
+.staffing-weekly-button__badge {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.66rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.staffing-weekly-button[aria-pressed="true"] .staffing-weekly-button__badge {
+    background: #fff;
+    color: var(--accent);
+}
+
+/* Celda fuera de foco con "Solo con problemas": se encoge, no se esconde.
+   Con display:none la rejilla correria las columnas. */
+.staffing-weekly-cell--quiet {
+    --staffing-weekly-cell-bg: transparent;
+    --staffing-weekly-cell-border: var(--border);
+    display: grid;
+    place-items: center;
+    grid-template-rows: 1fr;
+    border-style: dashed;
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    min-height: 56px;
+}
+
 
 .staffing-weekly-days {
     display: grid;

@@ -249,13 +249,15 @@ function staffingWeeklyCacheSignature({
     weekStartISO,
     roleFilter,
     professionFilter,
-    typeFilter
+    typeFilter,
+    onlyTrouble
 }) {
     return [
         weekStartISO,
         roleFilter || "Todos",
         professionFilter || "Todas",
-        typeFilter || "Todos"
+        typeFilter || "Todos",
+        onlyTrouble ? "1" : "0"
     ].join("\u001f");
 }
 
@@ -2488,6 +2490,29 @@ function weeklyProfileProfession(profile) {
     );
 }
 
+// Los filtros de la barra son chips COMBINABLES, pero su seleccion sigue
+// viajando como un string -separado por comas- porque es lo que entra en la
+// firma de la cache y en los overrides de render. "Todos"/"Todas" significa
+// que no hay ninguno marcado, es decir, todo.
+const WEEKLY_NO_ESTAMENTO = "__sin__";
+const WEEKLY_ALL_LEAVES = "leaves";
+
+function weeklyTokens(value, all) {
+    const clean = String(value ?? all);
+
+    return clean === all ? [] : clean.split(",").filter(Boolean);
+}
+
+/** Prende o apaga un chip y devuelve el valor nuevo del filtro. */
+function weeklyToggleToken(value, token, all) {
+    const tokens = new Set(weeklyTokens(value, all));
+
+    if (tokens.has(token)) tokens.delete(token);
+    else tokens.add(token);
+
+    return tokens.size ? [...tokens].join(",") : all;
+}
+
 function weeklyProfileMatchesFilters(
     profile,
     roleFilter = "Todos",
@@ -2495,12 +2520,19 @@ function weeklyProfileMatchesFilters(
 ) {
     const profileEstamento =
         normalizeStaffingEstamento(profile.estamento);
+    const roles = weeklyTokens(roleFilter, "Todos");
+    // Quien tiene la ficha incompleta no cae en ningun estamento del
+    // catalogo: sin un chip propio no habria forma de llegar a el.
+    const knownEstamento =
+        STAFFING_ESTAMENTOS.includes(profileEstamento);
     const roleMatches =
-        roleFilter === "Todos" ||
-        profileEstamento === normalizeStaffingEstamento(roleFilter);
+        !roles.length ||
+        roles.includes(profileEstamento) ||
+        (roles.includes(WEEKLY_NO_ESTAMENTO) && !knownEstamento);
+    const professions = weeklyTokens(professionFilter, "Todas");
     const professionMatches =
-        professionFilter === "Todas" ||
-        weeklyProfileProfession(profile) === professionFilter;
+        !professions.length ||
+        professions.includes(weeklyProfileProfession(profile));
 
     return roleMatches && professionMatches;
 }
@@ -2579,22 +2611,6 @@ function profileWeeklyPendingReplacementSlot(
     };
 }
 
-function renderWeeklyRoleFilterOptions(selected) {
-    return STAFFING_ESTAMENTOS.map(estamento => `
-        <option value="${escapeHTML(estamento)}" ${normalizeStaffingEstamento(estamento) === normalizeStaffingEstamento(selected) ? "selected" : ""}>
-            ${escapeHTML(estamento)}
-        </option>
-    `).join("");
-}
-
-function renderWeeklyProfessionFilterOptions(professions, selected) {
-    return professions.map(profession => `
-        <option value="${escapeHTML(profession)}" ${profession === selected ? "selected" : ""}>
-            ${escapeHTML(profession)}
-        </option>
-    `).join("");
-}
-
 const WEEKLY_SHIFTS = [
     { key: "diurno", label: "Diurno" },
     { key: "larga", label: "Larga" },
@@ -2616,37 +2632,54 @@ const WEEKLY_LEAVE_ROWS = [
     { key: "hour_return", label: "Devoluci\u00f3n de Hora" }
 ];
 
-function weeklyTypeFilterOptions(leaveRows = []) {
-    return [
-        { value: "Todos", label: "Todos" },
-        ...WEEKLY_SHIFTS.map(shift => ({
-            value: `shift:${shift.key}`,
-            label: shift.label
-        })),
-        ...leaveRows.map(row => ({
-            value: `leave:${row.key}`,
-            label: row.label
-        }))
-    ];
+/**
+ * Deja del filtro de tipo solo lo que existe esta semana.
+ *
+ * Un tipo de ausencia marcado puede no tener a nadie la semana siguiente;
+ * arrastrarlo dejaria la pantalla en blanco sin decir por que.
+ */
+function normalizeWeeklyTypeFilter(value, leaveRows = []) {
+    const valid = new Set([
+        WEEKLY_ALL_LEAVES,
+        ...WEEKLY_SHIFTS.map(shift => `shift:${shift.key}`),
+        ...leaveRows.map(row => `leave:${row.key}`)
+    ]);
+    const kept = weeklyTokens(value, "Todos")
+        .filter(token => valid.has(token));
+
+    return kept.length ? kept.join(",") : "Todos";
 }
 
-function normalizeWeeklyTypeFilter(value, options) {
-    const clean = String(value || "Todos");
-    const availableOptions = options || weeklyTypeFilterOptions();
-
-    return availableOptions.some(option =>
-        option.value === clean
-    )
-        ? clean
-        : "Todos";
+/**
+ * Un chip del filtro. `tone` pinta el punto de color de los turnos; los de
+ * estamento y profesion van sin punto, para que los dos grupos se
+ * distingan de un vistazo.
+ */
+function weeklyChipHTML({ group, token, label, count, tone, active }) {
+    return `
+        <button
+            class="staffing-weekly-chip${tone ? ` staffing-weekly-chip--${tone}` : " staffing-weekly-chip--plain"}"
+            type="button"
+            data-weekly-chip-group="${escapeHTML(group)}"
+            data-weekly-chip="${escapeHTML(token)}"
+            aria-pressed="${active ? "true" : "false"}"
+        >
+            ${tone ? `<i></i>` : ""}${escapeHTML(label)}${
+                Number.isFinite(count)
+                    ? `<span class="staffing-weekly-chip__count">${count}</span>`
+                    : ""
+            }
+        </button>
+    `;
 }
 
-function renderWeeklyTypeFilterOptions(selected, options) {
-    return options.map(option => `
-        <option value="${escapeHTML(option.value)}" ${option.value === selected ? "selected" : ""}>
-            ${escapeHTML(option.label)}
-        </option>
-    `).join("");
+function weeklyChipsRowHTML(label, chips) {
+    if (!chips.length) return "";
+
+    return `
+        <span class="staffing-weekly-filter-label">${escapeHTML(label)}</span>
+        <span class="staffing-weekly-chips">${chips.join("")}</span>
+    `;
 }
 
 async function weeklyHolidayMap(days) {
@@ -2859,7 +2892,8 @@ function renderStaffingWeeklyCell(
     roleFilter,
     professionFilter,
     isInhabil,
-    isToday = false
+    isToday = false,
+    onlyTrouble = false
 ) {
     const people = weeklyShiftProfiles(
         date,
@@ -2869,6 +2903,16 @@ function renderStaffingWeeklyCell(
         professionFilter
     );
     const summary = weeklyCellSummary(people);
+
+    // Fuera de foco la celda se encoge, no se esconde: con display:none la
+    // rejilla correria las columnas y la semana perderia la alineacion.
+    if (onlyTrouble && summary.status.key !== "gap") {
+        return `
+            <article class="staffing-weekly-cell staffing-weekly-cell--${shift.key} staffing-weekly-cell--quiet${isToday ? " staffing-weekly-cell--today" : ""}">
+                <span>&mdash;</span>
+            </article>
+        `;
+    }
 
     return `
         <article class="staffing-weekly-cell staffing-weekly-cell--${shift.key}${isInhabil ? " staffing-weekly-cell--inhabil" : ""}${isToday ? " staffing-weekly-cell--today" : ""}${summary.status.key === "gap" ? " staffing-weekly-cell--gap" : ""}${summary.status.key === "cover" ? " staffing-weekly-cell--covered" : ""}">
@@ -3178,29 +3222,47 @@ function bindStaffingWeeklyMobileSticky(target) {
     requestUpdate();
 }
 
+/**
+ * Deja del filtro de profesion solo lo que sigue existiendo con los
+ * estamentos marcados. Sin esto, marcar "Tecnico" con una profesion de
+ * enfermeria puesta dejaria la pantalla vacia sin decir por que.
+ */
+function weeklyKeptProfessions(value, availableProfessions) {
+    const kept = weeklyTokens(value, "Todas")
+        .filter(name => availableProfessions.includes(name));
+
+    return kept.length ? kept.join(",") : "Todas";
+}
+
+// La seleccion vive en el contenedor y no en los controles: los chips se
+// vuelven a dibujar en cada pintada, y leerla de ellos la perderia.
 function staffingWeeklyFilterState(target, overrides = {}) {
     const roleFilter = overrides.roleFilter ||
-        target?.querySelector("#staffingWeeklyFilterRole")?.value ||
+        target?.dataset?.staffingWeeklyRole ||
         "Todos";
     const currentProfessionFilter = overrides.professionFilter ||
-        target?.querySelector("#staffingWeeklyFilterProfession")?.value ||
+        target?.dataset?.staffingWeeklyProfession ||
         "Todas";
     const availableProfessions =
         weeklyAvailableProfessions(roleFilter);
-    const professionFilter =
-        availableProfessions.includes(currentProfessionFilter)
-            ? currentProfessionFilter
-            : "Todas";
+    const professionFilter = weeklyKeptProfessions(
+        currentProfessionFilter,
+        availableProfessions
+    );
     const typeFilterValue = overrides.typeFilter ||
-        target?.querySelector("#staffingWeeklyFilterType")?.value ||
+        target?.dataset?.staffingWeeklyType ||
         "Todos";
+    const onlyTrouble = overrides.onlyTrouble !== undefined
+        ? Boolean(overrides.onlyTrouble)
+        : target?.dataset?.staffingWeeklyTrouble === "1";
 
     return {
         roleFilter,
         currentProfessionFilter,
         availableProfessions,
         professionFilter,
-        typeFilterValue
+        typeFilterValue,
+        onlyTrouble
     };
 }
 
@@ -3208,14 +3270,15 @@ async function buildStaffingWeeklyCalendarView({
     weekDate = getStaffingWeekDate(),
     roleFilter = "Todos",
     currentProfessionFilter = "Todas",
-    typeFilterValue = "Todos"
+    typeFilterValue = "Todos",
+    onlyTrouble = false
 } = {}) {
     const availableProfessions =
         weeklyAvailableProfessions(roleFilter);
-    const professionFilter =
-        availableProfessions.includes(currentProfessionFilter)
-            ? currentProfessionFilter
-            : "Todas";
+    const professionFilter = weeklyKeptProfessions(
+        currentProfessionFilter,
+        availableProfessions
+    );
     const days = staffingWeekDays(weekDate);
     const holidays = await weeklyHolidayMap(days);
     const absenceCache = new Map();
@@ -3225,32 +3288,40 @@ async function buildStaffingWeeklyCalendarView({
         roleFilter,
         professionFilter
     );
-    const typeOptions = weeklyTypeFilterOptions(allLeaveRows);
     const typeFilter = normalizeWeeklyTypeFilter(
         typeFilterValue,
-        typeOptions
+        allLeaveRows
     );
-    const selectedShiftKey = typeFilter.startsWith("shift:")
-        ? typeFilter.slice("shift:".length)
-        : "";
-    const selectedLeaveKey = typeFilter.startsWith("leave:")
-        ? typeFilter.slice("leave:".length)
-        : "";
-    const visibleShifts = selectedLeaveKey
-        ? []
-        : WEEKLY_SHIFTS.filter(shift =>
-            !selectedShiftKey || shift.key === selectedShiftKey
-        );
-    const visibleLeaveRows = selectedShiftKey
-        ? []
-        : selectedLeaveKey
-            ? allLeaveRows.filter(row => row.key === selectedLeaveKey)
-            : allLeaveRows;
+    const typeTokens = weeklyTokens(typeFilter, "Todos");
+    const pickedShifts = typeTokens.filter(token =>
+        token.startsWith("shift:")
+    );
+    const pickedLeaves = typeTokens.filter(token =>
+        token.startsWith("leave:")
+    );
+    const allLeavesPicked = typeTokens.includes(WEEKLY_ALL_LEAVES);
+    const visibleShifts = WEEKLY_SHIFTS.filter(shift =>
+        !typeTokens.length || pickedShifts.includes(`shift:${shift.key}`)
+    );
+    // Un tipo de ausencia marcado manda sobre el chip general: si alguien
+    // pidio ver solo las licencias, no se le devuelven todas.
+    const visibleLeaveRows = pickedLeaves.length
+        ? allLeaveRows.filter(row =>
+            pickedLeaves.includes(`leave:${row.key}`)
+        )
+        : (!typeTokens.length || allLeavesPicked)
+            ? allLeaveRows
+            : [];
     const todayKey = key(
         currentDate.getFullYear(),
         currentDate.getMonth(),
         currentDate.getDate()
     );
+    const weekRangeLabel =
+        `${formatShortDate(days[0])} - ${formatShortDate(days[6])}`;
+    const isCurrentWeek =
+        staffingWeeklyStartISO(weekDate) ===
+        staffingWeeklyStartISO(currentDate);
     const isTodayColumn = day => key(
         day.getFullYear(),
         day.getMonth(),
@@ -3266,11 +3337,12 @@ async function buildStaffingWeeklyCalendarView({
                     roleFilter,
                     professionFilter,
                     weeklyIsInhabil(day, holidays),
-                    isTodayColumn(day)
+                    isTodayColumn(day),
+                    onlyTrouble
                 )
             ).join("")
         ).join("")}
-        ${visibleLeaveRows.map(row =>
+        ${(onlyTrouble ? [] : visibleLeaveRows).map(row =>
             row.days.map(day =>
                 renderStaffingWeeklyLeaveCell(
                     row,
@@ -3291,37 +3363,103 @@ async function buildStaffingWeeklyCalendarView({
             ${isTodayColumn(day) ? `<span class="staffing-weekly-day__today">HOY</span>` : ""}
         </div>
     `).join("");
+    const roleTokens = weeklyTokens(roleFilter, "Todos");
+    const professionTokens = weeklyTokens(professionFilter, "Todas");
+    const activeProfiles = getProfiles().filter(isProfileActive);
+    const presentEstamentos = STAFFING_ESTAMENTOS.filter(estamento =>
+        activeProfiles.some(profile =>
+            normalizeStaffingEstamento(profile.estamento) === estamento
+        )
+    );
+    const hasNoEstamento = activeProfiles.some(profile =>
+        !STAFFING_ESTAMENTOS.includes(
+            normalizeStaffingEstamento(profile.estamento)
+        )
+    );
+    const shiftChips = WEEKLY_SHIFTS.map(shift => weeklyChipHTML({
+        group: "type",
+        token: `shift:${shift.key}`,
+        label: shift.label,
+        tone: shift.key,
+        active: typeTokens.includes(`shift:${shift.key}`)
+    }));
+
+    if (allLeaveRows.length) {
+        shiftChips.push(weeklyChipHTML({
+            group: "type",
+            token: WEEKLY_ALL_LEAVES,
+            label: "Ausencias",
+            tone: "leave",
+            count: allLeaveRows.length,
+            active: allLeavesPicked || Boolean(pickedLeaves.length)
+        }));
+    }
+
+    // Los tipos de ausencia aparecen solo al pedir verlas: son varios y en la
+    // vista de siempre no aportan. Asi no se pierde poder llegar a uno solo.
+    const leaveChips = (allLeavesPicked || pickedLeaves.length)
+        ? allLeaveRows.map(row => weeklyChipHTML({
+            group: "type",
+            token: `leave:${row.key}`,
+            label: row.label,
+            active: pickedLeaves.includes(`leave:${row.key}`)
+        }))
+        : [];
+    const roleChips = [
+        ...presentEstamentos.map(estamento => weeklyChipHTML({
+            group: "role",
+            token: estamento,
+            label: estamento,
+            active: roleTokens.includes(estamento)
+        })),
+        ...(hasNoEstamento
+            ? [weeklyChipHTML({
+                group: "role",
+                token: WEEKLY_NO_ESTAMENTO,
+                label: "Sin estamento",
+                active: roleTokens.includes(WEEKLY_NO_ESTAMENTO)
+            })]
+            : [])
+    ];
+    // La profesion afina un estamento: mostrarla antes de elegir uno seria
+    // una lista larga de la unidad entera.
+    const professionChips = (roleTokens.length === 1 && availableProfessions.length > 1)
+        ? availableProfessions.map(profession => weeklyChipHTML({
+            group: "profession",
+            token: profession,
+            label: profession,
+            active: professionTokens.includes(profession)
+        }))
+        : [];
     const html = `
             <div class="staffing-weekly-sticky">
                 <div class="staffing-weekly-filters">
-                    <label>
-                        <span>Filtrar estamento</span>
-                        <select id="staffingWeeklyFilterRole">
-                            <option value="Todos" ${roleFilter === "Todos" ? "selected" : ""}>Todos</option>
-                            ${renderWeeklyRoleFilterOptions(roleFilter)}
-                        </select>
-                    </label>
-                    <label>
-                        <span>Filtrar profesi&oacute;n</span>
-                        <select id="staffingWeeklyFilterProfession">
-                            <option value="Todas" ${professionFilter === "Todas" ? "selected" : ""}>Todas</option>
-                            ${renderWeeklyProfessionFilterOptions(availableProfessions, professionFilter)}
-                        </select>
-                    </label>
-                    <label>
-                        <span>Filtrar tipo</span>
-                        <select id="staffingWeeklyFilterType">
-                            ${renderWeeklyTypeFilterOptions(typeFilter, typeOptions)}
-                        </select>
-                    </label>
-                    <span class="staffing-weekly-nav">
-                        <button class="secondary-button secondary-button--small" type="button" data-staffing-week-prev>
-                            Anterior
-                        </button>
-                        <button class="secondary-button secondary-button--small" type="button" data-staffing-week-next>
-                            Siguiente
-                        </button>
-                    </span>
+                    <div class="staffing-weekly-filter-grid">
+                        ${weeklyChipsRowHTML("Turno", shiftChips)}
+                        ${weeklyChipsRowHTML("Tipo de ausencia", leaveChips)}
+                        ${weeklyChipsRowHTML("Estamento", roleChips)}
+                        ${weeklyChipsRowHTML("Profesión", professionChips)}
+                    </div>
+                    <div class="staffing-weekly-side">
+                        <div class="staffing-weekly-weeknav">
+                            <button class="staffing-weekly-weeknav__arrow" type="button" data-staffing-week-prev
+                                    aria-label="Semana anterior" title="Semana anterior">&lsaquo;</button>
+                            <span class="staffing-weekly-weeknav__label">${escapeHTML(weekRangeLabel)}</span>
+                            <button class="staffing-weekly-weeknav__arrow" type="button" data-staffing-week-next
+                                    aria-label="Semana siguiente" title="Semana siguiente">&rsaquo;</button>
+                        </div>
+                        <div class="staffing-weekly-actions">
+                            <button class="staffing-weekly-button" type="button" data-staffing-week-today
+                                    aria-pressed="${isCurrentWeek ? "true" : "false"}">
+                                Semana actual
+                            </button>
+                            <button class="staffing-weekly-button" type="button" data-staffing-only-trouble
+                                    aria-pressed="${onlyTrouble ? "true" : "false"}">
+                                <span class="staffing-weekly-button__badge" aria-hidden="true">!</span>
+                                Solo con problemas
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="staffing-weekly-days">
                     ${dayHeadersHTML}
@@ -3339,7 +3477,8 @@ async function buildStaffingWeeklyCalendarView({
         weekStartISO,
         roleFilter,
         professionFilter,
-        typeFilter
+        typeFilter,
+        onlyTrouble
     });
 
     return {
@@ -3348,7 +3487,8 @@ async function buildStaffingWeeklyCalendarView({
         weekStartISO,
         roleFilter,
         professionFilter,
-        typeFilter
+        typeFilter,
+        onlyTrouble
     };
 }
 
@@ -3356,6 +3496,10 @@ function activateStaffingWeeklyCalendar(target, view, options = {}) {
     target.innerHTML = view.html;
     target.dataset.staffingWeeklyWeekStart = view.weekStartISO || "";
     target.dataset.staffingWeeklySignature = view.signature || "";
+    target.dataset.staffingWeeklyRole = view.roleFilter || "Todos";
+    target.dataset.staffingWeeklyProfession = view.professionFilter || "Todas";
+    target.dataset.staffingWeeklyType = view.typeFilter || "Todos";
+    target.dataset.staffingWeeklyTrouble = view.onlyTrouble ? "1" : "0";
     target.dataset.staffingWeeklyState = options.state || "ready";
     target.setAttribute("aria-busy", options.busy ? "true" : "false");
     bindStaffingWeeklyScrollSync(target);
@@ -3368,14 +3512,57 @@ function activateStaffingWeeklyCalendar(target, view, options = {}) {
         .querySelector("[data-staffing-week-next]")
         ?.addEventListener("click", () => changeStaffingWeek(1));
     target
-        .querySelector("#staffingWeeklyFilterRole")
-        ?.addEventListener("change", renderStaffingWeeklyCalendar);
+        .querySelector("[data-staffing-week-today]")
+        ?.addEventListener("click", () => {
+            staffingWeekDate = weekStartMonday(currentDate);
+            renderStaffingWeeklyCalendar();
+        });
     target
-        .querySelector("#staffingWeeklyFilterProfession")
-        ?.addEventListener("change", renderStaffingWeeklyCalendar);
+        .querySelector("[data-staffing-only-trouble]")
+        ?.addEventListener("click", () => {
+            const active =
+                target.dataset.staffingWeeklyTrouble === "1";
+
+            renderStaffingWeeklyCalendar({ onlyTrouble: !active });
+        });
     target
-        .querySelector("#staffingWeeklyFilterType")
-        ?.addEventListener("change", renderStaffingWeeklyCalendar);
+        .querySelectorAll("[data-weekly-chip]")
+        .forEach(chip => {
+            chip.addEventListener("click", () => {
+                const group = chip.dataset.weeklyChipGroup;
+                const token = chip.dataset.weeklyChip;
+
+                if (group === "role") {
+                    renderStaffingWeeklyCalendar({
+                        roleFilter: weeklyToggleToken(
+                            target.dataset.staffingWeeklyRole || "Todos",
+                            token,
+                            "Todos"
+                        )
+                    });
+                    return;
+                }
+
+                if (group === "profession") {
+                    renderStaffingWeeklyCalendar({
+                        professionFilter: weeklyToggleToken(
+                            target.dataset.staffingWeeklyProfession || "Todas",
+                            token,
+                            "Todas"
+                        )
+                    });
+                    return;
+                }
+
+                renderStaffingWeeklyCalendar({
+                    typeFilter: weeklyToggleToken(
+                        target.dataset.staffingWeeklyType || "Todos",
+                        token,
+                        "Todos"
+                    )
+                });
+            });
+        });
     target
         .querySelectorAll("[data-weekly-replacement-profile]")
         .forEach(button => {
@@ -3417,7 +3604,8 @@ export async function renderStaffingWeeklyCalendar(options = {}) {
         weekStartISO,
         roleFilter: filters.roleFilter,
         professionFilter: filters.professionFilter,
-        typeFilter: filters.typeFilterValue
+        typeFilter: filters.typeFilterValue,
+        onlyTrouble: filters.onlyTrouble
     });
     const cached = options.skipCache
         ? null
@@ -3450,7 +3638,8 @@ export async function renderStaffingWeeklyCalendar(options = {}) {
         weekDate,
         roleFilter: filters.roleFilter,
         currentProfessionFilter: filters.currentProfessionFilter,
-        typeFilterValue: filters.typeFilterValue
+        typeFilterValue: filters.typeFilterValue,
+        onlyTrouble: filters.onlyTrouble
     });
 
     if (requestId !== staffingWeeklyRenderRequest) return;
