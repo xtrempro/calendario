@@ -51,6 +51,7 @@ globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 const {
     COLUMN_LETTERS,
     buildColorAssignments,
+    buildEstamentoGaps,
     buildShiftHolders,
     cyclePositionAt,
     detectHolderPlacement,
@@ -580,6 +581,258 @@ test("el panel se pinta con las cuatro columnas, la leyenda y los avisos", async
     assert.match(html, /class="tt-worker tt-color-\d/);
     // La recién llegada lleva el aviso de historia corta.
     assert.match(html, /⚠ /);
+});
+
+/* ======================================================================
+   Cupos disponibles
+
+   Un grupo puede quedar con menos gente de un estamento que los demas -tres
+   grupos con cuatro auxiliares y el cuarto con dos- y eso no se ve mirando el
+   total de la columna. Se marca con un recuadro por cada trabajador que falta.
+   ====================================================================== */
+
+/** Columnas de mentira, con solo lo que mira la comparacion. */
+function columnas(...grupos) {
+    return grupos.map(gente => ({
+        workers: gente.map(estamento => ({ profile: { estamento } }))
+    }));
+}
+
+const AUX = "Auxiliar";
+const TEC = "Técnico";
+const PRO = "Profesional";
+
+test("tres grupos con cuatro auxiliares y uno con dos: dos cupos", () => {
+    const gaps = buildEstamentoGaps(columnas(
+        [AUX, AUX, AUX, AUX],
+        [AUX, AUX, AUX, AUX],
+        [AUX, AUX, AUX, AUX],
+        [AUX, AUX]
+    ));
+
+    assert.deepEqual(gaps.slice(0, 3), [[], [], []]);
+    assert.deepEqual(gaps[3], [
+        { estamento: AUX, count: 2, reference: 4, missing: 2 }
+    ]);
+});
+
+test("si los cuatro grupos estan parejos no hay cupos", () => {
+    const gaps = buildEstamentoGaps(columnas(
+        [PRO, TEC], [PRO, TEC], [PRO, TEC], [PRO, TEC]
+    ));
+
+    assert.deepEqual(gaps, [[], [], [], []]);
+});
+
+test("la referencia es el grupo mejor dotado", () => {
+    // Uno con cinco y tres con tres: a los tres les falta para igualarlo. La
+    // regla no esconde huecos, aunque el desparejo venga de un grupo que tiene
+    // gente de sobra.
+    const gaps = buildEstamentoGaps(columnas(
+        [TEC, TEC, TEC, TEC, TEC], [TEC, TEC, TEC], [TEC, TEC, TEC], [TEC, TEC, TEC]
+    ));
+
+    assert.deepEqual(gaps[0], []);
+    gaps.slice(1).forEach(columna => {
+        assert.deepEqual(columna, [
+            { estamento: TEC, count: 3, reference: 5, missing: 2 }
+        ]);
+    });
+});
+
+test("cada estamento se compara por su cuenta", () => {
+    // Al primero le falta un tecnico y al segundo un profesional: tener el
+    // total parejo no significa estar parejo por estamento.
+    const gaps = buildEstamentoGaps(columnas(
+        [PRO, PRO, TEC],
+        [PRO, TEC, TEC],
+        [PRO, PRO, TEC, TEC],
+        [PRO, PRO, TEC, TEC]
+    ));
+
+    assert.deepEqual(gaps[0], [
+        { estamento: TEC, count: 1, reference: 2, missing: 1 }
+    ]);
+    assert.deepEqual(gaps[1], [
+        { estamento: PRO, count: 1, reference: 2, missing: 1 }
+    ]);
+    assert.deepEqual(gaps[2], []);
+    assert.deepEqual(gaps[3], []);
+});
+
+test("un grupo sin nadie de un estamento los muestra todos", () => {
+    const gaps = buildEstamentoGaps(columnas(
+        [AUX, AUX, TEC], [AUX, AUX, TEC], [AUX, AUX, TEC], [TEC]
+    ));
+
+    assert.deepEqual(gaps[3], [
+        { estamento: AUX, count: 0, reference: 2, missing: 2 }
+    ]);
+});
+
+test("pero un grupo entero vacio no se llena de cupos", () => {
+    // Sin titulares no es lo mismo que corto de personal: ese grupo puede no
+    // usarse en la unidad. La columna ya lo dice con su propio texto.
+    const gaps = buildEstamentoGaps(columnas(
+        [AUX, AUX, AUX], [AUX, AUX, AUX], [AUX, AUX, AUX], []
+    ));
+
+    assert.deepEqual(gaps[3], []);
+});
+
+test("los cupos salen en el orden del listado", () => {
+    const gaps = buildEstamentoGaps(columnas(
+        [PRO], [PRO, PRO, TEC, "Administrativo", AUX], [], []
+    ));
+
+    assert.deepEqual(
+        gaps[0].map(gap => gap.estamento),
+        [PRO, TEC, "Administrativo", AUX]
+    );
+});
+
+test("un estamento sin registrar no genera cupos", () => {
+    // "Sin estamento" es una ficha incompleta, no un cargo: avisarle al
+    // supervisor que le falta uno no le sirve de nada.
+    const gaps = buildEstamentoGaps(columnas(
+        ["", "", ""], [], [], []
+    ));
+
+    assert.deepEqual(gaps, [[], [], [], []]);
+});
+
+test("y no arrastra a los estamentos de verdad", () => {
+    const gaps = buildEstamentoGaps(columnas(
+        [TEC, TEC, ""], [TEC], [TEC, TEC], [TEC, TEC]
+    ));
+
+    assert.deepEqual(gaps[1], [
+        { estamento: TEC, count: 1, reference: 2, missing: 1 }
+    ]);
+});
+
+test("el cupo cierra el bloque de su estamento, no la columna", async () => {
+    // Si quedara al final, en una columna con auxiliares abajo el hueco de los
+    // tecnicos se leeria como si faltara un auxiliar.
+    sembrar([
+        { name: "Tec Uno", start: "2026-01-05", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Aux Uno", start: "2026-01-05", estamento: AUX, profession: "Auxiliar de servicio" },
+        { name: "Tec Dos", start: "2026-01-06", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Tec Tres", start: "2026-01-06", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Aux Dos", start: "2026-01-06", estamento: AUX, profession: "Auxiliar de servicio" }
+    ]);
+
+    const board = await buildShiftHolders(HOY);
+    const corta = board.columns.find(column =>
+        column.workers.some(worker => worker.profile.name === "Tec Uno")
+    );
+
+    assert.deepEqual(
+        corta.items.map(item =>
+            item.type === "gap" ? `cupo ${item.gap.estamento}` : item.worker.profile.name
+        ),
+        ["Tec Uno", `cupo ${TEC}`, "Aux Uno"]
+    );
+});
+
+test("y aparece en su lugar aunque el grupo no tenga a nadie de ese estamento", async () => {
+    sembrar([
+        { name: "Pro Uno", start: "2026-01-05", estamento: PRO, profession: "Enfermería" },
+        { name: "Aux Uno", start: "2026-01-05", estamento: AUX, profession: "Auxiliar de servicio" },
+        { name: "Pro Dos", start: "2026-01-06", estamento: PRO, profession: "Enfermería" },
+        { name: "Tec Uno", start: "2026-01-06", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Aux Dos", start: "2026-01-06", estamento: AUX, profession: "Auxiliar de servicio" }
+    ]);
+
+    const board = await buildShiftHolders(HOY);
+    const sinTecnico = board.columns.find(column =>
+        column.workers.some(worker => worker.profile.name === "Pro Uno")
+    );
+
+    // El cupo del tecnico va entre el profesional y el auxiliar, que es donde
+    // estaria sentado el trabajador que falta.
+    assert.deepEqual(
+        sinTecnico.items.map(item =>
+            item.type === "gap" ? `cupo ${item.gap.estamento}` : item.worker.profile.name
+        ),
+        ["Pro Uno", `cupo ${TEC}`, "Aux Uno"]
+    );
+});
+
+test("el numero del encabezado sigue contando titulares, no cupos", async () => {
+    sembrar([
+        { name: "Tec Uno", start: "2026-01-05", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Tec Dos", start: "2026-01-06", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Tec Tres", start: "2026-01-06", estamento: TEC, profession: "Técnico en Enfermería" }
+    ]);
+
+    const board = await buildShiftHolders(HOY);
+    const corta = board.columns.find(column =>
+        column.workers.some(worker => worker.profile.name === "Tec Uno")
+    );
+
+    assert.equal(corta.workers.length, 1);
+    assert.equal(corta.items.length, 2);
+});
+
+async function pintar() {
+    const nodo = { innerHTML: "" };
+
+    globalThis.document.getElementById = id =>
+        (id === "shiftHoldersPanel" ? nodo : null);
+
+    try {
+        await renderShiftHoldersPanel();
+    } finally {
+        globalThis.document.getElementById = () => null;
+    }
+
+    return nodo.innerHTML;
+}
+
+test("el cupo se pinta como recuadro y dice de que estamento es", async () => {
+    sembrar([
+        { name: "Tec Uno", start: "2026-01-05", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Tec Dos", start: "2026-01-06", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Tec Tres", start: "2026-01-06", estamento: TEC, profession: "Técnico en Enfermería" }
+    ]);
+
+    const html = await pintar();
+
+    assert.equal((html.match(/class="tt-vacancy"/g) || []).length, 1);
+    assert.match(html, /class="tt-vacancy-badge"[^>]*>!</);
+    assert.ok(html.includes("Cupo disponible"));
+    assert.ok(html.includes('class="tt-vacancy-meta">Técnico<'));
+    // El detalle dice contra que se esta comparando.
+    assert.ok(html.includes(
+        'title="Técnico: este grupo tiene 1 y el grupo con más tiene 2."'
+    ));
+    // Y la nota al pie explica el recuadro.
+    assert.ok(html.includes("cupos disponibles"));
+});
+
+test("si no falta nadie, no se pinta ningun cupo ni su explicacion", async () => {
+    sembrar([
+        { name: "Tec Uno", start: "2026-01-05", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Tec Dos", start: "2026-01-06", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Tec Tres", start: "2026-01-07", estamento: TEC, profession: "Técnico en Enfermería" },
+        { name: "Tec Cuatro", start: "2026-01-08", estamento: TEC, profession: "Técnico en Enfermería" }
+    ]);
+
+    const html = await pintar();
+
+    assert.ok(!html.includes("tt-vacancy"));
+    assert.ok(!html.includes("cupos disponibles"));
+});
+
+test("el recuadro tiene estilo propio y no se confunde con un trabajador", async () => {
+    const css = await read("../styles.css");
+
+    assert.ok(css.includes(".tt-vacancy {"), "falta el bloque .tt-vacancy");
+    assert.ok(css.includes("border: 1px dashed rgba(239, 68, 68, 0.55)"));
+    assert.ok(css.includes(".tt-vacancy-badge {"));
+    // El mismo rojo de la insignia del hueco de reemplazo de la semanal.
+    assert.ok(css.includes("background: #ef4444;"));
 });
 
 /* ======================================================================
