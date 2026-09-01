@@ -1331,7 +1331,10 @@ function withMarks(time, ...symbols) {
 
     if (!time || !shown.length) return time;
 
-    return `${time} ${shown.join(" ")}`;
+    // Espacio duro: las celdas de marcaje se dibujan con `pre-line` para poder
+    // apilar dos marcas, y con un espacio normal el asterisco de la salida
+    // traida del dia siguiente se iba solo a la linea de abajo.
+    return `${time}\u00a0${shown.join("\u00a0")}`;
 }
 
 /**
@@ -2722,7 +2725,7 @@ function cellHTML(row, column) {
     const text = escapeHTML(displayReportText(row[column.key] ?? ""));
 
     return `
-                    <td${className}${title}>${text}</td>
+                    <td data-col="${escapeHTML(column.key)}"${className}${title}>${text}</td>
                 `;
 }
 
@@ -2763,7 +2766,9 @@ function reportWorkerDataTable(title, columns, rows, emptyText) {
                             <table class="report-table">
                                 <thead>
                                     <tr>
-                                        ${columns.map(column => `<th>${escapeHTML(column.label)}</th>`).join("")}
+                                        ${columns.map(column =>
+                                            `<th data-col="${escapeHTML(column.key)}">${escapeHTML(column.label)}</th>`
+                                        ).join("")}
                                     </tr>
                                 </thead>
                                 <tbody>${reportTableRowsHTML(columns, group, emptyText)}</tbody>
@@ -2795,7 +2800,9 @@ function reportTable(title, columns, rows, emptyText = "Sin registros para este 
                 <table class="report-table">
                     <thead>
                         <tr>
-                            ${columns.map(column => `<th>${escapeHTML(column.label)}</th>`).join("")}
+                            ${columns.map(column =>
+                                `<th data-col="${escapeHTML(column.key)}">${escapeHTML(column.label)}</th>`
+                            ).join("")}
                         </tr>
                     </thead>
                     <tbody>${body}</tbody>

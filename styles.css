@@ -3455,6 +3455,29 @@ body[data-active-view="log"] .secondary-grid {
     background: var(--field);
 }
 
+/* Columnas de marcaje del reporte.
+   Una celda puede llevar dos marcas apiladas (un turno con noche) y cada hora
+   puede traer su simbolo -asterisco de salida movida, aviso de incidencia-, asi
+   que necesitan mas ancho que el resto: con el de antes no cabia "08:00 *" en
+   una linea. */
+.report-table th[data-col="entrada"],
+.report-table td[data-col="entrada"],
+.report-table th[data-col="salida"],
+.report-table td[data-col="salida"],
+.report-table th[data-col="atrasos"],
+.report-table td[data-col="atrasos"] {
+    min-width: 6.5rem;
+    white-space: nowrap;
+}
+
+/* Las apiladas conservan su salto de linea propio: lo que no debe partirse es
+   la hora de su simbolo, y de eso se encarga el espacio duro. */
+.report-table td[data-col="entrada"].report-cell--stacked,
+.report-table td[data-col="salida"].report-cell--stacked,
+.report-table td[data-col="atrasos"].report-cell--stacked {
+    white-space: pre-line;
+}
+
 .report-worker-data-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
