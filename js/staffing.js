@@ -3069,6 +3069,7 @@ export function getRotaGapShifts({
                             date.getMonth(),
                             date.getDate()
                         ),
+                        iso: localDateISO(date),
                         shiftKey: shift.key,
                         turnoLabel: shift.label,
                         turno: shift.key === "noche" ? TURNO.NOCHE : TURNO.LARGA,
@@ -3898,6 +3899,22 @@ function staffingWeeklyPendingHTML(weekDate) {
             Actualizando calendario semanal ${escapeHTML(label)}...
         </div>
     `;
+}
+
+/**
+ * Abre el Calendario Semanal en la semana de esa fecha.
+ *
+ * El cambio de vista lo hace el menu -se pulsa su boton- en vez de duplicar
+ * aca la logica de mostrar y ocultar paneles; al entrar, la vista se pinta
+ * sola con la semana que se acaba de fijar. Si el usuario no tiene ese menu,
+ * el boton no existe y no pasa nada, que es lo correcto.
+ */
+export function showStaffingWeekFor(date) {
+    staffingWeekDate = weekStartMonday(date);
+
+    document
+        .querySelector('.nav-tile[data-target="staffingWeeklyCalendar"]')
+        ?.click();
 }
 
 export async function renderStaffingWeeklyCalendar(options = {}) {

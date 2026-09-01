@@ -42,7 +42,11 @@ import {
 import { refreshAll } from "./refresh.js";
 import { updateDayCell, updateVisibleCalendarDays } from "./calendar.js";
 import { updateTimelineCells } from "./timeline.js";
-import { birthDateParts, getRotaGapShifts } from "./staffing.js";
+import {
+    birthDateParts,
+    getRotaGapShifts,
+    showStaffingWeekFor
+} from "./staffing.js";
 import {
     cambiosDelMes,
     cambioEstaAnulado,
@@ -2417,7 +2421,7 @@ function brechaRow(row) {
             <div class="hm-cob-meta">
                 <b>Grupo ${esc(row.group)}:</b> ${row.count} de ${row.reference} ${esc(row.estamento.toLowerCase())}
             </div>
-            <div class="hm-cob-actions">
+            <div class="hm-cob-actions hm-cob-actions--stack">
                 <button class="hm-cob-btn hm-cob-btn--ver" type="button" data-hm="brecha-cubrir"
                     data-brecha-reference="${esc(row.reference_profile)}"
                     data-brecha-key="${esc(row.keyDay)}"
@@ -2425,6 +2429,9 @@ function brechaRow(row) {
                     data-brecha-estamento="${esc(row.estamento)}"
                     data-brecha-turno="${row.turno}"
                     ${row.reference_profile ? "" : "disabled title=\"No hay a quién parecerse: la unidad no tiene a nadie de ese estamento.\""}>CUBRIR</button>
+                <button class="hm-cob-btn hm-cob-btn--auto" type="button" data-hm="brecha-semanal"
+                    data-brecha-iso="${esc(row.iso)}"
+                    title="Abre el Calendario Semanal en la semana de este turno">VER CALENDARIO SEMANAL</button>
             </div>
         </div>`;
 }
@@ -3350,6 +3357,17 @@ function wire(panel) {
                     }
                 }
             );
+        });
+    });
+
+    // --- Brecha RRHH: ver la semana de ese turno ---
+    panel.querySelectorAll('[data-hm="brecha-semanal"]').forEach(button => {
+        button.addEventListener("click", () => {
+            const [year, month, day] = String(button.dataset.brechaIso)
+                .split("-")
+                .map(Number);
+
+            showStaffingWeekFor(new Date(year, month - 1, day));
         });
     });
 

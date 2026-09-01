@@ -1833,6 +1833,12 @@ body[data-active-view="home"] .secondary-grid {
     flex-wrap: wrap;
 }
 
+/* Los dos botones de la brecha van uno sobre otro: "VER CALENDARIO SEMANAL"
+   no cabe al lado de "CUBRIR" en el ancho de la tarjeta, y partirlo en dos
+   lineas dejaria las filas de distinto alto. */
+.hm-cob-actions--stack { flex-direction: column; }
+.hm-cob-actions--stack .hm-cob-btn { flex: 0 0 auto; width: 100%; }
+
 .hm-cob-btn {
     flex: 1 1 130px;
     min-height: 34px;

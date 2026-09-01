@@ -240,6 +240,36 @@ test("sin a quien parecerse, el boton no ofrece nada", () => {
     assert.match(grab(home, "brechaRow"), /row\.reference_profile \? "" : "disabled/);
 });
 
+test("el segundo boton lleva al semanal, a la semana de ese turno", () => {
+    // No al mes ni a hoy: a la semana en la que el cargo va a faltar.
+    assert.match(home, /data-hm="brecha-semanal"/);
+    assert.match(home, /showStaffingWeekFor\(new Date\(year, month - 1, day\)\)/);
+    assert.match(staffing, /export function showStaffingWeekFor\(date\)/);
+    assert.match(
+        grab(staffing, "showStaffingWeekFor"),
+        /staffingWeekDate = weekStartMonday\(date\)/
+    );
+});
+
+test("el cambio de vista lo hace el menu, no una copia de su logica", () => {
+    // Y si el usuario no tiene ese menu, el boton no existe y no pasa nada.
+    assert.match(
+        grab(staffing, "showStaffingWeekFor"),
+        /\.nav-tile\[data-target="staffingWeeklyCalendar"\]/
+    );
+    assert.match(grab(staffing, "showStaffingWeekFor"), /\?\.click\(\)/);
+});
+
+test("los dos botones van uno sobre otro", async () => {
+    const css = await readFile(
+        new URL("../styles.css", import.meta.url),
+        "utf8"
+    );
+
+    assert.match(home, /class="hm-cob-actions hm-cob-actions--stack"/);
+    assert.ok(css.includes(".hm-cob-actions--stack { flex-direction: column; }"));
+});
+
 test("el detalle se pliega sin repintar el inicio entero", () => {
     assert.match(home, /function reRenderBrecha\(panel\)/);
     assert.match(grab(home, "reRenderBrecha"), /brecha-detail/);
