@@ -12136,6 +12136,23 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 .staffing-weekly-cell--gap::before { background: #dc2626; }
 .staffing-weekly-cell--covered::before { background: #b45309; }
 
+/* Letra del grupo del 4to turno. Conecta esta pantalla con Titulares de
+   Turnos sin tener que cambiar de menu. */
+.staffing-weekly-group {
+    flex: none;
+    align-self: center;
+    width: 17px;
+    height: 17px;
+    display: grid;
+    place-items: center;
+    border-radius: 5px;
+    font-family: var(--font-display);
+    font-size: 0.63rem;
+    font-weight: 700;
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
 /* Quien esta en el turno cubriendo a otro. */
 .staffing-weekly-covers {
     flex: none;
@@ -12179,9 +12196,13 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     min-height: 0;
 }
 
+/* Fila y no columna: a los lados del nombre van la letra del grupo y las
+   marcas -cubre, o el aviso de que falta reemplazo-, que apiladas debajo se
+   leerian como si fueran parte del cargo. */
 .staffing-weekly-person {
-    display: grid;
-    gap: 1px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
     padding: 7px 8px;
     border-radius: 10px;
     background: var(--panel);
@@ -12189,26 +12210,23 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 }
 
 .staffing-weekly-person--needs-replacement {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
     border-color: rgba(239, 68, 68, 0.28);
     background: rgba(248, 113, 113, 0.12);
 }
 
 .staffing-weekly-person__body {
+    flex: 1;
     display: grid;
     gap: 1px;
     min-width: 0;
 }
 
 .staffing-weekly-replacement-alert {
+    flex: none;
     width: 22px;
     height: 22px;
     display: grid;
     place-items: center;
-    grid-column: 2;
-    grid-row: 1;
     border-radius: 999px;
     background: #ef4444;
     color: #fff;

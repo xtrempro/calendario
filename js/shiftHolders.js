@@ -315,6 +315,85 @@ export function buildColorAssignments(profiles) {
 }
 
 /* ==========================================================================
+   Mapa de grupos para las otras pantallas
+   ========================================================================== */
+
+let groupMapMemo = { key: "", map: null };
+
+// Claves cuyo cambio puede mover a alguien de grupo: su rotativa, su
+// calendario, o la lista de perfiles.
+const GROUP_MAP_PREFIXES = [
+    "rotativa_",
+    "data_",
+    "baseData_",
+    "shift_",
+    "shiftAssignmentHistory_"
+];
+const GROUP_MAP_KEYS = new Set(["profiles", "swaps", "shiftMoves"]);
+
+/**
+ * Nombre -> letra del grupo, para quienes hacen 4to turno.
+ *
+ * Se calcula UNA vez y se guarda: cada trabajador mira hasta 92 dias de
+ * calendario, y preguntarlo por celda congelaria una pantalla que se repinta
+ * al cambiar de semana.
+ *
+ * La letra esta anclada a una fecha fija, asi que no cambia de un dia para
+ * otro: basta con rehacer el mapa cuando cambia el dia o los datos de los que
+ * sale.
+ */
+export function getShiftGroupMap(today = new Date()) {
+    const memoKey = keyFromDate(today);
+
+    if (groupMapMemo.key === memoKey && groupMapMemo.map) {
+        return groupMapMemo.map;
+    }
+
+    const map = new Map();
+
+    getProfiles()
+        .filter(isProfileActive)
+        .forEach(profile => {
+            const placement = detectHolderPlacement(profile.name, today);
+
+            if (placement) map.set(profile.name, placement.letter);
+        });
+
+    groupMapMemo = { key: memoKey, map };
+
+    return map;
+}
+
+export function invalidateShiftGroupMap() {
+    groupMapMemo = { key: "", map: null };
+}
+
+function affectsShiftGroups(keys = []) {
+    return keys.some(key => {
+        const clean = String(key || "");
+
+        return GROUP_MAP_KEYS.has(clean) ||
+            GROUP_MAP_PREFIXES.some(prefix => clean.startsWith(prefix));
+    });
+}
+
+if (typeof window !== "undefined") {
+    const alCambiar = event => {
+        if (affectsShiftGroups(event.detail?.keys || [])) {
+            invalidateShiftGroupMap();
+        }
+    };
+
+    window.addEventListener("proturnos:persistenceChanged", alCambiar);
+    // Los cambios de otro supervisor entran por aqui.
+    window.addEventListener("proturnos:firebaseAppState", event => {
+        if (event.detail?.type !== "app-state-entries-applied") return;
+
+        alCambiar({ detail: { keys: event.detail.keys || [] } });
+    });
+}
+
+/* ==========================================================================
    Cupos disponibles
    ========================================================================== */
 

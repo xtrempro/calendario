@@ -60,6 +60,7 @@ import {
     AUDIT_CATEGORY
 } from "./auditLog.js";
 import { getHourReturn } from "./hourReturns.js";
+import { getShiftGroupMap } from "./shiftHolders.js";
 import { runCooperativeRange } from "./mainThreadScheduler.js";
 import {
     measurePerformance,
@@ -2776,6 +2777,9 @@ function weeklyShiftProfiles(
     // Se arma UNA vez por celda. Preguntarlo por persona obligaria a recorrer
     // la lista de reemplazos decenas de veces para el mismo dia.
     const coveredByWorker = getReplacementsByWorkerForDay(shiftKeyDay);
+    // Con la fecha de HOY y no la de la celda: el grupo es del trabajador, no
+    // del dia, y pedirlo por dia daria siete calculos completos por semana.
+    const groupByWorker = getShiftGroupMap(currentDate);
 
     return getProfiles()
         .filter(isProfileActive)
@@ -2807,7 +2811,8 @@ function weeklyShiftProfiles(
                     type: "profile",
                     profile,
                     segments,
-                    covers: coveredByWorker.get(profile.name) || []
+                    covers: coveredByWorker.get(profile.name) || [],
+                    group: groupByWorker.get(profile.name) || ""
                 });
             }
 
@@ -2864,6 +2869,11 @@ function renderWeeklyProfileChip(item) {
 
     const partial = weeklySegmentSummary(item.segments);
     const needsReplacement = item.needsReplacement;
+    // Una letra basta para saber que grupo entra, y es lo que hace entendible
+    // el cupo de rotativa: se ve que el grupo corto es el que esta en pantalla.
+    const group = item.group
+        ? `<span class="staffing-weekly-group" title="Grupo ${escapeHTML(item.group)} del 4° turno">${escapeHTML(item.group)}</span>`
+        : "";
     const covers = item.covers?.length
         ? `<span class="staffing-weekly-covers" title="Cubre a ${
             escapeHTML(item.covers.join(", "))}">cubre</span>`
@@ -2871,16 +2881,17 @@ function renderWeeklyProfileChip(item) {
 
     return `
         <span class="staffing-weekly-person${needsReplacement ? " staffing-weekly-person--needs-replacement" : ""}">
-            ${needsReplacement ? `
-                <button class="staffing-weekly-replacement-alert" type="button" data-weekly-replacement-profile="${escapeHTML(item.profile.name)}" data-weekly-replacement-key="${escapeHTML(item.keyDay)}" title="Buscar reemplazo">
-                    !
-                </button>
-            ` : ""}
+            ${group}
             <span class="staffing-weekly-person__body">
                 <strong>${escapeHTML(item.profile.name)}</strong>
                 <small>${escapeHTML(weeklyProfileMeta(item.profile))}${partial ? ` | ${escapeHTML(partial)}` : ""}</small>
             </span>
             ${covers}
+            ${needsReplacement ? `
+                <button class="staffing-weekly-replacement-alert" type="button" data-weekly-replacement-profile="${escapeHTML(item.profile.name)}" data-weekly-replacement-key="${escapeHTML(item.keyDay)}" title="Buscar reemplazo">
+                    !
+                </button>
+            ` : ""}
         </span>
     `;
 }
