@@ -3084,6 +3084,12 @@ function renderStaffingWeeklyCell(
         0
     );
     const summary = weeklyCellSummary(people, rotaMissing);
+    // Con el filtro puesto queda a la vista solo lo que falta. Mostrar tambien
+    // al resto del turno seria el ruido que el filtro viene a sacar: si se
+    // prendio para ver los huecos, los compañeros que si estan no aportan.
+    const shownPeople = onlyTrouble
+        ? people.filter(item => item.type === "replacement-slot")
+        : people;
 
     // Fuera de foco la celda se encoge, no se esconde: con display:none la
     // rejilla correria las columnas y la semana perderia la alineacion.
@@ -3141,9 +3147,9 @@ function renderStaffingWeeklyCell(
                     weeklyRotaGapHTML(gap, cellGroup, date, shift, people)
                 ).join("")}
                 ${
-                    people.length
-                        ? people.map(renderWeeklyProfileChip).join("")
-                        : (rotaGaps.length
+                    shownPeople.length
+                        ? shownPeople.map(renderWeeklyProfileChip).join("")
+                        : (rotaGaps.length || onlyTrouble
                             ? ""
                             : `<span class="staffing-weekly-empty">Sin personal disponible</span>`)
                 }

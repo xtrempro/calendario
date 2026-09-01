@@ -289,6 +289,23 @@ test("el filtro de problemas apaga las celdas sin hueco, no las esconde", () => 
     assert.match(source, /\$\{\(onlyTrouble \? \[\] : visibleLeaveRows\)\.map/);
 });
 
+test("con el filtro puesto, la celda deja SOLO lo que falta", () => {
+    // Mostrar tambien al resto del turno era el ruido que el filtro viene a
+    // sacar: si se prendio para ver los huecos, los compañeros que si estan no
+    // aportan nada.
+    assert.match(
+        source,
+        /const shownPeople = onlyTrouble\s*\n\s*\? people\.filter\(item => item\.type === "replacement-slot"\)\s*\n\s*: people;/
+    );
+    assert.match(source, /shownPeople\.map\(renderWeeklyProfileChip\)/);
+});
+
+test("y no dice 'sin personal' cuando fue el filtro el que los saco", () => {
+    // Esa frase es para un turno sin nadie asignado, no para uno que quedo
+    // vacio en pantalla por estar filtrando.
+    assert.match(source, /\(rotaGaps\.length \|\| onlyTrouble/);
+});
+
 test("el filtro nuevo entra en la firma de la cache", () => {
     // Sin esto, prenderlo mostraria la version guardada sin filtrar.
     assert.match(source, /onlyTrouble \? "1" : "0"/);
