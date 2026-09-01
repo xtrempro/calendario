@@ -1766,6 +1766,12 @@ body[data-active-view="home"] .secondary-grid {
 .hm-cob-status { margin-left: auto; font-size: 0.71rem; font-weight: 800; padding: 3px 10px; border-radius: 999px; }
 .hm-cob-status--sincubrir { background: var(--hm-red-soft); color: var(--hm-red); }
 .hm-cob-status--preasignado { background: var(--accent-soft); color: var(--accent); }
+/* Brecha de rotativa: ambar y no rojo. No es que alguien falte hoy -eso es
+   agudo y se acaba-, es que el cargo no existe en la rotativa del grupo y
+   vuelve cada ciclo. Mismo criterio que la casilla del calendario semanal. */
+.hm-cob-status--brecha { background: var(--hm-warn-soft); color: var(--hm-warn); }
+.hm-cob-chip--warn .hm-cob-chip-ico { background: var(--hm-warn-soft); color: var(--hm-warn); }
+.hm-cob-more { font-style: italic; }
 .hm-cob-status--espera {
     display: inline-flex; align-items: center; gap: 5px;
     border: none; cursor: pointer; font-family: inherit;
