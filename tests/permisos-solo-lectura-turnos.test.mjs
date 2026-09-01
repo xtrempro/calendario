@@ -71,7 +71,7 @@ test("asignar reemplazo y el motivo de HH.EE comprueban el permiso en su origen"
     assert.match(
         functionBody(
             calendar,
-            "async function openReplacementDialog(profileName, keyDay) {"
+            "async function openReplacementDialog(profileName, keyDay, options"
         ),
         /ensureCanEditTarget\("calendarPanel"\)/
     );

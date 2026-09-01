@@ -4818,7 +4818,10 @@ function replacementDialogHTML({
     selectedRequestWorkers,
     linkedStatus = "",
     optionsOpen = false,
-    preassignMode = false
+    preassignMode = false,
+    // Cupo por rotativa incompleta. Cambia el encabezado: no hay una persona
+    // ausente que nombrar, sino un grupo al que le falta alguien.
+    rota = null
 }) {
     // Respaldo de la licencia, junto a "Anular permiso": si todavia no hay
     // documento el boton invita a subirlo, y si ya lo hay lo abre. Solo aparece
@@ -5116,8 +5119,11 @@ function replacementDialogHTML({
                 </button>
             </div>
             <p>
-                ${escapeHTML(profileName)} requiere cobertura para ${escapeHTML(turnoReplacementLabel(neededTurn))}
-                por ${escapeHTML(absenceType)}.
+                ${
+                    rota
+                        ? `El grupo ${escapeHTML(rota.group)} requiere 1 ${escapeHTML(rota.estamento)} para ${escapeHTML(turnoReplacementLabel(neededTurn))}: su rotativa está incompleta frente a los demás grupos.`
+                        : `${escapeHTML(profileName)} requiere cobertura para ${escapeHTML(turnoReplacementLabel(neededTurn))} por ${escapeHTML(absenceType)}.`
+                }
             </p>
             <div class="replacement-options-panel ${optionsOpen ? "" : "is-hidden"}" data-options-panel>
                 ${optionControls}
@@ -5412,20 +5418,28 @@ function openPendingRequestsDialog({ profile, keyDay }) {
 
 window.openPendingRequestsDialog = openPendingRequestsDialog;
 
-async function openReplacementDialog(profileName, keyDay) {
-    const existing = getReplacementForCoveredShift(
-        profileName,
-        keyDay
-    );
+/**
+ * @param {string} profileName Quien necesita cobertura. En un cupo de
+ *   ROTATIVA nadie falta, asi que aqui viaja un integrante del grupo que
+ *   sirve de molde para los candidatos: "otro como este".
+ * @param {object} [options.rota] Cupo por rotativa incompleta:
+ *   { group, estamento, turno, motive }. El reemplazo que salga de aqui no
+ *   reemplaza a NADIE -es un turno extra con motivo-, que es algo que el
+ *   registro ya sabe guardar.
+ */
+async function openReplacementDialog(profileName, keyDay, options = {}) {
+    const rota = options.rota || null;
+    const existing = rota
+        ? null
+        : getReplacementForCoveredShift(profileName, keyDay);
 
     if (existing || window.selectionMode) {
         return;
     }
 
-    const neededTurn = getReplacementNeededTurn(
-        profileName,
-        keyDay
-    );
+    const neededTurn = rota
+        ? rota.turno
+        : getReplacementNeededTurn(profileName, keyDay);
 
     if (!neededTurn) {
         return;
@@ -5435,8 +5449,9 @@ async function openReplacementDialog(profileName, keyDay) {
         return;
     }
 
-    const absenceType =
-        getAbsenceLabelForProfileDate(profileName, keyDay);
+    const absenceType = rota
+        ? rota.motive
+        : getAbsenceLabelForProfileDate(profileName, keyDay);
     let scope = "compatible";
     let requestMode = false;
     let selectedRequestWorkers = new Set();
@@ -6083,13 +6098,18 @@ async function openReplacementDialog(profileName, keyDay) {
                         } else {
                             saveReplacement({
                                 worker: button.dataset.worker,
-                                replaced: profileName,
+                                // Un cupo de rotativa no reemplaza a nadie: es
+                                // un turno extra, y el motivo va en `reason`.
+                                replaced: rota ? "" : profileName,
+                                reason: rota ? rota.motive : "",
                                 keyDay,
                                 turno: neededTurn,
-                                absenceType,
-                                source: scope === "all-local"
-                                    ? "forced_replacement"
-                                    : "replacement",
+                                absenceType: rota ? "" : absenceType,
+                                source: rota
+                                    ? "rota_gap"
+                                    : scope === "all-local"
+                                        ? "forced_replacement"
+                                        : "replacement",
                                 ...replacementCoverageFromDataset(
                                     button.dataset
                                 )
@@ -6097,7 +6117,9 @@ async function openReplacementDialog(profileName, keyDay) {
                         }
 
                         close();
-                        await updateDayCell(profileName, keyDay);
+
+                        // En un cupo de rotativa no hay ausente que repintar.
+                        if (!rota) await updateDayCell(profileName, keyDay);
 
                         // Actualiza solo las casillas afectadas del timeline (el
                         // trabajador ausente y quien lo cubre) sin reconstruirlo.
@@ -6166,6 +6188,7 @@ async function openReplacementDialog(profileName, keyDay) {
             selectedRequestWorkers,
             optionsOpen,
             preassignMode,
+            rota,
             linkedStatus: scope === "linked"
                 ? linkedReplacementStatus
                 : ""

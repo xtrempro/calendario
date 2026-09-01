@@ -354,6 +354,37 @@ export function getClockExtraBackupForWorker(profile, keyDay) {
     ) || null;
 }
 
+/**
+ * Los reemplazos vigentes de un dia, agrupados por quien los toma.
+ *
+ * Existe para no recorrer la lista entera una vez por persona: el calendario
+ * semanal hace la misma pregunta para cada trabajador de cada una de sus 21
+ * celdas, y la lista de reemplazos de una unidad activa tiene cientos de
+ * registros.
+ */
+export function getReplacementsByWorkerForDay(keyDay) {
+    const iso = isoFromKey(keyDay);
+    const byWorker = new Map();
+
+    getReplacements().forEach(replacement => {
+        if (
+            !replacementActive(replacement) ||
+            replacement.date !== iso ||
+            !replacement.worker
+        ) {
+            return;
+        }
+
+        const covered = byWorker.get(replacement.worker) || [];
+
+        if (replacement.replaced) covered.push(replacement.replaced);
+
+        byWorker.set(replacement.worker, covered);
+    });
+
+    return byWorker;
+}
+
 export function getReplacementsForWorkerShift(profile, keyDay) {
     const iso = isoFromKey(keyDay);
 

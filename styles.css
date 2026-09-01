@@ -11689,38 +11689,232 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     box-shadow: 0 12px 24px rgba(17, 32, 56, 0.08);
 }
 
-.staffing-weekly-nav {
+.staffing-weekly-filters {
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 14px 20px;
+}
+
+/* ==========================================================================
+   Barra del calendario semanal.
+
+   Dos columnas: los filtros ocupan lo que necesiten a la izquierda y la
+   navegacion se apila a la derecha, en las mismas lineas. Uno sobre otro
+   gastaban una banda entera de alto para media pantalla vacia.
+   ========================================================================== */
+
+.staffing-weekly-filter-grid {
+    flex: 1 1 460px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px 12px;
+    min-width: 0;
+}
+
+.staffing-weekly-filter-label {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    white-space: nowrap;
+}
+
+.staffing-weekly-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+/* Chips en vez de desplegables: se ven sin abrir nada y se combinan -Larga y
+   Noche juntos, que es la pregunta del 4to turno-, cosa que un desplegable de
+   opcion unica no permitia. */
+.staffing-weekly-chip {
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    padding: 6px 13px 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text-soft);
+    cursor: pointer;
     display: inline-flex;
     align-items: center;
-    justify-self: end;
-    align-self: end;
-    gap: 8px;
-    margin-left: 0;
-    transform: translateY(1px);
+    gap: 6px;
+    transition: border-color 0.16s, background 0.16s, color 0.16s;
 }
 
-.staffing-weekly-nav .secondary-button {
-    min-height: 34px;
-    border-radius: 10px;
-    padding: 0 12px;
-    font-size: 0.82rem;
+.staffing-weekly-chip i {
+    width: 8px;
+    height: 8px;
+    border-radius: 3px;
+    background: var(--staffing-chip-tone, var(--text-soft));
 }
 
-.staffing-weekly-filters {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 220px)) minmax(0, 1fr);
-    gap: 12px;
-    align-items: end;
+/* Los de estamento y profesion van sin punto: no son un turno, y conviene
+   que los grupos de chips se distingan de un vistazo. */
+.staffing-weekly-chip--plain { padding-left: 13px; }
+.staffing-weekly-chip--plain[aria-pressed="true"] { --staffing-chip-tone: var(--accent); }
+
+.staffing-weekly-chip--diurno { --staffing-chip-tone: #0b8853; }
+.staffing-weekly-chip--larga { --staffing-chip-tone: #22c55e; }
+.staffing-weekly-chip--noche { --staffing-chip-tone: #1d6cff; }
+.staffing-weekly-chip--leave { --staffing-chip-tone: var(--text-soft); }
+
+.staffing-weekly-chip:hover {
+    border-color: var(--staffing-chip-tone, var(--accent));
 }
 
-.staffing-weekly-filters label {
-    display: grid;
-    gap: 7px;
-    min-width: 0;
+.staffing-weekly-chip:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.staffing-weekly-chip[aria-pressed="true"] {
+    color: var(--text);
+    border-color: var(--staffing-chip-tone);
+    background: color-mix(in srgb, var(--staffing-chip-tone) 14%, transparent);
+}
+
+.staffing-weekly-chip__count {
+    font-size: 0.73rem;
+    font-weight: 700;
     color: var(--text-soft);
-    font-size: 0.84rem;
-    font-weight: 800;
+    font-variant-numeric: tabular-nums;
 }
+
+.staffing-weekly-side {
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+/* La semana orienta: las flechas van pegadas a la fecha en vez de sueltas
+   entre los demas botones. */
+.staffing-weekly-weeknav {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+}
+
+.staffing-weekly-weeknav__arrow {
+    font: inherit;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-soft);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.16s, color 0.16s;
+}
+
+.staffing-weekly-weeknav__arrow:hover {
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.staffing-weekly-weeknav__arrow:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.staffing-weekly-weeknav__label {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 0.92rem;
+    padding: 0 8px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+
+.staffing-weekly-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.staffing-weekly-button {
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: border-color 0.16s, background 0.16s, color 0.16s;
+}
+
+.staffing-weekly-button:hover { border-color: var(--accent); }
+.staffing-weekly-button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.staffing-weekly-button[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+/* El mismo signo con que se marca un hueco en la rejilla: el boton dice asi
+   que es lo que deja en pantalla. Se invierte al quedar encendido, porque un
+   circulo rojo sobre el azul del boton se ensucia. */
+.staffing-weekly-button__badge {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 0.66rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.staffing-weekly-button[aria-pressed="true"] .staffing-weekly-button__badge {
+    background: #fff;
+    color: var(--accent);
+}
+
+/* Celda fuera de foco con "Solo con problemas": se encoge, no se esconde.
+   Con display:none la rejilla correria las columnas. */
+.staffing-weekly-cell--quiet {
+    --staffing-weekly-cell-bg: transparent;
+    --staffing-weekly-cell-border: var(--border);
+    display: grid;
+    place-items: center;
+    grid-template-rows: 1fr;
+    border-style: dashed;
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    min-height: 56px;
+}
+
 
 .staffing-weekly-days {
     display: grid;
@@ -11769,11 +11963,14 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     --staffing-weekly-cell-bg: var(--field);
     --staffing-weekly-cell-border: var(--border);
     display: grid;
-    grid-template-rows: auto minmax(82px, 1fr);
+    /* Encabezado, mezcla por estamento y la gente. La del medio se cierra
+       sola cuando la celda esta vacia. */
+    grid-template-rows: auto auto minmax(82px, 1fr);
     align-content: start;
     padding: 10px;
     background: var(--staffing-weekly-cell-bg);
     border-color: var(--staffing-weekly-cell-border);
+    position: relative;
 }
 
 .staffing-weekly-day--inhabil {
@@ -11868,6 +12065,200 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     flex: 0 0 15px;
 }
 
+/* Dotacion de la celda. Antes habia que contar tarjetas para saber si el
+   turno del jueves tenia cuatro personas o siete. */
+.staffing-weekly-cell__count {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+.staffing-weekly-cell__count b {
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--text);
+}
+
+/* Estado de cobertura. El signo de admiracion solo decia "pasa algo": no
+   cuantos faltan, ni si alguien ya lo resolvio. */
+.staffing-weekly-cell__count i {
+    font-style: normal;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+    padding: 2px 6px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.staffing-weekly-cell__count i.is-ok {
+    background: rgba(11, 136, 83, 0.14);
+    color: #0b8853;
+}
+
+.staffing-weekly-cell__count i.is-cover {
+    background: rgba(180, 83, 9, 0.16);
+    color: #b45309;
+}
+
+.staffing-weekly-cell__count i.is-gap {
+    background: rgba(220, 38, 38, 0.14);
+    color: #dc2626;
+}
+
+/* Mezcla por estamento: no da lo mismo que los siete sean todos tecnicos. */
+.staffing-weekly-cell__mix {
+    margin: -4px 0 8px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--text-soft);
+    font-variant-numeric: tabular-nums;
+    text-transform: none;
+    letter-spacing: 0;
+}
+
+/* Franja de estado en el borde de arriba: el color del turno ya ocupa el
+   fondo de la celda y no conviene pelearselo. */
+.staffing-weekly-cell--gap::before,
+.staffing-weekly-cell--rota::before,
+.staffing-weekly-cell--covered::before {
+    content: "";
+    position: absolute;
+    inset: -1px -1px auto -1px;
+    height: 3px;
+    border-radius: 12px 12px 0 0;
+}
+
+.staffing-weekly-cell--gap::before { background: #dc2626; }
+.staffing-weekly-cell--covered::before { background: #b45309; }
+
+/* Cupo por rotativa incompleta: al grupo le falta un trabajador frente al
+   mejor dotado, asi que le falta CADA VEZ que entra.
+
+   Va en ambar y no en rojo a proposito. Una licencia de hoy es aguda y se
+   acaba; una rotativa corta es cronica y vuelve cada ciclo. Si las dos
+   gritaran igual, la semana se veria peor de lo que esta y el rojo dejaria de
+   significar "esto hay que resolverlo ahora". */
+.staffing-weekly-rota-gap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 8px;
+    border-radius: 10px;
+    border: 1px dashed rgba(180, 83, 9, 0.5);
+    background: rgba(180, 83, 9, 0.1);
+    text-align: left;
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.16s, transform 0.16s;
+}
+
+.staffing-weekly-rota-gap:hover {
+    border-color: #b45309;
+    transform: translateY(-1px);
+}
+
+.staffing-weekly-rota-gap:focus-visible {
+    outline: 2px solid #b45309;
+    outline-offset: 2px;
+}
+
+.staffing-weekly-rota-gap__badge {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    background: #b45309;
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 900;
+    line-height: 1;
+}
+
+.staffing-weekly-rota-gap__body {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+}
+
+.staffing-weekly-rota-gap__body strong {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #b45309;
+}
+
+.staffing-weekly-rota-gap__body small {
+    font-size: 0.68rem;
+    color: var(--text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.staffing-weekly-cell--rota::before { background: #b45309; }
+
+/* Letra del grupo del 4to turno. Conecta esta pantalla con Titulares de
+   Turnos sin tener que cambiar de menu. */
+.staffing-weekly-group {
+    flex: none;
+    align-self: center;
+    width: 17px;
+    height: 17px;
+    display: grid;
+    place-items: center;
+    border-radius: 5px;
+    font-family: var(--font-display);
+    font-size: 0.63rem;
+    font-weight: 700;
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+/* Quien esta en el turno cubriendo a otro. */
+.staffing-weekly-covers {
+    flex: none;
+    align-self: center;
+    font-size: 0.58rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 5px;
+    border-radius: 5px;
+    background: rgba(180, 83, 9, 0.16);
+    color: #b45309;
+}
+
+/* Hoy. Es de las primeras cosas que el ojo busca y no habia nada que lo
+   dijera: habia que leer la fecha de cada encabezado para ubicarse. */
+.staffing-weekly-day--today {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    gap: 8px;
+}
+
+.staffing-weekly-day__today {
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.24);
+}
+
+.staffing-weekly-cell--today {
+    box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 .staffing-weekly-people {
     display: flex;
     flex-direction: column;
@@ -11875,9 +12266,13 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     min-height: 0;
 }
 
+/* Fila y no columna: a los lados del nombre van la letra del grupo y las
+   marcas -cubre, o el aviso de que falta reemplazo-, que apiladas debajo se
+   leerian como si fueran parte del cargo. */
 .staffing-weekly-person {
-    display: grid;
-    gap: 1px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
     padding: 7px 8px;
     border-radius: 10px;
     background: var(--panel);
@@ -11885,26 +12280,23 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
 }
 
 .staffing-weekly-person--needs-replacement {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px;
-    align-items: center;
     border-color: rgba(239, 68, 68, 0.28);
     background: rgba(248, 113, 113, 0.12);
 }
 
 .staffing-weekly-person__body {
+    flex: 1;
     display: grid;
     gap: 1px;
     min-width: 0;
 }
 
 .staffing-weekly-replacement-alert {
+    flex: none;
     width: 22px;
     height: 22px;
     display: grid;
     place-items: center;
-    grid-column: 2;
-    grid-row: 1;
     border-radius: 999px;
     background: #ef4444;
     color: #fff;
@@ -11918,35 +12310,93 @@ body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
     transform: translateY(-1px);
 }
 
+/* El hueco por cubrir. Antes era un signo de admiracion solo: decia que
+   pasaba algo, pero no a quien, ni por que, ni si la cobertura automatica ya
+   estaba buscando. */
 .staffing-weekly-replacement-slot {
-    min-height: 54px;
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 8px;
+    width: 100%;
     padding: 7px 8px;
-    border: 1px solid rgba(17, 24, 39, 0.42);
+    border: 1px dashed rgba(220, 38, 38, 0.55);
     border-radius: 10px;
-    background: var(--panel);
+    background: rgba(248, 113, 113, 0.1);
+    text-align: left;
 }
 
-.staffing-weekly-replacement-slot span {
-    width: 28px;
-    height: 28px;
+.staffing-weekly-replacement-slot__badge {
+    flex: none;
+    width: 24px;
+    height: 24px;
     display: grid;
     place-items: center;
     border-radius: 999px;
     background: #ef4444;
     color: #fff;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     font-weight: 900;
     line-height: 1;
-    box-shadow: 0 8px 18px rgba(239, 68, 68, 0.28);
 }
 
+.staffing-weekly-slot__body {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+}
+
+.staffing-weekly-slot__body strong {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #dc2626;
+}
+
+.staffing-weekly-slot__body small {
+    font-size: 0.68rem;
+    color: var(--text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* En que va la cobertura automatica: los puntos son las etapas hechas. */
+.staffing-weekly-slot__stage {
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.64rem;
+    font-weight: 700;
+    color: var(--text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.staffing-weekly-slot__dots {
+    flex: none;
+    display: inline-flex;
+    gap: 2px;
+}
+
+.staffing-weekly-slot__dots i {
+    width: 10px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(17, 24, 39, 0.2);
+}
+
+.staffing-weekly-slot__dots i.is-done { background: #dc2626; }
+
 .staffing-weekly-replacement-slot:hover {
-    border-color: rgba(239, 68, 68, 0.48);
-    background: rgba(248, 113, 113, 0.08);
+    border-color: #dc2626;
+    background: rgba(248, 113, 113, 0.16);
     transform: translateY(-1px);
+}
+
+.staffing-weekly-replacement-slot:focus-visible {
+    outline: 2px solid #dc2626;
+    outline-offset: 2px;
 }
 
 .staffing-weekly-person strong,
