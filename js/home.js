@@ -42,7 +42,11 @@ import {
 import { refreshAll } from "./refresh.js";
 import { updateDayCell, updateVisibleCalendarDays } from "./calendar.js";
 import { updateTimelineCells } from "./timeline.js";
-import { birthDateParts } from "./staffing.js";
+import {
+    birthDateParts,
+    getRotaGapShifts,
+    showStaffingWeekFor
+} from "./staffing.js";
 import {
     cambiosDelMes,
     cambioEstaAnulado,
@@ -2372,6 +2376,106 @@ function coberturaBody() {
     return { total, summary, list };
 }
 
+/* ==========================================================================
+   Brecha RRHH
+
+   Un grupo del 4to turno puede estar constituido con menos gente que los
+   otros: no es que alguien falte hoy, es que ese cargo no existe en la
+   rotativa. La carencia la detecta Titulares de Turnos comparando los cuatro
+   grupos, y aparece CADA VEZ que ese grupo entra.
+
+   Aca se listan los turnos proximos que van a entrar cortos, para poder
+   cubrirlos sin salir del inicio.
+   ========================================================================== */
+
+// El plural va a mano: "profesionals" y "auxiliars" no existen. Es el mismo
+// motivo que escribe el calendario semanal, para que las dos superficies
+// dejen el registro con el mismo texto.
+const BRECHA_PLURAL = {
+    "Profesional": "profesionales",
+    "Técnico": "técnicos",
+    "Administrativo": "administrativos",
+    "Auxiliar": "auxiliares"
+};
+
+const BRECHA_WINDOW_DAYS = 7;
+const BRECHA_MAX_ROWS = 8;
+
+let brechaDetail = false;
+
+function getBrechaRows() {
+    // La ventana es mas corta que la de cobertura porque la carencia se repite
+    // cada ciclo: con catorce dias seria la misma fila ocho veces.
+    return getRotaGapShifts({ days: BRECHA_WINDOW_DAYS })
+        .flatMap(row => Array.from({ length: row.missing }, () => row));
+}
+
+function brechaRow(row) {
+    return `
+        <div class="hm-cob-row">
+            <div class="hm-cob-top">
+                <span class="hm-turno hm-turno--${row.shiftKey === "noche" ? "noche" : "larga"}">${esc(row.turnoLabel)}</span>
+                <span class="hm-cob-date">${esc(shortDateFromDate(row.date))}</span>
+                <span class="hm-cob-status hm-cob-status--brecha">Falta 1 ${esc(row.estamento)}</span>
+            </div>
+            <div class="hm-cob-meta">
+                <b>Grupo ${esc(row.group)}:</b> ${row.count} de ${row.reference} ${esc(row.estamento.toLowerCase())}
+            </div>
+            <div class="hm-cob-actions hm-cob-actions--stack">
+                <button class="hm-cob-btn hm-cob-btn--ver" type="button" data-hm="brecha-cubrir"
+                    data-brecha-reference="${esc(row.reference_profile)}"
+                    data-brecha-key="${esc(row.keyDay)}"
+                    data-brecha-group="${esc(row.group)}"
+                    data-brecha-estamento="${esc(row.estamento)}"
+                    data-brecha-turno="${row.turno}"
+                    ${row.reference_profile ? "" : "disabled title=\"No hay a quién parecerse: la unidad no tiene a nadie de ese estamento.\""}>CUBRIR</button>
+                <button class="hm-cob-btn hm-cob-btn--auto" type="button" data-hm="brecha-semanal"
+                    data-brecha-iso="${esc(row.iso)}"
+                    title="Abre el Calendario Semanal en la semana de este turno">VER CALENDARIO SEMANAL</button>
+            </div>
+        </div>`;
+}
+
+function brechaBody() {
+    const rows = getBrechaRows();
+    const cargos = new Map();
+
+    rows.forEach(row => {
+        const clave = `${row.group}|${row.estamento}`;
+
+        cargos.set(clave, (cargos.get(clave) || 0) + 1);
+    });
+
+    const summary =
+        `<div class="hm-cob-chip hm-cob-chip--warn"><span class="hm-cob-chip-ico">${svg(IC.users)}</span><span><span class="hm-cob-chip-num">${cargos.size}</span><span class="hm-cob-chip-lbl">${cargos.size === 1 ? "Cargo faltante" : "Cargos faltantes"}</span></span></div>` +
+        `<div class="hm-cob-chip hm-cob-chip--accent"><span class="hm-cob-chip-ico">${svg(IC.calendar)}</span><span><span class="hm-cob-chip-num">${rows.length}</span><span class="hm-cob-chip-lbl">Turnos afectados</span></span></div>`;
+
+    const list = rows.length
+        ? rows.slice(0, BRECHA_MAX_ROWS).map(brechaRow).join("") +
+            (rows.length > BRECHA_MAX_ROWS
+                ? `<div class="hm-cob-meta hm-cob-more">y ${rows.length - BRECHA_MAX_ROWS} más en los próximos ${BRECHA_WINDOW_DAYS} días.</div>`
+                : "")
+        : `<div class="hm-empty">Los cuatro grupos están parejos.</div>`;
+
+    return { total: rows.length, summary, list };
+}
+
+function brechaWidget() {
+    const { total, summary, list } = brechaBody();
+
+    return `
+        <div class="hm-card hm-col-4">
+            ${panelHead(
+                IC.users,
+                "Brecha RRHH",
+                `<label class="hm-toggle hm-head-toggle"><input type="checkbox" data-hm="brecha-detail" ${brechaDetail ? "checked" : ""}> Ver detalles</label>
+                <span class="hm-count">${total}</span>`
+            )}
+            <div class="hm-cob-summary" ${brechaDetail ? "hidden" : ""}>${summary}</div>
+            <div class="hm-cob-list hm-scroller" ${brechaDetail ? "" : "hidden"}>${list}</div>
+        </div>`;
+}
+
 function coberturaWidget() {
     coverageData = getCoverageData();
     const { total, summary, list } = coberturaBody();
@@ -2754,6 +2858,7 @@ function homeHTML() {
                 <div class="hm-stack">
                     ${resumenWidget()}
                     ${coberturaWidget()}
+                    ${brechaWidget()}
                 </div>
             </section>
 
@@ -3218,6 +3323,54 @@ function wire(panel) {
         });
     });
 
+    // --- Brecha RRHH: plegar el detalle ---
+    const brechaSwitch = panel.querySelector('[data-hm="brecha-detail"]');
+
+    if (brechaSwitch) {
+        brechaSwitch.addEventListener("change", () => {
+            brechaDetail = brechaSwitch.checked;
+            reRenderBrecha(panel);
+        });
+    }
+
+    // --- Brecha RRHH: cubrir el cargo sin salir del inicio ---
+    //
+    // Abre el mismo modal de sugerencias del calendario, en su modo de cupo de
+    // rotativa: lo que salga de ahi es un turno extra con motivo, no el
+    // reemplazo de una persona ausente.
+    panel.querySelectorAll('[data-hm="brecha-cubrir"]').forEach(button => {
+        button.addEventListener("click", () => {
+            const estamento = button.dataset.brechaEstamento;
+            const group = button.dataset.brechaGroup;
+
+            window.openReplacementDialog?.(
+                button.dataset.brechaReference,
+                button.dataset.brechaKey,
+                {
+                    rota: {
+                        group,
+                        estamento,
+                        turno: Number(button.dataset.brechaTurno),
+                        motive: `Completar rotativa de ${
+                            BRECHA_PLURAL[estamento] || `${estamento.toLowerCase()}s`
+                        } del grupo ${group}`
+                    }
+                }
+            );
+        });
+    });
+
+    // --- Brecha RRHH: ver la semana de ese turno ---
+    panel.querySelectorAll('[data-hm="brecha-semanal"]').forEach(button => {
+        button.addEventListener("click", () => {
+            const [year, month, day] = String(button.dataset.brechaIso)
+                .split("-")
+                .map(Number);
+
+            showStaffingWeekFor(new Date(year, month - 1, day));
+        });
+    });
+
     // --- Cobertura: ver el dia en el calendario ---
     panel.querySelectorAll('[data-hm="cob-ver"]').forEach(button => {
         button.addEventListener("click", () => {
@@ -3622,6 +3775,22 @@ function reRenderCoverage(panel) {
 
     if (summary) summary.hidden = coverageDetail;
     if (list) list.hidden = !coverageDetail;
+}
+
+function reRenderBrecha(panel) {
+    // Por el interruptor y no por .hm-col-N: la tarjeta cambia de columna
+    // segun el ancho y un selector por columna se rompe en el proximo ajuste.
+    const card = panel
+        .querySelector('[data-hm="brecha-detail"]')
+        ?.closest(".hm-card");
+
+    if (!card) return;
+
+    const summary = card.querySelector(".hm-cob-summary");
+    const list = card.querySelector(".hm-cob-list");
+
+    if (summary) summary.hidden = brechaDetail;
+    if (list) list.hidden = !brechaDetail;
 }
 
 function reRenderRequestsSummary(panel) {

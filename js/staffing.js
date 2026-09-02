@@ -3000,6 +3000,98 @@ function weeklyRotaMotive(estamento, group) {
  * se veria peor de lo que esta y el rojo dejaria de significar "esto hay que
  * resolverlo ahora".
  */
+/**
+ * Lo que le falta a ESTE turno para igualar al grupo mejor dotado.
+ *
+ * Se cuenta lo ASIGNADO al turno -quien trabaja mas quien falta con su hueco-
+ * y no solo a los presentes: si no, un ausente contaria dos veces, una como
+ * hueco de su ausencia y otra como carencia de rotativa.
+ *
+ * Contarlo aca y no en el padron del grupo es lo que hace que la casilla
+ * DESAPAREZCA al cubrirla: el padron no cambia porque alguien tome un turno
+ * extra, pero el turno si queda completo.
+ */
+function weeklyRotaGapsForCell(group, people) {
+    if (!group) return [];
+
+    return (getShiftGroupGaps(currentDate).get(group) || [])
+        .map(gap => {
+            const assigned = people.filter(item =>
+                normalizeStaffingEstamento(item.profile?.estamento) ===
+                    gap.estamento
+            ).length;
+
+            return {
+                ...gap,
+                count: assigned,
+                missing: Math.max(0, gap.reference - assigned)
+            };
+        })
+        .filter(gap => gap.missing > 0);
+}
+
+/**
+ * Los turnos que entran cortos en los proximos dias, para el inicio.
+ *
+ * Solo Larga y Noche: el diurno no pertenece a ningun grupo del 4to turno.
+ */
+export function getRotaGapShifts({
+    days = 7,
+    today = currentDate,
+    absenceCache = new Map()
+} = {}) {
+    const rows = [];
+
+    for (let offset = 0; offset < days; offset += 1) {
+        const date = new Date(
+            today.getFullYear(),
+            today.getMonth(),
+            today.getDate() + offset
+        );
+
+        WEEKLY_SHIFTS
+            .filter(shift => shift.key !== "diurno")
+            .forEach(shift => {
+                const people = weeklyShiftProfiles(
+                    date,
+                    shift.key,
+                    absenceCache,
+                    "Todos",
+                    "Todas"
+                );
+                const group = weeklyCellGroup(people);
+
+                weeklyRotaGapsForCell(group, people).forEach(gap => {
+                    rows.push({
+                        date,
+                        keyDay: key(
+                            date.getFullYear(),
+                            date.getMonth(),
+                            date.getDate()
+                        ),
+                        iso: localDateISO(date),
+                        shiftKey: shift.key,
+                        turnoLabel: shift.label,
+                        turno: shift.key === "noche" ? TURNO.NOCHE : TURNO.LARGA,
+                        group,
+                        estamento: gap.estamento,
+                        missing: gap.missing,
+                        count: gap.count,
+                        reference: gap.reference,
+                        motive: weeklyRotaMotive(gap.estamento, group),
+                        reference_profile: weeklyRotaReference(
+                            people,
+                            group,
+                            gap.estamento
+                        )
+                    });
+                });
+            });
+    }
+
+    return rows;
+}
+
 function weeklyRotaReference(people, group, estamento) {
     // Alguien del grupo que SI esta trabajando ese turno: sirve de molde para
     // los candidatos -"otro como Angelica"- y, por estar presente, no arrastra
@@ -3076,9 +3168,7 @@ function renderStaffingWeeklyCell(
     );
     // Carencias del grupo que entra hoy, solo en los turnos que trabaja.
     const cellGroup = shift.key === "diurno" ? "" : weeklyCellGroup(people);
-    const rotaGaps = cellGroup
-        ? (getShiftGroupGaps(currentDate).get(cellGroup) || [])
-        : [];
+    const rotaGaps = weeklyRotaGapsForCell(cellGroup, people);
     const rotaMissing = rotaGaps.reduce(
         (total, gap) => total + gap.missing,
         0
@@ -3809,6 +3899,22 @@ function staffingWeeklyPendingHTML(weekDate) {
             Actualizando calendario semanal ${escapeHTML(label)}...
         </div>
     `;
+}
+
+/**
+ * Abre el Calendario Semanal en la semana de esa fecha.
+ *
+ * El cambio de vista lo hace el menu -se pulsa su boton- en vez de duplicar
+ * aca la logica de mostrar y ocultar paneles; al entrar, la vista se pinta
+ * sola con la semana que se acaba de fijar. Si el usuario no tiene ese menu,
+ * el boton no existe y no pasa nada, que es lo correcto.
+ */
+export function showStaffingWeekFor(date) {
+    staffingWeekDate = weekStartMonday(date);
+
+    document
+        .querySelector('.nav-tile[data-target="staffingWeeklyCalendar"]')
+        ?.click();
 }
 
 export async function renderStaffingWeeklyCalendar(options = {}) {
