@@ -139,6 +139,70 @@ test("lo que falta viaja como falta, no como vacio", () => {
     assert.equal(marks.missingEntry, true);
 });
 
+test("una incidencia de marcaje viaja por su clave", () => {
+    // El 18 es una Noche: le tocaba entrar a las 20:00 y marco a las 08:02, o
+    // sea que hizo un turno que nadie registro. En el telefono ese dia tiene
+    // que parpadear, y para eso la incidencia tiene que llegar.
+    sembrar({
+        "2026-08-17": [
+            { time: "07:58", type: "in" },
+            { time: "20:04", type: "out" }
+        ],
+        "2026-08-18": [
+            { time: "08:02", type: "in" },
+            { time: "20:00", type: "out" },
+            { time: "20:00", type: "in" }
+        ],
+        "2026-08-19": [{ time: "08:05", type: "out" }]
+    });
+
+    const marks = leer()("2026-7-18", new Date(2026, 7, 18), {});
+
+    assert.ok(Array.isArray(marks.incidents));
+    assert.ok(marks.incidents.includes("earlyEntry"));
+    assert.ok(marks.incidents.includes("unexplainedMarks"));
+});
+
+test("viajan las claves, no el texto escrito para el supervisor", () => {
+    // "Revisar si falta registrarle un turno extra" esta escrito para quien
+    // tiene que ir a corregir el registro, no para el trabajador.
+    sembrar({
+        "2026-08-17": [
+            { time: "07:58", type: "in" },
+            { time: "20:04", type: "out" }
+        ],
+        "2026-08-18": [
+            { time: "08:02", type: "in" },
+            { time: "20:00", type: "out" },
+            { time: "20:00", type: "in" }
+        ],
+        "2026-08-19": [{ time: "08:05", type: "out" }]
+    });
+
+    const marks = leer()("2026-7-18", new Date(2026, 7, 18), {});
+
+    marks.incidents.forEach(kind => {
+        assert.match(kind, /^[a-zA-Z]+$/, "una clave, no una frase");
+    });
+});
+
+test("la marca que falta NO se repite en la lista de incidencias", () => {
+    // Ya viaja en missingEntry / missingExit, y la aplicacion tiene su propia
+    // tarjeta para ella. Mandarla dos veces la mostraria dos veces.
+    sembrar({
+        "2026-08-17": [
+            { time: "07:58", type: "in" },
+            { time: "20:04", type: "out" }
+        ],
+        "2026-08-19": [{ time: "08:00", type: "out" }]
+    });
+
+    const marks = leer()("2026-7-18", new Date(2026, 7, 18), {});
+
+    assert.equal(marks.missingEntry, true);
+    assert.ok(!(marks.incidents || []).includes("missingEntry"));
+});
+
 test("un dia sin nada que decir no ocupa espacio en la proyeccion", () => {
     // Viaja a cada telefono: un campo vacio por dia la engorda sin aportar.
     sembrar({});

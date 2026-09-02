@@ -1313,12 +1313,13 @@ export function createAttendanceMarksReader(profile) {
     const today = startOfToday();
 
     return (keyDay, date, holidays) => {
+        const iso = isoFromKey(keyDay);
         const baseWithSwaps = baseWithSwapsForReport(profileName, keyDay);
         const actual = actualStateForReport(profileName, data, keyDay);
         const absence = dayAbsenceDetail(keyDay, maps);
-        const { cells, delay, missingExit } = attendanceDayFacts(
+        const facts = attendanceDayFacts(
             profile,
-            isoFromKey(keyDay),
+            iso,
             attendanceDay(profileName, keyDay, date, holidays, data, {
                 baseShift: baseWithSwaps,
                 extraShift: getTurnoExtraAgregado(baseWithSwaps, actual),
@@ -1328,12 +1329,32 @@ export function createAttendanceMarksReader(profile) {
                 coverage
             })
         );
+        const { cells, delay } = facts;
+        // Las incidencias del dia salen del MISMO pushIncidents que alimenta el
+        // recuadro del supervisor: si alla se cuenta una, aca viaja, y no hay
+        // dos criterios que se vayan separando.
+        const eventos = [];
+
+        pushIncidents(eventos, profile, iso, facts);
+
+        // La cruz de la marca que falta ya viaja en sus propios campos y la
+        // aplicacion tiene su tarjeta para ella, asi que no se manda dos veces.
+        const kinds = eventos
+            .map(evento => evento.kind)
+            .filter(kind => kind !== "missingEntry" && kind !== "missingExit");
+        // La entrada y la salida que faltan se dicen del dia entero, aunque lo
+        // que falte sea de un solo tramo: en el telefono la celda es una sola
+        // y lo que importa es que ese turno tiene marcaje sin registrar.
+        const missingEntry = delay.missingEntry ||
+            missingPartLabels(facts.missingParts, "entry").length > 0;
+        const missingExit = facts.missingExit ||
+            missingPartLabels(facts.missingParts, "exit").length > 0;
 
         // Sin nada que decir no se manda nada: la proyeccion viaja a cada
         // telefono y un campo vacio por dia la engorda sin aportar.
         if (
             !cells.entrada && !cells.salida &&
-            !delay.missingEntry && !missingExit
+            !missingEntry && !missingExit && !kinds.length
         ) {
             return null;
         }
@@ -1341,8 +1362,12 @@ export function createAttendanceMarksReader(profile) {
         return {
             entrada: cells.entrada,
             salida: cells.salida,
-            ...(delay.missingEntry ? { missingEntry: true } : {}),
-            ...(missingExit ? { missingExit: true } : {})
+            ...(missingEntry ? { missingEntry: true } : {}),
+            ...(missingExit ? { missingExit: true } : {}),
+            // Solo las claves, no el texto del supervisor: su detalle esta
+            // escrito para quien tiene que ir a corregir el registro ("Revisar
+            // si falta registrarle un turno extra"), no para el trabajador.
+            ...(kinds.length ? { incidents: kinds } : {})
         };
     };
 }
