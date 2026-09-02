@@ -676,6 +676,45 @@ function scheduledExitFromShift(profileName, keyDay, date, state, holidays) {
         || formatClockTime(last.end);
 }
 
+/**
+ * Las horas de entrada y de salida de CADA tramo del turno.
+ *
+ * scheduledEntryFromShift y scheduledExitFromShift miran solo las dos puntas
+ * -la entrada del primer tramo y la salida del ultimo-, que es todo lo que
+ * necesita un turno corrido. Un D+N no lo es: son dos presencias con horas de
+ * por medio, se entra a las 8, se sale a las 17 -16 los viernes-, se vuelve a
+ * las 20 y se cierra a las 8 de la manana siguiente. Medir solo las puntas
+ * deja la frontera del medio sin revisar, y ahi es donde se ve al que en vez
+ * de irse a las 17 se quedo de largo.
+ *
+ * Misma precedencia que las puntas, tramo por tramo: la hora que el supervisor
+ * autorizo para ESE tramo, el horario propio del trabajador para ese tramo -su
+ * clave es el id del tramo- y, si no hay ninguna, la hora del turno, que ya
+ * trae el viernes mas corto.
+ */
+function scheduledBoundsFromShift(profileName, keyDay, date, state, holidays) {
+    const marks = getClockMarks(profileName)[keyDay];
+    const own = getWorkerScheduleAt(profileName, date);
+    const viernes = date instanceof Date && date.getDay() === 5;
+
+    return scheduledSegments(profileName, keyDay, date, state, holidays)
+        .map(segment => {
+            const authorized = findClockMarkEntry(marks, segment)?.value;
+            const propio = own?.[segment.id];
+
+            return {
+                id: segment.id,
+                start: authorized?.entryTime
+                    || propio?.entry
+                    || formatClockTime(segment.start),
+                end: authorized?.exitTime
+                    || (viernes && propio?.exitFriday)
+                    || propio?.exit
+                    || formatClockTime(segment.end)
+            };
+        });
+}
+
 function scheduledSegments(profileName, keyDay, date, state, holidays) {
     return getScheduledSegmentsForProfile(
         profileName,
@@ -832,6 +871,9 @@ function attendanceDay(profileName, keyDay, date, holidays, data, day) {
             profileName, keyDay, date, day.baseShift, holidays
         ),
         scheduledExit,
+        scheduledBounds: scheduledBoundsFromShift(
+            profileName, keyDay, date, day.workedShift, holidays
+        ),
         exitMoved: hasModifiedExitTime(profileName, keyDay),
         entryMoved: hasModifiedEntryTime(profileName, keyDay),
         nextEntryMoved: hasModifiedEntryTime(profileName, nextDayKey(keyDay)),
@@ -842,6 +884,65 @@ function attendanceDay(profileName, keyDay, date, holidays, data, day) {
             profileName, data, previousDayKey(keyDay)
         )
     };
+}
+
+/**
+ * Cuanto se corrio cada frontera del turno respecto de su hora.
+ *
+ * Un turno corrido tiene dos: cuando empieza y cuando termina. Un D+N tiene
+ * cuatro, porque son dos presencias, y la del medio -irse a las 17 y volver a
+ * las 20- es la que se escapaba: midiendo solo la entrada del primer tramo y
+ * la salida del ultimo, quien en vez de irse a las 17:00 se quedaba de largo
+ * hasta las 20:00 se veia igual que quien cumplio.
+ *
+ * Los tramos de la fila y los tramos programados solo se emparejan cuando son
+ * la misma cantidad. Cuando no lo son, lo que se mide es la envolvente -la
+ * entrada del primero contra la hora de ingreso y la salida del ultimo contra
+ * la de termino-, que es justamente lo correcto para un turno continuo: un 24
+ * es Larga + Noche pero el trabajador nunca se va, asi que marcar el traspaso
+ * de las 20:00 no crea una frontera que haya que cumplir.
+ *
+ * @returns {Array<{start: string, end: string, early: number,
+ *                  exit: number|null}>}
+ */
+function shiftBoundaryDrifts(cells, day) {
+    const tramos = cells.segments || [];
+    const bounds = day.scheduledBounds || [];
+    const porTramo = bounds.length > 1 && bounds.length === tramos.length;
+    const ultimo = tramos.length - 1;
+    const cierraDeManana = shiftEndsNextMorning(day.workedShift);
+
+    return tramos.map((tramo, indice) => {
+        const start = porTramo ? bounds[indice].start : day.scheduledEntry;
+        const end = porTramo ? bounds[indice].end : day.scheduledExit;
+        // Solo el ULTIMO tramo puede cerrar a la manana siguiente. El diurno de
+        // un D+N termina a las 17 del mismo dia, y darlo por nocturno le
+        // sumaria un dia entero a la diferencia.
+        const endsNextMorning = cierraDeManana && indice === ultimo;
+
+        // La entrada de un tramo que no es el primero solo cuenta como
+        // frontera propia cuando los tramos estan emparejados: en un turno
+        // corrido no hay nada que marcar al pasar de un tramo al otro.
+        const mideEntrada = indice === 0 || porTramo;
+        const mideSalida = indice === ultimo || porTramo;
+
+        return {
+            start,
+            end,
+            early: mideEntrada
+                ? earlyEntryMinutes(tramo.entry?.time, start)
+                : 0,
+            late: mideEntrada
+                ? delayMinutes(tramo.entry?.time, start)
+                : 0,
+            exit: mideSalida
+                ? exitDriftMinutes(tramo.exit?.time, end, {
+                    markIsNextDay: Boolean(tramo.exit?.iso),
+                    endsNextMorning
+                })
+                : null
+        };
+    });
 }
 
 /**
@@ -888,33 +989,37 @@ function attendanceDayFacts(profile, iso, day) {
         hasPassed: day.hasPassed && !cells.entryArrow
     });
 
-    // Las dos puntas del turno se miden sobre las MARCAS del tramo y no sobre
-    // el texto de la celda: un turno de dos tramos apila dos horas en la misma
-    // celda ("20:00\n08:11") y leer eso como una hora sola devuelve la de
-    // arriba, que en la salida es justamente la que no cierra el turno.
-    const entryMark = cells.segments?.[0]?.entry;
-    const exitMark = cells.segments?.[cells.segments.length - 1]?.exit;
-    // Cuanto se corrio el cierre del turno, en minutos: negativo si se fue
-    // antes, positivo si se quedo de mas. Va aparte porque de el salen las dos
-    // incidencias de la salida.
-    const exitDrift = medible && !day.exitMoved
-        ? exitDriftMinutes(exitMark?.time, day.scheduledExit, {
-            markIsNextDay: Boolean(exitMark?.iso),
-            endsNextMorning: shiftEndsNextMorning(day.workedShift)
-        })
-        : null;
-    const earlyMinutes = medible && !day.entryMoved
-        ? earlyEntryMinutes(entryMark?.time, day.scheduledEntry)
-        : 0;
+    // Contra que horas se miden las marcas. Las dos puntas se miden sobre las
+    // MARCAS del tramo y no sobre el texto de la celda: un turno de dos tramos
+    // apila dos horas en la misma celda ("20:00\n08:11") y leer eso como una
+    // hora sola devuelve la de arriba, que en la salida es justamente la que
+    // no cierra el turno.
+    const drifts = shiftBoundaryDrifts(cells, day);
+    // De todas las fronteras se reporta la PEOR de cada tipo, que es la que el
+    // supervisor tiene que ir a mirar. Las demas van en el hover de la celda.
+    const worstEarly = drifts
+        .filter(item => item.early > 0)
+        .sort((a, b) => b.early - a.early)[0] || null;
+    const worstLate = drifts
+        .filter(item => item.late > 0)
+        .sort((a, b) => b.late - a.late)[0] || null;
+    const worstExit = drifts
+        .filter(item => item.exit !== null)
+        .sort((a, b) => Math.abs(b.exit) - Math.abs(a.exit))[0] || null;
+    const exitDrift = medible && !day.exitMoved ? worstExit?.exit ?? null : null;
+    const earlyMinutes = medible && !day.entryMoved ? worstEarly?.early || 0 : 0;
 
     return {
         cells,
         delay,
-        // Las horas del turno y lo que se corrio cada punta. El detalle de la
-        // incidencia las nombra, para que el supervisor sepa contra que se
-        // esta comparando sin abrir el reporte.
-        scheduledEntry: day.scheduledEntry,
-        scheduledExit: day.scheduledExit,
+        // Las horas contra las que se midio la peor frontera de cada tipo, no
+        // las del turno entero: en un D+N la salida que se paso de hora puede
+        // ser la de las 17:00 del diurno y no la de las 08:00 de la noche. El
+        // detalle de la incidencia las nombra, para que el supervisor sepa
+        // contra que se esta comparando sin abrir el reporte.
+        scheduledEntry: worstEarly?.start || day.scheduledEntry,
+        lateScheduledEntry: worstLate?.start || day.scheduledEntry,
+        scheduledExit: worstExit?.end || day.scheduledExit,
         earlyMinutes,
         exitDrift,
         // La salida lleva la misma cruz que la entrada cuando falta su registro.
@@ -926,10 +1031,13 @@ function attendanceDayFacts(profile, iso, day) {
         }),
         // Llego tarde a un turno que no es su base. No se mide atraso -los
         // atrasos son de la rotativa propia-, pero queda senalado.
-        lateOnExtra: Boolean(
-            !delay.minutes &&
-            delayMinutes(cells.entrada, day.scheduledEntry)
-        ),
+        //
+        // Se mira frontera por frontera y no la primera hora de la celda: en
+        // un D+N con base Diurno, la noche es la parte que no es suya, y
+        // volver a las 22:10 en vez de a las 20:00 es justamente lo que hay
+        // que ver. Con una sola hora por celda esa llegada no se comparaba
+        // contra nada.
+        lateOnExtra: Boolean(!delay.minutes && worstLate),
         // Llego MUCHO antes de su hora. El caso que esto busca es el turno
         // extra o la extension horaria que se acordo de palabra y nadie
         // alcanzo a registrar: sin este aviso esas horas no aparecen en el
@@ -1311,7 +1419,12 @@ function attendanceReportCells(profile, iso, day) {
         lateOnExtra,
         earlyEntry,
         earlyExit,
-        lateExit
+        lateExit,
+        // Las horas de la frontera que se paso, que en un D+N no tienen por
+        // que ser las del turno entero.
+        scheduledEntry,
+        lateScheduledEntry,
+        scheduledExit
     } = attendanceDayFacts(profile, iso, day);
     const meta = {};
     // De un turno solo se muestran la primera entrada y la ultima salida. Las
@@ -1337,10 +1450,10 @@ function attendanceReportCells(profile, iso, day) {
             title: [
                 cells.entryIncident ? ENTRY_INCIDENT_TITLE : "",
                 lateOnExtra
-                    ? `${LATE_EXTRA_TITLE} ${day.scheduledEntry}`
+                    ? `${LATE_EXTRA_TITLE} ${lateScheduledEntry}`
                     : "",
                 earlyEntry
-                    ? `${EARLY_ENTRY_TITLE} ${day.scheduledEntry}`
+                    ? `${EARLY_ENTRY_TITLE} ${scheduledEntry}`
                     : "",
                 hidden
             ].filter(Boolean).join("\n"),
@@ -1360,10 +1473,10 @@ function attendanceReportCells(profile, iso, day) {
         const lines = [
             cells.exitIncident ? EXIT_INCIDENT_TITLE : "",
             earlyExit
-                ? `${EARLY_EXIT_TITLE} ${day.scheduledExit}`
+                ? `${EARLY_EXIT_TITLE} ${scheduledExit}`
                 : "",
             lateExit
-                ? `${LATE_EXIT_TITLE} ${day.scheduledExit}`
+                ? `${LATE_EXIT_TITLE} ${scheduledExit}`
                 : "",
             cells.salidaFrom
                 ? `${MOVED_EXIT_TITLE} ${formatDate(cells.salidaFrom)}`

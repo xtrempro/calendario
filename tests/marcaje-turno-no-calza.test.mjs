@@ -338,6 +338,121 @@ test("cerrar la Noche a las 08:11 no es quedarse de mas", async () => {
 });
 
 /* =========================================================
+   El D+N y su frontera del medio
+
+   Un D+N no es un turno corrido: se entra a las 8, se sale a las 17 -16 los
+   viernes-, se vuelve a las 20 y se cierra a las 8 de la manana siguiente. Son
+   cuatro fronteras, no dos.
+
+   Segundo caso real, del 13/08/2026: base Diurno, realizado D+N, y el
+   trabajador marco 07:53, 20:01 y 20:01, o sea que en vez de irse a las 17:00
+   siguio de largo hasta la noche. La fila se veia como un 24 impecable porque
+   solo se miraban las dos puntas del turno: la entrada de las 07:53 contra las
+   08:00 y el cierre de las 08:04 contra las 08:00. La salida del diurno, tres
+   horas pasada, no la miraba nadie.
+========================================================= */
+
+const MARCAS_DEL_DN_CORRIDO = {
+    [iso(13)]: [
+        { time: "07:53", type: "in" },
+        { time: "20:01", type: "out" },
+        { time: "20:01", type: "in" }
+    ],
+    [iso(14)]: [{ time: "08:04", type: "out" }]
+};
+
+test("no irse a las 17:00 en un D+N levanta la salida posterior", async () => {
+    sembrar(
+        { [dia(13)]: TURNO.DIURNO_NOCHE },
+        MARCAS_DEL_DN_CORRIDO,
+        { [dia(13)]: TURNO.DIURNO }
+    );
+
+    const delDia = await incidenciasDe(13);
+    const posterior = delDia.find(evento => evento.kind === "lateExit");
+
+    assert.ok(posterior, "el diurno cerro a las 20:01 y le tocaba 17:00");
+    // Contra las 17:00 del DIURNO, no contra las 08:00 de la noche.
+    assert.match(posterior.detail, /3 h 1 min después de las 17:00/);
+});
+
+test("los viernes la frontera del diurno son las 16:00", async () => {
+    // 14-08-2026 es viernes. El mismo retraso se mide contra una hora distinta.
+    assert.equal(new Date(A, M, 14).getDay(), 5);
+
+    sembrar(
+        { [dia(14)]: TURNO.DIURNO_NOCHE },
+        {
+            [iso(14)]: [
+                { time: "07:53", type: "in" },
+                { time: "20:01", type: "out" },
+                { time: "20:01", type: "in" }
+            ],
+            [iso(15)]: [{ time: "08:04", type: "out" }]
+        },
+        { [dia(14)]: TURNO.DIURNO }
+    );
+
+    const delDia = await incidenciasDe(14);
+    const posterior = delDia.find(evento => evento.kind === "lateExit");
+
+    assert.ok(posterior);
+    assert.match(posterior.detail, /después de las 16:00/);
+});
+
+test("un D+N marcado como corresponde no genera nada", async () => {
+    // Entra 07:55, se va 17:02, vuelve 19:58 y cierra 08:03 al dia siguiente.
+    sembrar(
+        { [dia(13)]: TURNO.DIURNO_NOCHE },
+        {
+            [iso(13)]: [
+                { time: "07:55", type: "in" },
+                { time: "17:02", type: "out" },
+                { time: "19:58", type: "in" }
+            ],
+            [iso(14)]: [{ time: "08:03", type: "out" }]
+        },
+        { [dia(13)]: TURNO.DIURNO }
+    );
+
+    assert.deepEqual(await incidenciasDe(13), []);
+});
+
+test("y llegar tarde a la noche del D+N tambien se ve", async () => {
+    // Cumple el diurno, pero vuelve a las 22:10 en vez de a las 20:00. La
+    // entrada del segundo tramo antes no se comparaba con nada.
+    sembrar(
+        { [dia(13)]: TURNO.DIURNO_NOCHE },
+        {
+            [iso(13)]: [
+                { time: "07:55", type: "in" },
+                { time: "17:02", type: "out" },
+                { time: "22:10", type: "in" }
+            ],
+            [iso(14)]: [{ time: "08:03", type: "out" }]
+        },
+        { [dia(13)]: TURNO.DIURNO }
+    );
+
+    const delDia = await incidenciasDe(13);
+
+    assert.ok(
+        delDia.some(evento => evento.kind === "lateOnExtra"),
+        "volver a las 22:10 cuando la noche empieza a las 20:00"
+    );
+});
+
+test("el 24 sigue siendo corrido: marcar el traspaso no crea una frontera", async () => {
+    // Un 24 es Larga + Noche, pero el trabajador nunca se va. Si se midiera
+    // por tramos, el traspaso de las 20:00 se compararia contra las 20:00 de
+    // la Larga y contra las 20:00 de la Noche, y cualquier minuto de
+    // diferencia seria una incidencia de un turno que se cumplio entero.
+    sembrar({ [dia(26)]: TURNO.TURNO24 }, MARCAS_DEL_24);
+
+    assert.deepEqual(await incidenciasDe(26), []);
+});
+
+/* =========================================================
    El motor, suelto
 ========================================================= */
 

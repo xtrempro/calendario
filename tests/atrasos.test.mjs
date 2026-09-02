@@ -1538,9 +1538,13 @@ test("el reporte toma la hora de ingreso del horario programado", () => {
 
 test("llegar tarde a un extra no suma minutos pero si deja incidencia", () => {
     assert.match(reporte, /const LATE_EXTRA_TITLE = "Incidencia: llego despues de las";/);
+    assert.match(reporte, /lateOnExtra: Boolean\(!delay\.minutes && worstLate\)/);
+    // La llegada tarde se busca frontera por frontera y no en la primera hora
+    // de la celda: un D+N tiene dos llegadas y la segunda -la de la noche- no
+    // se comparaba contra nada.
     assert.match(
         reporte,
-        /lateOnExtra: Boolean\(\s*\n\s*!delay\.minutes &&\s*\n\s*delayMinutes\(cells\.entrada, day\.scheduledEntry\)\s*\n\s*\)/
+        /late: mideEntrada\s*\n\s*\? delayMinutes\(tramo\.entry\?\.time, start\)/
     );
     // Se mide contra el turno que efectivamente hizo, no contra su base: en un
     // extra la base esta libre y no tiene hora de entrada.
