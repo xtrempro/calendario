@@ -315,6 +315,223 @@ export function buildColorAssignments(profiles) {
 }
 
 /* ==========================================================================
+   Mapa de grupos para las otras pantallas
+   ========================================================================== */
+
+let groupMapMemo = { key: "", map: null };
+
+// Claves cuyo cambio puede mover a alguien de grupo: su rotativa, su
+// calendario, o la lista de perfiles.
+const GROUP_MAP_PREFIXES = [
+    "rotativa_",
+    "data_",
+    "baseData_",
+    "shift_",
+    "shiftAssignmentHistory_"
+];
+const GROUP_MAP_KEYS = new Set(["profiles", "swaps", "shiftMoves"]);
+
+/**
+ * Nombre -> letra del grupo, para quienes hacen 4to turno.
+ *
+ * Se calcula UNA vez y se guarda: cada trabajador mira hasta 92 dias de
+ * calendario, y preguntarlo por celda congelaria una pantalla que se repinta
+ * al cambiar de semana.
+ *
+ * La letra esta anclada a una fecha fija, asi que no cambia de un dia para
+ * otro: basta con rehacer el mapa cuando cambia el dia o los datos de los que
+ * sale.
+ */
+export function getShiftGroupMap(today = new Date()) {
+    const memoKey = keyFromDate(today);
+
+    if (groupMapMemo.key === memoKey && groupMapMemo.map) {
+        return groupMapMemo.map;
+    }
+
+    const map = new Map();
+
+    getProfiles()
+        .filter(isProfileActive)
+        .forEach(profile => {
+            const placement = detectHolderPlacement(profile.name, today);
+
+            if (placement) map.set(profile.name, placement.letter);
+        });
+
+    groupMapMemo = { key: memoKey, map, gaps: null };
+
+    return map;
+}
+
+/**
+ * Que le falta a cada grupo frente a los demas, por estamento.
+ *
+ * Es la misma comparacion del tablero de Titulares, disponible para las otras
+ * pantallas. Se guarda junto al mapa de grupos porque sale de el y se invalida
+ * con lo mismo.
+ */
+export function getShiftGroupGaps(today = new Date()) {
+    const map = getShiftGroupMap(today);
+
+    if (groupMapMemo.gaps) return groupMapMemo.gaps;
+
+    const byName = new Map(
+        getProfiles().map(profile => [profile.name, profile])
+    );
+    const columns = COLUMN_LETTERS.map(letter => ({
+        letter,
+        workers: [...map.entries()]
+            .filter(([, group]) => group === letter)
+            .map(([name]) => ({ profile: byName.get(name) }))
+            .filter(item => item.profile)
+    }));
+    const gaps = new Map();
+
+    buildEstamentoGaps(columns).forEach((columnGaps, index) => {
+        if (columnGaps.length) gaps.set(COLUMN_LETTERS[index], columnGaps);
+    });
+
+    groupMapMemo.gaps = gaps;
+
+    return gaps;
+}
+
+export function invalidateShiftGroupMap() {
+    groupMapMemo = { key: "", map: null };
+}
+
+function affectsShiftGroups(keys = []) {
+    return keys.some(key => {
+        const clean = String(key || "");
+
+        return GROUP_MAP_KEYS.has(clean) ||
+            GROUP_MAP_PREFIXES.some(prefix => clean.startsWith(prefix));
+    });
+}
+
+if (typeof window !== "undefined") {
+    const alCambiar = event => {
+        if (affectsShiftGroups(event.detail?.keys || [])) {
+            invalidateShiftGroupMap();
+        }
+    };
+
+    window.addEventListener("proturnos:persistenceChanged", alCambiar);
+    // Los cambios de otro supervisor entran por aqui.
+    window.addEventListener("proturnos:firebaseAppState", event => {
+        if (event.detail?.type !== "app-state-entries-applied") return;
+
+        alCambiar({ detail: { keys: event.detail.keys || [] } });
+    });
+}
+
+/* ==========================================================================
+   Cupos disponibles
+   ========================================================================== */
+
+function countEstamento(column, estamento) {
+    return column.workers.filter(
+        worker => profileEstamento(worker.profile) === estamento
+    ).length;
+}
+
+/**
+ * Estamentos presentes en el tablero, en el orden en que se muestran: primero
+ * los del catalogo y despues los que no lo estan -datos antiguos-, igual que
+ * como ordena compareHolders dentro de la columna.
+ */
+function estamentoBuckets(columns) {
+    const present = [...new Set(
+        columns.flatMap(column =>
+            column.workers.map(worker => profileEstamento(worker.profile))
+        )
+    )];
+    const known = ESTAMENTO_ORDER.filter(estamento => present.includes(estamento));
+    const unknown = present
+        .filter(estamento => !ESTAMENTO_ORDER.includes(estamento))
+        .sort((left, right) => left.localeCompare(right, "es"));
+
+    return [...known, ...unknown];
+}
+
+/**
+ * Cuantos trabajadores le faltan a cada grupo, estamento por estamento.
+ *
+ * La referencia es el grupo MEJOR DOTADO de ese estamento: si tres grupos
+ * tienen 4 auxiliares y el cuarto tiene 2, a ese cuarto le faltan 2. Es una
+ * regla que no esconde huecos -cualquier grupo bajo el maximo los muestra- y
+ * que el supervisor puede reproducir de cabeza mirando las cuatro columnas.
+ *
+ * Los estamentos fuera del catalogo quedan fuera de la comparacion: decir que a
+ * un grupo "le falta un sin estamento" no le sirve a nadie, y el hueco real
+ * aparece igual cuando ese trabajador tenga su ficha completa.
+ */
+export function buildEstamentoGaps(columns) {
+    // La referencia es del estamento, no de la columna: se calcula una vez y
+    // las cuatro se miden contra ella. Un estamento que no existe en la unidad
+    // no entra -no hay contra que compararlo-, y el orden del catalogo se
+    // conserva porque un Map recuerda en que orden se llenó.
+    const reference = new Map();
+
+    ESTAMENTO_ORDER.forEach(estamento => {
+        const most = Math.max(
+            ...columns.map(column => countEstamento(column, estamento))
+        );
+
+        if (most > 0) reference.set(estamento, most);
+    });
+
+    return columns.map(column => {
+        // Un grupo sin NINGUN titular no esta corto de personal: o no se usa en
+        // esta unidad, o el calendario todavia no alcanza para reconocerlo.
+        // Llenarlo de cupos seria ruido, y la columna ya dice que esta vacia.
+        if (!column.workers.length) return [];
+
+        return [...reference].reduce((gaps, [estamento, most]) => {
+            const count = countEstamento(column, estamento);
+
+            if (count < most) {
+                gaps.push({
+                    estamento,
+                    count,
+                    reference: most,
+                    missing: most - count
+                });
+            }
+
+            return gaps;
+        }, []);
+    });
+}
+
+/**
+ * Contenido de la columna en orden de pantalla: cada bloque de estamento con
+ * sus titulares y, cerrando el bloque, un cupo por cada trabajador que falta.
+ *
+ * Se recorre la lista de estamentos en vez de insertar dentro de la lista ya
+ * ordenada porque un grupo puede no tener NINGUN trabajador del estamento que
+ * le falta, y entonces no habria bloque donde colgar el cupo.
+ */
+function columnItems(workers, gaps, buckets) {
+    const items = [];
+
+    buckets.forEach(estamento => {
+        workers
+            .filter(worker => profileEstamento(worker.profile) === estamento)
+            .forEach(worker => items.push({ type: "worker", worker }));
+
+        const gap = gaps.find(item => item.estamento === estamento);
+
+        if (!gap) return;
+
+        for (let i = 0; i < gap.missing; i += 1) items.push({ type: "gap", gap });
+    });
+
+    return items;
+}
+
+/* ==========================================================================
    Armado del tablero
    ========================================================================== */
 
@@ -366,6 +583,14 @@ export async function buildShiftHolders(today = new Date()) {
         };
     });
 
+    const gaps = buildEstamentoGaps(columns);
+    const buckets = estamentoBuckets(columns);
+
+    columns.forEach((column, index) => {
+        column.gaps = gaps[index];
+        column.items = columnItems(column.workers, gaps[index], buckets);
+    });
+
     return {
         columns,
         total: placements.length,
@@ -411,9 +636,35 @@ function workerCardHTML(worker) {
         </li>`;
 }
 
+/**
+ * Cupo disponible. Se dibuja con el mismo lenguaje que el hueco de reemplazo de
+ * la programacion semanal -caja al aire y una insignia roja- para que se lea
+ * como "aqui falta alguien" y no como un trabajador mas de la lista.
+ */
+function gapCardHTML(gap) {
+    const detalle = `${gap.estamento}: este grupo tiene ${gap.count} y el grupo con más tiene ${gap.reference}.`;
+
+    return `
+        <li class="tt-vacancy" title="${escapeHTML(detalle)}">
+            <span class="tt-vacancy-badge" aria-hidden="true">!</span>
+            <span class="tt-vacancy-body">
+                <span class="tt-vacancy-title">Cupo disponible</span>
+                <span class="tt-vacancy-meta">${escapeHTML(gap.estamento)}</span>
+            </span>
+        </li>`;
+}
+
+function itemHTML(item) {
+    return item.type === "gap" ? gapCardHTML(item.gap) : workerCardHTML(item.worker);
+}
+
 function columnHTML(column) {
-    const body = column.workers.length
-        ? `<ul class="tt-list">${column.workers.map(workerCardHTML).join("")}</ul>`
+    const items = column.items || column.workers.map(worker => ({
+        type: "worker",
+        worker
+    }));
+    const body = items.length
+        ? `<ul class="tt-list">${items.map(itemHTML).join("")}</ul>`
         : `<p class="tt-empty">Sin titulares en este grupo.</p>`;
 
     return `
@@ -437,6 +688,28 @@ function legendHTML(legend) {
                     <i class="tt-legend-dot"></i>${escapeHTML(item.key)}
                 </span>`).join("")}
         </div>`;
+}
+
+/**
+ * La explicacion de los cupos solo aparece cuando hay alguno: si los cuatro
+ * grupos estan parejos, no hay nada que explicar.
+ */
+function gapNoteHTML(board) {
+    const missing = board.columns.reduce(
+        (total, column) => total + (column.gaps || []).reduce(
+            (sum, gap) => sum + gap.missing, 0
+        ),
+        0
+    );
+
+    if (!missing) return "";
+
+    return `
+            <p class="tt-note tt-note--gaps">
+                Los recuadros con <strong>!</strong> son cupos disponibles: ese
+                grupo tiene menos trabajadores de ese estamento que el grupo
+                mejor dotado.
+            </p>`;
 }
 
 function boardHTML(board, today) {
@@ -476,6 +749,7 @@ function boardHTML(board, today) {
                 el turno del día rote. El subtítulo dice qué le toca hoy a cada
                 grupo.
             </p>
+            ${gapNoteHTML(board)}
         </div>`;
 }
 
