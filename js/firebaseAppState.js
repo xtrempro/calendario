@@ -116,6 +116,11 @@ const lastAppliedHashes = new Map();
 const pendingStateEntries = new Map();
 const pendingRemoteStateEntries = new Map();
 const localDirtyStateEntries = new Map();
+// Firma del ultimo valor que ya quedo aplicado localmente, por elemento.
+// Firestore notifica por DOCUMENTO: como todos los elementos de una clave
+// comparten documento, tocar uno reenvia los N. Sin esto se reaplicaban los N.
+const appliedEntrySignatures = new Map();
+const EMPTY_SIGNATURES = new Map();
 const entryModulesPresent = new Set();
 let unsubscribeStateEntries = null;
 
@@ -274,7 +279,7 @@ function firebaseRemoteApplyDelay() {
     });
 }
 
-function remoteEntryId(entry = {}) {
+export function remoteEntryId(entry = {}) {
     return [
         entry.moduleId,
         entry.storageKey,
@@ -718,6 +723,77 @@ function currentModuleSnapshot(moduleId) {
 
 function currentModuleStateString(moduleId) {
     return stableSnapshotString(currentModuleSnapshot(moduleId));
+}
+
+// JSON.stringify no garantiza el orden de claves entre dos lecturas distintas
+// del SDK. Se ordena a mano para que la firma solo cambie cuando cambia el dato.
+function stableValueString(value) {
+    if (value === undefined) return "null";
+
+    if (value === null || typeof value !== "object") {
+        return JSON.stringify(value) ?? "null";
+    }
+
+    if (Array.isArray(value)) {
+        return `[${value.map(stableValueString).join(",")}]`;
+    }
+
+    return `{${Object.keys(value)
+        .sort()
+        .map(key => `${JSON.stringify(key)}:${stableValueString(value[key])}`)
+        .join(",")}}`;
+}
+
+export function remoteEntrySignature(entry = {}) {
+    return hashString(
+        `${entry.deleted === true ? "1" : "0"}|${stableValueString(entry.value)}`
+    );
+}
+
+// Firestore notifica por DOCUMENTO. Como todos los elementos de una clave
+// comparten documento, tocar uno reenvia los N: `changeCount: 1` con
+// `entryCount: 15`. Aplicar los 15 no solo cuesta, ademas repinta la vista
+// entera por un cambio de uno. Aqui se quedan solo los que de verdad cambiaron.
+export function selectUnappliedStateEntries(
+    entries = [],
+    signatures = new Map()
+) {
+    return entries.filter(entry => {
+        const known = signatures.get(remoteEntryId(entry));
+
+        return known === undefined || known !== remoteEntrySignature(entry);
+    });
+}
+
+function rememberAppliedStateEntries(entries = []) {
+    entries.forEach(entry => {
+        if (!entry?.storageKey) return;
+
+        const moduleId = String(entry.moduleId || "");
+        let moduleSignatures = appliedEntrySignatures.get(moduleId);
+
+        if (!moduleSignatures) {
+            moduleSignatures = new Map();
+            appliedEntrySignatures.set(moduleId, moduleSignatures);
+        }
+
+        moduleSignatures.set(
+            remoteEntryId(entry),
+            remoteEntrySignature(entry)
+        );
+    });
+}
+
+// Cuando el estado local de un modulo se reescribe entero por fuera de estas
+// firmas, dejan de describir lo aplicado. Se olvidan: mas vale reaplicar de mas
+// que filtrar un elemento que hacia falta.
+function forgetAppliedStateEntries(moduleId) {
+    appliedEntrySignatures.delete(String(moduleId || ""));
+}
+
+function moduleAppliedSignatures(moduleId) {
+    return appliedEntrySignatures.get(String(moduleId || "")) ||
+        EMPTY_SIGNATURES;
 }
 
 function hashString(value) {
@@ -1385,6 +1461,10 @@ function applyRemoteStateEntries(entries = []) {
                 applyingRemoteState = false;
             }
 
+            // Se anota DESPUES del parche: si `applyLocalPatch` revienta, la
+            // entrada sigue sin firma y el proximo snapshot la reintenta.
+            rememberAppliedStateEntries(applicableEntries);
+
             if (changedKeys.length) {
                 dispatchStatus({
                     type: "app-state-entries-applied",
@@ -1424,13 +1504,24 @@ function handleEntriesSnapshot(
     if (!entries.length) return;
 
     entryModulesPresent.add(moduleId);
+
+    const changedEntries = selectUnappliedStateEntries(
+        entries,
+        moduleAppliedSignatures(moduleId)
+    );
+
     recordPerformanceEvent("firebase-app-state:entries-snapshot", {
         type: "firebase",
         moduleId,
         entryCount: entries.length,
-        changeCount: changes.length
+        changeCount: changes.length,
+        queuedCount: changedEntries.length,
+        skippedCount: entries.length - changedEntries.length
     });
-    queueRemoteStateEntries(entries);
+
+    if (!changedEntries.length) return;
+
+    queueRemoteStateEntries(changedEntries);
     scheduleRemoteStateApply(firebaseRemoteApplyDelay());
 }
 
@@ -1507,6 +1598,11 @@ async function applyRemoteModule(
         applyingRemoteState = false;
     }
 
+    // La lectura completa ya dejo estos elementos aplicados. Sin anotarlos, el
+    // primer snapshot de la suscripcion los trae todos como "added" y se
+    // reaplicarian enteros.
+    rememberAppliedStateEntries(entries);
+
     dispatchStatus({
         type: "app-state-module-applied",
         moduleId,
@@ -1542,6 +1638,7 @@ async function applyInitialModules(
     }
 
     const readableModules = stateModuleIds().filter(canReadModule);
+    const initialEntries = [];
 
     for (const moduleId of readableModules) {
         const entries = await readRemoteModuleEntries(
@@ -1549,6 +1646,7 @@ async function applyInitialModules(
             moduleId
         );
 
+        initialEntries.push(...entries);
         mergePartialStateEntries(mergedSnapshot, entries);
     }
     mergeLocalDirtyStateEntries(mergedSnapshot);
@@ -1574,6 +1672,8 @@ async function applyInitialModules(
     } finally {
         applyingRemoteState = false;
     }
+
+    rememberAppliedStateEntries(initialEntries);
 
     waitingInitialState = false;
     dispatchStatus({
@@ -1633,6 +1733,7 @@ async function handleModuleSnapshot(
                 } finally {
                     applyingRemoteState = false;
                 }
+                forgetAppliedStateEntries(moduleId);
                 scheduleSettledNotify(localSnapshot);
                 return;
             }
@@ -1656,6 +1757,7 @@ async function handleModuleSnapshot(
                 applyingRemoteState = false;
             }
             lastAppliedHashes.delete(moduleId);
+            forgetAppliedStateEntries(moduleId);
             scheduleSettledNotify({});
             return;
         }
@@ -1855,6 +1957,7 @@ export function stopFirebaseAppStateSync() {
     pendingStateEntries.clear();
     pendingRemoteStateEntries.clear();
     localDirtyStateEntries.clear();
+    appliedEntrySignatures.clear();
     entryModulesPresent.clear();
     syncGeneration++;
 }
