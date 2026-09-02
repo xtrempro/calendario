@@ -45,6 +45,7 @@ const {
     DELAY_GRACE_MINUTES,
     delayMinutes,
     entryDelayForDay,
+    exitDriftMinutes,
     formatDelayCell,
     groupMarkEvents,
     isMarkMissing,
@@ -1543,7 +1544,13 @@ test("llegar tarde a un extra no suma minutos pero si deja incidencia", () => {
     );
     // Se mide contra el turno que efectivamente hizo, no contra su base: en un
     // extra la base esta libre y no tiene hora de entrada.
-    assert.match(reporte, /lateOnExtra && !cells\.entryIncident && INCIDENT_MARK/);
+    //
+    // El simbolo lo comparte con la entrada anticipada: las dos son la misma
+    // celda corrida de su hora, y no pueden darse juntas.
+    assert.match(
+        reporte,
+        /\(lateOnExtra \|\| earlyEntry\) &&\s*\n\s*!cells\.entryIncident && INCIDENT_MARK/
+    );
 });
 
 test("la incidencia respeta el mismo margen de cortesia", () => {
@@ -1644,7 +1651,33 @@ test("marcar la salida antes de la hora del turno es una incidencia", () => {
         reporte,
         /const EARLY_EXIT_TITLE = "Incidencia: salio antes de las";/
     );
-    assert.match(reporte, /cells\.salida < day\.scheduledExit &&/);
+    assert.match(reporte, /earlyExit: Boolean\(exitDrift !== null && exitDrift < 0\)/);
+});
+
+test("las horas de salida NO se comparan como texto", () => {
+    // Comparar "HH:MM" como texto funciona mientras el turno cabe dentro de su
+    // dia y falla en el unico caso que importa: el turno con noche termina a
+    // la manana siguiente, y ahi "08:11" parece anterior a "20:00".
+    //
+    // Cerrar una Noche a las 08:11 es irse 11 minutos DESPUES de hora.
+    assert.equal(
+        exitDriftMinutes("08:11", "08:00", {
+            markIsNextDay: true,
+            endsNextMorning: true
+        }),
+        11
+    );
+    // Y el nochero que se va a las 23:30 se fue mucho antes, no despues.
+    assert.ok(
+        exitDriftMinutes("23:30", "08:00", { endsNextMorning: true }) < 0,
+        "una salida a las 23:30 de una Noche es irse antes"
+    );
+    // El turno que cabe en su dia se sigue midiendo igual que siempre.
+    assert.equal(exitDriftMinutes("20:10", "20:00"), 10);
+    assert.equal(exitDriftMinutes("17:00", "20:00"), -180);
+    // Sin una de las dos horas no hay nada que medir.
+    assert.equal(exitDriftMinutes("", "20:00"), null);
+    assert.equal(exitDriftMinutes("20:00", ""), null);
 });
 
 test("no es incidencia si el supervisor autorizo salir antes", () => {
@@ -1659,7 +1692,10 @@ test("no es incidencia si el supervisor autorizo salir antes", () => {
 });
 
 test("el simbolo de salir antes no se duplica con el de etiqueta equivocada", () => {
-    assert.match(reporte, /earlyExit && !cells\.exitIncident && INCIDENT_MARK/);
+    assert.match(
+        reporte,
+        /\(earlyExit \|\| lateExit\) &&\s*\n\s*!cells\.exitIncident && INCIDENT_MARK/
+    );
 });
 
 /* =========================================================

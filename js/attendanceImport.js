@@ -13,7 +13,8 @@ import { getJSON, setJSON } from "./persistence.js";
 import { readXlsRows, dateFromExcelSerial } from "./xlsReader.js";
 import {
     groupMarkEvents,
-    resolveShiftMarks
+    resolveShiftMarks,
+    unexplainedMarkEvents
 } from "./attendanceDelay.js";
 
 const STORAGE_KEY = "attendanceMarks";
@@ -422,7 +423,14 @@ export function getAttendanceCells(rut, iso, options = {}) {
         exitArrow: last.exitArrow,
         multiline: segments.length > 1,
         segments,
-        marks
+        marks,
+        // Los momentos que el turno no explica. Van aqui y no en el reporte
+        // porque de aqui salen las dos cosas que los usan: el aviso de la
+        // celda y la incidencia del inicio.
+        unexplained: unexplainedMarkEvents(
+            marks,
+            segments.flatMap(segment => [segment.entry, segment.exit])
+        )
     };
 }
 

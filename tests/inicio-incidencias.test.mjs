@@ -99,7 +99,10 @@ test("son los que pidio el usuario, en orden", () => {
             "Sin marcaje entrada",
             "Sin marcaje salida",
             "Entrada tardía",
+            "Entrada anticipada",
             "Salida temprana",
+            "Salida posterior",
+            "Marcas sin justificar",
             "Marcaje en día libre"
         ]
     );

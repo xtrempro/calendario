@@ -78,6 +78,7 @@
     "test:nombres-admin": "node --test tests/nombres-administradores.test.mjs",
     "test:grado-vigencia": "node --test tests/valores-grado-vigencia.test.mjs",
     "test:atrasos": "node --test tests/atrasos.test.mjs",
+    "test:turno-no-calza": "node --test tests/marcaje-turno-no-calza.test.mjs",
     "test:reporte-actualiza": "node --test tests/reporte-se-actualiza.test.mjs",
     "test:xls-textos": "node --test tests/xls-textos-partidos.test.mjs",
     "test:xls-grande": "node --test tests/xls-grande.test.mjs",

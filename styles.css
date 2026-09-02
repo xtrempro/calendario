@@ -1568,6 +1568,11 @@ body[data-active-view="home"] .secondary-grid {
 .hm-bday-list { max-height: 330px; }
 .hm-req-list.hm-scroller,
 .hm-cob-list.hm-scroller { max-height: 460px; }
+/* Los tipos de incidencia se listan todos, incluso en cero: ver un "0" al lado
+   de "Sin marcaje entrada" dice algo. Son nueve y crecen cuando aparece una
+   regla nueva, asi que la tarjeta se acota igual que las de su fila en vez de
+   dejar a las otras dos flotando en blanco. */
+.hm-inc-list.hm-scroller { max-height: 330px; }
 
 .hm-gear { margin-left: auto; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel-alt); color: var(--text-soft); display: grid; place-items: center; cursor: pointer; }
 .hm-gear:hover { color: var(--accent); border-color: var(--accent); }
@@ -3532,6 +3537,16 @@ body[data-active-view="log"] .secondary-grid {
 .report-table td.report-cell--moved-exit,
 .report-table td.report-cell--more-marks {
     cursor: help;
+}
+
+/* La celda esconde marcas. El cursor de ayuda solo se descubre cuando el mouse
+   ya esta encima, asi que el dia entero podia leerse como correcto sin que
+   nada invitara a mirar: el subrayado punteado es lo que dice, sin pasar por
+   arriba, que ahi hay algo mas que leer. */
+.report-table td.report-cell--more-marks,
+.report-table td.report-cell--mark-incident {
+    text-decoration: underline dotted currentColor 1px;
+    text-underline-offset: 3px;
 }
 
 /* Marca cuyo tipo no calza con el turno: el trabajador apreto el boton

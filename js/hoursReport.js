@@ -30,10 +30,13 @@ import {
 } from "./workerSchedule.js";
 import {
     delayMinutes,
+    earlyEntryMinutes,
     entryDelayForDay,
+    exitDriftMinutes,
     formatDelayCell,
     isMarkMissing,
     minutesFromTime,
+    SHIFT_DRIFT_ALERT_MINUTES,
     shiftEndsNextMorning,
     shiftHasSeparateSegments,
     shiftHasTwoParts,
@@ -717,6 +720,15 @@ const ENTRY_INCIDENT_TITLE = "Incidencia: marco salida en vez de entrada";
 const EXIT_INCIDENT_TITLE = "Incidencia: marco entrada en vez de salida";
 const EARLY_EXIT_TITLE = "Incidencia: salio antes de las";
 const LATE_EXTRA_TITLE = "Incidencia: llego despues de las";
+const EARLY_ENTRY_TITLE = "Incidencia: llego antes de las";
+const LATE_EXIT_TITLE = "Incidencia: salio despues de las";
+
+// Hay mas marcas de las que se ven. El numero es cuantas quedan escondidas:
+// sin el, el aviso obliga a abrir el hover para saber si falta una o cuatro.
+//
+// Es un caracter y no un icono por lo mismo que la cruz: el texto de la celda
+// se escapa y ademas se imprime.
+const MORE_MARKS_MARK = "⋯";
 
 /**
  * Clave del dia anterior, cruzando meses y anios.
@@ -839,6 +851,14 @@ function attendanceDay(profileName, keyDay, date, holidays, data, day) {
  * resumen de incidencias del inicio, asi que los dos cuentan lo mismo.
  */
 function attendanceDayFacts(profile, iso, day) {
+    // Un dia con turno y sin ausencia que lo cubra: es lo unico que se puede
+    // medir contra un horario.
+    //
+    // Sin turno no hay hora contra la cual comparar, y lo que se marque en un
+    // dia libre es markOnFreeDay y no otra cosa. Con licencia, permiso o
+    // feriado no se esperaba que marcara, que es la misma regla que ya aplica
+    // el atraso.
+    const medible = Number(day.workedShift) > TURNO.LIBRE && !day.absent;
     const cells = getAttendanceCells(profile.rut, iso, {
         endsNextMorning: shiftEndsNextMorning(day.workedShift),
         previousEndsNextMorning: shiftEndsNextMorning(day.previousWorkedShift),
@@ -868,9 +888,35 @@ function attendanceDayFacts(profile, iso, day) {
         hasPassed: day.hasPassed && !cells.entryArrow
     });
 
+    // Las dos puntas del turno se miden sobre las MARCAS del tramo y no sobre
+    // el texto de la celda: un turno de dos tramos apila dos horas en la misma
+    // celda ("20:00\n08:11") y leer eso como una hora sola devuelve la de
+    // arriba, que en la salida es justamente la que no cierra el turno.
+    const entryMark = cells.segments?.[0]?.entry;
+    const exitMark = cells.segments?.[cells.segments.length - 1]?.exit;
+    // Cuanto se corrio el cierre del turno, en minutos: negativo si se fue
+    // antes, positivo si se quedo de mas. Va aparte porque de el salen las dos
+    // incidencias de la salida.
+    const exitDrift = medible && !day.exitMoved
+        ? exitDriftMinutes(exitMark?.time, day.scheduledExit, {
+            markIsNextDay: Boolean(exitMark?.iso),
+            endsNextMorning: shiftEndsNextMorning(day.workedShift)
+        })
+        : null;
+    const earlyMinutes = medible && !day.entryMoved
+        ? earlyEntryMinutes(entryMark?.time, day.scheduledEntry)
+        : 0;
+
     return {
         cells,
         delay,
+        // Las horas del turno y lo que se corrio cada punta. El detalle de la
+        // incidencia las nombra, para que el supervisor sepa contra que se
+        // esta comparando sin abrir el reporte.
+        scheduledEntry: day.scheduledEntry,
+        scheduledExit: day.scheduledExit,
+        earlyMinutes,
+        exitDrift,
         // La salida lleva la misma cruz que la entrada cuando falta su registro.
         missingExit: isMarkMissing({
             mark: cells.salida,
@@ -884,15 +930,32 @@ function attendanceDayFacts(profile, iso, day) {
             !delay.minutes &&
             delayMinutes(cells.entrada, day.scheduledEntry)
         ),
+        // Llego MUCHO antes de su hora. El caso que esto busca es el turno
+        // extra o la extension horaria que se acordo de palabra y nadie
+        // alcanzo a registrar: sin este aviso esas horas no aparecen en el
+        // reporte y no se pagan.
+        //
+        // Se mide contra el turno REALIZADO, no contra el base, y por eso se
+        // apaga sola en cuanto el supervisor registra lo que faltaba: al
+        // pasar la Noche a 24h la hora de ingreso pasa a ser las 8 y la
+        // diferencia desaparece. La otra forma de apagarla es autorizarle la
+        // entrada a mano, que es justamente decir "asi estaba acordado".
+        earlyEntry: earlyMinutes >= SHIFT_DRIFT_ALERT_MINUTES,
         // Se fue antes de la hora que le tocaba. No cuenta si el supervisor le
         // autorizo salir antes: esa reduccion esta permitida y ya queda
         // registrada como tal.
-        earlyExit: Boolean(
-            cells.salida &&
-            day.scheduledExit &&
-            cells.salida < day.scheduledExit &&
-            !day.exitMoved
+        earlyExit: Boolean(exitDrift !== null && exitDrift < 0),
+        // Y se quedo mucho despues. Es el espejo de la entrada anticipada, con
+        // el mismo margen: nadie marca su salida al minuto exacto, pero una
+        // hora de mas ya es un tramo trabajado que no esta registrado.
+        lateExit: Boolean(
+            exitDrift !== null && exitDrift >= SHIFT_DRIFT_ALERT_MINUTES
         ),
+        // Marcas que el turno no explica. La entrada anticipada y la salida
+        // posterior cubren las dos puntas; esto cubre lo que pasa en medio,
+        // que es como se ve un 24 anotado como Noche: la fila muestra las dos
+        // puntas correctas y el traspaso de las 20:00 queda sin justificar.
+        unexplainedMarks: Boolean(medible && cells.unexplained?.length),
         // Marco en un dia sin turno: vino a trabajar y su turno no quedo
         // registrado. Un permiso o una licencia no cuentan -el dia tiene su
         // motivo y el reporte lo dice-, solo el dia que figura Libre.
@@ -912,9 +975,38 @@ export const ATTENDANCE_INCIDENT_KINDS = [
     { key: "missingEntry", label: "Sin marcaje entrada" },
     { key: "missingExit", label: "Sin marcaje salida" },
     { key: "lateOnExtra", label: "Entrada tardía" },
+    { key: "earlyEntry", label: "Entrada anticipada" },
     { key: "earlyExit", label: "Salida temprana" },
+    { key: "lateExit", label: "Salida posterior" },
+    { key: "unexplainedMarks", label: "Marcas sin justificar" },
     { key: "markOnFreeDay", label: "Marcaje en día libre" }
 ];
+
+/**
+ * Una diferencia de minutos dicha como se dice en voz alta.
+ *
+ * "719 min" no se lee: hay que dividirlo mentalmente para darse cuenta de que
+ * son casi doce horas, que es justo el dato que hace saltar al supervisor.
+ */
+function formatDrift(minutes) {
+    const total = Math.abs(Math.round(Number(minutes) || 0));
+    const hours = Math.floor(total / 60);
+    const rest = total % 60;
+
+    if (!hours) return `${rest} min`;
+
+    return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+/**
+ * Los momentos que el turno no explica, dichos por su hora.
+ */
+function unexplainedTimes(cells) {
+    return (cells.unexplained || [])
+        .map(event => event[0]?.time)
+        .filter(Boolean)
+        .join(", ");
+}
 
 function pushIncidents(events, profile, iso, facts) {
     const base = { profile: profile.name, iso };
@@ -953,11 +1045,44 @@ function pushIncidents(events, profile, iso, facts) {
         });
     }
 
+    if (facts.earlyEntry) {
+        events.push({
+            ...base,
+            kind: "earlyEntry",
+            detail: `Entró ${cells.entrada}, `
+                + `${formatDrift(facts.earlyMinutes)} antes de las `
+                + `${facts.scheduledEntry}. Revisar si falta registrarle un `
+                + "turno extra o una extensión horaria"
+        });
+    }
+
     if (facts.earlyExit) {
         events.push({
             ...base,
             kind: "earlyExit",
             detail: `Salió ${cells.salida}`
+        });
+    }
+
+    if (facts.lateExit) {
+        events.push({
+            ...base,
+            kind: "lateExit",
+            detail: `Salió ${cells.salida}, `
+                + `${formatDrift(facts.exitDrift)} después de las `
+                + `${facts.scheduledExit}. Revisar si falta registrarle un `
+                + "turno extra o una extensión horaria"
+        });
+    }
+
+    if (facts.unexplainedMarks) {
+        const horas = unexplainedTimes(cells);
+
+        events.push({
+            ...base,
+            kind: "unexplainedMarks",
+            detail: `Marcó ${horas} y el turno registrado no lo explica. `
+                + "Revisar si el turno realizado fue otro"
         });
     }
 
@@ -1184,29 +1309,42 @@ function attendanceReportCells(profile, iso, day) {
         delay,
         missingExit,
         lateOnExtra,
-        earlyExit
+        earlyEntry,
+        earlyExit,
+        lateExit
     } = attendanceDayFacts(profile, iso, day);
     const meta = {};
     // De un turno solo se muestran la primera entrada y la ultima salida. Las
     // intermedias -salir y volver a entrar entre los dos tramos de un 24- no
     // se pierden: van al hover, para no llenar la tabla.
     const hidden = hiddenMarksTitle(cells);
+    // El aviso de que hay mas marcas va SIEMPRE en la misma celda -la entrada,
+    // que es donde empieza a leerse la fila- y no en la que le quede mas
+    // cerca: un simbolo que aparece tan pronto a la izquierda como a la
+    // derecha no se aprende nunca. Si la entrada es la cruz de "no hay
+    // registro" no hay hora a la que pegarselo y pasa a la salida.
+    const moreMarks = hidden ? moreMarksMark(cells) : "";
+    const moreMarksOnEntry = Boolean(moreMarks) && !delay.missingEntry;
+    const incidenciaEntrada = cells.entryIncident || lateOnExtra || earlyEntry;
 
     if (delay.missingEntry) {
         meta.entrada = {
             title: MISSING_ENTRY_TITLE,
             className: "report-cell--missing-entry"
         };
-    } else if (cells.entryIncident || lateOnExtra || hidden) {
+    } else if (incidenciaEntrada || hidden) {
         meta.entrada = {
             title: [
                 cells.entryIncident ? ENTRY_INCIDENT_TITLE : "",
                 lateOnExtra
                     ? `${LATE_EXTRA_TITLE} ${day.scheduledEntry}`
                     : "",
+                earlyEntry
+                    ? `${EARLY_ENTRY_TITLE} ${day.scheduledEntry}`
+                    : "",
                 hidden
             ].filter(Boolean).join("\n"),
-            className: cells.entryIncident || lateOnExtra
+            className: incidenciaEntrada
                 ? "report-cell--mark-incident"
                 : "report-cell--more-marks"
         };
@@ -1216,11 +1354,16 @@ function attendanceReportCells(profile, iso, day) {
             title: MISSING_EXIT_TITLE,
             className: "report-cell--missing-entry"
         };
-    } else if (cells.exitIncident || earlyExit || cells.salidaFrom || hidden) {
+    } else if (
+        cells.exitIncident || earlyExit || lateExit || cells.salidaFrom || hidden
+    ) {
         const lines = [
             cells.exitIncident ? EXIT_INCIDENT_TITLE : "",
             earlyExit
                 ? `${EARLY_EXIT_TITLE} ${day.scheduledExit}`
+                : "",
+            lateExit
+                ? `${LATE_EXIT_TITLE} ${day.scheduledExit}`
                 : "",
             cells.salidaFrom
                 ? `${MOVED_EXIT_TITLE} ${formatDate(cells.salidaFrom)}`
@@ -1230,7 +1373,7 @@ function attendanceReportCells(profile, iso, day) {
 
         meta.salida = {
             title: lines.join("\n"),
-            className: cells.exitIncident || earlyExit
+            className: cells.exitIncident || earlyExit || lateExit
                 ? "report-cell--mark-incident"
                 : cells.salidaFrom
                     ? "report-cell--moved-exit"
@@ -1272,7 +1415,9 @@ function attendanceReportCells(profile, iso, day) {
             : orDash(
                 withMarks(
                     markCellText(cells, "entry"),
-                    lateOnExtra && !cells.entryIncident && INCIDENT_MARK
+                    (lateOnExtra || earlyEntry) &&
+                        !cells.entryIncident && INCIDENT_MARK,
+                    moreMarksOnEntry && moreMarks
                 ),
                 idle
             ),
@@ -1281,9 +1426,12 @@ function attendanceReportCells(profile, iso, day) {
             : orDash(
                 withMarks(
                     markCellText(cells, "exit"),
-                    // El simbolo de "se fue antes" va una sola vez, al final:
-                    // si ya lo puso la etiqueta equivocada, no se repite.
-                    earlyExit && !cells.exitIncident && INCIDENT_MARK
+                    // El simbolo de "se corrio la salida" va una sola vez, al
+                    // final: si ya lo puso la etiqueta equivocada, no se
+                    // repite. Irse antes y quedarse de mas se excluyen.
+                    (earlyExit || lateExit) &&
+                        !cells.exitIncident && INCIDENT_MARK,
+                    !moreMarksOnEntry && moreMarks
                 ),
                 idle
             ),
@@ -1361,6 +1509,25 @@ function hiddenMarksTitle(cells) {
         .map(mark =>
             `${mark.type === "out" ? "Salida" : "Entrada"} a las ${mark.time}`)
         .join("  |  ")}`;
+}
+
+/**
+ * El aviso de que la celda esconde marcas, con cuantas esconde.
+ *
+ * El texto completo estaba desde siempre en el hover, pero la celda no lo
+ * decia por ninguna parte: la unica senal era el cursor de ayuda, que hay que
+ * ir a buscar sabiendo de antemano que hay algo. Un 24 anotado como Noche se
+ * veia como una Noche impecable.
+ */
+function moreMarksMark(cells) {
+    const shown = (cells.segments || []).reduce(
+        (total, segment) =>
+            total + (segment.entry ? 1 : 0) + (segment.exit ? 1 : 0),
+        0
+    );
+    const escondidas = (cells.marks || []).length - shown;
+
+    return escondidas > 0 ? `${MORE_MARKS_MARK}${escondidas}` : "";
 }
 
 function baseWithSwapsForReport(profileName, keyDay) {

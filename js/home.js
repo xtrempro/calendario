@@ -1529,7 +1529,7 @@ function incidenciasWidget() {
                     <button type="button" data-hm="inc-next" aria-label="Mes siguiente">&#8250;</button>
                 </div>`
             )}
-            <div class="hm-listcol" data-hm="inc-list">
+            <div class="hm-listcol hm-inc-list hm-scroller" data-hm="inc-list">
                 <div class="hm-empty">Revisando el mes...</div>
             </div>
             <div class="hm-inc-import">

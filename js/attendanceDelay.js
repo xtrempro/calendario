@@ -142,6 +142,66 @@ export function delayMinutes(entryTime, scheduledTime) {
 }
 
 /**
+ * Cuanto se corre una marca de su hora antes de que valga la pena mirarla.
+ *
+ * Nadie marca al minuto exacto: se llega diez minutos antes y se sale diez
+ * minutos despues, y eso no es una incidencia de nadie. Una hora de diferencia
+ * ya no es holgura, es que el trabajador estuvo un tramo que el turno
+ * registrado no contempla.
+ */
+export const SHIFT_DRIFT_ALERT_MINUTES = 60;
+
+/**
+ * Minutos que se ADELANTO una marca respecto de su hora de ingreso.
+ *
+ * Es el espejo de delayMinutes: aquella solo mira hacia adelante y devuelve 0
+ * cuando la diferencia es negativa, asi que quien entraba doce horas antes de
+ * su turno no generaba nada.
+ *
+ * @param {string} entryTime hora marcada, "HH:MM"
+ * @param {string} scheduledTime hora de ingreso, "HH:MM"
+ * @returns {number} 0 si llego a la hora o despues
+ */
+export function earlyEntryMinutes(entryTime, scheduledTime) {
+    const marked = minutesFromTime(entryTime);
+    const scheduled = minutesFromTime(scheduledTime);
+
+    if (marked === null || scheduled === null) return 0;
+
+    return Math.max(0, scheduled - marked);
+}
+
+/**
+ * Minutos entre la hora de salida del turno y la marca con que se cerro.
+ *
+ * Negativo si se fue antes, positivo si se quedo de mas.
+ *
+ * Las horas NO se pueden comparar como texto: el turno con noche termina a la
+ * manana siguiente, y ahi "08:11" es POSTERIOR a "20:00" aunque diga menos.
+ * Por eso las dos horas se llevan a minutos corridos desde el comienzo del dia
+ * del turno, sumando un dia a lo que ocurre a la manana siguiente.
+ *
+ * @param {string} exitTime hora marcada, "HH:MM"
+ * @param {string} scheduledExit hora de salida del turno, "HH:MM"
+ * @param {object} [options]
+ * @param {boolean} [options.markIsNextDay] la marca se trajo del dia siguiente
+ * @param {boolean} [options.endsNextMorning] el turno cierra al dia siguiente
+ * @returns {number|null} null si falta alguna de las dos horas
+ */
+export function exitDriftMinutes(exitTime, scheduledExit, options = {}) {
+    const { markIsNextDay = false, endsNextMorning = false } = options;
+    const marked = minutesFromTime(exitTime);
+    const scheduled = minutesFromTime(scheduledExit);
+
+    if (marked === null || scheduled === null) return null;
+
+    const DAY = 24 * 60;
+
+    return (marked + (markIsNextDay ? DAY : 0)) -
+        (scheduled + (endsNextMorning ? DAY : 0));
+}
+
+/**
  * .Se llevo el turno extra la llegada del dia?
  *
  * Un extra que empieza ANTES que el base se lleva la marca de entrada: el
@@ -207,6 +267,35 @@ export function groupMarkEvents(marks = []) {
     });
 
     return events;
+}
+
+/**
+ * Los momentos del dia que el turno registrado NO explica.
+ *
+ * Un turno explica sus propios extremos: la llegada y la salida que la fila
+ * muestra. Todo lo que quede fuera de esos dos momentos es presencia que el
+ * turno no contempla, y casi siempre significa lo mismo: el trabajador hizo
+ * mas de lo que quedo anotado.
+ *
+ * Es el caso de la Noche que en realidad fue un 24: se marca a las 8, se marca
+ * el traspaso a las 20 y se cierra a las 8 de la manana siguiente. La fila de
+ * la Noche muestra las dos puntas y el traspaso queda sin explicar.
+ *
+ * Se compara por IDENTIDAD y no por hora: las marcas mostradas son objetos de
+ * esta misma lista, y dos marcas distintas pueden compartir la hora -salir y
+ * volver a entrar a las 20:00 en un 24-. Se cuentan EVENTOS y no marcas, asi
+ * que el doble apreton de quien se equivoca de boton, que ya viene agrupado,
+ * no se cuenta como un momento aparte.
+ *
+ * @param {Array<object>} marks todas las marcas del turno, en orden
+ * @param {Array<object|null>} shownMarks las que la fila ya muestra
+ * @returns {Array<Array<object>>} los eventos que sobran
+ */
+export function unexplainedMarkEvents(marks = [], shownMarks = []) {
+    const shown = new Set((shownMarks || []).filter(Boolean));
+
+    return groupMarkEvents(marks)
+        .filter(event => !event.some(mark => shown.has(mark)));
 }
 
 /**
