@@ -704,6 +704,7 @@ function scheduledBoundsFromShift(profileName, keyDay, date, state, holidays) {
 
             return {
                 id: segment.id,
+                label: segment.label,
                 start: authorized?.entryTime
                     || propio?.entry
                     || formatClockTime(segment.start),
@@ -929,6 +930,10 @@ function shiftBoundaryDrifts(cells, day) {
         return {
             start,
             end,
+            // Emparejado significa que este tramo es una presencia propia, con
+            // sus dos marcas obligatorias. En un turno corrido no lo es.
+            paired: porTramo,
+            label: porTramo ? bounds[indice].label : "",
             early: mideEntrada
                 ? earlyEntryMinutes(tramo.entry?.time, start)
                 : 0,
@@ -943,6 +948,48 @@ function shiftBoundaryDrifts(cells, day) {
                 : null
         };
     });
+}
+
+/**
+ * Los tramos a los que les falta una marca, por su nombre.
+ *
+ * Un turno programado en dos tramos exige sus CUATRO marcas: en un D+N el
+ * trabajador se va a las 17 y vuelve a las 20, asi que la salida del diurno y
+ * la entrada de la noche son tan obligatorias como las de las puntas.
+ *
+ * Sin esta cuenta por tramo el dia se daba por completo: la celda de salida
+ * traia la marca del OTRO tramo -"\n08:03"- y como no estaba vacia, no habia
+ * cruz ni incidencia. Quien entraba a las 8 y no volvia a marcar hasta las 8
+ * de la manana siguiente se veia igual que quien cumplio los dos tramos.
+ *
+ * Devuelve una entrada por tramo de la fila, en su mismo orden, para que la
+ * cruz se pueda poner en la linea que le toca.
+ *
+ * @returns {Array<{label: string, entry: boolean, exit: boolean}>}
+ */
+function missingSegmentMarks(cells, drifts, esperado) {
+    return (cells.segments || []).map((tramo, indice) => {
+        const frontera = drifts[indice];
+        const exigible = esperado && Boolean(frontera?.paired);
+
+        return {
+            label: frontera?.label || "",
+            // Una flecha no es una marca que falte: el turno viene de largo -o
+            // sigue de largo- y no habia nada que marcar.
+            entry: exigible && !tramo.entry && !tramo.entryArrow,
+            exit: exigible && !tramo.exit && !tramo.exitArrow
+        };
+    });
+}
+
+/**
+ * Los nombres de los tramos a los que les falta esa marca.
+ */
+function missingPartLabels(missingParts, side) {
+    return (missingParts || [])
+        .filter(parte => parte[side])
+        .map(parte => parte.label)
+        .filter(Boolean);
 }
 
 /**
@@ -1008,6 +1055,15 @@ function attendanceDayFacts(profile, iso, day) {
         .sort((a, b) => Math.abs(b.exit) - Math.abs(a.exit))[0] || null;
     const exitDrift = medible && !day.exitMoved ? worstExit?.exit ?? null : null;
     const earlyMinutes = medible && !day.entryMoved ? worstEarly?.early || 0 : 0;
+    // Las marcas que le faltan a un tramo del medio. Se exigen con el mismo
+    // criterio que las de las puntas: solo cuando el turno ya habia terminado
+    // al subir la ultima planilla, o serian faltas que solo dicen que el
+    // archivo todavia no esta.
+    const missingParts = missingSegmentMarks(
+        cells,
+        drifts,
+        medible && day.hasPassed
+    );
 
     return {
         cells,
@@ -1023,12 +1079,18 @@ function attendanceDayFacts(profile, iso, day) {
         earlyMinutes,
         exitDrift,
         // La salida lleva la misma cruz que la entrada cuando falta su registro.
+        //
+        // Estas dos siguen siendo de la CELDA entera -no hay ninguna hora- y
+        // por eso la cruz se come la celda completa. Lo que le falta a un solo
+        // tramo va en missingParts, que pone la cruz en su linea y deja la
+        // hora del otro tramo a la vista.
         missingExit: isMarkMissing({
             mark: cells.salida,
             workedShift: day.workedShift,
             absent: day.absent,
             hasPassed: day.hasPassed && !cells.exitArrow
         }),
+        missingParts,
         // Llego tarde a un turno que no es su base. No se mide atraso -los
         // atrasos son de la rotativa propia-, pero queda senalado.
         //
@@ -1129,19 +1191,30 @@ function pushIncidents(events, profile, iso, facts) {
         });
     }
 
-    if (delay.missingEntry) {
+    // La cruz del reporte y la cuenta del inicio son lo mismo: si la fila
+    // muestra una cruz, aqui hay un evento. Por eso al tramo del medio que se
+    // quedo sin marca le corresponde su incidencia, y lleva el nombre del
+    // tramo para que se sepa cual de las dos presencias del dia falta.
+    const faltaEntrada = missingPartLabels(facts.missingParts, "entry");
+    const faltaSalida = missingPartLabels(facts.missingParts, "exit");
+
+    if (delay.missingEntry || faltaEntrada.length) {
         events.push({
             ...base,
             kind: "missingEntry",
-            detail: "No hay marca de entrada"
+            detail: faltaEntrada.length
+                ? `No hay marca de entrada de ${faltaEntrada.join(" ni de ")}`
+                : "No hay marca de entrada"
         });
     }
 
-    if (facts.missingExit) {
+    if (facts.missingExit || faltaSalida.length) {
         events.push({
             ...base,
             kind: "missingExit",
-            detail: "No hay marca de salida"
+            detail: faltaSalida.length
+                ? `No hay marca de salida de ${faltaSalida.join(" ni de ")}`
+                : "No hay marca de salida"
         });
     }
 
@@ -1420,6 +1493,7 @@ function attendanceReportCells(profile, iso, day) {
         earlyEntry,
         earlyExit,
         lateExit,
+        missingParts,
         // Las horas de la frontera que se paso, que en un D+N no tienen por
         // que ser las del turno entero.
         scheduledEntry,
@@ -1427,6 +1501,12 @@ function attendanceReportCells(profile, iso, day) {
         scheduledExit
     } = attendanceDayFacts(profile, iso, day);
     const meta = {};
+    // Los tramos a los que les falta SU marca. La celda entera no esta vacia
+    // -el otro tramo si marco-, asi que no lleva la cruz completa: lleva la
+    // cruz en su linea y el aviso en ambar, que es lo que se usa para una
+    // celda que tiene horas validas y ademas un problema.
+    const faltaEntrada = missingPartLabels(missingParts, "entry");
+    const faltaSalida = missingPartLabels(missingParts, "exit");
     // De un turno solo se muestran la primera entrada y la ultima salida. Las
     // intermedias -salir y volver a entrar entre los dos tramos de un 24- no
     // se pierden: van al hover, para no llenar la tabla.
@@ -1438,7 +1518,8 @@ function attendanceReportCells(profile, iso, day) {
     // registro" no hay hora a la que pegarselo y pasa a la salida.
     const moreMarks = hidden ? moreMarksMark(cells) : "";
     const moreMarksOnEntry = Boolean(moreMarks) && !delay.missingEntry;
-    const incidenciaEntrada = cells.entryIncident || lateOnExtra || earlyEntry;
+    const incidenciaEntrada =
+        cells.entryIncident || lateOnExtra || earlyEntry || faltaEntrada.length;
 
     if (delay.missingEntry) {
         meta.entrada = {
@@ -1448,6 +1529,9 @@ function attendanceReportCells(profile, iso, day) {
     } else if (incidenciaEntrada || hidden) {
         meta.entrada = {
             title: [
+                faltaEntrada.length
+                    ? `${MISSING_ENTRY_TITLE} de ${faltaEntrada.join(" ni de ")}`
+                    : "",
                 cells.entryIncident ? ENTRY_INCIDENT_TITLE : "",
                 lateOnExtra
                     ? `${LATE_EXTRA_TITLE} ${lateScheduledEntry}`
@@ -1468,9 +1552,13 @@ function attendanceReportCells(profile, iso, day) {
             className: "report-cell--missing-entry"
         };
     } else if (
-        cells.exitIncident || earlyExit || lateExit || cells.salidaFrom || hidden
+        cells.exitIncident || earlyExit || lateExit || faltaSalida.length ||
+        cells.salidaFrom || hidden
     ) {
         const lines = [
+            faltaSalida.length
+                ? `${MISSING_EXIT_TITLE} de ${faltaSalida.join(" ni de ")}`
+                : "",
             cells.exitIncident ? EXIT_INCIDENT_TITLE : "",
             earlyExit
                 ? `${EARLY_EXIT_TITLE} ${scheduledExit}`
@@ -1486,7 +1574,8 @@ function attendanceReportCells(profile, iso, day) {
 
         meta.salida = {
             title: lines.join("\n"),
-            className: cells.exitIncident || earlyExit || lateExit
+            className: cells.exitIncident || earlyExit || lateExit ||
+                faltaSalida.length
                 ? "report-cell--mark-incident"
                 : cells.salidaFrom
                     ? "report-cell--moved-exit"
@@ -1527,7 +1616,7 @@ function attendanceReportCells(profile, iso, day) {
             ? MISSING_MARK
             : orDash(
                 withMarks(
-                    markCellText(cells, "entry"),
+                    markCellText(cells, "entry", missingParts),
                     (lateOnExtra || earlyEntry) &&
                         !cells.entryIncident && INCIDENT_MARK,
                     moreMarksOnEntry && moreMarks
@@ -1538,7 +1627,7 @@ function attendanceReportCells(profile, iso, day) {
             ? MISSING_MARK
             : orDash(
                 withMarks(
-                    markCellText(cells, "exit"),
+                    markCellText(cells, "exit", missingParts),
                     // El simbolo de "se corrio la salida" va una sola vez, al
                     // final: si ya lo puso la etiqueta equivocada, no se
                     // repite. Irse antes y quedarse de mas se excluyen.
@@ -1565,14 +1654,18 @@ function orDash(text, idle) {
  * Texto de la celda de marcaje: una linea por tramo del turno, con los
  * simbolos que le correspondan a cada una.
  */
-function markCellText(cells, side) {
+function markCellText(cells, side, missingParts = []) {
     return (cells.segments || [])
-        .map(segment => {
+        .map((segment, indice) => {
             if (segment[`${side}Arrow`]) return CONTINUES_MARK;
 
             const mark = segment[side];
 
-            if (!mark) return "";
+            // La cruz del tramo al que le falta SU marca. Va en la linea del
+            // tramo y no en la celda entera, para no tapar la hora del otro:
+            // en un D+N sin las marcas del medio la salida se lee "✕ / 08:03",
+            // que dice las dos cosas.
+            if (!mark) return missingParts[indice]?.[side] ? MISSING_MARK : "";
 
             return withMarks(
                 mark.time,

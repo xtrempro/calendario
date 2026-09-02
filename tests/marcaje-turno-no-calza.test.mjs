@@ -442,6 +442,91 @@ test("y llegar tarde a la noche del D+N tambien se ve", async () => {
     );
 });
 
+test("sin las marcas del medio, el D+N lleva su cruz", async () => {
+    // Entra a las 07:55 y no vuelve a marcar hasta las 08:03 del dia
+    // siguiente. Le faltan las DOS del medio: la salida del diurno y la
+    // entrada de la noche.
+    sembrar(
+        { [dia(13)]: TURNO.DIURNO_NOCHE },
+        {
+            [iso(13)]: [{ time: "07:55", type: "in" }],
+            [iso(14)]: [{ time: "08:03", type: "out" }]
+        },
+        { [dia(13)]: TURNO.DIURNO }
+    );
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(13));
+    const fila = filas.find(item => item.iso === iso(13));
+
+    // La cruz va en la LINEA del tramo, no en la celda entera: la hora del
+    // otro tramo se sigue viendo, que es la mitad del dato.
+    assert.equal(fila.entrada, "07:55\n✕");
+    assert.equal(fila.salida, `✕\n08:03${NBSP}*`);
+});
+
+test("y esa cruz tambien se cuenta en el inicio, diciendo que tramo", async () => {
+    sembrar(
+        { [dia(13)]: TURNO.DIURNO_NOCHE },
+        {
+            [iso(13)]: [{ time: "07:55", type: "in" }],
+            [iso(14)]: [{ time: "08:03", type: "out" }]
+        },
+        { [dia(13)]: TURNO.DIURNO }
+    );
+
+    const delDia = await incidenciasDe(13);
+    const sinEntrada = delDia.find(evento => evento.kind === "missingEntry");
+    const sinSalida = delDia.find(evento => evento.kind === "missingExit");
+
+    // Antes el dia se daba por completo: la celda de salida traia "\n08:03" y
+    // como no estaba vacia, no habia cruz ni incidencia.
+    assert.ok(sinEntrada, "falta la entrada de la noche");
+    assert.match(sinEntrada.detail, /entrada de Noche/);
+    assert.ok(sinSalida, "falta la salida del diurno");
+    assert.match(sinSalida.detail, /salida de Diurno/);
+});
+
+test("un D+N con las cuatro marcas no lleva ninguna cruz", async () => {
+    sembrar(
+        { [dia(13)]: TURNO.DIURNO_NOCHE },
+        {
+            [iso(13)]: [
+                { time: "07:55", type: "in" },
+                { time: "17:02", type: "out" },
+                { time: "19:58", type: "in" }
+            ],
+            [iso(14)]: [{ time: "08:03", type: "out" }]
+        },
+        { [dia(13)]: TURNO.DIURNO }
+    );
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(13));
+    const fila = filas.find(item => item.iso === iso(13));
+
+    assert.equal(fila.entrada, "07:55\n19:58");
+    assert.equal(fila.salida, `17:02\n08:03${NBSP}*`);
+});
+
+test("un turno corrido NO exige marcas del medio", async () => {
+    // Un 24 sin el traspaso marcado es un turno cumplido: el trabajador nunca
+    // se fue, no habia nada que marcar. Exigirle cuatro marcas le inventaria
+    // dos faltas a quien hizo todo bien.
+    sembrar({ [dia(26)]: TURNO.TURNO24 }, {
+        [iso(26)]: [{ time: "07:58", type: "in" }],
+        [iso(27)]: [{ time: "08:05", type: "out" }]
+    });
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(26));
+    const fila = filas.find(item => item.iso === iso(26));
+
+    assert.equal(fila.entrada, "07:58");
+    assert.equal(fila.salida, `08:05${NBSP}*`);
+    assert.deepEqual(await incidenciasDe(26), []);
+});
+
 test("el 24 sigue siendo corrido: marcar el traspaso no crea una frontera", async () => {
     // Un 24 es Larga + Noche, pero el trabajador nunca se va. Si se midiera
     // por tramos, el traspaso de las 20:00 se compararia contra las 20:00 de
