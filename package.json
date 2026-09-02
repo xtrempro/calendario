@@ -29,7 +29,7 @@
     "deploy:security-rules:test": "npm run security:rules:test:build && firebase deploy --only firestore:rules,storage --config firebase.test.security.json --project turnoplus-test-7c4d9",
     "deploy:security-rules:test:mfa": "npm run security:rules:test:build:mfa && firebase deploy --only firestore:rules,storage --config firebase.test.security.json --project turnoplus-test-7c4d9",
     "test:state-modules": "node --test tests/state-modules.test.mjs",
-    "test:sincronizacion": "node --test tests/sincronizacion-tiempo-real.test.mjs tests/firebase-state-entry-retry.test.mjs",
+    "test:sincronizacion": "node --test tests/sincronizacion-tiempo-real.test.mjs tests/firebase-state-entry-retry.test.mjs tests/sincronizacion-elemento-redundante.test.mjs",
     "test:cambio-diurno-larga": "node --test tests/cambio-turno-diurno-larga.test.mjs tests/cambio-turno-diurno-larga-backend.test.mjs",
     "test:cambio-parpadeo": "node --test tests/cambio-turno-pendiente-parpadeo.test.mjs",
     "test:diurno-post-24": "node --test tests/diurno-post-24.test.mjs",

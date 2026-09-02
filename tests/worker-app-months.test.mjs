@@ -78,12 +78,20 @@ test("los documentos mensuales se reemplazan completos para borrar tareas obsole
         new URL("../js/workerAppDataSync.js", import.meta.url),
         "utf8"
     );
+    // El delimitador es "la siguiente funcion de nivel superior", no una funcion
+    // concreta: fijar el nombre del vecino hacia que el test se cayera solo con
+    // reordenar o borrar esa otra funcion, y el slice quedaba vacio (match contra
+    // "" pasa desapercibido como fallo real).
+    const nextTopLevel = "[\\s\\S]*?\\n(?:async )?function ";
     const writeMonths = source.match(
-        /async function writeWorkerAppMonths[\s\S]*?async function writeWorkerAppProjection/
+        new RegExp(`async function writeWorkerAppMonths${nextTopLevel}`)
     )?.[0] || "";
     const writeProjection = source.match(
-        /async function writeWorkerAppProjection[\s\S]*?async function writeWorkerSwapCandidate/
+        new RegExp(`async function writeWorkerAppProjection${nextTopLevel}`)
     )?.[0] || "";
+
+    assert.notEqual(writeMonths, "", "no se pudo aislar writeWorkerAppMonths");
+    assert.notEqual(writeProjection, "", "no se pudo aislar writeWorkerAppProjection");
 
     assert.match(source, /WORKER_APP_MONTH_REPLACE_VERSION/);
     assert.match(writeProjection, /canTrustPreviousMonthHashes/);

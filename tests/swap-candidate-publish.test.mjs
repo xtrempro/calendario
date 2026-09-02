@@ -24,18 +24,44 @@ function grab(name) {
 }
 
 test("publishLinkedWorkerDocs publica directorio de mensajes Y candidato por enlazado", () => {
-  const fn = grab("publishLinkedWorkerDocs");
+  const fn = grab("publishLinkedWorkerDocsNow");
   assert.match(fn, /getWorkerAppLinkList\(\)\s*\n?\s*\.map\(link => \(\{ link, profile: findProfileForLink\(link, profiles\) \}\)\)/);
   // Directorio de mensajes.
-  assert.match(fn, /writeWorkerMessageDirectoryEntry\(\s*\n\s*buildWorkerMessageDirectoryPayload\(/);
+  assert.match(fn, /collection: "workerMessageDirectory",[\s\S]{0,120}payload: buildWorkerMessageDirectoryPayload\(/);
   // Candidato de cambio de turno.
-  assert.match(fn, /writeWorkerSwapCandidate\(\s*\n\s*buildSwapCandidatePayload\(/);
+  assert.match(fn, /collection: "workerSwapCandidates",[\s\S]{0,120}payload: buildSwapCandidatePayload\(/);
   // El universo de compatibilidad va deduplicado.
   assert.match(fn, /primaryProfiles\s*\n/);
 });
 
-test("dedup por perfil: conserva el enlace mas reciente y retira los duplicados", () => {
+// Publicarlos de a uno costaba ~132 `setDoc` y mas de 60 s por una sola edicion
+// de turno, y terminaba en `resource-exhausted: Write stream exhausted maximum
+// allowed queued writes`. Tienen que viajar agrupados.
+test("los docs de los enlazados se envian por lotes, no de a uno", () => {
+  const fn = grab("publishLinkedWorkerDocsNow");
+  assert.match(fn, /await commitWorkerDocBatches\(documents, workspace\.id\)/);
+  assert.doesNotMatch(fn, /await writeWorker/);
+
+  const commit = grab("commitWorkerDocBatches");
+  assert.match(commit, /firestoreModule\.writeBatch\(db\)/);
+  assert.match(commit, /offset \+= WORKER_DOC_BATCH_SIZE/);
+  // Se cede el hilo entre lotes, nunca por documento.
+  assert.match(commit, /waitWorkerAppIdle\(/);
+});
+
+// Se llama con `void` desde dos sitios y la corrida tarda segundos: dos
+// ediciones seguidas dejaban dos bucles escribiendo a la vez.
+test("no puede haber dos publicaciones de enlazados a la vez", () => {
   const fn = grab("publishLinkedWorkerDocs");
+  assert.match(fn, /if \(linkedWorkerDocsRun\)/);
+  // Una edicion durante la corrida no se descarta: se repite al terminar.
+  assert.match(fn, /linkedWorkerDocsRerun = true/);
+  assert.match(fn, /while \(linkedWorkerDocsRerun\)/);
+  assert.match(fn, /finally \{[\s\S]{0,160}linkedWorkerDocsRun = null/);
+});
+
+test("dedup por perfil: conserva el enlace mas reciente y retira los duplicados", () => {
+  const fn = grab("publishLinkedWorkerDocsNow");
   // Agrupa por perfil eligiendo el mas reciente.
   assert.match(fn, /const primaryByProfile = new Map\(\)/);
   assert.match(fn, /workerLinkRecency\(item\.link\) >= workerLinkRecency\(existing\.link\)/);
@@ -58,8 +84,37 @@ test("se dispara en el arranque (primer snapshot) y en cada publicacion", () => 
     src,
     /if \(initial\) \{\s*\n\s*void publishLinkedWorkerDocs\(\);[\s\S]{0,420}void publishSharedScheduleNow\(\);\s*\n\s*return;\s*\n\s*\}/
   );
-  assert.match(grab("publishHotNow"), /void publishLinkedWorkerDocs\(\);/);
+  // El arranque publica a TODOS (sin objetivos); la publicacion caliente solo a
+  // los perfiles tocados. Republicar los 66 enlazados por editar un turno
+  // costaba ~132 documentos y tumbaba el stream de escritura.
+  assert.match(grab("publishHotNow"), /void publishLinkedWorkerDocs\(dirtyNames\);/);
   assert.match(grab("publishHotNow"), /void publishSharedScheduleNow\(\);/);
+});
+
+test("solo se republica a quien cambio, salvo que cambie la compatibilidad", () => {
+  const fn = grab("publishLinkedWorkerDocsNow");
+  // El universo para compatibleWorkerUids sigue siendo TODOS...
+  assert.match(fn, /swapCompatibilitySignature\(workspace, primaryProfiles\)/);
+  assert.match(fn, /payload: buildSwapCandidatePayload\([\s\S]{0,400}primaryProfiles/);
+  // ...pero solo se escriben los objetivos.
+  assert.match(fn, /const targets = wanted/);
+  assert.match(fn, /documents\.push/);
+  assert.match(fn, /targets\.forEach/);
+  // Sin objetivos, o si la compatibilidad cambio, se publica completo.
+  assert.match(fn, /targetNames\?\.size && !compatibilityChanged/);
+
+  // La firma cubre los insumos de canSwapProfiles: si alguno cambia, la lista de
+  // compatibles de TODOS queda vieja y hay que republicar entero.
+  const firma = grab("swapCompatibilitySignature");
+  ["estamento", "profession", "getRotativa", "allowSwaps"].forEach(campo => {
+    assert.match(firma, new RegExp(campo), `la firma ignora ${campo}`);
+  });
+
+  // Y solo se da por cubierta si la escritura salio bien.
+  assert.match(
+    fn,
+    /await commitWorkerDocBatches\([\s\S]{0,400}lastSwapCompatibilitySignature = signature/
+  );
 });
 
 test("buildSwapCandidatePayload sigue publicando compatibilidad y la config del 24", () => {

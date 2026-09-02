@@ -88,6 +88,15 @@ const WORKER_APP_COLD_USER_QUIET_MS = 90000;
 const WORKER_APP_VISIBLE_RETRY_MS = 60000;
 const WORKER_APP_CALENDAR_VISIBLE_RETRY_MS = 120000;
 const WORKER_APP_FOREGROUND_RESUME_COOLDOWN_MS = 180000;
+// Documentos por lote al publicar los docs de los enlazados.
+//
+// OJO con subirlo. Estos documentos son grandes (el candidato lleva el calendario
+// del trabajador y el universo de compatibilidad) y el limite que importa no es
+// el de 500 operaciones sino los BYTES: con lotes de 50 el backend cerraba el
+// stream con `resource-exhausted` y un solo commit llegaba a tardar 29 s,
+// dejando detras hasta las escrituras de un unico documento. Es el mismo muro
+// que ya documenta `publishSharedScheduleNow` ("Transaction too big").
+const WORKER_DOC_BATCH_SIZE = 10;
 // Los resumenes HH.EE son caros: se mantienen acotados (no crecen con la
 // ventana del calendario).
 const OVERTIME_SUMMARY_MONTHS_BACK = 2;
@@ -2411,65 +2420,68 @@ async function writeWorkerAppProjection(
     };
 }
 
-async function writeWorkerSwapCandidate(payload, workspaceId) {
-    const { db, firestoreModule } = await getFirebaseServices();
+// Publicar los docs de los enlazados de a UNO costaba una escritura por
+// documento: con 66 enlazados eran ~132 `setDoc` y mas de 60 s de escritura por
+// una sola edicion de turno, suficiente para que el SDK contestara
+// `resource-exhausted: Write stream exhausted maximum allowed queued writes`.
+// Aqui se agrupan. Mismos documentos y mismo contenido; lo que cambia es que
+// viajan por lotes.
+async function commitWorkerDocBatches(documents = [], workspaceId) {
+    if (!documents.length || !workspaceId) return 0;
 
-    await measurePerformance(
-        "worker-app:write-swap-candidate",
-        () => firestoreModule.setDoc(
-            firestoreModule.doc(
-                db,
-                "workspaces",
-                workspaceId,
-                "workerSwapCandidates",
-                payload.uid
-            ),
+    const { db, firestoreModule } = await getFirebaseServices();
+    let written = 0;
+
+    for (
+        let offset = 0;
+        offset < documents.length;
+        offset += WORKER_DOC_BATCH_SIZE
+    ) {
+        const slice = documents.slice(offset, offset + WORKER_DOC_BATCH_SIZE);
+        const batch = firestoreModule.writeBatch(db);
+
+        slice.forEach(({ collection, uid, payload }) => {
+            batch.set(
+                firestoreModule.doc(
+                    db,
+                    "workspaces",
+                    workspaceId,
+                    collection,
+                    uid
+                ),
+                {
+                    ...payload,
+                    updatedAt: firestoreModule.serverTimestamp()
+                },
+                { merge: true }
+            );
+        });
+
+        await measurePerformance(
+            "worker-app:commit-worker-docs",
+            () => batch.commit(),
             {
-                ...payload,
-                updatedAt: firestoreModule.serverTimestamp()
+                documentCount: slice.length,
+                collections: Array.from(
+                    new Set(slice.map(item => item.collection))
+                ).join(",")
             },
-            { merge: true }
-        ),
-        {
-            uid: payload?.uid || "",
-            profile: payload?.profileName || "",
-            compatibleCount:
-                payload?.compatibleWorkerUids?.length || 0
-        },
-        {
-            asyncThreshold: 120
+            {
+                asyncThreshold: 120
+            }
+        );
+
+        written += slice.length;
+
+        // Se cede el hilo entre LOTES, no entre documentos.
+        if (offset + WORKER_DOC_BATCH_SIZE < documents.length) {
+            await waitWorkerAppIdle(300);
         }
-    );
+    }
+
+    return written;
 }
 
-async function writeWorkerMessageDirectoryEntry(payload, workspaceId) {
-    const { db, firestoreModule } = await getFirebaseServices();
-
-    await measurePerformance(
-        "worker-app:write-directory",
-        () => firestoreModule.setDoc(
-            firestoreModule.doc(
-                db,
-                "workspaces",
-                workspaceId,
-                "workerMessageDirectory",
-                payload.uid
-            ),
-            {
-                ...payload,
-                updatedAt: firestoreModule.serverTimestamp()
-            },
-            { merge: true }
-        ),
-        {
-            uid: payload?.uid || "",
-            profile: payload?.profileName || ""
-        },
-        {
-            asyncThreshold: 120
-        }
-    );
-}
 
 // ───────── Deteccion de "sucios" desde detail.keys ─────────
 
@@ -2864,8 +2876,12 @@ async function publishHotNow() {
     // El directorio de mensajes y los candidatos de cambio de turno se publican
     // aparte de la proyeccion. Se habian dejado de publicar al retirar el pipeline
     // hot legacy: sin ellos, el trabajador no aparece en Mensajes y
-    // compatibleWorkerUids queda vacio. Livianos y solo para los enlazados (pocos).
-    void publishLinkedWorkerDocs();
+    // compatibleWorkerUids queda vacio.
+    //
+    // Se pasan los perfiles tocados: no son "pocos" como suponia el comentario
+    // original. Con 66 enlazados, republicarlos todos por una edicion costaba
+    // ~132 documentos y mas de 60 s, y terminaba tumbando el stream de escritura.
+    void publishLinkedWorkerDocs(dirtyNames);
 }
 
 // La programacion es la MISMA para todo el workspace, asi que va en UN doc
@@ -2975,7 +2991,86 @@ async function retireDuplicateWorkerLinkDocs(uid, workspaceId) {
     }
 }
 
-async function publishLinkedWorkerDocs() {
+// Se invoca con `void` desde dos sitios, y una corrida completa tarda segundos.
+// Sin candado, dos ediciones seguidas dejaban DOS bucles escribiendo a la vez y
+// la cola de escritura del SDK se desbordaba. Una edicion durante una corrida no
+// se descarta: se encola UNA repeticion al terminar, porque el bucle republica
+// desde el estado actual y una corrida en vuelo pudo leer datos viejos.
+let linkedWorkerDocsRun = null;
+let linkedWorkerDocsRerun = false;
+// Objetivos acumulados para la proxima corrida. Sin acumular, una edicion de
+// Bruno llegada mientras se publicaba a Ana se perderia: la repeticion saldria
+// con los objetivos de Ana.
+const linkedWorkerDocsPendingNames = new Set();
+let linkedWorkerDocsPendingAll = false;
+
+// Sin objetivos = publicacion completa (arranque, o quien no sabe a quien toco).
+function publishLinkedWorkerDocs(targetNames = null) {
+    if (targetNames?.size) {
+        targetNames.forEach(name => linkedWorkerDocsPendingNames.add(name));
+    } else {
+        linkedWorkerDocsPendingAll = true;
+    }
+
+    if (linkedWorkerDocsRun) {
+        linkedWorkerDocsRerun = true;
+        return linkedWorkerDocsRun;
+    }
+
+    linkedWorkerDocsRun = (async () => {
+        try {
+            do {
+                linkedWorkerDocsRerun = false;
+
+                const all = linkedWorkerDocsPendingAll;
+                const names = new Set(linkedWorkerDocsPendingNames);
+
+                linkedWorkerDocsPendingAll = false;
+                linkedWorkerDocsPendingNames.clear();
+
+                await publishLinkedWorkerDocsNow(all ? null : names);
+            } while (linkedWorkerDocsRerun);
+        } finally {
+            linkedWorkerDocsRun = null;
+            linkedWorkerDocsRerun = false;
+        }
+    })();
+
+    return linkedWorkerDocsRun;
+}
+
+// Editar el turno de Ana no cambia NI UN BYTE del documento de Bruno: su
+// calendario es propio, y `canSwapProfiles` solo mira estamento, profesion,
+// rotativa base y la config de cambios. Por eso se publica solo a quien cambio.
+//
+// Pero si cambia alguno de esos insumos -o entra/sale/se renombra un perfil- la
+// lista `compatibleWorkerUids` de TODOS queda vieja. En vez de enumerar los
+// caminos que lo provocan, se firma el insumo y se compara: si la firma cambio,
+// se publica completo. Si aparece un criterio nuevo en `canSwapProfiles`, hay
+// que agregarlo aqui o esa lista se quedara rancia.
+function swapCompatibilitySignature(workspace, primaryProfiles) {
+    const config = getTurnChangeConfig();
+
+    return JSON.stringify([
+        workspace.name || "",
+        config.allowSwaps !== false,
+        config.allowTwentyFourHourShifts !== false,
+        config.allowInvertedTwentyFourHourShifts !== false,
+        primaryProfiles
+            .map(item => [
+                item.link.uid,
+                item.profile.name || "",
+                item.profile.estamento || "",
+                item.profile.profession || "",
+                getRotativa(item.profile.name) || ""
+            ].join("|"))
+            .sort()
+    ]);
+}
+
+let lastSwapCompatibilitySignature = "";
+
+async function publishLinkedWorkerDocsNow(targetNames = null) {
     const workspace = currentWorkspace();
 
     if (!workspace?.id || !getWorkerAppLinkList().length) return;
@@ -3004,46 +3099,104 @@ async function publishLinkedWorkerDocs() {
     const primaryUids = new Set(primaryProfiles.map(item => item.link.uid));
     const duplicates = linkedProfiles.filter(item => !primaryUids.has(item.link.uid));
 
-    for (const item of primaryProfiles) {
+    // El universo de compatibilidad se calcula SIEMPRE con todos (es lo que va
+    // dentro de `compatibleWorkerUids`); lo que se acota es a quien se le
+    // reescribe el documento.
+    const signature = swapCompatibilitySignature(workspace, primaryProfiles);
+    const compatibilityChanged = signature !== lastSwapCompatibilitySignature;
+    const wanted = targetNames?.size && !compatibilityChanged
+        ? new Set([...targetNames].map(normalizeText))
+        : null;
+    const targets = wanted
+        ? primaryProfiles.filter(item =>
+            wanted.has(normalizeText(item.profile.name))
+        )
+        : primaryProfiles;
+
+    // Un objetivo que no empareja con ningun enlazado es NORMAL cuando se edita
+    // el turno de alguien sin la PWA. Pero tambien seria el sintoma de que los
+    // nombres no casan, y en ese caso la PWA dejaria de recibir los cambios sin
+    // hacer ruido. Se registran para poder distinguirlo.
+    const unmatched = wanted
+        ? [...targetNames].filter(name =>
+            !primaryProfiles.some(item =>
+                normalizeText(item.profile.name) === normalizeText(name)
+            )
+        )
+        : [];
+
+    recordPerformanceEvent("worker-app:publish-linked-docs", {
+        type: "worker-app",
+        linkedCount: primaryProfiles.length,
+        targetCount: targets.length,
+        requestedCount: targetNames?.size || 0,
+        unmatchedCount: unmatched.length,
+        unmatched: unmatched.slice(0, 5).join(" | "),
+        compatibilityChanged
+    });
+
+    if (!targets.length) return;
+
+    // Se arman todos los documentos y despues se envian por lotes. El try/catch
+    // sigue siendo por trabajador: un perfil que no se pueda armar no puede
+    // llevarse por delante la publicacion de los demas.
+    const documents = [];
+
+    targets.forEach(item => {
         try {
-            await writeWorkerMessageDirectoryEntry(
-                buildWorkerMessageDirectoryPayload(
+            documents.push({
+                collection: "workerMessageDirectory",
+                uid: item.link.uid,
+                payload: buildWorkerMessageDirectoryPayload(
                     item.link,
                     item.profile,
                     workspace
-                ),
-                workspace.id
-            );
+                )
+            });
         } catch (error) {
             console.warn(
-                "No se pudo publicar el directorio de mensajes.",
+                "No se pudo preparar el directorio de mensajes.",
                 error
             );
         }
 
         try {
-            await writeWorkerSwapCandidate(
-                buildSwapCandidatePayload(
+            documents.push({
+                collection: "workerSwapCandidates",
+                uid: item.link.uid,
+                payload: buildSwapCandidatePayload(
                     item.link,
                     item.profile,
                     workspace,
                     // El universo de compatibilidad tambien va sin duplicados, para
                     // que compatibleWorkerUids no repita a la misma persona.
                     primaryProfiles
-                ),
-                workspace.id
-            );
+                )
+            });
         } catch (error) {
             console.warn(
-                "No se pudo publicar el candidato de cambio de turno.",
+                "No se pudo preparar el candidato de cambio de turno.",
                 error
             );
         }
+    });
 
-        // No bloquear el hilo principal si hay varios enlazados.
-        await waitWorkerAppIdle(300);
+    try {
+        await commitWorkerDocBatches(documents, workspace.id);
+
+        // La firma se da por cubierta solo si la publicacion salio bien. Si
+        // reventa, la proxima corrida vuelve a verla distinta y republica
+        // completo, que es justo lo que hace falta.
+        lastSwapCompatibilitySignature = signature;
+    } catch (error) {
+        console.warn(
+            "No se pudieron publicar los documentos de los enlazados.",
+            error
+        );
     }
 
+    // Los duplicados son raros (una persona con dos cuentas) y llevan
+    // `serverTimestamp` propio en `unlinkedAt`, asi que se dejan por su camino.
     for (const item of duplicates) {
         await retireDuplicateWorkerLinkDocs(item.link.uid, workspace.id);
     }
