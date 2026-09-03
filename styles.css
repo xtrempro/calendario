@@ -3495,6 +3495,26 @@ body[data-active-view="log"] .secondary-grid {
     white-space: pre-line;
 }
 
+/* Columnas de fecha del reporte.
+   El ancho lo repartia el navegador entre todas las columnas y las de texto
+   largo -"Turno realizado", "Tipo de permiso"- se llevaban lo suyo: la fecha
+   quedaba angosta y "01-08-2026" se partia en dos lineas, con la fila del
+   doble de alto que sus vecinas. Se fija el ancho justo del formato
+   dd-mm-aaaa y se prohibe el corte, para que todas las filas midan igual. */
+.report-table th[data-col="fecha"],
+.report-table td[data-col="fecha"],
+.report-table th[data-col="inicio"],
+.report-table td[data-col="inicio"],
+.report-table th[data-col="termino"],
+.report-table td[data-col="termino"],
+.report-table th[data-col="fechaCambio"],
+.report-table td[data-col="fechaCambio"],
+.report-table th[data-col="fechaDevolucion"],
+.report-table td[data-col="fechaDevolucion"] {
+    min-width: 6.5rem;
+    white-space: nowrap;
+}
+
 .report-worker-data-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7662,6 +7682,21 @@ body.auth-gate-active .app-shell {
 .leave-detail-rows b {
     color: var(--text);
     text-transform: capitalize;
+}
+
+/* Correo de quien hizo la accion, bajo su nombre en la fila "Por" de los
+   modales de detalle. Va aparte y no pegado al nombre porque estas filas
+   capitalizan su valor -un correo capitalizado se lee como mal escrito- y
+   porque el nombre de la cuenta puede ser el generico del servicio: el correo
+   es lo unico que dice de verdad quien fue. */
+.detail-actor-email {
+    display: block;
+    margin-top: 2px;
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    font-weight: 500;
+    text-transform: none;
+    overflow-wrap: anywhere;
 }
 
 .leave-detail-note {

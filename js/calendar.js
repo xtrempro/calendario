@@ -158,6 +158,8 @@ import {
     getHonorariaMonthlySummary
 } from "./honoraria.js";
 import {
+    actorLabelHTML,
+    actorLabelText,
     addAuditLog,
     AUDIT_CATEGORY,
     getLeaveApplicationInfo,
@@ -2921,7 +2923,7 @@ function confirmUndoTurnChange(swap) {
                         return audit ? `
                             <li>
                                 <span>Registrado por</span>
-                                <strong>${escapeHTML(audit.actorName)}</strong>
+                                <strong>${actorLabelHTML(audit)}</strong>
                             </li>
                         ` : "";
                     })()}
@@ -3569,7 +3571,9 @@ async function openShiftMoveDetailDialog(marker) {
                 move.targetKey
             );
 
-            return audit ? ["Movido por", audit.actorName] : null;
+            // El tercer elemento dice que el valor ya viene como HTML: el
+            // correo del usuario va en su propia linea.
+            return audit ? ["Movido por", actorLabelHTML(audit), true] : null;
         })()
     ].filter(Boolean);
     const backdrop = document.createElement("div");
@@ -3582,10 +3586,10 @@ async function openShiftMoveDetailDialog(marker) {
                 Este dia tiene un movimiento de turno aplicado.
             </p>
             <div class="leave-detail-rows replacement-detail-rows">
-                ${details.map(([label, value]) => `
+                ${details.map(([label, value, isHTML]) => `
                     <div>
                         <span>${escapeHTML(label)}</span>
-                        <b>${escapeHTML(value)}</b>
+                        <b>${isHTML ? value : escapeHTML(value)}</b>
                     </div>
                 `).join("")}
             </div>
@@ -3863,7 +3867,7 @@ function leaveApplicationHoverTitle(
     return [
         leaveLabelForType(type),
         `Aplicado: ${info?.createdAtLabel || "Sin registro"}`,
-        `Usuario: ${info?.actorName || "No registrado"}`,
+        `Usuario: ${actorLabelText(info)}`,
         covering.length ? `Cubre: ${covering.join(", ")}` : ""
     ].filter(Boolean).join("\n");
 }
@@ -4348,7 +4352,7 @@ function openLeaveDetailDialog({
                 <div><span>Trabajador</span><b>${escapeHTML(profile)}</b></div>
                 <div><span>Fecha</span><b>${escapeHTML(leaveDateLabelFromKey(keyDay))}</b></div>
                 <div><span>Aplicado</span><b>${escapeHTML(info?.createdAtLabel || "Sin registro")}</b></div>
-                <div><span>Por</span><b>${escapeHTML(info?.actorName || "No registrado")}</b></div>
+                <div><span>Por</span><b>${actorLabelHTML(info)}</b></div>
                 ${covering.length
                     ? `<div><span>Cubre</span><b>${escapeHTML(covering.join(", "))}</b></div>`
                     : ""}
@@ -4358,7 +4362,7 @@ function openLeaveDetailDialog({
                     <strong>Marcado como "No requiere cobertura"</strong>
                     <div class="leave-detail-rows">
                         <div><span>Asignado</span><b>${escapeHTML(noCoverageInfo?.createdAtLabel || "Sin registro")}</b></div>
-                        <div><span>Por</span><b>${escapeHTML(noCoverageInfo?.actorName || "No registrado")}</b></div>
+                        <div><span>Por</span><b>${actorLabelHTML(noCoverageInfo)}</b></div>
                         ${noCoverageReason
                             ? `<div><span>Motivo</span><b>${escapeHTML(noCoverageReason)}</b></div>`
                             : ""}
@@ -7407,7 +7411,7 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
         (mark.updatedAt
             ? new Date(mark.updatedAt).toLocaleString("es-CL")
             : "Sin registro");
-    const actorName = audit?.actorName || "No registrado";
+    const actorHTML = actorLabelHTML(audit);
     const segmentsHTML = clockDetailSegmentsHTML(
         profile,
         keyDay,
@@ -7456,7 +7460,7 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
                 <div><span>Trabajador</span><b>${escapeHTML(profile)}</b></div>
                 <div><span>Fecha</span><b>${escapeHTML(leaveDateLabelFromKey(keyDay))}</b></div>
                 <div><span>Modificado</span><b>${escapeHTML(modifiedLabel)}</b></div>
-                <div><span>Por</span><b>${escapeHTML(actorName)}</b></div>
+                <div><span>Por</span><b>${actorHTML}</b></div>
             </div>
             <div class="clock-detail-segments">
                 ${segmentsHTML || `<div class="clock-detail-segment"><span>Sin detalle de segmentos.</span></div>`}
@@ -7541,7 +7545,7 @@ function openPreassignmentDialog({ profile, keyDay }) {
         (preassignment.at
             ? new Date(preassignment.at).toLocaleString("es-CL")
             : "Sin registro");
-    const actorName = audit?.actorName || "No registrado";
+    const actorHTML = actorLabelHTML(audit);
 
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
@@ -7554,7 +7558,7 @@ function openPreassignmentDialog({ profile, keyDay }) {
                 <div><span>Turno</span><b>${escapeHTML(turnoReplacementLabel(turno))}</b></div>
                 <div><span>Fecha</span><b>${escapeHTML(leaveDateLabelFromKey(keyDay))}</b></div>
                 <div><span>Preasignado</span><b>${escapeHTML(preassignedLabel)}</b></div>
-                <div><span>Por</span><b>${escapeHTML(actorName)}</b></div>
+                <div><span>Por</span><b>${actorHTML}</b></div>
             </div>
             <p class="leave-detail-note">
                 Reserva tentativa: aun no proyecta el turno ni suma horas. Confirma

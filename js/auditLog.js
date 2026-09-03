@@ -3,6 +3,7 @@ import { escapeHTML } from "./htmlUtils.js";
 import { getJSON, getRaw, setJSON } from "./persistence.js";
 import {
     asRecordList,
+    getAdminDisplayName,
     getCurrentProfile,
     getProfiles,
     getReplacementRequests,
@@ -256,7 +257,12 @@ function saveProfileMap(prefix, profile, map) {
 function getCurrentActorLabel() {
     const user = getCurrentFirebaseUser();
 
-    return user?.displayName ||
+    // El nombre visible que el supervisor puso en AJUSTES > USUARIOS manda
+    // sobre el de la cuenta de Google, igual que en la lista de usuarios: el de
+    // Google suele ser el del servicio y no el de la persona ("Tecnologo
+    // Supervisor"), y con el la bitacora no dice quien hizo cada cosa.
+    return getAdminDisplayName(user?.email) ||
+        user?.displayName ||
         user?.email ||
         document.getElementById("authUserName")?.textContent?.trim() ||
         getCurrentProfile() ||
@@ -274,14 +280,65 @@ function getCurrentActor() {
     };
 }
 
-function logActorName(log) {
+// Correo de la cuenta que hizo la accion. Es lo unico que identifica sin
+// ambiguedad: el nombre puede repetirse entre dos cuentas, o ser el generico de
+// un servicio compartido.
+function logActorEmail(log) {
     return String(
+        log?.actor?.email ||
+        log?.meta?.actorEmail ||
+        ""
+    ).trim();
+}
+
+// El nombre guardado en el registro es el que tenia la cuenta CUANDO se hizo la
+// accion. Si ese correo tiene hoy un nombre visible en AJUSTES > USUARIOS, ese
+// gana: asi los registros viejos -escritos con el alias de Google- tambien
+// pasan a decir quien fue, porque se resuelve al mostrar y no al guardar.
+function logActorName(log) {
+    const email = logActorEmail(log);
+
+    return String(
+        getAdminDisplayName(email) ||
         log?.actor?.name ||
         log?.actorName ||
         log?.createdBy ||
         log?.meta?.actorName ||
+        email ||
         ""
     ).trim();
+}
+
+function actorParts(info) {
+    const name = String(info?.actorName || "").trim();
+    const email = String(info?.actorEmail || "").trim();
+
+    return {
+        name: name || email || "No registrado",
+        email: name && email.toLowerCase() !== name.toLowerCase() ? email : ""
+    };
+}
+
+/**
+ * Usuario que hizo la accion, para los tooltips (texto plano).
+ */
+export function actorLabelText(info) {
+    const { name, email } = actorParts(info);
+
+    return email ? `${name} (${email})` : name;
+}
+
+/**
+ * Usuario que hizo la accion, para la fila "Por" de los modales de detalle. El
+ * correo va en una segunda linea y no dentro del nombre: las filas capitalizan
+ * su valor, y un correo capitalizado se lee como si estuviera mal escrito.
+ */
+export function actorLabelHTML(info) {
+    const { name, email } = actorParts(info);
+
+    return `${escapeHTML(name)}${email
+        ? `<small class="detail-actor-email">${escapeHTML(email)}</small>`
+        : ""}`;
 }
 
 function getProfileByName(profileName) {
@@ -576,6 +633,7 @@ export function getLeaveApplicationInfo({
         createdAt: log.createdAt,
         createdAtLabel: formatTimestamp(log.createdAt),
         actorName: actorName || "No registrado",
+        actorEmail: logActorEmail(log),
         keys: normalizeKeyList(log?.meta?.keys),
         amount: Number(log?.meta?.amount) || 0,
         date: String(log?.meta?.date || ""),
@@ -613,7 +671,8 @@ function latestCalendarActionInfo(profile, keyDay, action) {
     return {
         createdAt: log.createdAt,
         createdAtLabel: formatTimestamp(log.createdAt),
-        actorName: actorName || "No registrado"
+        actorName: actorName || "No registrado",
+        actorEmail: logActorEmail(log)
     };
 }
 
@@ -656,7 +715,8 @@ export function getSwapAuditInfo(swapId) {
     return {
         createdAt: log.createdAt,
         createdAtLabel: formatTimestamp(log.createdAt),
-        actorName: logActorName(log) || "No registrado"
+        actorName: logActorName(log) || "No registrado",
+        actorEmail: logActorEmail(log)
     };
 }
 
@@ -685,7 +745,8 @@ export function getShiftMoveAuditInfo(profile, sourceKey, targetKey) {
     return {
         createdAt: log.createdAt,
         createdAtLabel: formatTimestamp(log.createdAt),
-        actorName: logActorName(log) || "No registrado"
+        actorName: logActorName(log) || "No registrado",
+        actorEmail: logActorEmail(log)
     };
 }
 
@@ -1279,7 +1340,10 @@ function undoPanelHTML(log) {
 function entryHTML(log) {
     const def = categoryDef(log.category);
     const isExpanded = expandedLogId === log.id;
-    const actorName = logActorName(log);
+    const actorName = actorLabelText({
+        actorName: logActorName(log),
+        actorEmail: logActorEmail(log)
+    });
 
     return `
         <article class="audit-entry ${log.canceledAt ? "is-canceled" : ""} ${isExpanded ? "is-expanded" : ""}" data-audit-entry-id="${escapeHTML(log.id)}">

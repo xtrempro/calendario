@@ -94,3 +94,39 @@ test("pero una celda apilada conserva su salto propio", () => {
         /td\[data-col="entrada"\]\.report-cell--stacked[\s\S]{0,220}white-space: pre-line;/
     );
 });
+
+// La fecha se partia en dos lineas ("01-08-" / "2026") en las tablas con
+// columnas de texto largo: el navegador reparte el ancho y "Turno realizado" o
+// "Tipo de permiso" se llevaban lo suyo, dejando la fecha sin espacio. La fila
+// quedaba del doble de alto que sus vecinas.
+test("las columnas de fecha caben en una linea", () => {
+    assert.match(
+        css,
+        /\.report-table td\[data-col="fecha"\][\s\S]{0,600}min-width: 6\.5rem;[\s\S]{0,60}white-space: nowrap;/
+    );
+});
+
+test("y no solo la de 'Detalle de turnos'", () => {
+    // Permisos/Ausencias y Cambios de turno usan otras claves para lo mismo.
+    ["fecha", "inicio", "termino", "fechaCambio", "fechaDevolucion"].forEach(col => {
+        assert.ok(
+            css.includes(`.report-table td[data-col="${col}"]`),
+            `falta la columna ${col}`
+        );
+        assert.ok(
+            css.includes(`.report-table th[data-col="${col}"]`),
+            `falta el encabezado ${col}`
+        );
+    });
+});
+
+test("las claves del CSS son las que emiten las tablas", () => {
+    // Si alguien renombra una columna en el reporte, la regla deja de aplicar
+    // en silencio y la fecha vuelve a partirse.
+    ["fecha", "inicio", "termino", "fechaCambio", "fechaDevolucion"].forEach(col => {
+        assert.ok(
+            report.includes(`{ key: "${col}",`),
+            `el reporte ya no emite la columna ${col}`
+        );
+    });
+});

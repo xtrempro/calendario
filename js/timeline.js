@@ -51,7 +51,7 @@ import {
     requiereReemplazoTurnoBase,
     restarTurnoCubierto
 } from "./rulesEngine.js";
-import { getLeaveApplicationInfo } from "./auditLog.js";
+import { actorLabelText, getLeaveApplicationInfo } from "./auditLog.js";
 import {
     codeToTurno,
     getBackedTurnForWorker,
@@ -2351,7 +2351,7 @@ function leaveApplicationHoverTitle(profileName, keyDay, maps) {
     return [
         leaveLabelForType(type),
         `Aplicado: ${info?.createdAtLabel || "Sin registro"}`,
-        `Usuario: ${info?.actorName || "No registrado"}`
+        `Usuario: ${actorLabelText(info)}`
     ].join("\n");
 }
 
