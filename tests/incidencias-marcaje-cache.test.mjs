@@ -47,12 +47,11 @@ function grab(name) {
     throw new Error(`sin cierre: ${name}`);
 }
 
-const decide = new Function(
-    `${home.slice(
-        home.indexOf("const INCIDENT_STATE_PREFIXES"),
-        home.indexOf("/**\n * Tira la lista guardada")
-    )}\nreturn affectsAttendanceIncidents;`
-)();
+// El predicado ya no vive dentro de home.js: se movio a su propio modulo para
+// que el inicio y el calendario compartan UNA sola lista de datos que invalidan.
+// Se importa en vez de recortarlo del texto.
+const { affectsAttendanceIncidents: decide } =
+    await import("../js/attendanceIncidentIndex.js");
 
 /* ======================================================================
    Que cambios obligan a recalcular

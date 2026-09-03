@@ -80,6 +80,10 @@ import { fetchHolidays, getCachedHolidays } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
 import { getActiveWorkspace } from "./workspaces.js";
 import {
+    affectsAttendanceIncidents,
+    invalidateAttendanceIncidentIndex
+} from "./attendanceIncidentIndex.js";
+import {
     addDays as addScheduleDays,
     publishedWeeksOfMonth,
     weekHeading,
@@ -1740,39 +1744,6 @@ let incidenciasRequest = 0;
 // calculado un mes no se volvia a calcular pasara lo que pasara con los datos.
 // Aplicar un cambio de turno dejaba al trabajador Libre ese dia y la incidencia
 // seguia listada, porque el detalle se recalcula al abrirlo y la lista no.
-const INCIDENT_STATE_PREFIXES = [
-    "data_",
-    "baseData_",
-    "admin_",
-    "legal_",
-    "comp_",
-    "absences_",
-    "clockMarks_",
-    "rotativa_",
-    "shift_",
-    "shiftAssignmentHistory_"
-];
-const INCIDENT_STATE_KEYS = new Set([
-    "swaps",
-    "shiftMoves",
-    "replacements",
-    "attendanceMarks",
-    "attendanceMarksImportedAt",
-    "workerSchedules",
-    "profiles",
-    "manualHolidays",
-    "turnChangeConfig"
-]);
-
-function affectsAttendanceIncidents(keys = []) {
-    return keys.some(key => {
-        const cleanKey = String(key || "");
-
-        return INCIDENT_STATE_KEYS.has(cleanKey) ||
-            INCIDENT_STATE_PREFIXES.some(prefix => cleanKey.startsWith(prefix));
-    });
-}
-
 /**
  * Tira la lista guardada de incidencias. La siguiente pintada la recalcula.
  */

@@ -199,6 +199,12 @@ import {
     hourReturnCalendarLabel
 } from "./hourReturns.js";
 import { withBusyState } from "./busy.js";
+import {
+    ensureAttendanceIncidentIndex,
+    getAttendanceIncidentsForDay,
+    onAttendanceIncidentIndexReady
+} from "./attendanceIncidentIndex.js";
+import { ATTENDANCE_INCIDENT_KINDS } from "./hoursReport.js";
 import { rotationPositionLabel } from "./rotationUtils.js";
 import {
     TURNO,
@@ -1255,6 +1261,15 @@ async function handleCalendarCellFallbackClick(cell, event) {
             keyDay,
             state
         );
+    }
+
+    // El icono de incidencia de marcaje abre SU detalle. Va primero: es una
+    // insignia con accion propia y no debe caer en lo que hace el resto de la
+    // casilla.
+    if (event.target.closest("[data-attendance-incident]")) {
+        event.stopPropagation();
+        openAttendanceIncidentDialog(activeProfile, keyDay);
+        return;
     }
 
     // Dia con marcaje modificado (icono de reloj): al presionarlo se abre el
@@ -2692,6 +2707,17 @@ const HONORARIA_CONTRACT_ICON = `
 // un icono de reloj. Es un centinela (no texto visible) que buildDayCell detecta
 // para renderizar el SVG en vez de escaparlo como texto.
 const CLOCK_MARK_BADGE = "clock-mark";
+// Incidencia que trajo el reporte del reloj (atraso, falta de marca, marca en
+// dia libre). Es OTRA cosa que el reloj de al lado: ese dice que el supervisor
+// movio la hora a mano; este, que la planilla del reloj trajo un error.
+const ATTENDANCE_INCIDENT_BADGE = "attendance-incident";
+const ATTENDANCE_INCIDENT_BADGE_ICON = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3.6 2.6 19.2a1.6 1.6 0 0 0 1.4 2.4h16a1.6 1.6 0 0 0 1.4-2.4z"/>
+        <path d="M12 9.4v4.4"/>
+        <path d="M12 17.6h.01"/>
+    </svg>
+`;
 const CLOCK_MARK_BADGE_ICON = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <circle cx="12" cy="12" r="8.5"/>
@@ -2750,7 +2776,8 @@ function buildDayCell({
     isWeekendDay,
     isHoliday,
     isDraftSelected,
-    hasHonorariaContract
+    hasHonorariaContract,
+    attendanceIncidentTitle
 }) {
     const div = document.createElement("div");
 
@@ -2802,6 +2829,10 @@ function buildDayCell({
                 ${visibleBadges.map(item => {
                     if (item === CLOCK_MARK_BADGE) {
                         return `<span class="day-badge day-badge--clock" title="Marcaje reloj control modificado">${CLOCK_MARK_BADGE_ICON}</span>`;
+                    }
+
+                    if (item === ATTENDANCE_INCIDENT_BADGE) {
+                        return `<span class="day-badge day-badge--attendance-incident" title="${escapeHTML(attendanceIncidentTitle || "Incidencia de marcaje")}" data-attendance-incident="1">${ATTENDANCE_INCIDENT_BADGE_ICON}</span>`;
                     }
 
                     if (item === PREASSIGN_BADGE) {
@@ -3125,6 +3156,86 @@ function replacementDetailRowsHTML(replacement, profileName) {
  * todos, cada uno con su propio "Anular reemplazo"; con uno solo, el cuadro se
  * ve igual que siempre.
  */
+/* ======================================================
+   Incidencias de marcaje en la casilla del calendario
+
+   Son los errores que trajo el reporte del reloj control -atrasos, entradas o
+   salidas sin marca, marcas en dia libre-, los mismos que cuenta el recuadro
+   "Incidencias de marcaje" del inicio. El icono de reloj que ya existia dice
+   otra cosa: que el supervisor movio la hora a mano.
+====================================================== */
+
+function attendanceIncidentLabel(kind) {
+    return ATTENDANCE_INCIDENT_KINDS
+        .find(item => item.key === kind)?.label || "Incidencia";
+}
+
+// Texto del tooltip: el detalle completo no cabe, pero los tipos si.
+function attendanceIncidentSummary(incidents) {
+    const tipos = Array.from(new Set(
+        incidents.map(incident => attendanceIncidentLabel(incident.kind))
+    ));
+
+    return `Incidencia de marcaje: ${tipos.join(", ")}`;
+}
+
+function openAttendanceIncidentDialog(profileName, keyDay) {
+    const incidents = getAttendanceIncidentsForDay(profileName, keyDay);
+
+    if (!incidents.length) return false;
+
+    const backdrop = document.createElement("div");
+
+    backdrop.className = "turn-change-dialog-backdrop";
+    backdrop.innerHTML = `
+        <section class="turn-change-dialog attendance-incident-dialog" role="dialog" aria-modal="true" aria-labelledby="attendanceIncidentTitle">
+            <strong id="attendanceIncidentTitle">Incidencias de marcaje</strong>
+            <p>
+                ${escapeHTML(profileName)} &middot; ${escapeHTML(replacementDetailDateLabel(isoFromKeyDay(keyDay)))}
+            </p>
+            <div class="attendance-incident-list">
+                ${incidents.map(incident => `
+                    <article class="attendance-incident-item">
+                        <span class="attendance-incident-kind">${escapeHTML(attendanceIncidentLabel(incident.kind))}</span>
+                        <p>${escapeHTML(incident.detail || "Sin detalle.")}</p>
+                    </article>
+                `).join("")}
+            </div>
+            <p class="leave-detail-note">
+                Salen del reporte del reloj control. Se corrigen subiendo una
+                planilla nueva o ajustando el marcaje del dia.
+            </p>
+            <div class="turn-change-dialog__actions">
+                <button class="secondary-button" type="button" data-action="cancel">
+                    Cerrar
+                </button>
+            </div>
+        </section>
+    `;
+
+    const close = () => {
+        document.removeEventListener("keydown", onKeydown);
+        backdrop.remove();
+    };
+
+    const onKeydown = event => {
+        if (event.key === "Escape") close();
+    };
+
+    backdrop.addEventListener("click", event => {
+        if (event.target === backdrop) close();
+    });
+    backdrop
+        .querySelector("[data-action='cancel']")
+        .onclick = close;
+
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(backdrop);
+    backdrop.querySelector("[data-action='cancel']")?.focus();
+
+    return true;
+}
+
 async function openReplacementDetailDialog(
     profileName,
     keyDay,
@@ -8818,11 +8929,24 @@ async function renderCalendarImpl(options = {}) {
         // fuera la borraba: un turno movido al que despues se le aplica un
         // permiso mostraba solo "TTMM" y perdia el "!" de sin cubrir, con lo
         // que no habia por donde cubrirlo aunque el turno lo necesitara.
+        // Incidencias que trajo el reporte del reloj. Van SIEMPRE, ademas de la
+        // insignia principal: un dia sin cubrir que ademas quedo sin marca de
+        // salida necesita mostrar las dos cosas.
+        const attendanceIncidents = getAttendanceIncidentsForDay(
+            activeProfile,
+            keyDay
+        );
+        const attendanceIncidentTitle = attendanceIncidents.length
+            ? attendanceIncidentSummary(attendanceIncidents)
+            : "";
         const calendarBadges =
             Array.from(new Set([
                 ...(badge ? [badge] : []),
                 ...(pendingLeaveRequest ? ["Pend."] : []),
                 ...(workerBlockedDay ? ["No disp."] : []),
+                ...(attendanceIncidents.length
+                    ? [ATTENDANCE_INCIDENT_BADGE]
+                    : []),
                 ...turnChangeMarkers.map(marker => marker.label),
                 ...shiftMoveMarkers.map(marker => marker.label)
             ]));
@@ -8846,6 +8970,7 @@ async function renderCalendarImpl(options = {}) {
             badges: calendarBadges.length
                 ? calendarBadges
                 : undefined,
+            attendanceIncidentTitle,
             title: (() => {
                 const leaveTitle = leaveApplicationHoverTitle(
                     activeProfile,
@@ -9243,6 +9368,13 @@ async function renderCalendarImpl(options = {}) {
                 );
             }
 
+            // El icono de incidencia de marcaje abre SU detalle.
+            if (event.target.closest("[data-attendance-incident]")) {
+                event.stopPropagation();
+                openAttendanceIncidentDialog(activeProfile, keyDay);
+                return;
+            }
+
             // Dia con marcaje modificado (icono de reloj): abre el detalle del
             // marcaje. No aplica si falta el motivo de horas extra (badge "?") ni
             // durante un modo de seleccion.
@@ -9357,6 +9489,16 @@ async function renderCalendarImpl(options = {}) {
     );
 
     syncCalendarMapSnapshots(activeProfile);
+
+    // Las incidencias del reporte se calculan aparte y NO bloquean el pintado:
+    // la casilla sale sin el icono y, cuando el mes termina de calcularse, el
+    // aviso del indice repinta los dias visibles.
+    void ensureAttendanceIncidentIndex(
+        getProfiles().find(profile => profile.name === activeProfile),
+        y,
+        m
+    );
+
     scheduleActiveCalendarCacheWrite(cal, {
         delay: partialRender
             ? CALENDAR_CACHE_WRITE_DELAY_MS
@@ -9538,5 +9680,20 @@ if (typeof window !== "undefined") {
             markCalendarUserActivity,
             { capture: true, passive: true }
         );
+    });
+}
+
+// Cuando el indice de incidencias termina un mes, los dias visibles se repintan
+// para que aparezca su icono. Solo avisa cuando calculo algo nuevo, asi que no
+// se realimenta con el propio repintado.
+if (typeof window !== "undefined") {
+    onAttendanceIncidentIndexReady(({ profileName, year, month }) => {
+        if (
+            profileName !== getCurrentProfile() ||
+            year !== currentDate.getFullYear() ||
+            month !== currentDate.getMonth()
+        ) return;
+
+        void updateVisibleCalendarDays({ cooperative: true });
     });
 }
