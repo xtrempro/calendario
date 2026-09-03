@@ -3017,6 +3017,72 @@ body.theme-light .tt-worker {
 .hm-tc-chip b { font-weight: 800; color: var(--accent); margin-right: 5px; font-variant-numeric: tabular-nums; }
 .hm-tc-chip.is-done { color: var(--text-muted); text-decoration: line-through; }
 .hm-tc-chip.is-done b { color: var(--text-muted); }
+
+/* Ausencias del mes: cada ausencia lleva su marca de jornada, que es lo que
+   decide a quien hay que llamar para cubrirla. D = dia, N = noche, DN = ambas
+   (un 24h o un D+N). */
+.hm-ac-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.hm-ac-chip > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.hm-ac-chip b {
+    flex: none;
+    min-width: 17px;
+    padding: 0 3px;
+    border-radius: 5px;
+    color: #fff;
+    background: var(--muted);
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-align: center;
+    letter-spacing: 0.02em;
+}
+
+.hm-ac-chip--dia b { background: #0b8853; }
+.hm-ac-chip--noche b { background: #10498b; }
+.hm-ac-chip--ambos b { background: #8b2bd9; }
+.hm-ac-chip--libre b { background: var(--muted); }
+
+.hm-ac-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+/* Fila del listado del dia: misma pinta que .hm-kv pero sin ser un boton. */
+.hm-kv--static {
+    cursor: default;
+}
+
+.hm-kv--static:hover {
+    background: transparent;
+}
+
+.hm-kv--static .hm-kv-name small {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+}
 .hm-tc-more { font-size: 0.68rem; font-weight: 800; color: var(--accent); padding-left: 2px; }
 
 /* Listado completo de un dia */

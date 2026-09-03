@@ -26,7 +26,9 @@ import { getTurnoBase, getTurnoReal } from "./turnEngine.js";
 import {
     requiereReemplazoTurnoBase,
     getAbsenceType,
-    esAusenciaInjustificada
+    esAusenciaInjustificada,
+    restarTurnoCubierto,
+    turnoExtraCubreTurno
 } from "./rulesEngine.js";
 import {
     cancelPreassignment,
@@ -196,6 +198,12 @@ let weeklyScheduleWeek = weekStartMonday(new Date());
 let taskCalYear = new Date().getFullYear();
 let taskCalMonth = new Date().getMonth();
 
+// Mes visible del calendario de ausencias (independiente del de tareas).
+let absCalYear = new Date().getFullYear();
+let absCalMonth = new Date().getMonth();
+// Dia abierto en el detalle de ausencias.
+let openAbsenceIso = "";
+
 let coverageDetail = false;
 let requestsDetail = false;
 // Datos de cobertura calculados una vez por render (para no recalcular al
@@ -246,13 +254,25 @@ function profileMap(prefix, name) {
     return getJSON(`${prefix}_${name}`, {});
 }
 
-// Clasifica la ausencia de un perfil en un dia a una de las categorias, o "".
-function classifyAbsence(name, keyDay) {
-    if (profileMap("legal", name)[keyDay]) return "legal";
-    if (profileMap("comp", name)[keyDay]) return "comp";
-    if (profileMap("admin", name)[keyDay]) return "admin";
+// Los cuatro mapas de ausencias de un perfil. Se leen UNA vez y se recorren por
+// dia: el calendario del mes pregunta por 30 dias, y releerlos en cada uno
+// multiplica por 30 el trabajo sin cambiar el resultado.
+function absenceMapsFor(name) {
+    return {
+        legal: profileMap("legal", name),
+        comp: profileMap("comp", name),
+        admin: profileMap("admin", name),
+        absences: profileMap("absences", name)
+    };
+}
 
-    const absence = profileMap("absences", name)[keyDay];
+// Clasifica la ausencia de un perfil en un dia a una de las categorias, o "".
+function classifyAbsenceFrom(maps, keyDay) {
+    if (maps.legal[keyDay]) return "legal";
+    if (maps.comp[keyDay]) return "comp";
+    if (maps.admin[keyDay]) return "admin";
+
+    const absence = maps.absences[keyDay];
     if (!absence) return "";
 
     const type = getAbsenceType(absence);
@@ -263,6 +283,10 @@ function classifyAbsence(name, keyDay) {
         return "unjustified_absence";
     }
     return "license";
+}
+
+function classifyAbsence(name, keyDay) {
+    return classifyAbsenceFrom(absenceMapsFor(name), keyDay);
 }
 
 // Un turno queda "sin cubrir": el turno base requiere reemplazo por la ausencia
@@ -356,6 +380,97 @@ function getTodayAbsenceDetails(categoryKey) {
         .sort((a, b) => a.name.localeCompare(b.name, "es"));
 
     return { category, rows, keyDay, iso, dateLabel: shortDateFromDate(today) };
+}
+
+/* ---- Calendario de ausencias del mes ----
+
+   El recuadro "Ausencias del dia" responde por HOY. Este calendario contesta la
+   otra pregunta que se hace a diario: como viene el mes. Cada casilla lista las
+   ausencias de ese dia y, en cada una, si el turno que se perdio era de dia o de
+   noche -que es lo que decide a quien hay que llamar para cubrir-.
+*/
+
+// Si el turno ausente ocupaba el dia, la noche o ambos. Se decide con las mismas
+// reglas de composicion del motor y no con una lista de turnos escrita a mano,
+// para que un 24h o un D+N no queden clasificados a medias.
+function absenceShiftKind(turno) {
+    const code = Number(turno) || 0;
+
+    if (!code) return "libre";
+
+    const cubreNoche = turnoExtraCubreTurno(code, TURNO.NOCHE);
+    const tieneDia = restarTurnoCubierto(code, TURNO.NOCHE) !== TURNO.LIBRE;
+
+    if (cubreNoche && tieneDia) return "ambos";
+    if (cubreNoche) return "noche";
+
+    return "dia";
+}
+
+const ABSENCE_SHIFT_LABEL = {
+    dia: "Día",
+    noche: "Noche",
+    ambos: "Día y noche",
+    libre: "Libre"
+};
+
+export function absenceShiftLabel(kind) {
+    return ABSENCE_SHIFT_LABEL[kind] || "";
+}
+
+/**
+ * Las casillas del mes con las ausencias de cada dia. null = hueco antes del
+ * dia 1, para que el 1 caiga en su columna (la semana parte el lunes).
+ */
+export function buildAbsenceCalendarCells(year, month) {
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const lead = (new Date(year, month, 1).getDay() + 6) % 7;
+    const cells = new Array(lead).fill(null);
+    // Un perfil, una lectura de sus mapas para todo el mes.
+    const perfiles = getProfiles()
+        .filter(isProfileActive)
+        .map(profile => ({
+            profile,
+            maps: absenceMapsFor(profile.name)
+        }));
+
+    for (let day = 1; day <= daysInMonth; day += 1) {
+        const date = new Date(year, month, day);
+        const keyDay = keyFromDate(date);
+        const items = perfiles
+            .map(({ profile, maps }) => {
+                const categoria = classifyAbsenceFrom(maps, keyDay);
+
+                if (!categoria) return null;
+
+                const cat = ABSENCE_CATS.find(item => item.key === categoria);
+                const turno = Number(getTurnoBase(profile.name, keyDay));
+
+                return {
+                    name: profile.name,
+                    categoryKey: categoria,
+                    label: absenceLabelForDay(profile.name, keyDay) ||
+                        cat?.label ||
+                        "Ausencia",
+                    tone: cat?.tone || "info",
+                    kind: absenceShiftKind(turno),
+                    turnoLabel: turno > 0
+                        ? (TURNO_LABEL[turno] || "Turno")
+                        : "Libre"
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.name.localeCompare(b.name, "es"));
+
+        cells.push({
+            day,
+            iso: isoFromDate(date),
+            keyDay,
+            items
+        });
+    }
+
+    return cells;
 }
 
 // ---- Cambios de turno (datos reales) ----
@@ -1342,6 +1457,166 @@ function taskCalendarBody() {
     };
 }
 
+// Cuantas ausencias caben en una casilla del mes antes de resumir el resto.
+const ABSENCES_PER_CELL = 3;
+
+// Nombre corto para la casilla: nombre y primer apellido. El completo va en el
+// title y en el listado del dia.
+function shortWorkerName(name) {
+    return String(name || "").trim().split(/\s+/).slice(0, 2).join(" ");
+}
+
+const ABSENCE_KIND_MARK = {
+    dia: "D",
+    noche: "N",
+    ambos: "DN",
+    libre: "L"
+};
+
+function absenceChipHTML(item) {
+    const detalle = `${item.name} · ${item.label} · ${absenceShiftLabel(item.kind)}`;
+
+    return `
+        <span class="hm-ac-chip hm-ac-chip--${esc(item.kind)}" title="${esc(detalle)}">
+            <b>${esc(ABSENCE_KIND_MARK[item.kind] || "")}</b>
+            <span>${esc(shortWorkerName(item.name))}</span>
+        </span>`;
+}
+
+function absenceCalendarCellHTML(cell, todayIso) {
+    if (!cell) return `<div class="hm-tc-cell hm-tc-cell--blank"></div>`;
+
+    const extra = cell.items.length - ABSENCES_PER_CELL;
+    const abrible = cell.items.length > 0;
+
+    return `
+        <div class="hm-tc-cell ${cell.iso === todayIso ? "is-today" : ""} ${
+            abrible ? "is-clickable" : ""
+        }"${
+            abrible
+                ? ` role="button" tabindex="0" data-hm="abscal-day" data-iso="${esc(cell.iso)}" title="Ver las ausencias del día"`
+                : ""
+        }>
+            <span class="hm-tc-day">${cell.day}</span>
+            <div class="hm-tc-chips">
+                ${cell.items.slice(0, ABSENCES_PER_CELL).map(absenceChipHTML).join("")}
+                ${extra > 0 ? `<span class="hm-tc-more">+${extra} más</span>` : ""}
+            </div>
+        </div>`;
+}
+
+function absenceCalendarBody() {
+    const cells = buildAbsenceCalendarCells(absCalYear, absCalMonth);
+    const todayIso = todayISO();
+    const total = cells.reduce(
+        (sum, cell) => sum + (cell ? cell.items.length : 0),
+        0
+    );
+
+    return {
+        heading: `${MESES[absCalMonth]} ${absCalYear}`,
+        total,
+        grid: `
+            ${DIAS_SEMANA.map(day => `<div class="hm-tc-dow">${day}</div>`).join("")}
+            ${cells.map(cell => absenceCalendarCellHTML(cell, todayIso)).join("")}`
+    };
+}
+
+function absenceCalendarModal() {
+    const { heading, total, grid } = absenceCalendarBody();
+
+    return `
+        <div class="hm-modal-backdrop" data-hm="abscal-modal" hidden>
+            <div class="hm-modal hm-modal--taskcal" role="dialog" aria-modal="true" aria-label="Calendario de ausencias">
+                <div class="hm-modal-head">
+                    <span class="hm-modal-ico">${svg(IC.users)}</span>
+                    <h3>Ausencias · <span data-hm="ac-month">${esc(heading)}</span></h3>
+                    <div class="hm-bday-nav">
+                        <button type="button" data-hm="ac-prev" aria-label="Mes anterior">&#8249;</button>
+                        <button type="button" data-hm="ac-next" aria-label="Mes siguiente">&#8250;</button>
+                    </div>
+                    <span class="hm-count" data-hm="ac-count">${total}</span>
+                    <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="hm-modal-body">
+                    <div class="hm-ac-legend">
+                        <span class="hm-ac-chip hm-ac-chip--dia"><b>D</b><span>Turno de día</span></span>
+                        <span class="hm-ac-chip hm-ac-chip--noche"><b>N</b><span>Turno de noche</span></span>
+                        <span class="hm-ac-chip hm-ac-chip--ambos"><b>DN</b><span>Día y noche</span></span>
+                    </div>
+                    <div class="hm-tc-grid" data-hm="ac-grid">${grid}</div>
+                </div>
+            </div>
+        </div>`;
+}
+
+// Listado completo de un dia, para cuando las ausencias no caben en la casilla.
+function dayAbsencesModal() {
+    return `
+        <div class="hm-modal-backdrop hm-modal-backdrop--over" data-hm="dayAbs-modal" hidden>
+            <div class="hm-modal" role="dialog" aria-modal="true" aria-label="Ausencias del día">
+                <div class="hm-modal-head">
+                    <span class="hm-modal-ico">${svg(IC.users)}</span>
+                    <h3 data-hm="da-title">Ausencias del día</h3>
+                    <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
+                </div>
+                <div class="hm-modal-body" data-hm="da-body"></div>
+            </div>
+        </div>`;
+}
+
+function renderDayAbsences(panel) {
+    const modal = panel.querySelector('[data-hm="dayAbs-modal"]');
+
+    if (!modal || !openAbsenceIso) return;
+
+    const [year, month, day] = String(openAbsenceIso).split("-").map(Number);
+    const cell = buildAbsenceCalendarCells(year, month - 1)
+        .find(item => item && item.day === day);
+    const items = cell?.items || [];
+
+    modal.querySelector('[data-hm="da-title"]').textContent =
+        dateLabelFromISO(openAbsenceIso);
+    modal.querySelector('[data-hm="da-body"]').innerHTML = items.length
+        ? `<div class="hm-listcol">${items.map(item => `
+            <div class="hm-kv hm-kv--static">
+                <span class="hm-kv-ico hm-${esc(item.tone)}">${svg(IC.user)}</span>
+                <span class="hm-kv-name">
+                    ${esc(item.name)}
+                    <small>${esc(item.label)}</small>
+                </span>
+                <span class="hm-kv-right">
+                    <span class="hm-ac-chip hm-ac-chip--${esc(item.kind)}">
+                        <b>${esc(ABSENCE_KIND_MARK[item.kind] || "")}</b>
+                        <span>${esc(absenceShiftLabel(item.kind))}</span>
+                    </span>
+                </span>
+            </div>`).join("")}</div>`
+        : `<div class="hm-empty">Sin ausencias este día.</div>`;
+}
+
+function openDayAbsences(panel, iso) {
+    const modal = panel.querySelector('[data-hm="dayAbs-modal"]');
+
+    if (!modal) return;
+
+    openAbsenceIso = iso;
+    renderDayAbsences(panel);
+    modal.hidden = false;
+}
+
+function reRenderAbsenceCalendar(panel) {
+    const modal = panel.querySelector('[data-hm="abscal-modal"]');
+
+    if (!modal) return;
+
+    const { heading, total, grid } = absenceCalendarBody();
+
+    modal.querySelector('[data-hm="ac-month"]').textContent = heading;
+    modal.querySelector('[data-hm="ac-count"]').textContent = total;
+    modal.querySelector('[data-hm="ac-grid"]').innerHTML = grid;
+}
+
 function taskCalendarModal() {
     const { heading, total, grid } = taskCalendarBody();
 
@@ -1876,9 +2151,11 @@ function ausenciasWidget() {
                 </button>`;
         }).join("")
         : `<div class="hm-empty">Sin ausencias registradas hoy.</div>`;
+    const calBtn = `<button class="hm-gear" type="button" data-hm="abscal-open" aria-label="Ver el mes de ausencias" title="Ver el mes de ausencias">${svg(IC.calendar)}</button>`;
+
     return `
         <div class="hm-card hm-col-4">
-            ${panelHead(IC.users, "Ausencias del día")}
+            ${panelHead(IC.users, "Ausencias del día", calBtn)}
             <div class="hm-listcol" data-hm="absence-list">${body}</div>
         </div>`;
 }
@@ -2966,6 +3243,8 @@ function homeHTML() {
         ${weeklyScheduleModal()}
         ${taskCalendarModal()}
         ${dayTasksModal()}
+        ${absenceCalendarModal()}
+        ${dayAbsencesModal()}
         ${coverageRecipientsModal()}`;
 }
 
@@ -3408,6 +3687,72 @@ function wire(panel) {
 
             if (semana) {
                 irASemana(new Date(Number(semana.dataset.week)));
+            }
+        });
+    }
+
+    // --- Ausencias: calendario del mes (icono del encabezado) ---
+    const absCal = panel.querySelector('[data-hm="abscal-modal"]');
+    const dayAbs = panel.querySelector('[data-hm="dayAbs-modal"]');
+
+    panel
+        .querySelector('[data-hm="abscal-open"]')
+        ?.addEventListener("click", () => {
+            if (!absCal) return;
+
+            reRenderAbsenceCalendar(panel);
+            absCal.hidden = false;
+        });
+
+    if (absCal) {
+        absCal.addEventListener("click", event => {
+            if (
+                event.target === absCal ||
+                event.target.closest('[data-hm="close"]')
+            ) {
+                absCal.hidden = true;
+                if (dayAbs) dayAbs.hidden = true;
+                return;
+            }
+
+            const nav = event.target.closest(
+                '[data-hm="ac-prev"], [data-hm="ac-next"]'
+            );
+
+            if (nav) {
+                const step = nav.dataset.hm === "ac-next" ? 1 : -1;
+                // Con Date, diciembre -> enero salta de año solo.
+                const next = new Date(absCalYear, absCalMonth + step, 1);
+
+                absCalYear = next.getFullYear();
+                absCalMonth = next.getMonth();
+                reRenderAbsenceCalendar(panel);
+                return;
+            }
+
+            const cell = event.target.closest('[data-hm="abscal-day"]');
+
+            if (cell) openDayAbsences(panel, cell.dataset.iso);
+        });
+        absCal.addEventListener("keydown", event => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+
+            const cell = event.target.closest('[data-hm="abscal-day"]');
+
+            if (!cell) return;
+
+            event.preventDefault();
+            openDayAbsences(panel, cell.dataset.iso);
+        });
+    }
+
+    if (dayAbs) {
+        dayAbs.addEventListener("click", event => {
+            if (
+                event.target === dayAbs ||
+                event.target.closest('[data-hm="close"]')
+            ) {
+                dayAbs.hidden = true;
             }
         });
     }
