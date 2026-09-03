@@ -21,6 +21,7 @@ import {
     aplicarCambiosTurno,
     fusionarTurnos,
     getProtectedDirectEditTurn,
+    getAddTurnResult,
     getTurnoBase,
     getTurnoProgramado
 } from "./turnEngine.js";
@@ -7766,60 +7767,193 @@ async function clickDia(
         return;
     }
 
+    commitCalendarTurnChange({
+        profileName,
+        keyDay,
+        currentState,
+        nextTurn: nuevo,
+        turnToStore,
+        baseTurn: protectedBaseTurn || effectiveBaseTurn,
+        cell: options.cell,
+        date: options.date || dateFromKeyDay(keyDay),
+        holidays: options.holidays || {},
+        historyLabel: `Edicion directa de turnos desde ${keyDay}`
+    });
+}
+
+/**
+ * Guarda UN cambio de turno hecho desde el calendario: lo pinta al instante,
+ * abre la ventana de historial, limpia lo que el turno anterior dejaba colgando
+ * (respaldos de turno extra y marcas del reloj), guarda y programa el repintado
+ * y la bitacora.
+ *
+ * Lo usan los dos caminos que cambian un turno desde la casilla: la edicion
+ * directa -que CICLA por los turnos posibles- y los botones de turno del menu
+ * Turnos -donde el supervisor ya eligio cual quiere-. Vive en un solo sitio
+ * porque olvidar uno de estos pasos en una de las dos vias deja basura que solo
+ * se nota mucho despues: una marca de reloj sobre un turno que ya no existe, o
+ * un cambio que no llega a la bitacora.
+ */
+function commitCalendarTurnChange({
+    profileName,
+    keyDay,
+    currentState,
+    nextTurn,
+    turnToStore,
+    baseTurn,
+    cell,
+    date,
+    holidays = {},
+    historyLabel
+}) {
     const manualExtra = Boolean(
-        getShiftAssigned(
-            profileName,
-            options.date || dateFromKeyDay(keyDay)
-        ) &&
-        getTurnoExtraAgregado(
-            protectedBaseTurn || effectiveBaseTurn,
-            nuevo
-        )
+        getShiftAssigned(profileName, date) &&
+        getTurnoExtraAgregado(baseTurn, nextTurn)
     );
 
     previewDirectTurnChange(
-        options.cell,
-        nuevo,
-        options.date || dateFromKeyDay(keyDay),
-        options.holidays || {},
+        cell,
+        nextTurn,
+        date,
+        holidays,
         {
             profileName,
             keyDay,
-            baseTurn: protectedBaseTurn || effectiveBaseTurn,
+            baseTurn,
             manualExtra
         }
     );
 
-    keepCalendarDirectEditHistoryOpen(
-        `Edicion directa de turnos desde ${keyDay}`
-    );
-    if (Number(nuevo) !== Number(currentState)) {
+    keepCalendarDirectEditHistoryOpen(historyLabel);
+
+    if (Number(nextTurn) !== Number(currentState)) {
         cancelManualExtraBackupsForTurnChange(
             profileName,
             keyDay,
-            nuevo
+            nextTurn
         );
         dropClockMarkForTurnChange(
             profileName,
             keyDay,
             currentState,
-            nuevo
+            nextTurn
         );
     }
+
     saveProfileDayTurn(keyDay, turnToStore, profileName);
     recordCalendarDirectEditChange({
         profileName,
         keyDay,
         previousTurn: currentState,
-        nextTurn: nuevo
+        nextTurn
     });
     scheduleCalendarAuditLog({
         profile: profileName,
         keyDay,
         previousTurn: currentState,
-        nextTurn: nuevo
+        nextTurn
     });
     scheduleCalendarDirectEditRefresh(keyDay);
+}
+
+/* ======================================================
+   Botones de turno del menu Turnos (Diurno / Larga / Noche)
+
+   El supervisor elige el turno en un boton y despues marca la casilla, sin
+   pasar por el switch de "Editar". Son dos preguntas y las dos las contesta
+   getAddTurnResult, en el motor: si el turno CABE en ese dia -eso decide que
+   casillas se iluminan- y en que queda el dia al ponerlo.
+====================================================== */
+
+/**
+ * Si a esta casilla se le puede agregar el turno elegido. Suma a la regla del
+ * motor lo que el motor no ve: un dia con permiso, ausencia o devolucion de
+ * horas no se toca desde aqui, se maneja en su propio cuadro.
+ */
+export function canAddTurnToDay(profileName, keyDay, turnoElegido, context = {}) {
+    if (!profileName || !turnoElegido) return false;
+
+    const {
+        isHab = true,
+        admin = {},
+        legal = {},
+        comp = {},
+        absences = {},
+        hourReturns = {},
+        actualState
+    } = context;
+
+    if (
+        tieneAusencia(keyDay, admin, legal, comp, absences) ||
+        hourReturns?.[keyDay]
+    ) {
+        return false;
+    }
+
+    const baseTurno = getTurnoBase(profileName, keyDay);
+    const effectiveBaseTurn = aplicarCambiosTurno(
+        profileName,
+        keyDay,
+        baseTurno,
+        { includeReplacements: false }
+    );
+
+    return getAddTurnResult(
+        profileName,
+        keyDay,
+        turnoElegido,
+        isHab,
+        {
+            effectiveBaseTurn,
+            actualState: Number.isFinite(Number(actualState))
+                ? actualState
+                : getActualState(profileName, keyDay)
+        }
+    ).allowed;
+}
+
+/**
+ * Pone el turno elegido en un dia. Devuelve false -sin tocar nada- si ese dia no
+ * lo admite: la casilla ya viene deshabilitada, pero el guardado no se fia de
+ * una clase del DOM.
+ */
+export function addTurnToDay(profileName, keyDay, turnoElegido, options = {}) {
+    if (!profileName || !turnoElegido) return false;
+
+    const date = options.date || dateFromKeyDay(keyDay);
+    const isHab = options.isHab !== false;
+    const baseTurno = getTurnoBase(profileName, keyDay);
+    const currentState = getActualState(profileName, keyDay);
+    const effectiveBaseTurn = aplicarCambiosTurno(
+        profileName,
+        keyDay,
+        baseTurno,
+        { includeReplacements: false }
+    );
+    const result = getAddTurnResult(
+        profileName,
+        keyDay,
+        turnoElegido,
+        isHab,
+        { effectiveBaseTurn, actualState: currentState }
+    );
+
+    if (!result.allowed) return false;
+
+    commitCalendarTurnChange({
+        profileName,
+        keyDay,
+        currentState,
+        nextTurn: result.nextVisibleTurn,
+        turnToStore: result.nextStoredTurn,
+        baseTurn: result.protectedBaseTurn || effectiveBaseTurn,
+        cell: options.cell,
+        date,
+        holidays: options.holidays || {},
+        historyLabel: `Turno agregado desde el boton en ${keyDay}`
+    });
+
+    return true;
 }
 
 async function renderCalendarImpl(options = {}) {
@@ -8698,9 +8832,30 @@ async function renderCalendarImpl(options = {}) {
             }
         );
 
+        // Los botones de turno traen su propia regla: se ilumina la casilla
+        // donde ESE turno cabe. La respuesta sale del mismo sitio que la usada
+        // al aplicarlo, para que no se pueda iluminar una casilla que despues
+        // rechaza el guardado.
+        const addTurnBlocked =
+            window.selectionMode === "addturn" &&
+            !canAddTurnToDay(
+                activeProfile,
+                keyDay,
+                Number(window.pendingAddTurn) || 0,
+                {
+                    isHab,
+                    admin,
+                    legal,
+                    comp,
+                    absences,
+                    hourReturns,
+                    actualState: state
+                }
+            );
+
         if (window.selectionMode || !activeProfileEnabled) {
             div.classList.add(
-                bloqueado || !activeProfileEnabled
+                bloqueado || addTurnBlocked || !activeProfileEnabled
                     ? "mpa-disabled"
                     : "mpa-enabled"
             );

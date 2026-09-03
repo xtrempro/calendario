@@ -909,6 +909,90 @@ export function getProtectedDirectEditTurn(
     };
 }
 
+// Turnos que admite un dia SIN turno base. El ciclo de la edicion directa los
+// recorre con siguienteTurno, que en dia no habil no ofrece Diurno ni D+N; aca
+// se listan para poder preguntar por uno suelto sin recorrer el ciclo entero.
+function freeDayAllowedTurns(isHab) {
+    return isHab
+        ? [
+            TURNO.LARGA,
+            TURNO.NOCHE,
+            TURNO.TURNO24,
+            TURNO.DIURNO,
+            TURNO.DIURNO_NOCHE
+        ]
+        : [
+            TURNO.LARGA,
+            TURNO.NOCHE,
+            TURNO.TURNO24
+        ];
+}
+
+/**
+ * Turno que queda al AGREGAR uno elegido sobre lo que el dia ya tiene.
+ *
+ * Es el gemelo de getProtectedDirectEditTurn para los botones de turno del menu
+ * Turnos. La diferencia esta en quien decide: en la edicion directa el click
+ * CICLA por los turnos posibles, y aca el supervisor ya eligio cual quiere, asi
+ * que el dia lo suma a lo que hubiera (Noche + Diurno = D+N, Larga + Noche =
+ * 24h). Ninguna regla nueva: la suma la hace fusionarTurnos y el resultado tiene
+ * que caer entre los turnos que admite el turno base del dia, que es exactamente
+ * lo que limita al ciclo.
+ *
+ * `allowed` es lo que decide si la casilla se ilumina. Da false cuando el turno
+ * elegido no aporta nada (ya esta puesto, o el dia esta cerrado en 24h/D+N),
+ * cuando la suma no cabe en ese dia (un D+N en fin de semana) o cuando la
+ * bloquean las reglas del 24h y su version invertida.
+ */
+export function getAddTurnResult(
+    nombre,
+    key,
+    turnoElegido,
+    isHab = true,
+    options = {}
+) {
+    const elegido = Number(turnoElegido) || TURNO.LIBRE;
+    const actual = Number(options.actualState) || TURNO.LIBRE;
+    const effectiveBaseTurn =
+        Number(options.effectiveBaseTurn) || TURNO.LIBRE;
+    const hasReplacementTurnOverride =
+        Object.prototype.hasOwnProperty.call(options, "replacementTurn");
+    const replacementTurn = hasReplacementTurnOverride
+        ? Number(options.replacementTurn) || TURNO.LIBRE
+        : getReplacementTurnForWorker(nombre, key);
+    const protectedBaseTurn = replacementTurn
+        ? fusionarTurnos(effectiveBaseTurn, replacementTurn)
+        : effectiveBaseTurn;
+    const nextVisibleTurn = fusionarTurnos(actual, elegido);
+    const allowedTurns =
+        allowedTurnsForBase(protectedBaseTurn, isHab) ||
+        freeDayAllowedTurns(isHab);
+    const allowed =
+        elegido !== TURNO.LIBRE &&
+        Number(nextVisibleTurn) !== Number(actual) &&
+        allowedTurns.includes(nextVisibleTurn) &&
+        !turnoBloqueadoPorTurno24(nombre, key, nextVisibleTurn) &&
+        !turnoBloqueadoPorTurno24Invertido(nombre, key, nextVisibleTurn);
+    // Con un reemplazo asignado se guarda solo la parte que NO cubre el
+    // reemplazante, igual que en la edicion directa: su turno no se toca desde
+    // el calendario.
+    const complementTurn = replacementTurn
+        ? restarTurnoCubierto(nextVisibleTurn, replacementTurn)
+        : TURNO.LIBRE;
+    const nextStoredTurn = replacementTurn
+        ? fusionarTurnos(effectiveBaseTurn, complementTurn)
+        : nextVisibleTurn;
+
+    return {
+        allowed,
+        replacementTurn,
+        protectedBaseTurn,
+        nextVisibleTurn,
+        nextStoredTurn,
+        complementTurn
+    };
+}
+
 // Turno base EFECTIVO de un trabajador: turnos base asignados (baseData_), si no
 // la rotativa calculada, y si no el respaldo por dia bloqueado. `visited` arrastra
 // el guard de ciclos para poder resolver cadenas de reemplazo sin recursion

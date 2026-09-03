@@ -161,6 +161,6 @@ test("la edicion directa borra el marcaje al entrar o salir de Libre", () => {
     // Enganchado al mismo punto donde se anulan los respaldos del turno extra.
     assert.match(
         calendar,
-        /cancelManualExtraBackupsForTurnChange\(\s*\n\s*profileName,\s*\n\s*keyDay,\s*\n\s*nuevo\s*\n\s*\);\s*\n\s*dropClockMarkForTurnChange\(\s*\n\s*profileName,\s*\n\s*keyDay,\s*\n\s*currentState,\s*\n\s*nuevo\s*\n\s*\);/
+        /cancelManualExtraBackupsForTurnChange\([\s\S]{0,90}nextTurn\s*\r?\n\s*\);\s*\r?\n\s*dropClockMarkForTurnChange\([\s\S]{0,130}currentState,\s*\r?\n\s*nextTurn\s*\r?\n\s*\);/
     );
 });

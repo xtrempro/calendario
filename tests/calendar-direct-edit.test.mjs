@@ -91,7 +91,7 @@ test("el calendario relee el turno y guarda solo la fecha pulsada", async () => 
     );
     assert.match(
         source,
-        /recordCalendarDirectEditChange\(\{[\s\S]{0,180}previousTurn: currentState,[\s\S]{0,80}nextTurn: nuevo/
+        /recordCalendarDirectEditChange\(\{[\s\S]{0,180}previousTurn: currentState,[\s\S]{0,80}nextTurn/
     );
     assert.match(
         source,

@@ -192,6 +192,7 @@ import {
     renderCalendar,
     goToCalendarMonth,
     setCalendarSelectionHandler,
+    addTurnToDay,
     updateDayCell,
     updateDayCells,
     updateVisibleCalendarDays
@@ -333,6 +334,7 @@ import {
 } from "./holidays.js";
 import { calcHours, isBusinessDay } from "./calculations.js";
 import { TURNO } from "./constants.js";
+import { getTurnoColorConfig } from "./turnoColors.js";
 import {
     turnoLabel,
     aplicarClaseTurno,
@@ -7600,6 +7602,7 @@ function clearSelectionMode(shouldRefresh = true) {
     window.selectionMode = null;
     pendingRotationChange = null;
     pendingShiftMove = null;
+    window.pendingAddTurn = 0;
     window.pendingShiftMoveSourceKey = "";
     window.pendingShiftMoveDestinationTurn = 0;
     compCantidad = 0;
@@ -7613,6 +7616,7 @@ function clearSelectionMode(shouldRefresh = true) {
 
     document.body.classList.remove("mode-active");
     document.body.removeAttribute("data-mode");
+    syncAddTurnButtons();
 
     DOM.selectorInfo.classList.add("hidden");
     DOM.selectorInfo.innerHTML = "";
@@ -11582,6 +11586,102 @@ async function handleClockMarkSelection(fecha) {
     clearSelectionMode();
 }
 
+/* ======================================================
+   Botones de turno del menu Turnos (Diurno / Larga / Noche)
+
+   Ahorran el switch de "Editar": se elige el turno en el boton y se marca el
+   dia. El calendario ya dejo habilitadas SOLO las casillas donde ese turno cabe
+   (canAddTurnToDay), asi que aqui basta con aplicarlo. Un boton pone un turno:
+   despues el modo se apaga solo, para no dejarlo armado sin querer.
+====================================================== */
+
+const ADD_TURN_OPTIONS = {
+    diurno: { turno: TURNO.DIURNO, label: "Diurno" },
+    larga: { turno: TURNO.LARGA, label: "Larga" },
+    noche: { turno: TURNO.NOCHE, label: "Noche" }
+};
+
+function syncAddTurnButtons() {
+    const armado = window.selectionMode === "addturn"
+        ? Number(window.pendingAddTurn) || 0
+        : 0;
+    // El punto del boton lleva el color CONFIGURADO del turno, no uno fijo en
+    // el CSS: la unidad puede cambiarlos, y el boton tiene que leerse como la
+    // casilla que va a pintar.
+    const colores = getTurnoColorConfig().base;
+
+    document
+        .querySelectorAll("[data-add-turn]")
+        .forEach(button => {
+            const opcion = ADD_TURN_OPTIONS[button.dataset.addTurn];
+
+            if (!opcion) return;
+
+            const activo = opcion.turno === armado;
+
+            button.style.setProperty(
+                "--add-turn-color",
+                colores[opcion.turno] || ""
+            );
+            button.classList.toggle("is-armed", activo);
+            button.setAttribute("aria-pressed", activo ? "true" : "false");
+        });
+}
+
+async function handleAddTurnSelection(fecha) {
+    const profile = getCurrentProfile();
+    const keyDay = keyFromDate(fecha);
+    const turno = Number(window.pendingAddTurn) || 0;
+
+    if (!profile || !turno) {
+        clearSelectionMode();
+        return;
+    }
+
+    const holidays = await fetchHolidays(fecha.getFullYear());
+
+    pushHistory();
+
+    const aplicado = addTurnToDay(profile, keyDay, turno, {
+        date: fecha,
+        holidays,
+        isHab: isBusinessDay(fecha, holidays)
+    });
+
+    // Un boton, un turno.
+    clearSelectionMode();
+
+    if (!aplicado) {
+        alert("Ese turno no se puede agregar en este dia.");
+    }
+}
+
+function activarModoAgregarTurno(clave) {
+    const opcion = ADD_TURN_OPTIONS[clave];
+
+    if (!opcion) return;
+
+    // Apretar el mismo boton otra vez apaga el modo: es la salida mas a mano,
+    // sin ir hasta "Cancelar".
+    if (
+        window.selectionMode === "addturn" &&
+        Number(window.pendingAddTurn) === opcion.turno
+    ) {
+        clearSelectionMode();
+        return;
+    }
+
+    window.pendingAddTurn = opcion.turno;
+    activarModo("addturn", `Agregando turno ${opcion.label}`);
+
+    if (!window.selectionMode) {
+        // activarModo se planta si el perfil no se puede modificar.
+        window.pendingAddTurn = 0;
+    }
+
+    syncAddTurnButtons();
+}
+
 async function handleTrainingSelection(fecha) {
     const profile = getCurrentProfile();
     const keyDay = keyFromDate(fecha);
@@ -12867,6 +12967,14 @@ if (DOM.calendarRotationButton) {
         openCalendarRotationConfigModal;
 }
 
+document
+    .querySelectorAll("[data-add-turn]")
+    .forEach(button => {
+        button.onclick = () => {
+            activarModoAgregarTurno(button.dataset.addTurn);
+        };
+    });
+
 DOM.undoBtn.onclick = () => {
     const result = undo();
 
@@ -12910,6 +13018,11 @@ setCalendarSelectionHandler(async ({ cell: celda, date: fecha }) => {
 
     if (selectionMode === "rotation") {
         await applyCalendarRotationChange(fecha);
+        return;
+    }
+
+    if (selectionMode === "addturn") {
+        await handleAddTurnSelection(fecha);
         return;
     }
 
