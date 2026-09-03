@@ -946,17 +946,30 @@ function applyDefaultAssignments(days, tasks, assignments) {
 
 function cleanAssignmentsForWeek(days, tasks, start = currentWeekStart) {
     const assignments = getWeekAssignments(start);
+
+    // Un catalogo VACIO no autoriza a borrar nada.
+    //
+    // El catalogo puede venir vacio porque el modulo `tasks` todavia no bajo
+    // de la nube, porque la sesion recien arranca, o porque se perdio. En los 3
+    // casos, seguir adelante trataria TODAS las casillas como huerfanas: el
+    // saneado corre en cada pintado, asi que abrir el menu -o publicar a la
+    // PWA, que pasa por aca con tres semanas- borraba la programacion y
+    // sincronizaba el vacio al resto de las sesiones. Sin catalogo no hay nada
+    // que sanear.
+    if (!tasks.length) return assignments;
+
     const taskIds = new Set(tasks.map(task => task.id));
     let changed = false;
 
     Object.entries(assignments).forEach(([cellKey, entry]) => {
         const { shift, taskId, keyDay } = splitAssignmentKey(cellKey);
 
-        if (!taskIds.has(taskId)) {
-            delete assignments[cellKey];
-            changed = true;
-            return;
-        }
+        // Casilla de una tarea que ya no esta en el catalogo. NO se borra: con
+        // la sincronizacion por elemento el catalogo puede llegar a medias, y
+        // el que falta todavia no es el que se elimino. Quedan inertes -el
+        // tablero recorre las tareas, no las casillas, asi que no se dibujan- y
+        // quien borra una tarea de verdad ya limpia las suyas en deleteTask().
+        if (!taskIds.has(taskId)) return;
 
         // El enlace apunta por id: si la tarea de abajo ya no es esa -se
         // reordeno o se borro- la fusion deja de tener sentido.
