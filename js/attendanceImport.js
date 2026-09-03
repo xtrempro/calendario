@@ -367,13 +367,16 @@ export function getAttendanceCells(rut, iso, options = {}) {
         entryMoved = false,
         nextEntryMoved = false,
         workedShift,
-        scheduledEntry
+        scheduledEntry,
+        nextScheduledEntry
     } = options;
     const { marks, previousClosed } = shiftMarksFor(rut, iso, {
         endsNextMorning,
         previousEndsNextMorning,
         startsInTheMorning,
-        nextStartsInTheMorning
+        nextStartsInTheMorning,
+        scheduledEntry,
+        nextScheduledEntry
     });
     const closing = marks.find(mark => mark.iso) || null;
     // Un D+N va siempre en dos tramos: son dos presencias con horas de por
@@ -547,11 +550,40 @@ function ownMarksFor(rut, iso) {
  *   llegada y no el cierre de la noche. Ahi la etiqueta es lo unico que las
  *   distingue, asi que se respeta.
  */
-function morningClosing(marks, { labelMatters }) {
+function morningClosing(marks, { labelMatters, shiftStart = "" }) {
     return marks.find(mark =>
-        mark.time < MORNING_EXIT_LIMIT &&
-        (!labelMatters || mark.type === "out")
+        (
+            mark.time < MORNING_EXIT_LIMIT &&
+            (!labelMatters || mark.type === "out")
+        ) ||
+        closesLateBeforeShift(mark, shiftStart)
     ) || null;
+}
+
+/**
+ * .Es esta una salida de anoche marcada tarde, pasado el mediodia?
+ *
+ * El corte del mediodia da por hecho que el turno se cierra a su hora, y a
+ * veces no: quien hace un 24 que termina a las 8 y se queda hasta las 12:58
+ * deja su cierre fuera de la ventana. Ahi esa marca se quedaba en el dia
+ * siguiente y lo desordenaba entero: pasaba por ser la llegada al turno de esa
+ * noche -"marco salida en vez de entrada", "llego siete horas antes"- mientras
+ * el 24 de la vispera quedaba sin salida.
+ *
+ * Lo que la delata es lo que apreto. Una marca de SALIDA no puede ser una
+ * llegada, asi que si ademas ocurre ANTES de que empiece el turno de hoy no es
+ * de hoy: hoy todavia no empezaba. Solo puede cerrar lo de anoche.
+ *
+ * Hace falta conocer la hora de hoy para acotarla. Sin turno hoy -un dia libre-
+ * no hay con que acotar, y se deja como estaba: la marca queda en el dia y se
+ * ve como marcaje en dia libre, que al menos la pone a la vista.
+ */
+function closesLateBeforeShift(mark, shiftStart) {
+    return Boolean(
+        shiftStart &&
+        mark.type === "out" &&
+        mark.time < shiftStart
+    );
 }
 
 /**
@@ -570,15 +602,18 @@ function morningClosing(marks, { labelMatters }) {
  * 8-. Sin turno de manana no hay llegada posible y el momento entero es el
  * cierre, diga lo que diga cada boton.
  */
-function morningClosingEvent(marks, { labelMatters }) {
-    const closing = morningClosing(marks, { labelMatters });
+function morningClosingEvent(marks, { labelMatters, shiftStart = "" }) {
+    const closing = morningClosing(marks, { labelMatters, shiftStart });
 
     if (!closing) return [];
 
     const evento = groupMarkEvents(marks)
         .find(grupo => grupo.includes(closing)) || [closing];
 
-    return labelMatters
+    // Con turno de manana la etiqueta separa el cierre de la llegada, y una
+    // salida tardia se lleva solo las salidas por la misma razon: lo que venga
+    // etiquetado como entrada ya no es de anoche.
+    return labelMatters || closesLateBeforeShift(closing, shiftStart)
         ? evento.filter(mark => mark.type === "out")
         : evento;
 }
@@ -594,13 +629,18 @@ function shiftMarksFor(rut, iso, options) {
         endsNextMorning,
         previousEndsNextMorning,
         startsInTheMorning,
-        nextStartsInTheMorning
+        nextStartsInTheMorning,
+        scheduledEntry,
+        nextScheduledEntry
     } = options;
     const own = ownMarksFor(rut, iso);
     // Las marcas con que cerro el turno de anoche se muestran en SU fila;
     // dejarlas aqui tambien las contaria dos veces.
     const previous = previousEndsNextMorning
-        ? morningClosingEvent(own, { labelMatters: startsInTheMorning })
+        ? morningClosingEvent(own, {
+            labelMatters: startsInTheMorning,
+            shiftStart: scheduledEntry
+        })
         : [];
     const marks = previous.length
         ? own.filter(mark => !previous.includes(mark))
@@ -611,7 +651,8 @@ function shiftMarksFor(rut, iso, options) {
 
     const nextIso = shiftIsoDay(iso, 1);
     const cierre = morningClosingEvent(ownMarksFor(rut, nextIso), {
-        labelMatters: nextStartsInTheMorning
+        labelMatters: nextStartsInTheMorning,
+        shiftStart: nextScheduledEntry
     });
 
     // Van al final y NO se reordenan: son del dia siguiente, asi que

@@ -791,6 +791,111 @@ test("y una marca de OTRO momento en el dia libre si se reporta", async () => {
 });
 
 /* =========================================================
+   Cerrar el turno pasado el mediodia
+
+   Sexto caso real, del 24-25/08. Hizo un 24 el 24, se quedo de mas y cerro a
+   las 12:58 del 25. Esa noche tenia turno de Noche y entro a las 19:49.
+
+   El corte de "una salida antes del mediodia cierra lo de anoche" daba por
+   hecho que el turno se cierra a su hora. Las 12:58 quedaban fuera, asi que la
+   marca se quedaba en el dia 25 y lo desordenaba entero: pasaba por ser la
+   llegada a la Noche -"marco salida en vez de entrada" y "llego siete horas
+   antes de las 20:00"- mientras el 24 de la vispera quedaba SIN salida.
+
+   Lo que la delata es lo que apreto: una marca de SALIDA no puede ser una
+   llegada, y si ocurre antes de que empiece el turno de hoy, hoy todavia no
+   habia empezado.
+========================================================= */
+
+const MARCAS_CIERRE_TARDE = {
+    [iso(24)]: [
+        { time: "07:56", type: "in" },
+        { time: "20:01", type: "out" },
+        { time: "20:01", type: "in" }
+    ],
+    [iso(25)]: [
+        { time: "12:58", type: "out" },
+        { time: "19:49", type: "in" }
+    ],
+    [iso(26)]: [{ time: "08:23", type: "out" }]
+};
+
+const TURNOS_CIERRE_TARDE = {
+    [dia(24)]: TURNO.TURNO24,
+    [dia(25)]: TURNO.NOCHE
+};
+
+test("la salida de las 12:58 vuelve al 24 que cerraba", async () => {
+    sembrar(TURNOS_CIERRE_TARDE, MARCAS_CIERRE_TARDE, {
+        [dia(24)]: TURNO.NOCHE,
+        [dia(25)]: 0
+    });
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(24));
+    const veinticuatro = filas.find(item => item.iso === iso(24));
+
+    // Antes esta fila quedaba sin salida: su cierre estaba atrapado en el 25.
+    // El ⚠ es de la salida posterior: cerro casi cinco horas pasado de hora, y
+    // eso si es algo que revisar.
+    assert.equal(veinticuatro.entrada, "07:56\n20:01");
+    assert.equal(veinticuatro.salida, `20:01\n12:58${NBSP}*${NBSP}⚠`);
+});
+
+test("y se cuenta como lo que es: una salida muy posterior", async () => {
+    sembrar(TURNOS_CIERRE_TARDE, MARCAS_CIERRE_TARDE, {
+        [dia(24)]: TURNO.NOCHE,
+        [dia(25)]: 0
+    });
+
+    const delDia = await incidenciasDe(24);
+    const posterior = delDia.find(evento => evento.kind === "lateExit");
+
+    assert.ok(posterior, "el 24 cerraba a las 08:00 y cerro a las 12:58");
+    assert.match(posterior.detail, /4 h 58 min después de las 08:00/);
+});
+
+test("la Noche del 25 recupera su llegada de las 19:49", async () => {
+    sembrar(TURNOS_CIERRE_TARDE, MARCAS_CIERRE_TARDE, {
+        [dia(24)]: TURNO.NOCHE,
+        [dia(25)]: 0
+    });
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(25));
+    const noche = filas.find(item => item.iso === iso(25));
+
+    // Sin ⚠ de "marco salida en vez de entrada" y sin la entrada anticipada.
+    assert.equal(noche.entrada, "19:49");
+    assert.equal(noche.salida, `08:23${NBSP}*`);
+
+    const delDia = await incidenciasDe(25);
+
+    assert.deepEqual(tipos(delDia), []);
+});
+
+test("una entrada temprana NO se la lleva el turno de anoche", async () => {
+    // El limite de la regla: lo que la delata es la etiqueta. Si la unica
+    // marca del dia dice ENTRADA, es la llegada de hoy aunque sea temprana, y
+    // llevarsela dejaria a este turno sin su entrada.
+    sembrar(
+        { [dia(24)]: TURNO.TURNO24, [dia(25)]: TURNO.NOCHE },
+        {
+            [iso(24)]: [{ time: "07:56", type: "in" }],
+            [iso(25)]: [{ time: "19:49", type: "in" }],
+            [iso(26)]: [{ time: "08:23", type: "out" }]
+        },
+        { [dia(24)]: TURNO.NOCHE, [dia(25)]: 0 }
+    );
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(25));
+    const noche = filas.find(item => item.iso === iso(25));
+
+    assert.equal(noche.entrada, "19:49");
+});
+
+/* =========================================================
    El motor, suelto
 ========================================================= */
 

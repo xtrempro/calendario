@@ -776,6 +776,19 @@ const MORE_MARKS_MARK = "⋯";
  * Hace falta para saber si anoche hubo un turno con noche: en ese caso la
  * primera salida de hoy es de ese turno y se muestra en SU fila, no en esta.
  */
+/**
+ * El dia siguiente, como fecha. Los horarios de turno se piden por fecha -el
+ * viernes el diurno termina antes, y un feriado no tiene diurno-, asi que la
+ * clave del dia siguiente no basta.
+ */
+function nextDayDate(date) {
+    const next = new Date(date);
+
+    next.setDate(next.getDate() + 1);
+
+    return next;
+}
+
 function previousDayKey(keyDay) {
     const date = parseKey(keyDay);
 
@@ -880,6 +893,17 @@ function attendanceDay(profileName, keyDay, date, holidays, data, day) {
         nextEntryMoved: hasModifiedEntryTime(profileName, nextDayKey(keyDay)),
         nextWorkedShift: actualStateForReport(
             profileName, data, nextDayKey(keyDay)
+        ),
+        // A que hora empieza el turno de MAÑANA. Sirve para saber hasta cuando
+        // una marca del dia siguiente puede seguir siendo el cierre de este
+        // turno: quien se queda de mas cierra pasado el mediodia, y sin esta
+        // hora esa marca se quedaba alla desordenando el dia entero.
+        nextScheduledEntry: scheduledEntryFromShift(
+            profileName,
+            nextDayKey(keyDay),
+            nextDayDate(date),
+            actualStateForReport(profileName, data, nextDayKey(keyDay)),
+            holidays
         ),
         previousWorkedShift: actualStateForReport(
             profileName, data, previousDayKey(keyDay)
@@ -1030,7 +1054,8 @@ function attendanceDayFacts(profile, iso, day) {
         entryMoved: day.entryMoved,
         nextEntryMoved: day.nextEntryMoved,
         workedShift: day.workedShift,
-        scheduledEntry: day.scheduledEntry
+        scheduledEntry: day.scheduledEntry,
+        nextScheduledEntry: day.nextScheduledEntry
     });
     const delay = entryDelayForDay({
         baseShift: day.baseShift,
