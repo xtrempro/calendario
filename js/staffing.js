@@ -76,12 +76,6 @@ import {
 const KEY = "staffing_config";
 const APPLICANTS_KEY = "staffing_applicants";
 const REMINDERS_KEY = "staffing_custom_reminders";
-const STAFFING_REPORT_CACHE_VERSION = 1;
-const STAFFING_REPORT_CACHE_PREFIX = "proturnos_ui_cache_staffing_report_";
-const STAFFING_REPORT_PRELOAD_MONTHS_AHEAD = 6;
-const STAFFING_REPORT_PAST_RETENTION_MONTHS = 12;
-const STAFFING_REPORT_PRELOAD_DELAY_MS = 900;
-const STAFFING_REPORT_PRELOAD_GAP_MS = 120;
 const STAFFING_WEEKLY_CACHE_VERSION = 1;
 const STAFFING_WEEKLY_CACHE_PREFIX = "proturnos_ui_cache_staffing_weekly_";
 const STAFFING_WEEKLY_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -92,13 +86,9 @@ let staffingViewBound = false;
 let staffingWeekDate = null;
 let staffingAnalysisRequest = 0;
 let staffingWeeklyRenderRequest = 0;
-let staffingReportPreloadTimer = 0;
-let staffingReportPreloadRequest = 0;
-let staffingReportPreloadForce = false;
 let staffingWeeklyPreloadTimer = 0;
 let staffingWeeklyPreloadRequest = 0;
 let staffingWeeklyStickyCleanup = null;
-let lastInlineStaffingReport = null;
 
 function staffingMonthKey(year, month) {
     return `${Number(year)}-${Number(month)}`;
@@ -126,95 +116,6 @@ function addStaffingMonths(date, offset) {
         date.getMonth() + Number(offset || 0),
         1
     );
-}
-
-function staffingReportCacheKey(year, month) {
-    return (
-        STAFFING_REPORT_CACHE_PREFIX +
-        `${STAFFING_REPORT_CACHE_VERSION}_${staffingMonthKey(year, month)}`
-    );
-}
-
-function parseStaffingReportCache(raw) {
-    if (!raw) return null;
-
-    try {
-        return JSON.parse(raw);
-    } catch {
-        return null;
-    }
-}
-
-function readStaffingReportCache(year, month) {
-    const key = staffingReportCacheKey(year, month);
-    const payload = parseStaffingReportCache(getRaw(key, null));
-
-    if (
-        !payload ||
-        payload.version !== STAFFING_REPORT_CACHE_VERSION ||
-        payload.monthKey !== staffingMonthKey(year, month) ||
-        !Array.isArray(payload.data)
-    ) {
-        return null;
-    }
-
-    return payload.data;
-}
-
-function pruneStaffingReportCache() {
-    const keys = listKeys(STAFFING_REPORT_CACHE_PREFIX);
-    const now = new Date();
-    const retentionFloor = addStaffingMonths(
-        new Date(now.getFullYear(), now.getMonth(), 1),
-        -STAFFING_REPORT_PAST_RETENTION_MONTHS
-    );
-    const floorIndex = staffingMonthIndex(
-        retentionFloor.getFullYear(),
-        retentionFloor.getMonth()
-    );
-
-    keys
-        .map(key => ({
-            key,
-            payload: parseStaffingReportCache(getRaw(key, null))
-        }))
-        .forEach(entry => {
-            const payload = entry.payload;
-            const parsed = parseStaffingMonthKey(payload?.monthKey);
-
-            if (
-                !payload ||
-                payload.version !== STAFFING_REPORT_CACHE_VERSION ||
-                !parsed ||
-                !Array.isArray(payload.data) ||
-                staffingMonthIndex(parsed.year, parsed.month) < floorIndex
-            ) {
-                removeKey(entry.key);
-            }
-        });
-}
-
-function writeStaffingReportCache(year, month, data) {
-    if (!Array.isArray(data)) return;
-
-    try {
-        setRaw(
-            staffingReportCacheKey(year, month),
-            JSON.stringify({
-                version: STAFFING_REPORT_CACHE_VERSION,
-                monthKey: staffingMonthKey(year, month),
-                savedAt: Date.now(),
-                data
-            })
-        );
-        pruneStaffingReportCache();
-    } catch {
-        // Si localStorage esta lleno, el calculo fresco sigue funcionando.
-    }
-}
-
-function clearStaffingReportCache() {
-    listKeys(STAFFING_REPORT_CACHE_PREFIX).forEach(removeKey);
 }
 
 function localDateISO(date) {
@@ -377,49 +278,6 @@ function staffingMonthLabel(year, month) {
             month: "long",
             year: "numeric"
         });
-}
-
-export function showInlineStaffingPendingMonth(year, month) {
-    const div = document.getElementById("staffingReportInline");
-
-    if (!div) return false;
-
-    const key = staffingMonthKey(year, month);
-
-    if (
-        div.dataset.staffingReportMonthKey === key &&
-        div.dataset.staffingReportState === "ready"
-    ) {
-        return false;
-    }
-
-    staffingAnalysisRequest++;
-    lastInlineStaffingReport = null;
-
-    const cached = readStaffingReportCache(year, month);
-
-    if (cached) {
-        renderInlineStaffingReport(cached, year, month, {
-            state: "cached",
-            busy: true,
-            writeCache: false
-        });
-        return true;
-    }
-
-    div.dataset.staffingReportYear = String(Number(year));
-    div.dataset.staffingReportMonth = String(Number(month));
-    div.dataset.staffingReportMonthKey = key;
-    div.dataset.staffingReportState = "pending";
-    div.setAttribute("aria-busy", "true");
-    div.innerHTML = `
-        ${renderStaffingReportToolbar()}
-        <div class="staffing-report-empty">
-            Actualizando resumen RRHH de ${escapeHTML(staffingMonthLabel(year, month))}...
-        </div>
-    `;
-    bindStaffingReportToolbar(div);
-    return true;
 }
 
 const STAFFING_DATE_REMINDERS = [
@@ -1077,15 +935,6 @@ function getStaffingCustomReminders() {
         .filter(reminder => reminder.dateISO && reminder.description);
 }
 
-function saveStaffingCustomReminders(reminders) {
-    setJSON(
-        REMINDERS_KEY,
-        reminders
-            .map(normalizeStaffingReminder)
-            .filter(reminder => reminder.dateISO && reminder.description)
-    );
-}
-
 function isStaffingReminderVisible(reminder) {
     if (reminder.visibility !== "private") return true;
 
@@ -1143,55 +992,6 @@ function staffingReminderMatchesDate(reminder, year, month, day) {
         parts.month === month &&
         parts.day === day
     );
-}
-
-function addStaffingCustomReminder(data) {
-    const owner = currentReminderOwner();
-    const reminder = normalizeStaffingReminder({
-        ...data,
-        id: `staffing_reminder_${Date.now()}_${Math.random()
-            .toString(36)
-            .slice(2, 8)}`,
-        createdByKey: owner.key,
-        createdByUid: owner.uid,
-        createdByEmail: owner.email,
-        createdByName: owner.name,
-        createdAt: new Date().toISOString()
-    });
-    const reminders = getStaffingCustomReminders();
-
-    saveStaffingCustomReminders([...reminders, reminder]);
-
-    addAuditLog(
-        AUDIT_CATEGORY.STAFFING,
-        "Agrega recordatorio",
-        `${reminder.dateISO} | ${reminder.description}`
-    );
-
-    return reminder;
-}
-
-function staffingReminderDefaultDate() {
-    const today = new Date();
-    const year =
-        lastInlineStaffingReport?.year ??
-        currentDate.getFullYear();
-    const month =
-        lastInlineStaffingReport?.month ??
-        currentDate.getMonth();
-    const monthDays = new Date(year, month + 1, 0).getDate();
-    const day = (
-        today.getFullYear() === year &&
-        today.getMonth() === month
-    )
-        ? Math.min(today.getDate(), monthDays)
-        : 1;
-
-    return [
-        year,
-        String(month + 1).padStart(2, "0"),
-        String(day).padStart(2, "0")
-    ].join("-");
 }
 
 async function readApplicantDocuments(files, applicantId) {
@@ -4239,13 +4039,9 @@ function clearAnalizarMesCache(event = null) {
 
     ANALIZAR_MES_CACHE.clear();
     analizarMesCacheVersion++;
-    staffingReportPreloadRequest++;
-    clearTimeout(staffingReportPreloadTimer);
-    staffingReportPreloadTimer = 0;
     staffingWeeklyPreloadRequest++;
     clearTimeout(staffingWeeklyPreloadTimer);
     staffingWeeklyPreloadTimer = 0;
-    pruneStaffingReportCache();
     clearStaffingWeeklyCache();
     return true;
 }
@@ -4260,95 +4056,17 @@ function parseStaffingCollectionChange(value) {
     }
 }
 
-function staffingReplacementDateKey(replacement) {
-    const iso = String(replacement?.date || "");
-
-    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
-
-    const keyDay = String(replacement?.keyDay || "");
-    const parts = keyDay.split("-").map(Number);
-
-    if (
-        parts.length !== 3 ||
-        !parts[0] ||
-        !Number.isFinite(parts[1]) ||
-        !parts[2]
-    ) {
-        return "";
-    }
-
-    return [
-        parts[0],
-        String(parts[1] + 1).padStart(2, "0"),
-        String(parts[2]).padStart(2, "0")
-    ].join("-");
-}
-
-function changedStaffingReplacementDays(change) {
-    if (!change || !("previous" in change) || !("next" in change)) {
-        return null;
-    }
-
-    const previous = parseStaffingCollectionChange(change.previous);
-    const next = parseStaffingCollectionChange(change.next);
-    const itemId = (item, index) => String(
-        item?.id || item?.requestId || `${index}:${JSON.stringify(item)}`
-    );
-    const previousById = new Map(
-        previous.map((item, index) => [itemId(item, index), item])
-    );
-    const nextById = new Map(
-        next.map((item, index) => [itemId(item, index), item])
-    );
-    const days = new Set();
-
-    new Set([...previousById.keys(), ...nextById.keys()])
-        .forEach(id => {
-            const before = previousById.get(id);
-            const after = nextById.get(id);
-
-            if (JSON.stringify(before) === JSON.stringify(after)) return;
-
-            [
-                staffingReplacementDateKey(before),
-                staffingReplacementDateKey(after)
-            ]
-                .filter(Boolean)
-                .forEach(day => days.add(day));
-        });
-
-    return [...days];
-}
-
-function immediateInlineStaffingDaysFromPersistence(event) {
-    const keys = event?.detail?.keys || [];
-
-    if (!keys.includes("replacements")) return [];
-
-    return changedStaffingReplacementDays(
-        event?.detail?.changes?.replacements
-    );
-}
-
 if (typeof window !== "undefined") {
+    // Lo que cambia en la unidad invalida el analisis en memoria y vuelve a
+    // calentar el cache del calendario semanal. Antes esto ademas repintaba el
+    // recuadro Resumen RRHH del menu Turnos; ese recuadro ya no existe, y el
+    // Calendario Semanal se repinta por su propia via (refresh.js ->
+    // renderStaffingAnalysis).
     window.addEventListener(
         "proturnos:persistenceChanged",
         event => {
-            const immediateDays =
-                immediateInlineStaffingDaysFromPersistence(event);
-
             if (clearAnalizarMesCache(event)) {
-                scheduleStaffingReportPreload({
-                    delay: 1400,
-                    force: true
-                });
                 scheduleStaffingWeeklyPreload({ delay: 1400 });
-            }
-
-            if (immediateDays === null) {
-                void renderInlineStaffingAnalysis();
-            } else if (immediateDays.length) {
-                void updateInlineStaffingDays(immediateDays);
             }
         }
     );
@@ -4356,7 +4074,7 @@ if (typeof window !== "undefined") {
         const type = event.detail?.type;
 
         // `app-state-applied` es solo la hidratacion inicial. Lo que edita otra
-        // sesion llega por los otros dos, y sin escucharlos el resumen seguia
+        // sesion llega por los otros dos, y sin escucharlos el analisis seguia
         // saliendo del cache: no reflejaba el turno que acababan de cambiar.
         if (
             type !== "app-state-applied" &&
@@ -4368,15 +4086,7 @@ if (typeof window !== "undefined") {
         // se reusa el mismo filtro de claves que en `persistenceChanged`.
         if (!clearAnalizarMesCache(event)) return;
 
-        scheduleStaffingReportPreload({
-            delay: 1200,
-            force: true
-        });
         scheduleStaffingWeeklyPreload({ delay: 1200 });
-
-        if (type === "app-state-entries-applied") {
-            void renderInlineStaffingAnalysis();
-        }
     });
 }
 
@@ -4578,134 +4288,6 @@ async function analizarMesCooperative(
     );
 }
 
-function staffingReportPreloadDelay(ms = 0) {
-    return new Promise(resolve => {
-        window.setTimeout(resolve, Math.max(0, Number(ms) || 0));
-    });
-}
-
-async function cacheStaffingReportMonth({
-    year,
-    month,
-    force = false,
-    requestId
-}) {
-    return measurePerformance(
-        "staffing:cache-report-month",
-        async () => {
-            if (
-                !force &&
-                readStaffingReportCache(year, month)
-            ) {
-                return true;
-            }
-
-            const holidays = await fetchHolidays(year);
-
-            if (requestId !== staffingReportPreloadRequest) {
-                return false;
-            }
-
-            const data = await analizarMesCooperative(
-                year,
-                month,
-                holidays,
-                () => requestId === staffingReportPreloadRequest
-            );
-
-            if (!data || requestId !== staffingReportPreloadRequest) {
-                return false;
-            }
-
-            writeStaffingReportCache(year, month, data);
-            return true;
-        },
-        {
-            year,
-            month,
-            force
-        },
-        {
-            asyncThreshold: 160
-        }
-    );
-}
-
-async function preloadStaffingReportCache({
-    baseDate = currentDate,
-    force = false
-} = {}) {
-    if (!getProfiles().length) return;
-
-    const requestId = ++staffingReportPreloadRequest;
-    const base = new Date(
-        baseDate.getFullYear(),
-        baseDate.getMonth(),
-        1
-    );
-
-    pruneStaffingReportCache();
-
-    for (
-        let offset = 0;
-        offset <= STAFFING_REPORT_PRELOAD_MONTHS_AHEAD;
-        offset++
-    ) {
-        if (requestId !== staffingReportPreloadRequest) return;
-
-        if (offset > 0) {
-            await staffingReportPreloadDelay(
-                STAFFING_REPORT_PRELOAD_GAP_MS
-            );
-        }
-
-        if (requestId !== staffingReportPreloadRequest) return;
-
-        const target = addStaffingMonths(base, offset);
-        const completed = await cacheStaffingReportMonth({
-            year: target.getFullYear(),
-            month: target.getMonth(),
-            force,
-            requestId
-        });
-
-        if (!completed || requestId !== staffingReportPreloadRequest) {
-            return;
-        }
-    }
-}
-
-export function scheduleStaffingReportPreload(options = {}) {
-    if (typeof window === "undefined") return;
-
-    const delay = Number.isFinite(Number(options.delay))
-        ? Number(options.delay)
-        : STAFFING_REPORT_PRELOAD_DELAY_MS;
-    const sourceDate = options.baseDate instanceof Date
-        ? options.baseDate
-        : currentDate;
-    const baseDate = new Date(
-        sourceDate.getFullYear(),
-        sourceDate.getMonth(),
-        1
-    );
-    staffingReportPreloadForce =
-        staffingReportPreloadForce || Boolean(options.force);
-
-    staffingReportPreloadRequest++;
-    clearTimeout(staffingReportPreloadTimer);
-    staffingReportPreloadTimer = window.setTimeout(() => {
-        const force = staffingReportPreloadForce;
-
-        staffingReportPreloadForce = false;
-        staffingReportPreloadTimer = 0;
-        void preloadStaffingReportCache({
-            baseDate,
-            force
-        });
-    }, Math.max(0, delay));
-}
-
 export function renderStaffingPanel(){
     bindStaffingView();
     renderApplicantsPanel();
@@ -4845,156 +4427,6 @@ function bindStaffingReplacementAlerts(container) {
         });
 }
 
-function renderStaffingReportToolbar() {
-    return `
-        <div class="staffing-report-toolbar">
-            <button class="staffing-report-reminder-button" type="button" data-staffing-reminder-add title="Agregar recordatorio" aria-label="Agregar recordatorio">
-                +
-            </button>
-        </div>
-    `;
-}
-
-function closeStaffingReminderDialog(backdrop, keyHandler) {
-    if (keyHandler) {
-        document.removeEventListener("keydown", keyHandler);
-    }
-
-    backdrop?.remove();
-}
-
-function rerenderLastInlineStaffingReport() {
-    if (!lastInlineStaffingReport) return;
-
-    renderInlineStaffingReport(
-        lastInlineStaffingReport.data,
-        lastInlineStaffingReport.year,
-        lastInlineStaffingReport.month
-    );
-}
-
-function openStaffingReminderDialog() {
-    const existing = document.querySelector(
-        "[data-staffing-reminder-dialog]"
-    );
-
-    existing?.remove();
-
-    const backdrop = document.createElement("div");
-    const defaultDate = staffingReminderDefaultDate();
-
-    backdrop.className = "turn-change-dialog-backdrop";
-    backdrop.dataset.staffingReminderDialog = "true";
-    backdrop.innerHTML = `
-        <form class="turn-change-dialog staffing-reminder-dialog" data-staffing-reminder-form autocomplete="off" role="dialog" aria-modal="true" aria-labelledby="staffingReminderTitle">
-            <strong id="staffingReminderTitle">Agregar recordatorio</strong>
-            <p>Selecciona la fecha, visibilidad y periodicidad del recordatorio.</p>
-            <div class="staffing-reminder-fields">
-                <label class="staffing-reminder-field">
-                    <span>Fecha</span>
-                    <input type="date" name="dateISO" value="${escapeHTML(defaultDate)}" required>
-                </label>
-                <label class="staffing-reminder-field">
-                    <span>Descripci&oacute;n</span>
-                    <textarea name="description" rows="3" maxlength="240" placeholder="Ej: Revisar cobertura especial." required></textarea>
-                </label>
-                <label class="staffing-reminder-field">
-                    <span>Visibilidad</span>
-                    <select name="visibility">
-                        <option value="all">Todos los usuarios administradores de la unidad</option>
-                        <option value="workers">Todos los trabajadores</option>
-                        ${STAFFING_ESTAMENTOS.map(estamento => `
-                        <option value="estamento:${escapeHTML(estamento)}">Trabajadores: ${escapeHTML(estamento)}</option>
-                        `).join("")}
-                        <option value="private">S&oacute;lo quien lo crea</option>
-                    </select>
-                </label>
-                <label class="staffing-reminder-field">
-                    <span>Periodicidad</span>
-                    <select name="recurrence">
-                        <option value="once">Una sola vez</option>
-                        <option value="yearly">Anual en la misma fecha</option>
-                        <option value="monthly">Mensual</option>
-                    </select>
-                </label>
-            </div>
-            <div class="turn-change-dialog__actions staffing-reminder-actions">
-                <button class="secondary-button" type="button" data-staffing-reminder-cancel>Cancelar</button>
-                <button class="primary-button" type="submit">Guardar</button>
-            </div>
-        </form>
-    `;
-
-    const keyHandler = event => {
-        if (event.key === "Escape") {
-            closeStaffingReminderDialog(backdrop, keyHandler);
-        }
-    };
-
-    backdrop.addEventListener("click", event => {
-        if (event.target === backdrop) {
-            closeStaffingReminderDialog(backdrop, keyHandler);
-        }
-    });
-
-    backdrop
-        .querySelector("[data-staffing-reminder-cancel]")
-        ?.addEventListener("click", () => {
-            closeStaffingReminderDialog(backdrop, keyHandler);
-        });
-
-    backdrop
-        .querySelector("[data-staffing-reminder-form]")
-        ?.addEventListener("submit", event => {
-            event.preventDefault();
-
-            const formData = new FormData(event.currentTarget);
-            const dateISO = normalizeReminderDateISO(
-                formData.get("dateISO")
-            );
-            const description = String(
-                formData.get("description") || ""
-            ).trim();
-            const visibility = String(
-                formData.get("visibility") || "all"
-            );
-            const recurrence = String(
-                formData.get("recurrence") || "once"
-            );
-
-            if (!dateISO || !description) {
-                alert("Completa fecha y descripcion.");
-                return;
-            }
-
-            addStaffingCustomReminder({
-                dateISO,
-                description,
-                visibility,
-                recurrence
-            });
-            closeStaffingReminderDialog(backdrop, keyHandler);
-            rerenderLastInlineStaffingReport();
-
-            if (document.body.dataset.activeView === "staffing") {
-                renderStaffingAnalysis();
-            }
-        });
-
-    document.body.appendChild(backdrop);
-    document.addEventListener("keydown", keyHandler);
-    backdrop.querySelector("textarea")?.focus();
-}
-
-function bindStaffingReportToolbar(container) {
-    container
-        ?.querySelector("[data-staffing-reminder-add]")
-        ?.addEventListener("click", event => {
-            event.preventDefault();
-            openStaffingReminderDialog();
-        });
-}
-
 function mostrarResultado(
     data,
     year = currentDate.getFullYear(),
@@ -5028,175 +4460,6 @@ function mostrarResultado(
         .join("");
 
     bindStaffingReplacementAlerts(div);
-}
-
-function getStaffingReportScrollTarget(div, day) {
-    const entries = Array.from(
-        div.querySelectorAll("[data-staffing-report-day]")
-    );
-
-    return entries.find(entry =>
-        Number(entry.dataset.staffingReportDay) === day
-    ) ||
-        entries.find(entry =>
-            Number(entry.dataset.staffingReportDay) > day
-        ) ||
-        entries[entries.length - 1] ||
-        null;
-}
-
-export function scrollInlineStaffingReportToToday() {
-    const div = document.getElementById("staffingReportInline");
-    if (!div) return;
-
-    const today = new Date();
-    const reportYear = Number(div.dataset.staffingReportYear);
-    const reportMonth = Number(div.dataset.staffingReportMonth);
-
-    if (
-        reportYear !== today.getFullYear() ||
-        reportMonth !== today.getMonth()
-    ) {
-        return;
-    }
-
-    const target = getStaffingReportScrollTarget(
-        div,
-        today.getDate()
-    );
-    if (!target) return;
-
-    const scrollTop =
-        target.getBoundingClientRect().top -
-        div.getBoundingClientRect().top +
-        div.scrollTop;
-
-    div.scrollTop = Math.max(0, scrollTop);
-}
-
-function scrollInlineStaffingReportIfVisible() {
-    if (document.body.dataset.activeView !== "turnos") return;
-
-    requestAnimationFrame(scrollInlineStaffingReportToToday);
-}
-
-function renderInlineStaffingReport(
-    data,
-    year = currentDate.getFullYear(),
-    month = currentDate.getMonth(),
-    options = {}
-){
-    const div = document.getElementById("staffingReportInline");
-    if (!div) return;
-
-    lastInlineStaffingReport = {
-        data,
-        year,
-        month
-    };
-    div.dataset.staffingReportYear = year;
-    div.dataset.staffingReportMonth = month;
-    div.dataset.staffingReportMonthKey = staffingMonthKey(year, month);
-    div.dataset.staffingReportState = options.state || "ready";
-    div.setAttribute("aria-busy", options.busy ? "true" : "false");
-
-    if (options.writeCache !== false && options.state !== "cached") {
-        writeStaffingReportCache(year, month, data);
-    }
-
-    const reportData = withBirthdayDetails(data, year, month);
-    const issues = reportData.filter(item => item.detalle.length);
-
-    if (!issues.length) {
-        div.innerHTML = `
-            ${renderStaffingReportToolbar()}
-            <div class="staffing-report-empty">
-                Cobertura completa para el mes visible.
-            </div>
-        `;
-        bindStaffingReportToolbar(div);
-        bindStaffingReplacementAlerts(div);
-        scrollInlineStaffingReportIfVisible();
-        return;
-    }
-
-    div.innerHTML = `
-        ${renderStaffingReportToolbar()}
-        ${issues
-            .map(item => `
-            <article class="staffing-report-day" data-staffing-report-day="${item.dia}">
-                <strong>D&iacute;a ${item.dia}</strong>
-                <div class="staffing-report-pills">
-                    ${item.detalle.map(renderDetailBadge).join("")}
-                </div>
-            </article>
-        `)
-            .join("")}
-    `;
-
-    bindStaffingReportToolbar(div);
-    bindStaffingReplacementAlerts(div);
-    scrollInlineStaffingReportIfVisible();
-}
-
-function patchInlineStaffingReport(
-    data,
-    changedDays,
-    year,
-    month
-) {
-    const root = document.getElementById("staffingReportInline");
-    const previous = lastInlineStaffingReport?.data || [];
-    const previousHadIssues = previous.some(item => item.detalle.length);
-    const nextHadIssues = data.some(item => item.detalle.length);
-
-    if (
-        !root ||
-        lastInlineStaffingReport?.year !== year ||
-        lastInlineStaffingReport?.month !== month ||
-        previousHadIssues !== nextHadIssues
-    ) {
-        renderInlineStaffingReport(data, year, month);
-        return;
-    }
-
-    lastInlineStaffingReport = { data, year, month };
-
-    changedDays.forEach(day => {
-        const item = data[day - 1];
-        const selector = `[data-staffing-report-day="${day}"]`;
-        const previousDay = root.querySelector(selector);
-
-        if (!item?.detalle?.length) {
-            previousDay?.remove();
-            return;
-        }
-
-        const article = document.createElement("article");
-        const title = document.createElement("strong");
-        const pills = document.createElement("div");
-
-        article.className = "staffing-report-day";
-        article.dataset.staffingReportDay = String(day);
-        title.textContent = `Día ${day}`;
-        pills.className = "staffing-report-pills";
-        pills.innerHTML = item.detalle.map(renderDetailBadge).join("");
-        article.append(title, pills);
-
-        if (previousDay) {
-            previousDay.replaceWith(article);
-        } else {
-            const following = [...root.querySelectorAll(
-                "[data-staffing-report-day]"
-            )].find(element =>
-                Number(element.dataset.staffingReportDay) > day
-            );
-
-            root.insertBefore(article, following || null);
-        }
-
-        bindStaffingReplacementAlerts(article);
-    });
 }
 
 export function renderReplacementContractsLog(){
@@ -5267,111 +4530,6 @@ export async function analizarStaffingMes(
         mostrarResultado(data, year, month);
     }
 
-    // Analisis completo del mes: render completo del panel inline (recordatorios,
-    // incidencias y cumpleanios + boton "+"). El patch incremental por dia lo hace
-    // updateInlineStaffingDays. (Antes se llamaba con un `days` inexistente ->
-    // ReferenceError -> panel en blanco.)
-    renderInlineStaffingReport(data, year, month);
-    return data;
-}
-
-export async function renderInlineStaffingAnalysis(){
-    return measurePerformance(
-        "staffing:render-inline-analysis",
-        async () => {
-            const year = currentDate.getFullYear();
-            const month = currentDate.getMonth();
-
-            showInlineStaffingPendingMonth(year, month);
-            scheduleStaffingWeeklyPreload({ delay: 700 });
-
-            const result = await analizarStaffingMes(
-                year,
-                month,
-                {
-                    renderPanel: false,
-                    latestOnly: true,
-                    activeView: "turnos"
-                }
-            );
-
-            scheduleStaffingReportPreload({ delay: 300 });
-            return result;
-        },
-        {
-            year: currentDate.getFullYear(),
-            month: currentDate.getMonth()
-        },
-        {
-            asyncThreshold: 120
-        }
-    );
-}
-
-// Recalcula únicamente los días afectados. Cada día sigue usando las reglas
-// completas de dotación, pero evita repetir el producto trabajadores x mes.
-export async function updateInlineStaffingDays(keyDays = []) {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const days = new Set(
-        (Array.isArray(keyDays) ? keyDays : [keyDays])
-            .map(value => {
-                const text = String(value || "");
-                const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-
-                if (iso) {
-                    if (
-                        Number(iso[1]) !== year ||
-                        Number(iso[2]) - 1 !== month
-                    ) return 0;
-
-                    return Number(iso[3]);
-                }
-
-                const parts = text.split("-").map(Number);
-                if (
-                    parts[0] !== year ||
-                    parts[1] !== month
-                ) return 0;
-
-                return parts[2] || 0;
-            })
-            .filter(day => day > 0)
-    );
-
-    if (!days.size) return [];
-
-    const holidays = await fetchHolidays(year);
-    const context = buildStaffingAnalysisContext(year, month, holidays);
-    const hasPrevious =
-        lastInlineStaffingReport?.year === year &&
-        lastInlineStaffingReport?.month === month &&
-        Array.isArray(lastInlineStaffingReport.data) &&
-        lastInlineStaffingReport.data.length > 0;
-
-    if (!hasPrevious) return renderInlineStaffingAnalysis();
-
-    const previous = lastInlineStaffingReport.data;
-    const byDay = new Map(
-        (Array.isArray(previous) ? previous : [])
-            .map(item => [item.dia, item])
-    );
-
-    days.forEach(day => {
-        byDay.set(day, analizarDiaStaffing(context, day));
-    });
-
-    const data = Array.from(
-        { length: context.diasMes },
-        (_item, index) => byDay.get(index + 1) || {
-            dia: index + 1,
-            detalle: []
-        }
-    );
-    const cacheKey = `${year}|${month}|${holidaysSignature(holidays)}`;
-
-    ANALIZAR_MES_CACHE.set(cacheKey, data);
-    renderInlineStaffingReport(data, year, month);
     return data;
 }
 
@@ -5392,20 +4550,11 @@ export async function renderStaffingAnalysis(){
         }
     );
 
-    scheduleStaffingReportPreload({ delay: 400 });
     return result;
 }
 
 window.renderStaffingAnalysis = renderStaffingAnalysis;
-window.renderInlineStaffingAnalysis =
-    renderInlineStaffingAnalysis;
-window.showInlineStaffingPendingMonth =
-    showInlineStaffingPendingMonth;
-window.scheduleStaffingReportPreload =
-    scheduleStaffingReportPreload;
 window.scheduleStaffingWeeklyPreload =
     scheduleStaffingWeeklyPreload;
-window.updateInlineStaffingDays =
-    updateInlineStaffingDays;
 window.renderStaffingPanel = renderStaffingPanel;
 window.renderStaffingMedicalChart = renderStaffingMedicalChart;

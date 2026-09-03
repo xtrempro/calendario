@@ -66,17 +66,17 @@ export function syncTurnosSidePanelHeight(){
 
       const root = document.documentElement;
       const leavePanel = document.getElementById("leavePanel");
-      const staffingPanel = document.getElementById("staffingReportPanel");
+      const sidePanel = document.getElementById("turnosSidePanel");
       const isDesktop = window.matchMedia("(min-width: 1101px)").matches;
       const isTurnosView = document.body.dataset.activeView === "turnos";
 
       if(
          !leavePanel ||
-         !staffingPanel ||
+         !sidePanel ||
          !isDesktop ||
          !isTurnosView ||
          leavePanel.offsetParent === null ||
-         staffingPanel.offsetParent === null
+         sidePanel.offsetParent === null
       ){
          root.style.removeProperty("--turnos-side-panel-height");
          return;

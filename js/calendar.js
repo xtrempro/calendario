@@ -336,7 +336,6 @@ let pendingWorkerSummaryTimer = 0;
 let pendingWorkerSummaryRequest = 0;
 let calendarLastUserActivityAt = Date.now();
 const pendingCalendarKeys = new Set();
-const pendingStaffingKeys = new Set();
 const calendarCellHandlers = new WeakMap();
 const calendarMapSnapshots = new Map();
 const calendarMemoryCache = new Map();
@@ -1591,28 +1590,6 @@ async function runDeferredTimelineUpdate() {
     }
 }
 
-async function runDeferredStaffingUpdate() {
-    if (typeof window.renderInlineStaffingAnalysis !== "function") return;
-
-    try {
-        await measurePerformance(
-            "staffing:inline-deferred-render",
-            () => window.renderInlineStaffingAnalysis(),
-            {
-                activeView: document.body.dataset.activeView || "turnos",
-                year: currentDate.getFullYear(),
-                month: currentDate.getMonth()
-            }
-        );
-    } catch (error) {
-        console.error("No se pudo actualizar el resumen RRHH", error);
-        renderDeferredPanelError(
-            "staffingReportInline",
-            "No se pudo cargar el resumen RRHH. Intenta cambiar de mes o recargar."
-        );
-    }
-}
-
 function runCalendarHeavyUpdates(options = {}, context = null) {
     if (calendarDirectEditRefreshTimer) {
         cancelTimelineRender();
@@ -1712,15 +1689,6 @@ function runCalendarHeavyUpdates(options = {}, context = null) {
                 return;
             }
 
-            activeView =
-                document.body.dataset.activeView || "turnos";
-
-            if (
-                activeView === "turnos" &&
-                typeof window.renderInlineStaffingAnalysis === "function"
-            ) {
-                await runDeferredStaffingUpdate();
-            }
         } finally {
             finishHeavyUpdate();
         }
@@ -1986,7 +1954,6 @@ function queueCalendarDayUpdates(keys = []) {
             )
         ) {
             pendingCalendarKeys.add(keyDay);
-            pendingStaffingKeys.add(keyDay);
         }
     });
 
@@ -1998,9 +1965,7 @@ function queueCalendarDayUpdates(keys = []) {
     pendingCalendarUpdateTimer = schedule(async () => {
         pendingCalendarUpdateTimer = 0;
         const changedKeys = [...pendingCalendarKeys];
-        const staffingKeys = [...pendingStaffingKeys];
         pendingCalendarKeys.clear();
-        pendingStaffingKeys.clear();
 
         if (changedKeys.length) {
             await renderCalendar({
@@ -2008,13 +1973,6 @@ function queueCalendarDayUpdates(keys = []) {
                 allowDuringDirectEdit: true,
                 updateSummary: true
             });
-        }
-
-        if (
-            staffingKeys.length &&
-            typeof window.updateInlineStaffingDays === "function"
-        ) {
-            void window.updateInlineStaffingDays(staffingKeys);
         }
     });
 }
@@ -9037,10 +8995,6 @@ export async function goToCalendarMonth(year, month, options = {}) {
     closeCalendarMonthPicker();
     currentDate.setFullYear(Number(year), Number(month), 1);
     showTimelinePendingMonth(
-        currentDate.getFullYear(),
-        currentDate.getMonth()
-    );
-    window.showInlineStaffingPendingMonth?.(
         currentDate.getFullYear(),
         currentDate.getMonth()
     );

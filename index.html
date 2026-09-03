@@ -848,16 +848,12 @@
                         <div id="adminInfo" class="helper-note hidden"></div>
                     </section>
 
-                    <button id="mobileStaffingToggle" class="mobile-panel-toggle mobile-staffing-toggle" type="button" aria-controls="staffingReportPanel" aria-expanded="false">
-                        <span>Resumen RRHH</span>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                            <polyline points="6 9 12 15 18 9"></polyline>
-                        </svg>
-                    </button>
-
-                    <section class="panel staffing-report-panel" id="staffingReportPanel">
-                        <div id="staffingReportInline" class="staffing-report-scroll"></div>
-                    </section>
+                    <!-- Espacio reservado del menu Turnos. Aqui vivia el
+                         recuadro "Resumen RRHH", retirado con todo su codigo el
+                         2026-09-03; se conserva la columna del layout para lo
+                         que lo reemplace. Mientras este vacio no pinta nada
+                         (ver .turnos-side-panel:empty en styles.css). -->
+                    <section class="panel turnos-side-panel" id="turnosSidePanel"></section>
 
                     <section id="hoursView" class="hours-view">
                         <div class="hhee-content hh-v2">

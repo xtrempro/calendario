@@ -1360,7 +1360,7 @@ body:not([data-active-view="tasks"]) #taskAssignmentsPanel,
 body:not([data-active-view="kanban"]) #kanbanPanel,
 body:not([data-active-view="holders"]) #shiftHoldersPanel,
 body:not([data-active-view="agenda"]) #agendaPanel,
-body:not([data-active-view="turnos"]) .staffing-report-panel,
+body:not([data-active-view="turnos"]) .turnos-side-panel,
 body:not([data-active-view="reports"]) #reportsPanel,
 body:not([data-active-view="dashboard"]) #dashboardPanel,
 body:not([data-active-view="requests"]) #workerRequestsPanel,
@@ -6357,7 +6357,7 @@ body.theme-dark .history-action-toast span {
 .hours-panel,
 .hours-charts-panel,
 .hhee-records-panel,
-.staffing-report-panel,
+.turnos-side-panel,
 .timeline-panel,
 .staffing-panel,
 .swap-panel,
@@ -15010,116 +15010,18 @@ button.staffing-pill {
     color: #0f766e;
 }
 
-.staffing-report-panel {
+/* Espacio reservado del menu Turnos: la columna donde vivia el recuadro
+   "Resumen RRHH". Se conserva para lo que lo reemplace; mientras este vacio no
+   pinta nada, asi no queda una tarjeta en blanco a la vista. */
+.turnos-side-panel {
     min-height: 0;
 }
 
-.staffing-report-scroll {
-    display: grid;
-    gap: 10px;
-    max-height: 430px;
-    overflow-y: auto;
-    padding-right: 6px;
-}
-
-.staffing-report-toolbar {
-    position: sticky;
-    top: 0;
-    z-index: 4;
-    display: flex;
-    justify-content: flex-end;
-    height: 0;
-    padding: 8px 10px 0 0;
-    pointer-events: none;
-}
-
-.staffing-report-reminder-button {
-    width: 32px;
-    height: 32px;
-    min-width: 32px;
-    border-radius: 10px;
-    background: rgba(17, 24, 39, 0.72);
-    color: #fff;
-    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
-    font-size: 1rem;
-    font-weight: 900;
-    line-height: 1;
-    pointer-events: auto;
-}
-
-.staffing-report-reminder-button:hover {
-    transform: translateY(-1px);
-    background: rgba(var(--brand-blue-rgb), 0.92);
-}
-
-.staffing-report-day,
-.staffing-report-empty {
-    padding: 12px;
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.76);
-    border: 1px solid rgba(17, 32, 56, 0.1);
-}
-
-.staffing-report-day {
-    display: grid;
-    gap: 8px;
-}
-
-.staffing-report-day strong {
-    color: var(--text-strong);
-    font-size: 1rem;
-}
-
-.staffing-report-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-
-.staffing-report-pills .staffing-pill {
-    padding: 7px 10px;
-    font-size: 0.84rem;
-}
-
-body[data-active-view="turnos"] .staffing-report-panel,
-body[data-active-view="turnos"] .staffing-report-day strong,
-body[data-active-view="turnos"] .staffing-report-pills .staffing-pill {
-    font-weight: 500;
-}
-
-body[data-active-view="turnos"] .staffing-report-day strong {
-    font-size: 0.82rem;
-    line-height: 1.2;
-}
-
-.staffing-report-empty {
-    color: var(--text-muted);
-}
-
-.staffing-reminder-dialog {
-    width: min(480px, 100%);
-}
-
-.staffing-reminder-fields {
-    display: grid;
-    gap: 12px;
-    margin: 16px 0 18px;
-}
-
-.staffing-reminder-field {
-    display: grid;
-    gap: 7px;
-    color: var(--text-strong);
-    font-size: 0.86rem;
-    font-weight: 800;
-}
-
-.staffing-reminder-field textarea {
-    min-height: 92px;
-}
-
-.staffing-reminder-actions {
-    margin-top: 4px;
+.turnos-side-panel:empty {
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
 }
 
 .staffing-contract-log {
@@ -16261,24 +16163,15 @@ body.theme-light .mini-off {
     background: rgba(17, 32, 56, 0.04);
 }
 
-body.theme-dark .staffing-entry,
-body.theme-dark .staffing-report-day,
-body.theme-dark .staffing-report-empty {
+body.theme-dark .staffing-entry{
     background: rgba(15, 23, 42, 0.9);
     border-color: rgba(148, 163, 184, 0.24);
     color: #fff;
 }
 
-body.theme-dark .staffing-entry__day,
-body.theme-dark .staffing-report-day strong {
+body.theme-dark .staffing-entry__day{
     color: #fff;
 }
-
-body.theme-dark .staffing-report-empty {
-    color: rgba(255, 255, 255, 0.78);
-}
-
-body.theme-dark .staffing-report-pills .staffing-pill,
 body.theme-dark .staffing-entry__list .staffing-pill {
     color: #fff;
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -16302,11 +16195,6 @@ body.theme-dark .staffing-pill--birthday {
 
 body.theme-dark .staffing-pill--reminder {
     background: rgba(15, 118, 110, 0.78);
-}
-
-body.theme-dark .staffing-report-reminder-button {
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
 .mini-selected {
@@ -16618,7 +16506,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
     .hours-panel,
     .hours-charts-panel,
     .hhee-records-panel,
-    .staffing-report-panel,
+    .turnos-side-panel,
     .timeline-panel,
     .staffing-panel,
     .swap-panel,
@@ -16738,42 +16626,6 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
 
     .legend-action span:last-child {
         white-space: nowrap;
-    }
-
-    .staffing-report-scroll {
-        max-height: clamp(360px, calc(100vh - 310px), 560px);
-    }
-
-    .staffing-report-toolbar {
-        padding: 5px 7px 0 0;
-    }
-
-    .staffing-report-reminder-button {
-        width: 28px;
-        height: 28px;
-        min-width: 28px;
-        border-radius: 8px;
-        font-size: 0.9rem;
-    }
-
-    .staffing-report-day,
-    .staffing-report-empty {
-        padding: 7px;
-        border-radius: 10px;
-    }
-
-    .staffing-report-day {
-        gap: 6px;
-    }
-
-    .staffing-report-pills {
-        gap: 5px;
-    }
-
-    .staffing-report-pills .staffing-pill {
-        padding: 5px 7px;
-        font-size: 0.7rem;
-        line-height: 1.2;
     }
 
     .timeline-shell {
@@ -17774,7 +17626,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
         white-space: nowrap;
     }
 
-    body[data-active-view="turnos"] .staffing-report-panel {
+    body[data-active-view="turnos"] .turnos-side-panel {
         display: flex;
         flex-direction: column;
         align-self: start;
@@ -17782,12 +17634,6 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
         max-height: var(--turnos-side-panel-height, none);
         min-height: 0;
         overflow: hidden;
-    }
-
-    body[data-active-view="turnos"] .staffing-report-scroll {
-        flex: 1 1 auto;
-        min-height: 0;
-        max-height: none;
     }
 }
 
@@ -18374,20 +18220,12 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
         transform: rotate(180deg);
     }
 
-    body.mobile-staffing-open .mobile-staffing-toggle svg {
-        transform: rotate(180deg);
-    }
-
     body[data-active-view="turnos"]:not(.mobile-leave-open) #leavePanel {
         display: none !important;
     }
 
-    body[data-active-view="turnos"]:not(.mobile-staffing-open) #staffingReportPanel {
-        display: none !important;
-    }
-
     body[data-active-view="turnos"] .leave-panel,
-    body[data-active-view="turnos"] .staffing-report-panel {
+    body[data-active-view="turnos"] .turnos-side-panel {
         padding: 10px;
         border-radius: 14px;
     }
@@ -18405,23 +18243,6 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
 
     body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
         white-space: normal;
-    }
-
-    body[data-active-view="turnos"] .staffing-report-scroll {
-        max-height: none;
-        overflow: visible;
-        padding-right: 0;
-    }
-
-    body[data-active-view="turnos"] .staffing-report-day,
-    body[data-active-view="turnos"] .staffing-report-empty {
-        padding: 8px;
-        border-radius: 11px;
-    }
-
-    body[data-active-view="turnos"] .staffing-report-pills .staffing-pill {
-        padding: 5px 7px;
-        font-size: 0.68rem;
     }
 
     body[data-active-view="clockmarks"] #clockMarksPanel {

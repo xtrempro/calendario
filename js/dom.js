@@ -55,7 +55,6 @@ export const DOM = {
     authUserChip: document.getElementById("authUserChip"),
     authUserName: document.getElementById("authUserName"),
     mobileMenuToggle: document.getElementById("mobileMenuToggle"),
-    mobileStaffingToggle: document.getElementById("mobileStaffingToggle"),
     themeToggle: document.getElementById("themeToggle"),
     plansBtn: document.getElementById("plansBtn"),
     systemSettingsBtn: document.getElementById("systemSettingsBtn"),

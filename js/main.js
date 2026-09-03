@@ -220,7 +220,6 @@ import { DOM } from "./dom.js";
 import { renderSwapPanel } from "./swapUI.js";
 import {
     renderStaffingWeeklyCalendar,
-    scrollInlineStaffingReportToToday,
     syncStaffingConfigForProfileChange
 } from "./staffing.js";
 import { renderTaskAssignmentsPanel } from "./taskAssignments.js";
@@ -5801,7 +5800,6 @@ function setDashboardView(view) {
     syncMobileTimelinePlacement();
     if (view !== "turnos") {
         setMobileLeaveOpen(false);
-        setMobileStaffingOpen(false);
     }
     syncTurnosSidePanelHeight();
 }
@@ -5914,7 +5912,6 @@ async function setActiveShortcut(targetId, options = {}) {
         if (nextView === "turnos") {
             renderDashboardState();
             renderCalendar({ deferHeavy: true });
-            requestAnimationFrame(scrollInlineStaffingReportToToday);
         }
 
         document
@@ -12233,7 +12230,7 @@ function isMobileLayout() {
 
 function syncMobileTimelinePlacement() {
     const timelinePanel = document.getElementById("timelinePanel");
-    const staffingPanel = document.getElementById("staffingReportPanel");
+    const sidePanel = document.getElementById("turnosSidePanel");
     const primaryGrid = document.querySelector(".primary-grid");
 
     if (!timelinePanel) {
@@ -12241,8 +12238,8 @@ function syncMobileTimelinePlacement() {
     }
 
     if (isMobileLayout()) {
-        if (staffingPanel && timelinePanel.previousElementSibling !== staffingPanel) {
-            staffingPanel.after(timelinePanel);
+        if (sidePanel && timelinePanel.previousElementSibling !== sidePanel) {
+            sidePanel.after(timelinePanel);
         }
         return;
     }
@@ -12277,21 +12274,6 @@ function setMobileLeaveOpen(open) {
 
     if (DOM.mobileLeaveToggle) {
         DOM.mobileLeaveToggle.setAttribute(
-            "aria-expanded",
-            shouldOpen ? "true" : "false"
-        );
-    }
-}
-
-function setMobileStaffingOpen(open) {
-    const shouldOpen =
-        Boolean(open && isMobileLayout()) &&
-        document.body.dataset.activeView === "turnos";
-
-    document.body.classList.toggle("mobile-staffing-open", shouldOpen);
-
-    if (DOM.mobileStaffingToggle) {
-        DOM.mobileStaffingToggle.setAttribute(
             "aria-expanded",
             shouldOpen ? "true" : "false"
         );
@@ -12522,14 +12504,6 @@ function bindMobileShellInteractions() {
         };
     }
 
-    if (DOM.mobileStaffingToggle) {
-        DOM.mobileStaffingToggle.onclick = () => {
-            setMobileStaffingOpen(
-                !document.body.classList.contains("mobile-staffing-open")
-            );
-        };
-    }
-
     const leavePanel = document.getElementById("leavePanel");
     if (leavePanel) {
         leavePanel.addEventListener("click", event => {
@@ -12570,7 +12544,6 @@ function bindMobileShellInteractions() {
         if (!isMobileLayout()) {
             setMobileMenuOpen(false);
             setMobileLeaveOpen(false);
-            setMobileStaffingOpen(false);
         }
     });
 

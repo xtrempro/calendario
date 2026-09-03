@@ -223,7 +223,6 @@ test("el calendario usa delegación y una ruta de render parcial", async () => {
     assert.doesNotMatch(calendarSource, /await renderCalendar\(renderOptions\);/);
     assert.match(calendarSource, /await waitCalendarIdle\(options\.deferHeavy \? 900 : 300\)/);
     assert.match(calendarSource, /await runDeferredTimelineUpdate\(\)/);
-    assert.match(calendarSource, /await runDeferredStaffingUpdate\(\)/);
     assert.match(calendarSource, /scheduleActiveCalendarCacheWrite\(cal/);
     assert.match(calendarSource, /cooperativePartialRender/);
     assert.match(calendarSource, /calendarShiftAssignedResolver/);
@@ -277,17 +276,13 @@ test("el calendario usa delegación y una ruta de render parcial", async () => {
     assert.match(timelineSource, /DocumentFragment/);
     assert.match(timelineSource, /readTimelineCache/);
     assert.match(timelineSource, /writeTimelineCache/);
-    assert.match(calendarSource, /showInlineStaffingPendingMonth\?\.\(/);
-    assert.match(staffingSource, /export function showInlineStaffingPendingMonth\(/);
-    assert.match(staffingSource, /staffingAnalysisRequest\+\+/);
-    assert.match(staffingSource, /dataset\.staffingReportState = "pending"/);
-    assert.match(staffingSource, /STAFFING_REPORT_CACHE_PREFIX/);
-    assert.doesNotMatch(staffingSource, /STAFFING_REPORT_CACHE_MAX_AGE_MS/);
-    assert.match(staffingSource, /STAFFING_REPORT_PRELOAD_MONTHS_AHEAD\s*=\s*6/);
-    assert.match(staffingSource, /STAFFING_REPORT_PAST_RETENTION_MONTHS\s*=\s*12/);
-    assert.match(staffingSource, /readStaffingReportCache/);
-    assert.match(staffingSource, /writeStaffingReportCache/);
-    assert.match(staffingSource, /scheduleStaffingReportPreload/);
+    assert.match(staffingSource, /\+\+staffingAnalysisRequest/);
+    // El recuadro Resumen RRHH del menu Turnos se retiro (2026-09-03) con su
+    // cache en disco y su precargado de meses: lo unico que se precalienta
+    // ahora es el Calendario Semanal.
+    assert.doesNotMatch(staffingSource, /STAFFING_REPORT_CACHE_PREFIX/);
+    assert.doesNotMatch(staffingSource, /scheduleStaffingReportPreload/);
+    assert.doesNotMatch(calendarSource, /InlineStaffing/);
     assert.match(staffingSource, /STAFFING_WEEKLY_CACHE_PREFIX/);
     assert.match(staffingSource, /STAFFING_WEEKLY_PRELOAD_OFFSETS\s*=\s*\[0,\s*1,\s*-1,\s*2,\s*3\]/);
     assert.match(staffingSource, /readStaffingWeeklyCache/);
