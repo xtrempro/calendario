@@ -23,7 +23,7 @@ test("el selector Del turno / Todos amplia candidatos sin incluir trabajadores c
 
     assert.match(source, /data-dialog-scope="shift"/);
     assert.match(source, /data-dialog-scope="all"/);
-    assert.match(source, /if \(hasBlockingAbsence\(profile\.name, keyDay\)\) return false/);
+    assert.match(source, /if \(hasBlockingAbsence\(profile\.name, keyDay, shift\)\) return false/);
     assert.match(source, /includeWorkersWithoutShift \|\|[\s\S]{0,90}turnScheduledForShift/);
 });
 

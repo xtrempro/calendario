@@ -4,6 +4,7 @@ import { getTurnoBase, getTurnoReal } from "./turnEngine.js";
 import { getCachedHolidays } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
 import { TURNO } from "./constants.js";
+import { getHalfAdminHalf } from "./partialShift.js";
 
 export const TASK_ASSIGNMENT_TASKS_KEY = "weekly_task_assignment_tasks";
 export const TASK_ASSIGNMENT_ENTRIES_KEY = "weekly_task_assignment_entries";
@@ -230,7 +231,13 @@ function turnScheduledForShift(turn, shift) {
             TURNO.LARGA,
             TURNO.DIURNO,
             TURNO.TURNO24,
-            TURNO.DIURNO_NOCHE
+            TURNO.DIURNO_NOCHE,
+            // Medias jornadas y extension horaria: son tramos DIURNOS. El de 18
+            // horas es la extension pegada a la noche, asi que ese dia el
+            // trabajador esta citado en los dos turnos.
+            TURNO.MEDIA_MANANA,
+            TURNO.MEDIA_TARDE,
+            TURNO.TURNO18
         ].includes(state);
     }
 
@@ -250,7 +257,12 @@ function isBaseScheduledForShift(profileName, keyDay, shift) {
     return turnScheduledForShift(getTurnoBase(profileName, keyDay), shift);
 }
 
-function hasBlockingAbsence(profileName, keyDay) {
+// Mismo criterio que el tablero del supervisor (js/taskAssignments.js): un
+// 1/2 ADM no borra las tareas del dia, porque el trabajador viene igual media
+// jornada. La noche no se parte, asi que ahi sigue bloqueando.
+function hasBlockingAbsence(profileName, keyDay, shift = "") {
+    if (shift === "day" && getHalfAdminHalf(profileName, keyDay)) return false;
+
     const admin = getJSON(`admin_${profileName}`, {});
     const legal = getJSON(`legal_${profileName}`, {});
     const comp = getJSON(`comp_${profileName}`, {});
@@ -268,7 +280,7 @@ function hasBlockingAbsence(profileName, keyDay) {
 
 function isAvailableForShift(profileName, keyDay, shift) {
     return isScheduledForShift(profileName, keyDay, shift) &&
-        !hasBlockingAbsence(profileName, keyDay);
+        !hasBlockingAbsence(profileName, keyDay, shift);
 }
 
 function isBusinessKeyDay(keyDay) {
@@ -335,7 +347,7 @@ function countBaseScheduledTurns(
 
 function shouldApplyDefaultRule(rule, profileName, keyDay, shift) {
     if (!isBaseScheduledForShift(profileName, keyDay, shift)) return false;
-    if (hasBlockingAbsence(profileName, keyDay)) return false;
+    if (hasBlockingAbsence(profileName, keyDay, shift)) return false;
 
     const habilOnly = rule?.habilOnly === true;
 

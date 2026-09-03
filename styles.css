@@ -13689,7 +13689,12 @@ body.theme-light .task-assignment-event-day--inhabil {
     min-width: 0;
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    /* Red de seguridad para la etiqueta de franja parcial: en la columna mas
+       angosta (116px) el nombre ya se recorto entero y aun asi no entra, asi
+       que la hora baja a un segundo renglon dentro del chip en vez de
+       desbordarse sobre la casilla vecina. */
+    flex-wrap: wrap;
+    gap: 3px 5px;
     padding: 3px 4px 3px 3px;
     border: 1px solid transparent;
     border-radius: 999px;
@@ -13704,6 +13709,22 @@ body.theme-light .task-assignment-event-day--inhabil {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Franja parcial del dia: 1/2 ADM o extension horaria. Va DESPUES del nombre y
+   con `flex: none` para que el recorte con puntos suspensivos se coma el
+   nombre y no la hora: entre "J. CORNEJO" y "hasta 14:00", lo que no se
+   puede perder es la hora -el nombre completo sigue en el title del chip. */
+.task-assignment-worker-chip__when {
+    flex: none;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: rgba(var(--brand-blue-rgb), 0.14);
+    color: var(--accent);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.01em;
     white-space: nowrap;
 }
 
@@ -13919,6 +13940,18 @@ body.theme-light .task-assignment-event-day--inhabil {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.task-assignment-candidate__when {
+    flex: none;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: rgba(var(--brand-blue-rgb), 0.14);
+    color: var(--accent);
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 800;
+    white-space: nowrap;
 }
 
 .task-assignment-candidate.is-busy .task-assignment-candidate__state {

@@ -16,7 +16,7 @@ test("el saneado semanal solo quita a quien ese dia no puede trabajar", async ()
 
     assert.match(
         source,
-        /const availableWorkers = assignmentWorkers\(entry\)\s*\n\s*\.filter\(name => \{[\s\S]{0,260}!hasBlockingAbsence\(name, keyDay\)/
+        /const availableWorkers = assignmentWorkers\(entry\)\s*\n\s*\.filter\(name => \{[\s\S]{0,260}!hasBlockingAbsence\(name, keyDay, shift\)/
     );
     // Y no vuelve a exigir estar citado al turno, que es lo que borraba en
     // silencio a los asignados desde "Todos".

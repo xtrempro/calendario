@@ -22,6 +22,11 @@ import {
     registerTaskScheduleGridProvider,
     scheduleWorkerAppDataPublish
 } from "./workerAppDataSync.js";
+import {
+    getHalfAdminHalf,
+    getPartialShiftWindow,
+    partialShiftLabel
+} from "./partialShift.js";
 
 const TASKS_KEY = "weekly_task_assignment_tasks";
 const ASSIGNMENTS_KEY = "weekly_task_assignment_entries";
@@ -689,7 +694,13 @@ function absenceDetail(profileName, keyDay) {
     return "";
 }
 
-function hasBlockingAbsence(profileName, keyDay) {
+// Un 1/2 ADM NO borra al trabajador del tablero diurno: viene a trabajar la
+// mitad de la jornada, y el chip lo rotula con su franja ("hasta las 14:00" /
+// "desde las 14:00"). El turno de noche es un bloque que el medio permiso no
+// parte, asi que ahi sigue contando como ausencia.
+function hasBlockingAbsence(profileName, keyDay, shift = "") {
+    if (shift === "day" && getHalfAdminHalf(profileName, keyDay)) return false;
+
     return Boolean(absenceDetail(profileName, keyDay));
 }
 
@@ -701,7 +712,13 @@ function turnScheduledForShift(turn, shift) {
             TURNO.LARGA,
             TURNO.DIURNO,
             TURNO.TURNO24,
-            TURNO.DIURNO_NOCHE
+            TURNO.DIURNO_NOCHE,
+            // Medias jornadas y extension horaria: son tramos DIURNOS (08:00 a
+            // 14:00 o 14:00 a 20:00). El de 18 horas es la extension pegada a
+            // la noche, asi que ese dia esta citado en los dos tableros.
+            TURNO.MEDIA_MANANA,
+            TURNO.MEDIA_TARDE,
+            TURNO.TURNO18
         ].includes(state);
     }
 
@@ -727,7 +744,7 @@ function isBaseScheduledForShift(profile, keyDay, shift) {
 
 function isAvailableForShift(profile, keyDay, shift) {
     if (!isScheduledForShift(profile, keyDay, shift)) return false;
-    return !hasBlockingAbsence(profile.name, keyDay);
+    return !hasBlockingAbsence(profile.name, keyDay, shift);
 }
 
 function assignmentWorkers(entry) {
@@ -820,7 +837,7 @@ function countBaseScheduledTurns(
 
 function shouldApplyDefaultRule(rule, profile, keyDay, shift) {
     if (!isBaseScheduledForShift(profile, keyDay, shift)) return false;
-    if (hasBlockingAbsence(profile.name, keyDay)) return false;
+    if (hasBlockingAbsence(profile.name, keyDay, shift)) return false;
 
     const habilOnly = rule?.habilOnly === true;
 
@@ -973,7 +990,7 @@ function cleanAssignmentsForWeek(days, tasks, start = currentWeekStart) {
 
                 return Boolean(profile) &&
                     isProfileActive(profile) &&
-                    !hasBlockingAbsence(name, keyDay);
+                    !hasBlockingAbsence(name, keyDay, shift);
             });
 
         if (
@@ -1196,7 +1213,7 @@ function profileMatchesWorkerSearch(profile, keyDay, query) {
 
 function isAssignableCandidate(profile, keyDay, shift, includeWorkersWithoutShift) {
     if (!profile || !isProfileActive(profile)) return false;
-    if (hasBlockingAbsence(profile.name, keyDay)) return false;
+    if (hasBlockingAbsence(profile.name, keyDay, shift)) return false;
 
     return includeWorkersWithoutShift ||
         turnScheduledForShift(getProfileShift(profile, keyDay), shift);
@@ -1464,6 +1481,25 @@ function shortWorkerName(fullName, { compact = false } = {}) {
     return `${parts.first.charAt(0)}.${compact ? "" : " "}${parts.surname}`;
 }
 
+// El nombre como sale en la programacion publicada (visor, hoja impresa y PWA).
+// Quien viene solo un tramo del dia -1/2 ADM o extension horaria- lleva su
+// franja pegada al nombre: la programacion se lee sin el tablero al lado, y
+// "esta en la tarea" y "esta toda la jornada" no son lo mismo.
+function scheduleWorkerName(profileName, keyDay, shift) {
+    const name = shortWorkerName(profileName, { compact: true });
+
+    if (!name) return "";
+
+    const partial = partialShiftText(
+        profileName,
+        keyDay,
+        shift,
+        { compact: true }
+    );
+
+    return partial ? `${name} (${partial})` : name;
+}
+
 // Iniciales del avatar del chip: inicial del nombre + inicial del primer
 // apellido, las mismas dos letras que se leen en el chip abreviado.
 function workerInitials(fullName) {
@@ -1488,6 +1524,16 @@ function workerAvatarTone(fullName) {
     }
 
     return `oklch(0.58 0.10 ${hash})`;
+}
+
+// La franja parcial de ese trabajador ese dia, ya rotulada: media jornada por
+// 1/2 ADM o el tramo diurno de una extension horaria. Vacia cuando viene la
+// jornada completa.
+function partialShiftText(profileName, keyDay, shift, { compact = false } = {}) {
+    return partialShiftLabel(
+        getPartialShiftWindow(profileName, keyDay, shift),
+        { compact }
+    );
 }
 
 function renderWorkerAvatar(profileName) {
@@ -1522,11 +1568,28 @@ function renderWorkerChip(profileName, task, keyDay) {
     const offShiftHint = offShift
         ? " | Fuera de su turno este d&iacute;a"
         : "";
+    // Media jornada o extension horaria: el trabajador SI esta en la tarea,
+    // pero solo un tramo del dia. La etiqueta va junto al nombre para que el
+    // supervisor no tenga que abrir nada para saber hasta -o desde- cuando
+    // cuenta con el.
+    // En el chip va la forma corta -"hasta 14:00"-: la casilla mide 116px y el
+    // nombre se recorta con puntos suspensivos antes que la hora. La forma
+    // larga queda en el title, junto al nombre completo.
+    const partial = partialShiftText(
+        profileName,
+        keyDay,
+        task.shift,
+        { compact: true }
+    );
+    const partialHint = partial
+        ? ` | ${partialShiftText(profileName, keyDay, task.shift)}`
+        : "";
 
     return `
-        <span class="task-assignment-worker-chip${configuredClass}${offShiftClass}" draggable="true" data-worker-drag="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="${escapeHTML(profileName)}${offShiftHint} | Arrastrar a otra tarea del mismo turno y d&iacute;a">
+        <span class="task-assignment-worker-chip${configuredClass}${offShiftClass}" draggable="true" data-worker-drag="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="${escapeHTML(profileName)}${offShiftHint}${escapeHTML(partialHint)} | Arrastrar a otra tarea del mismo turno y d&iacute;a">
             ${renderWorkerAvatar(profileName)}
             <span class="task-assignment-worker-chip__name">${escapeHTML(shortWorkerName(profileName))}</span>
+            ${partial ? `<span class="task-assignment-worker-chip__when">${escapeHTML(partial)}</span>` : ""}
             <button class="task-assignment-worker-edit${configuredClass}" type="button" data-worker-default-config="${escapeHTML(profileName)}" data-worker-task="${escapeHTML(task.id)}" data-worker-shift="${escapeHTML(task.shift)}" data-worker-day="${escapeHTML(keyDay)}" title="Editar trabajador predefinido" aria-label="Editar trabajador predefinido">
                 &#9998;
             </button>
@@ -1689,15 +1752,23 @@ function renderCellPickerMarkup(shift, taskId, keyDay) {
         <div class="task-assignment-picker__list">
             ${
                 orderedCandidates.length
-                    ? orderedCandidates.map(({ profile, otherTask }) => `
-                        <button class="task-assignment-picker__option${otherTask ? " task-assignment-picker__option--busy" : ""}" type="button" data-picker-add="${escapeHTML(profile.name)}">
-                            ${renderWorkerAvatar(profile.name)}
-                            <span>
-                                <strong>${escapeHTML(profile.name)}</strong>
-                                <small>${escapeHTML(profileProfession(profile))} | ${otherTask ? `Ya en ${escapeHTML(otherTask)}` : escapeHTML(profileShiftLabel(profile, keyDay))}</small>
-                            </span>
-                        </button>
-                    `).join("")
+                    ? orderedCandidates.map(({ profile, otherTask }) => {
+                        const partial = partialShiftText(
+                            profile.name,
+                            keyDay,
+                            shift
+                        );
+
+                        return `
+                            <button class="task-assignment-picker__option${otherTask ? " task-assignment-picker__option--busy" : ""}" type="button" data-picker-add="${escapeHTML(profile.name)}">
+                                ${renderWorkerAvatar(profile.name)}
+                                <span>
+                                    <strong>${escapeHTML(profile.name)}</strong>
+                                    <small>${escapeHTML(profileProfession(profile))} | ${otherTask ? `Ya en ${escapeHTML(otherTask)}` : escapeHTML(profileShiftLabel(profile, keyDay))}${partial ? ` &middot; ${escapeHTML(partial)}` : ""}</small>
+                                </span>
+                            </button>
+                        `;
+                    }).join("")
                     : `<p class="task-assignment-picker__empty">Sin personal disponible para este turno.</p>`
             }
         </div>
@@ -3466,6 +3537,7 @@ function renderDialogCandidate(
         taskId
     );
     const checked = selectedWorkers.has(profile.name);
+    const partial = partialShiftText(profile.name, keyDay, shift);
 
     return `
         <label class="task-assignment-candidate ${otherTask ? "is-busy" : "is-free"}${checked ? " is-checked" : ""}">
@@ -3476,6 +3548,7 @@ function renderDialogCandidate(
                 <small>${escapeHTML(profile.estamento || "Sin estamento")} | ${escapeHTML(profileProfession(profile))}</small>
             </span>
             <em class="task-assignment-candidate__state">${escapeHTML(otherTask || profileShiftLabel(profile, keyDay))}</em>
+            ${partial ? `<em class="task-assignment-candidate__when">${escapeHTML(partial)}</em>` : ""}
         </label>
     `;
 }
@@ -3834,7 +3907,18 @@ function cellExcelText(assignments, shift, taskId, day, tasks) {
         taskId,
         keyFromDate(day)
     );
-    const workers = assignmentWorkers(entry).join(", ");
+    const workers = assignmentWorkers(entry)
+        .map(name => {
+            const partial = partialShiftText(
+                name,
+                keyFromDate(day),
+                shift,
+                { compact: true }
+            );
+
+            return partial ? `${name} (${partial})` : name;
+        })
+        .join(", ");
 
     return [workers, entry.note].filter(Boolean).join(" | ");
 }
@@ -3923,7 +4007,11 @@ export function getTaskScheduleWeek(start = currentWeekStart) {
 
                     return {
                         workers: assignmentWorkers(entry)
-                            .map(name => shortWorkerName(name, { compact: true }))
+                            .map(name => scheduleWorkerName(
+                                name,
+                                keyFromDate(day),
+                                shift
+                            ))
                             .filter(Boolean),
                         note: String(entry.note || "").trim()
                     };
