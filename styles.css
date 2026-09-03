@@ -7868,6 +7868,59 @@ body.auth-gate-active .app-shell {
     margin-bottom: 12px;
 }
 
+/* Un dia puede tener MAS DE UN turno asignado (un D+N con su Diurno y su Noche
+   respaldados por separado son dos registros). Cuando hay varios, cada uno va en
+   su tarjeta con su propio "Anular reemplazo". */
+.replacement-detail-dialog--multi {
+    width: min(620px, 100%);
+    max-height: min(80vh, 760px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.replacement-detail-list {
+    display: grid;
+    gap: 12px;
+    margin: 4px 0 12px;
+    overflow: auto;
+    padding-right: 4px;
+}
+
+.replacement-detail-card {
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--panel-alt);
+}
+
+.replacement-detail-card__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.replacement-detail-card__head strong {
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.replacement-detail-card__head small {
+    color: var(--text-muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+}
+
+.replacement-detail-card .replacement-detail-rows {
+    margin-bottom: 12px;
+}
+
+.replacement-detail-card .leave-detail-undo {
+    width: 100%;
+}
+
 .worker-app-invite-dialog {
     width: min(520px, 100%);
 }
@@ -9213,6 +9266,49 @@ body.theme-light .replacement-candidate-warning {
     color: var(--hm-good, #16a34a);
 }
 
+/* Tramo apartado con "Sin motivo aun": queda a la vista, atenuado, para que se
+   note que sigue pendiente y no se confunda con uno respaldado. */
+.overtime-backup-state.is-skipped {
+    background: var(--panel-alt);
+    color: var(--text-muted);
+}
+
+.overtime-backup-skip {
+    align-self: flex-start;
+    margin-top: 10px;
+    padding: 6px 12px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 999px;
+    color: var(--text-soft);
+    background: transparent;
+    font: inherit;
+    font-size: 0.76rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.overtime-backup-skip:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+}
+
+.overtime-backup-skip.is-active {
+    border-style: solid;
+    border-color: var(--text-muted);
+    color: var(--text);
+    background: var(--panel-alt);
+}
+
+.overtime-backup-subsection.is-skipped {
+    opacity: 0.72;
+}
+
+.overtime-backup-subsection.is-skipped .replacement-candidate-list,
+.overtime-backup-subsection.is-skipped .replacement-dialog-toolbar {
+    pointer-events: none;
+    opacity: 0.55;
+}
+
 .overtime-backup-subsection.is-missing {
     border-color: rgba(249, 115, 22, 0.55);
     box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.14);
@@ -9236,6 +9332,38 @@ body.theme-light .replacement-candidate-warning {
 @media (max-width: 820px) {
     .overtime-backup-grid--split {
         grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* Pie del modal de respaldo: "Quitar turno extra" va a la izquierda, separado
+   de Cancelar/Guardar, porque es la accion destructiva. El pie normal de estos
+   cuadros es una rejilla de dos columnas; aca son tres botones. */
+.extra-reason-dialog .turn-change-dialog__actions.overtime-backup-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+}
+
+.overtime-backup-actions__spacer {
+    flex: 1 1 auto;
+}
+
+.overtime-backup-actions .secondary-button,
+.overtime-backup-actions .primary-button,
+.overtime-backup-actions .danger-button {
+    flex: 0 0 auto;
+}
+
+@media (max-width: 560px) {
+    .overtime-backup-actions__spacer {
+        display: none;
+    }
+
+    .overtime-backup-actions .secondary-button,
+    .overtime-backup-actions .primary-button,
+    .overtime-backup-actions .danger-button {
+        flex: 1 1 100%;
     }
 }
 

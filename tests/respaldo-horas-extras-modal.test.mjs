@@ -133,7 +133,9 @@ test("cada tramo nace marcado como pendiente", () => {
 test("el indicador se actualiza al elegir ausencia o al escribir el motivo", () => {
     // La marca la mueven los mismos manejadores que ya existian.
     assert.match(calendar, /const setSectionState = \(sectionId, done\) => \{/);
-    assert.match(calendar, /chip\.textContent = done \? "Listo" : "Falta";/);
+    // Tres estados desde que un tramo se puede apartar con "Sin motivo aun".
+    assert.match(calendar, /chip\.textContent = skipped/);
+    assert.match(calendar, /\(done \? "Listo" : "Falta"\)/);
     assert.match(calendar, /setSectionState\(sectionId, true\);/);
     // Y borrar el motivo escrito devuelve el tramo a "Falta", salvo que haya
     // una ausencia elegida.
@@ -158,7 +160,9 @@ test("al guardar, el tramo que falta se marca y se trae a la vista", () => {
 test("el cuerpo va en su propio contenedor, separado de las acciones", () => {
     const html = construir(DOS_TRAMOS);
     const cuerpo = html.indexOf('class="overtime-backup-body"');
-    const acciones = html.indexOf('class="turn-change-dialog__actions"');
+    // El pie lleva ademas overtime-backup-actions desde que hay un tercer boton
+    // ("Quitar turno extra"), asi que se busca por el prefijo de la clase.
+    const acciones = html.indexOf('class="turn-change-dialog__actions');
 
     assert.notEqual(cuerpo, -1, "falta el contenedor del cuerpo");
     assert.ok(cuerpo < acciones, "las acciones van despues del cuerpo");

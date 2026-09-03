@@ -95,12 +95,23 @@ test("los cuadros informativos se consultan sin sus acciones de escritura", () =
     );
 
     assert.match(detail, /const canEdit = canEditTarget\("calendarPanel"\);/);
+    // Un dia puede tener varios turnos asignados: el boton de anular va por
+    // registro dentro de la lista, y ademas en el pie cuando hay uno solo. Los
+    // dos siguen detras de canEdit.
     assert.match(
         detail,
-        /\$\{canEdit \? `\n\s*<button class="leave-detail-undo" type="button" data-action="undo">/
+        /\$\{canEdit \? `[\s\S]{0,80}<button[\s\S]{0,160}data-action="undo"/
     );
-    // Sin boton no hay handler que enlazar: la asignacion directa reventaba.
-    assert.match(detail, /if \(undoButton\) undoButton\.onclick = async \(\) => \{/);
+    assert.match(
+        detail,
+        /\$\{canEdit && !multiple \? `[\s\S]{0,80}<button[\s\S]{0,160}data-action="undo"/
+    );
+    // Sin boton no hay handler que enlazar: la asignacion directa reventaba. Al
+    // recorrer una NodeList eso ya no puede pasar aunque no haya ninguno.
+    assert.match(
+        detail,
+        /querySelectorAll\("\[data-action='undo'\]"\)/
+    );
 
     const preassign = functionBody(
         calendar,

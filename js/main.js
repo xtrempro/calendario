@@ -193,6 +193,7 @@ import {
     goToCalendarMonth,
     setCalendarSelectionHandler,
     addTurnToDay,
+    openManualExtraReasonForDay,
     updateDayCell,
     updateDayCells,
     updateVisibleCalendarDays
@@ -11653,7 +11654,14 @@ async function handleAddTurnSelection(fecha) {
 
     if (!aplicado) {
         alert("Ese turno no se puede agregar en este dia.");
+        return;
     }
+
+    // El motivo se pide AQUI, recien puesto el turno: es cuando el supervisor
+    // sabe por que lo agrego. Si se deja para despues hay que ir a buscar la
+    // casilla con el "?" y casi nunca se completa. El modal se abre despues de
+    // apagar el modo porque no sale mientras haya una seleccion activa.
+    await openManualExtraReasonForDay(profile, keyDay);
 }
 
 function activarModoAgregarTurno(clave) {

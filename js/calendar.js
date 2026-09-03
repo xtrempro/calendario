@@ -141,6 +141,7 @@ import {
     getPendingReplacementRequestsForShift,
     getReplacementForCoveredShift,
     getReplacementForWorkerShift,
+    getReplacementsForWorkerShift,
     replacementActive,
     saveReplacement,
     turnoToCode,
@@ -201,7 +202,8 @@ import { withBusyState } from "./busy.js";
 import { rotationPositionLabel } from "./rotationUtils.js";
 import {
     TURNO,
-    TURNO_CLASS
+    TURNO_CLASS,
+    TURNO_LABEL
 } from "./constants.js";
 import {
     getJSON,
@@ -3062,32 +3064,16 @@ function getReplacementDetailRecord(
     return getReplacementForWorkerShift(profileName, keyDay);
 }
 
-async function openReplacementDetailDialog(
-    profileName,
-    keyDay,
-    replacementId = ""
-) {
-    const replacement = getReplacementDetailRecord(
-        profileName,
-        keyDay,
-        replacementId
-    );
+function replacementDetailTitle(replacement) {
+    if (!replacement.replaced) return "Turno extra asignado";
 
-    if (!replacement) return false;
+    return replacement.isLoan
+        ? "Prestamo asignado"
+        : "Reemplazo asignado";
+}
 
-    // Solo lectura en Turnos: el detalle sigue siendo consultable (es
-    // informacion del turno), pero pierde la accion de anular.
-    const canEdit = canEditTarget("calendarPanel");
-
-    const backdrop = document.createElement("div");
-    const title = replacement.replaced
-        ? (
-            replacement.isLoan
-                ? "Prestamo asignado"
-                : "Reemplazo asignado"
-        )
-        : "Turno extra asignado";
-    const details = [
+function replacementDetailRows(replacement, profileName) {
+    return [
         ["Trabajador", replacement.worker || profileName],
         replacement.replaced
             ? [
@@ -3113,24 +3099,98 @@ async function openReplacementDetailDialog(
             : null,
         ["Registrado", replacementDetailCreatedLabel(replacement.createdAt)]
     ].filter(Boolean);
+}
 
-    backdrop.className = "turn-change-dialog-backdrop";
-    backdrop.innerHTML = `
-        <section class="turn-change-dialog replacement-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="replacementDetailTitle">
-            <strong id="replacementDetailTitle">${escapeHTML(title)}</strong>
-            ${canEdit ? `
-            <p>
-                Para modificar este turno extra debes anular el reemplazo aplicado.
-            </p>
-            ` : ""}
-            <div class="leave-detail-rows replacement-detail-rows">
-                ${details.map(([label, value]) => `
+function replacementDetailRowsHTML(replacement, profileName) {
+    return `
+        <div class="leave-detail-rows replacement-detail-rows">
+            ${replacementDetailRows(replacement, profileName)
+                .map(([label, value]) => `
                     <div>
                         <span>${escapeHTML(label)}</span>
                         <b>${escapeHTML(value)}</b>
                     </div>
                 `).join("")}
-            </div>
+        </div>
+    `;
+}
+
+/**
+ * Detalle de los turnos asignados de un dia (reemplazos, prestamos y turnos
+ * extra manuales).
+ *
+ * Un dia puede tener MAS DE UNO: un D+N con su Diurno y su Noche respaldados por
+ * separado son dos registros. Antes se abria solo el primero, asi que el segundo
+ * no habia forma de verlo ni de anularlo desde aqui. Cuando hay varios se listan
+ * todos, cada uno con su propio "Anular reemplazo"; con uno solo, el cuadro se
+ * ve igual que siempre.
+ */
+async function openReplacementDetailDialog(
+    profileName,
+    keyDay,
+    replacementId = ""
+) {
+    // Con un id concreto se abre ESE registro (asi lo piden las insignias del
+    // dia); sin id, se muestran todos los del dia.
+    const records = replacementId
+        ? [
+            getReplacementDetailRecord(
+                profileName,
+                keyDay,
+                replacementId
+            )
+        ].filter(Boolean)
+        : getReplacementsForWorkerShift(profileName, keyDay);
+
+    if (!records.length) return false;
+
+    // Solo lectura en Turnos: el detalle sigue siendo consultable (es
+    // informacion del turno), pero pierde la accion de anular.
+    const canEdit = canEditTarget("calendarPanel");
+    const multiple = records.length > 1;
+    const backdrop = document.createElement("div");
+    const title = multiple
+        ? "Turnos asignados del dia"
+        : replacementDetailTitle(records[0]);
+
+    backdrop.className = "turn-change-dialog-backdrop";
+    backdrop.innerHTML = `
+        <section class="turn-change-dialog replacement-detail-dialog ${
+            multiple ? "replacement-detail-dialog--multi" : ""
+        }" role="dialog" aria-modal="true" aria-labelledby="replacementDetailTitle">
+            <strong id="replacementDetailTitle">${escapeHTML(title)}</strong>
+            ${canEdit ? `
+            <p>
+                ${multiple
+                    ? "Este dia tiene mas de un turno asignado. Cada uno se anula por separado."
+                    : "Para modificar este turno extra debes anular el reemplazo aplicado."}
+            </p>
+            ` : ""}
+            ${multiple
+                ? `
+                <div class="replacement-detail-list">
+                    ${records.map(replacement => `
+                        <article class="replacement-detail-card">
+                            <div class="replacement-detail-card__head">
+                                <strong>${escapeHTML(replacementDetailTurnLabel(replacement))}</strong>
+                                <small>${escapeHTML(replacementDetailTitle(replacement))}</small>
+                            </div>
+                            ${replacementDetailRowsHTML(replacement, profileName)}
+                            ${canEdit ? `
+                            <button
+                                class="leave-detail-undo"
+                                type="button"
+                                data-action="undo"
+                                data-replacement-id="${escapeHTML(String(replacement.id || ""))}"
+                            >
+                                Anular reemplazo
+                            </button>
+                            ` : ""}
+                        </article>
+                    `).join("")}
+                </div>
+                `
+                : replacementDetailRowsHTML(records[0], profileName)}
             ${canEdit ? `
             <p class="leave-detail-note">
                 Al anularlo, se quitara este turno extra del calendario del trabajador que cubre y se actualizara la cobertura del trabajador reemplazado.
@@ -3140,8 +3200,13 @@ async function openReplacementDetailDialog(
                 <button class="secondary-button" type="button" data-action="cancel">
                     ${canEdit ? "Cancelar" : "Cerrar"}
                 </button>
-                ${canEdit ? `
-                <button class="leave-detail-undo" type="button" data-action="undo">
+                ${canEdit && !multiple ? `
+                <button
+                    class="leave-detail-undo"
+                    type="button"
+                    data-action="undo"
+                    data-replacement-id="${escapeHTML(String(records[0].id || ""))}"
+                >
                     Anular reemplazo
                 </button>
                 ` : ""}
@@ -3170,76 +3235,94 @@ async function openReplacementDetailDialog(
         .querySelector("[data-action='cancel']")
         .onclick = close;
 
-    const undoButton = backdrop.querySelector("[data-action='undo']");
-
-    if (undoButton) undoButton.onclick = async () => {
-        const confirmed = await showConfirm(
-            `Se anulara el reemplazo de ${replacement.worker} para el ${replacementDetailDateLabel(replacement.date)}.`,
-            {
-                title: "Anular reemplazo",
-                tone: "danger",
-                confirmText: "Anular reemplazo",
-                cancelText: "Volver",
-                destructive: true
-            }
-        );
-
-        if (!confirmed) return;
-
-        await withBusyState(async () => {
-            if (typeof window.pushUndoState === "function") {
-                window.pushUndoState("Anular reemplazo");
-            }
-
-            if (replacement.isLoan && replacement.interUnitLoanId) {
-                await cancelInterUnitLoan(
-                    replacement.interUnitLoanId,
-                    replacement.hostWorkspaceId || ""
-                );
-            }
-
-            const canceled = cancelReplacementById(
-                replacement.id,
-                {
-                    reason: "supervisor_canceled",
-                    details: "Reemplazo anulado desde el calendario."
-                }
+    backdrop
+        .querySelectorAll("[data-action='undo']")
+        .forEach(button => {
+            const replacement = records.find(record =>
+                String(record.id || "") === button.dataset.replacementId
             );
 
-            if (!canceled) {
-                alert("No se pudo anular el reemplazo. Es posible que ya haya cambiado.");
-                return;
-            }
+            if (!replacement) return;
 
-            close();
-
-            await updateDayCell(
-                canceled.worker || profileName,
-                canceled.date || keyDay
-            );
-
-            if (canceled.replaced) {
-                await updateDayCell(
-                    canceled.replaced,
-                    canceled.date || keyDay
+            button.onclick = async () => {
+                const confirmed = await showConfirm(
+                    `Se anulara el reemplazo de ${replacement.worker} para el ${replacementDetailDateLabel(replacement.date)}.`,
+                    {
+                        title: "Anular reemplazo",
+                        tone: "danger",
+                        confirmText: "Anular reemplazo",
+                        cancelText: "Volver",
+                        destructive: true
+                    }
                 );
-            }
 
-            updateTimelineCells(
-                canceled.worker || profileName,
-                [keyDay]
-            );
+                if (!confirmed) return;
 
-            if (canceled.replaced) {
-                updateTimelineCells(
-                    canceled.replaced,
-                    [keyDay]
-                );
-            }
-        }, {
-            label: "Anulando reemplazo..."
+                await withBusyState(async () => {
+                    if (typeof window.pushUndoState === "function") {
+                        window.pushUndoState("Anular reemplazo");
+                    }
+
+                    if (replacement.isLoan && replacement.interUnitLoanId) {
+                        await cancelInterUnitLoan(
+                            replacement.interUnitLoanId,
+                            replacement.hostWorkspaceId || ""
+                        );
+                    }
+
+                    const canceled = cancelReplacementById(
+                        replacement.id,
+                        {
+                            reason: "supervisor_canceled",
+                            details: "Reemplazo anulado desde el calendario."
+                        }
+                    );
+
+                    if (!canceled) {
+                        alert("No se pudo anular el reemplazo. Es posible que ya haya cambiado.");
+                        return;
+                    }
+
+                    close();
+
+                    await updateDayCell(
+                        canceled.worker || profileName,
+                        canceled.date || keyDay
+                    );
+
+                    if (canceled.replaced) {
+                        await updateDayCell(
+                            canceled.replaced,
+                            canceled.date || keyDay
+                        );
+                    }
+
+                    updateTimelineCells(
+                        canceled.worker || profileName,
+                        [keyDay]
+                    );
+
+                    if (canceled.replaced) {
+                        updateTimelineCells(
+                            canceled.replaced,
+                            [keyDay]
+                        );
+                    }
+
+                    // Quedan mas turnos asignados ese dia: se vuelve a abrir el
+                    // detalle con los que siguen vigentes, para poder anular el
+                    // siguiente sin tener que buscar la casilla otra vez.
+                    if (
+                        multiple &&
+                        getReplacementsForWorkerShift(profileName, keyDay).length
+                    ) {
+                        await openReplacementDetailDialog(profileName, keyDay);
+                    }
+                }, {
+                    label: "Anulando reemplazo..."
+                });
+            };
         });
-    };
 
     document.addEventListener("keydown", onKeydown);
     document.body.appendChild(backdrop);
@@ -4801,6 +4884,19 @@ function cancelManualExtraBackupsForTurnChange(
             replacement.worker !== profileName ||
             replacement.date !== iso ||
             replacement.source !== "manual_extra"
+        ) {
+            return replacement;
+        }
+
+        // Un respaldo SOLO se anula si el turno nuevo ya no contiene el tramo
+        // que respaldaba. Antes se anulaban todos: agregar una Noche sobre un
+        // Diurno que ya tenia su motivo (Diurno -> D+N) borraba ese motivo y el
+        // modal volvia a pedirlo en blanco.
+        if (
+            turnoExtraCubreTurno(
+                nextTurn,
+                codeToTurno(replacement.turno)
+            )
         ) {
             return replacement;
         }
@@ -6856,6 +6952,14 @@ function extraReasonDialogHTML({
                             ${manualExtraReasonPresetButtonsHTML(section.id)}
                         </div>
                     </div>
+                    <button
+                        class="overtime-backup-skip"
+                        type="button"
+                        data-skip-section="${escapeHTML(section.id)}"
+                        aria-pressed="false"
+                    >
+                        Sin motivo a&uacute;n
+                    </button>
                 </div>
             `;
         })
@@ -6912,9 +7016,15 @@ function extraReasonDialogHTML({
                 ${clockSection}
                 ${manualSection}
             </div>
-            <div class="turn-change-dialog__actions">
+            <div class="turn-change-dialog__actions overtime-backup-actions">
+                ${hasManualSection ? `
+                <button class="danger-button" type="button" data-action="remove-extra">
+                    Quitar turno extra
+                </button>
+                ` : ""}
+                <span class="overtime-backup-actions__spacer"></span>
                 <button class="secondary-button" type="button" data-action="cancel">
-                    Cancelar
+                    Sin motivo a&uacute;n
                 </button>
                 <button class="primary-button" type="button" data-action="save-reason">
                     ${savesMultipleBackups ? "Guardar respaldos" : "Guardar motivo"}
@@ -6993,6 +7103,8 @@ async function openExtraReasonDialog(
 
     const backdrop = document.createElement("div");
     const selectedMatches = new Map();
+    // Tramos que el supervisor aparto con "Sin motivo aun".
+    const skippedSections = new Set();
 
     backdrop.className = "turn-change-dialog-backdrop";
     backdrop.innerHTML = extraReasonDialogHTML({
@@ -7035,8 +7147,12 @@ async function openExtraReasonDialog(
                 reason
             };
         });
+        // Un tramo marcado "Sin motivo aun" no bloquea: se guarda lo que si tiene
+        // respaldo y ese queda pendiente, con su "?" en la casilla.
         const missingManualBackup = manualBackups.find(backup =>
-            !backup.selectedMatch && !backup.reason
+            !backup.selectedMatch &&
+            !backup.reason &&
+            !skippedSections.has(backup.section.id)
         );
 
         if (hasClockSection && !clockReason) {
@@ -7080,7 +7196,9 @@ async function openExtraReasonDialog(
             });
         }
 
-        manualBackups.forEach(backup => {
+        manualBackups
+            .filter(backup => backup.selectedMatch || backup.reason)
+            .forEach(backup => {
             saveReplacement({
                 worker: profileName,
                 keyDay,
@@ -7115,9 +7233,64 @@ async function openExtraReasonDialog(
 
         if (!chip) return;
 
-        chip.textContent = done ? "Listo" : "Falta";
-        chip.classList.toggle("is-done", done);
+        const skipped = skippedSections.has(sectionId);
+
+        chip.textContent = skipped
+            ? "Sin motivo"
+            : (done ? "Listo" : "Falta");
+        chip.classList.toggle("is-done", done && !skipped);
+        chip.classList.toggle("is-skipped", skipped);
     };
+
+    // "Sin motivo aun" POR TRAMO: con un turno extra de dos tramos se puede
+    // respaldar uno y dejar el otro pendiente. El boton del pie cierra sin
+    // respaldar nada; este solo aparta este tramo.
+    const bindSkipSectionButtons = () => {
+        backdrop
+            .querySelectorAll("[data-skip-section]")
+            .forEach(button => {
+                const sectionId = button.dataset.skipSection;
+
+                button.onclick = () => {
+                    const skipped = !skippedSections.has(sectionId);
+                    const textarea = backdrop
+                        .querySelector(`[data-manual-reason="${sectionId}"]`);
+
+                    if (skipped) {
+                        skippedSections.add(sectionId);
+                        selectedMatches.delete(sectionId);
+
+                        if (textarea) textarea.value = "";
+
+                        backdrop
+                            .querySelectorAll(
+                                `[data-match-index][data-section-id="${sectionId}"]`
+                            )
+                            .forEach(item => {
+                                item.classList.remove("is-selected");
+                                item.setAttribute("aria-pressed", "false");
+                            });
+                    } else {
+                        skippedSections.delete(sectionId);
+                    }
+
+                    button.setAttribute(
+                        "aria-pressed",
+                        skipped ? "true" : "false"
+                    );
+                    button.classList.toggle("is-active", skipped);
+                    backdrop
+                        .querySelector(`[data-manual-section="${sectionId}"]`)
+                        ?.classList.toggle("is-skipped", skipped);
+
+                    if (textarea) textarea.disabled = skipped;
+
+                    setSectionState(sectionId, false);
+                };
+            });
+    };
+
+    bindSkipSectionButtons();
 
     const bindManualReasonPresetButtons = () => {
         backdrop
@@ -7155,9 +7328,47 @@ async function openExtraReasonDialog(
         }
     });
 
+    // "Sin motivo aun": se cierra sin respaldar y el dia queda pidiendolo con su
+    // "?". Se repinta la casilla al salir porque el modal puede haberse abierto
+    // recien puesto el turno, antes de que el calendario mostrara la marca.
     backdrop
         .querySelector("[data-action='cancel']")
-        .onclick = close;
+        .onclick = () => {
+            close();
+            void updateDayCell(profileName, dateFromKeyDay(keyDay));
+        };
+
+    // Quitar el turno extra desde aqui mismo: si el supervisor abrio el modal y
+    // se dio cuenta de que el turno no iba, no tiene por que buscar otra via
+    // para deshacerlo. Cierra el modal SIEMPRE que se confirma: dejarlo abierto
+    // pidiendo el motivo de un turno que acaba de irse no tiene sentido.
+    const removeExtraButton = backdrop
+        .querySelector("[data-action='remove-extra']");
+
+    if (removeExtraButton) {
+        removeExtraButton.onclick = async () => {
+            const confirmado = await showConfirm(
+                `Se quitara el turno extra del ${replacementDetailDateLabel(isoFromKeyDay(keyDay))} y el dia volvera a su turno original.`,
+                {
+                    title: "Quitar turno extra",
+                    tone: "danger",
+                    confirmText: "Quitar turno extra",
+                    cancelText: "Volver",
+                    destructive: true
+                }
+            );
+
+            if (!confirmado) return;
+
+            close();
+
+            if (typeof window.pushUndoState === "function") {
+                window.pushUndoState("Quitar turno extra");
+            }
+
+            removeManualExtraTurn(profileName, keyDay);
+        };
+    }
 
     backdrop
         .querySelectorAll("[data-match-index]")
@@ -7732,6 +7943,11 @@ async function clickDia(
     }
 
     if (!directEditEnabled) {
+        // Con el switch de "Editar" apagado este click no hacia nada. Si el dia
+        // tiene un turno puesto A MANO es la ocasion de ofrecer quitarlo: hasta
+        // ahora habia que encender el switch y dar vueltas al ciclo hasta volver
+        // al turno original.
+        await offerManualExtraRemoval(profileName, keyDay, options);
         return;
     }
 
@@ -7910,6 +8126,107 @@ export function canAddTurnToDay(profileName, keyDay, turnoElegido, context = {})
                 : getActualState(profileName, keyDay)
         }
     ).allowed;
+}
+
+/**
+ * Lo que el dia tiene puesto A MANO por sobre su turno base: el "turno extra".
+ * `extra` es TURNO.LIBRE cuando el dia esta tal como lo dejo la rotativa.
+ */
+function manualExtraForDay(profileName, keyDay) {
+    const baseTurno = getTurnoBase(profileName, keyDay);
+    const effectiveBaseTurn = aplicarCambiosTurno(
+        profileName,
+        keyDay,
+        baseTurno,
+        { includeReplacements: false }
+    );
+    const actual = getActualState(profileName, keyDay);
+
+    return {
+        effectiveBaseTurn,
+        actual,
+        extra: getTurnoExtraAgregado(effectiveBaseTurn, actual)
+    };
+}
+
+/**
+ * Ofrece quitar el turno extra de un dia y devolver la casilla a su estado
+ * original. Es el atajo a lo que hoy hay que hacer dando vueltas al ciclo de la
+ * edicion directa hasta volver al turno de la rotativa.
+ */
+async function offerManualExtraRemoval(profileName, keyDay, options = {}) {
+    const { effectiveBaseTurn, actual, extra } =
+        manualExtraForDay(profileName, keyDay);
+
+    if (!extra) return false;
+
+    const etiqueta = turno => TURNO_LABEL[Number(turno) || 0] || "Libre";
+    const confirmado = await showConfirm(
+        `Este dia tiene un turno agregado a mano.\n\n` +
+        `Turno base: ${etiqueta(effectiveBaseTurn)}\n` +
+        `Con el extra: ${etiqueta(actual)}\n` +
+        `Se quitara: ${etiqueta(extra)}\n\n` +
+        `La casilla vuelve a su estado original.`,
+        {
+            title: "Quitar turno extra",
+            tone: "danger",
+            confirmText: "Quitar turno extra",
+            cancelText: "Volver",
+            destructive: true
+        }
+    );
+
+    if (!confirmado) return false;
+
+    return removeManualExtraTurn(profileName, keyDay, options);
+}
+
+/**
+ * Devuelve el dia a su turno base, quitando lo que se le agrego a mano. Es a lo
+ * que se llegaba dando vueltas al ciclo de la edicion directa.
+ *
+ * Lo llaman los dos sitios desde donde se puede quitar: el cuadro que sale al
+ * hacer click en la casilla y el boton del modal de respaldo de horas extras.
+ */
+function removeManualExtraTurn(profileName, keyDay, options = {}) {
+    const { effectiveBaseTurn, actual, extra } =
+        manualExtraForDay(profileName, keyDay);
+
+    if (!extra) return false;
+
+    commitCalendarTurnChange({
+        profileName,
+        keyDay,
+        currentState: actual,
+        nextTurn: effectiveBaseTurn,
+        turnToStore: effectiveBaseTurn,
+        baseTurn: effectiveBaseTurn,
+        cell: options.cell,
+        date: options.date || dateFromKeyDay(keyDay),
+        holidays: options.holidays || {},
+        historyLabel: `Turno extra quitado en ${keyDay}`
+    });
+
+    return true;
+}
+
+/**
+ * Abre el modal de respaldo del turno extra de un dia, si lo tiene pendiente.
+ * Se usa al agregar un turno con los botones: el motivo se pide en el momento,
+ * que es cuando el supervisor sabe por que lo puso.
+ */
+export async function openManualExtraReasonForDay(profileName, keyDay) {
+    const pendiente = getPendingManualExtraTurn(
+        profileName,
+        keyDay,
+        getProfileData(profileName)
+    );
+
+    if (!pendiente) return false;
+
+    await openExtraReasonDialog(profileName, keyDay, pendiente);
+
+    return true;
 }
 
 /**

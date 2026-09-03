@@ -16,6 +16,7 @@ import { getCachedHolidays } from "./holidays.js";
 import { cambioEstaAnulado } from "./swaps.js";
 import { getReplacementTurnForWorker } from "./replacements.js";
 import {
+    getTurnoExtraAgregado,
     restarTurnoCubierto,
     turnoExtraCubreTurno
 } from "./rulesEngine.js";
@@ -928,6 +929,42 @@ function freeDayAllowedTurns(isHab) {
         ];
 }
 
+// La parte DIURNA de un turno (Diurno, Larga, la mitad de un D+N o de un 24h).
+// Se saca quitandole la noche: lo que queda es lo que ocupa el dia.
+function parteDiurna(turno) {
+    return restarTurnoCubierto(turno, TURNO.NOCHE);
+}
+
+/**
+ * Desde que turno se suma el elegido.
+ *
+ * Casi siempre es el turno que ya tiene el dia, y la suma manda: un Diurno sobre
+ * una Noche deja D+N. La excepcion son DOS turnos diurnos: Diurno y Larga
+ * ocupan el mismo hueco del dia, asi que no se suman, se reemplazan. Y solo se
+ * reemplaza lo puesto A MANO: si la Larga viene de la rotativa del trabajador,
+ * el turno base no se toca desde el calendario -eso es lo que protege la
+ * edicion directa- y el boton simplemente no hara nada.
+ *
+ * Ejemplos:
+ *   base Libre + Larga a mano, se aprieta Diurno -> parte de Libre  -> Diurno
+ *   base Noche + Diurno a mano, se aprieta Larga -> parte de Noche  -> 24h
+ *   base Libre + Larga a mano, se aprieta Noche  -> parte de Larga  -> 24h
+ *   base Diurno (rotativa),    se aprieta Larga  -> parte de Diurno -> Larga
+ */
+function addTurnStartingPoint(baseTurno, actual, elegido) {
+    const estado = Number(actual) || TURNO.LIBRE;
+
+    if (!parteDiurna(elegido)) return estado;
+
+    const extraDiurnoManual = parteDiurna(
+        getTurnoExtraAgregado(baseTurno, estado)
+    );
+
+    if (!extraDiurnoManual) return estado;
+
+    return restarTurnoCubierto(estado, extraDiurnoManual);
+}
+
 /**
  * Turno que queda al AGREGAR uno elegido sobre lo que el dia ya tiene.
  *
@@ -963,7 +1000,10 @@ export function getAddTurnResult(
     const protectedBaseTurn = replacementTurn
         ? fusionarTurnos(effectiveBaseTurn, replacementTurn)
         : effectiveBaseTurn;
-    const nextVisibleTurn = fusionarTurnos(actual, elegido);
+    const nextVisibleTurn = fusionarTurnos(
+        addTurnStartingPoint(protectedBaseTurn, actual, elegido),
+        elegido
+    );
     const allowedTurns =
         allowedTurnsForBase(protectedBaseTurn, isHab) ||
         freeDayAllowedTurns(isHab);

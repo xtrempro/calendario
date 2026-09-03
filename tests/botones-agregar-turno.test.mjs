@@ -199,3 +199,278 @@ test("guardar el turno pasa por el mismo sitio que la edicion directa", () => {
     assert.match(calendar, /commitCalendarTurnChange\(\{[\s\S]{0,400}historyLabel: `Edicion directa/);
     assert.match(calendar, /commitCalendarTurnChange\(\{[\s\S]{0,400}historyLabel: `Turno agregado/);
 });
+
+/* ───────── Un turno manual reemplaza a otro turno manual ───────── */
+
+test("Diurno reemplaza a una Larga puesta a mano", () => {
+    // Diurno y Larga ocupan el mismo hueco del dia: no se suman, se reemplazan.
+    const r = poner(TURNO.DIURNO, { actual: TURNO.LARGA, base: TURNO.LIBRE });
+
+    assert.equal(r.allowed, true);
+    assert.equal(r.nextVisibleTurn, TURNO.DIURNO);
+});
+
+test("Larga reemplaza a un Diurno puesto a mano", () => {
+    const r = poner(TURNO.LARGA, { actual: TURNO.DIURNO, base: TURNO.LIBRE });
+
+    assert.equal(r.allowed, true);
+    assert.equal(r.nextVisibleTurn, TURNO.LARGA);
+});
+
+test("sobre una Larga de la ROTATIVA, el Diurno no hace nada", () => {
+    // El turno base no se toca desde el calendario: es lo que protege tambien
+    // la edicion directa.
+    const r = poner(TURNO.DIURNO, { actual: TURNO.LARGA, base: TURNO.LARGA });
+
+    assert.equal(r.allowed, false);
+});
+
+test("el reemplazo respeta el turno base y solo cambia lo manual", () => {
+    // Dia de Noche por rotativa con un Diurno agregado a mano (D+N): al apretar
+    // Larga se reemplaza SOLO el Diurno, la Noche de la rotativa se queda.
+    const r = poner(TURNO.LARGA, {
+        actual: TURNO.DIURNO_NOCHE,
+        base: TURNO.NOCHE
+    });
+
+    assert.equal(r.allowed, true);
+    assert.equal(r.nextVisibleTurn, TURNO.TURNO24);
+});
+
+test("la Noche sigue sumandose a una Larga manual en vez de reemplazarla", () => {
+    // Noche y Larga NO ocupan el mismo hueco: ahi la suma sigue mandando.
+    const r = poner(TURNO.NOCHE, { actual: TURNO.LARGA, base: TURNO.LIBRE });
+
+    assert.equal(r.allowed, true);
+    assert.equal(r.nextVisibleTurn, TURNO.TURNO24);
+});
+
+/* ───────── Quitar el turno extra desde la casilla ───────── */
+
+test("con el switch de Editar apagado, la casilla ofrece quitar el turno extra", () => {
+    // Ese click no hacia nada: era el hueco natural para el atajo. Con el switch
+    // encendido se sigue ciclando como siempre.
+    assert.match(
+        calendar,
+        /if \(!directEditEnabled\) \{[\s\S]{0,420}await offerManualExtraRemoval\(profileName, keyDay, options\);\s*\n\s*return;/
+    );
+});
+
+test("solo se ofrece si el dia tiene algo puesto a mano", () => {
+    assert.match(calendar, /function manualExtraForDay\(profileName, keyDay\)/);
+    assert.match(calendar, /extra: getTurnoExtraAgregado\(effectiveBaseTurn, actual\)/);
+    assert.match(
+        calendar,
+        /manualExtraForDay\(profileName, keyDay\);\s*\n\s*\n\s*if \(!extra\) return false;/
+    );
+});
+
+test("quitar el extra devuelve la casilla a su turno base", () => {
+    // Es lo mismo a lo que se llegaba dando vueltas al ciclo: el turno de la
+    // rotativa, sin lo agregado a mano.
+    assert.match(
+        calendar,
+        /nextTurn: effectiveBaseTurn,\s*\n\s*turnToStore: effectiveBaseTurn,/
+    );
+    // Y pasa por la misma cola de guardado que todo lo demas.
+    assert.match(
+        calendar,
+        /offerManualExtraRemoval\([\s\S]{0,1400}commitCalendarTurnChange\(\{/
+    );
+    assert.match(calendar, /historyLabel: `Turno extra quitado en \$\{keyDay\}`/);
+});
+
+test("el cuadro dice que se quita y pide confirmacion", () => {
+    assert.match(calendar, /title: "Quitar turno extra"/);
+    assert.match(calendar, /confirmText: "Quitar turno extra"/);
+    assert.match(calendar, /if \(!confirmado\) return false;/);
+});
+
+/* ───────── El motivo se pide al momento de agregar el turno ───────── */
+
+test("al agregar un turno se abre el modal de respaldo", () => {
+    // Si el motivo se deja para despues hay que ir a buscar la casilla con el
+    // "?" y casi nunca se completa.
+    assert.match(
+        main,
+        /clearSelectionMode\(\);[\s\S]{0,700}await openManualExtraReasonForDay\(profile, keyDay\);/
+    );
+    // Se abre DESPUES de apagar el modo: el modal no sale mientras haya una
+    // seleccion activa (openExtraReasonDialog corta con window.selectionMode).
+    assert.match(calendar, /if \(\(!pendingTurn && !options\.forceClock\) \|\| window\.selectionMode\)/);
+});
+
+test("el modal solo se abre si quedo un extra pendiente de respaldo", () => {
+    assert.match(calendar, /export async function openManualExtraReasonForDay\(/);
+    assert.match(
+        calendar,
+        /openManualExtraReasonForDay\([\s\S]{0,400}getPendingManualExtraTurn\([\s\S]{0,200}if \(!pendiente\) return false;/
+    );
+});
+
+/* ───────── Quitar el extra tambien desde el modal ───────── */
+
+test("el modal de respaldo trae el boton de quitar el turno extra", () => {
+    assert.match(calendar, /data-action="remove-extra"/);
+    // Solo cuando hay un turno extra agregado: sin el, no hay nada que quitar.
+    assert.match(
+        calendar,
+        /\$\{hasManualSection \? `\s*\n\s*<button class="danger-button" type="button" data-action="remove-extra">/
+    );
+});
+
+test("los dos caminos de quitar el extra usan la misma funcion", () => {
+    assert.match(calendar, /function removeManualExtraTurn\(profileName, keyDay, options = \{\}\)/);
+    // El cuadro que sale al hacer click en la casilla.
+    assert.match(
+        calendar,
+        /if \(!confirmado\) return false;\s*\n\s*\n\s*return removeManualExtraTurn\(profileName, keyDay, options\);/
+    );
+    // Y el boton del modal.
+    assert.match(
+        calendar,
+        /removeExtraButton\.onclick = async \(\) => \{[\s\S]{0,900}removeManualExtraTurn\(profileName, keyDay\);/
+    );
+});
+
+test("quitar desde el modal cierra, pide confirmacion y se puede deshacer", () => {
+    assert.match(
+        calendar,
+        /removeExtraButton\.onclick = async \(\) => \{[\s\S]{0,600}if \(!confirmado\) return;\s*\n\s*\n\s*close\(\);/
+    );
+    assert.match(
+        calendar,
+        /removeExtraButton\.onclick = async \(\) => \{[\s\S]{0,900}window\.pushUndoState\("Quitar turno extra"\)/
+    );
+});
+
+// El cuerpo de openExtraReasonDialog, para poder exigir que algo viva DENTRO de
+// ese modal y no en cualquier parte del archivo.
+const SALTO = String.fromCharCode(10);
+
+function cuerpoDelModalDeRespaldo() {
+    const inicio = calendar.indexOf("async function openExtraReasonDialog(");
+
+    assert.notEqual(inicio, -1, "no se encontro openExtraReasonDialog");
+
+    const siguiente = calendar.indexOf(SALTO + "async function ", inicio + 1);
+    const otra = calendar.indexOf(SALTO + "function ", inicio + 1);
+    const fin = Math.min(
+        siguiente === -1 ? calendar.length : siguiente,
+        otra === -1 ? calendar.length : otra
+    );
+
+    return calendar.slice(inicio, fin);
+}
+
+test("el boton de quitar esta cableado DENTRO del modal de respaldo", () => {
+    // Este es el error que hubo: el cableado cayo en el primer
+    // "[data-action='cancel']" del archivo -el cuadro de reemplazos- y el boton
+    // del modal quedo sin manejador, asi que al pulsarlo no pasaba nada.
+    const modal = cuerpoDelModalDeRespaldo();
+
+    assert.match(modal, /\[data-action='remove-extra'\]/);
+    assert.match(modal, /removeManualExtraTurn\(profileName, keyDay\)/);
+
+    // Y en ningun otro cuadro del archivo.
+    const fuera = calendar.split(modal).join("");
+
+    assert.doesNotMatch(fuera, /data-action='remove-extra'/);
+});
+
+test("quitar el turno extra cierra el modal", () => {
+    // Dejarlo abierto pidiendo el motivo de un turno que acaba de irse fue justo
+    // lo que se vio en pantalla.
+    assert.match(
+        cuerpoDelModalDeRespaldo(),
+        /if \(!confirmado\) return;[\s\S]{0,20}close\(\);/
+    );
+});
+
+test("cerrar sin motivo deja el dia pidiendolo", () => {
+    assert.match(calendar, /Sin motivo a&uacute;n/);
+    // Se repinta la casilla al salir: el modal pudo abrirse recien puesto el
+    // turno, antes de que el calendario mostrara el "?".
+    assert.match(
+        cuerpoDelModalDeRespaldo(),
+        /data-action='cancel'[\s\S]{0,80}close\(\);[\s\S]{0,40}void updateDayCell\(profileName, dateFromKeyDay\(keyDay\)\);/
+    );
+});
+
+/* ───────── Respaldos que ya estaban puestos ───────── */
+
+test("agregar otro tramo no borra el motivo del que ya estaba", () => {
+    // Era el sintoma: con un Diurno ya respaldado, agregar la Noche (Diurno ->
+    // D+N) anulaba TODOS los respaldos del dia y el modal volvia a pedir el
+    // motivo del Diurno en blanco.
+    assert.match(
+        calendar,
+        /function cancelManualExtraBackupsForTurnChange\([\s\S]{0,1200}turnoExtraCubreTurno\(\s*\n\s*nextTurn,/
+    );
+    assert.match(
+        calendar,
+        /turnoExtraCubreTurno\([\s\S]{0,120}codeToTurno\(replacement.turno\)[\s\S]{0,40}return replacement;/
+    );
+});
+
+/* ───────── "Sin motivo aun" por tramo ───────── */
+
+test("cada tramo tiene su propio Sin motivo aun", () => {
+    assert.match(calendar, /data-skip-section="\${escapeHTML\(section.id\)}"/);
+    assert.match(calendar, /const skippedSections = new Set\(\);/);
+});
+
+test("un tramo apartado no bloquea el guardado del otro", () => {
+    assert.match(
+        calendar,
+        /const missingManualBackup = manualBackups.find\(backup =>[\s\S]{0,220}!skippedSections.has\(backup.section.id\)/
+    );
+});
+
+test("solo se guarda el tramo que si tiene respaldo", () => {
+    // Sin este filtro, el tramo apartado se guardaria con motivo vacio y el dia
+    // dejaria de pedirlo.
+    assert.match(
+        calendar,
+        /manualBackups\s*\n\s*.filter\(backup => backup.selectedMatch \|\| backup.reason\)/
+    );
+});
+
+/* ───────── Detalle de un dia con DOS turnos extra ───────── */
+
+test("el detalle muestra TODOS los turnos asignados del dia", () => {
+    // Un D+N con su Diurno y su Noche respaldados por separado son dos
+    // registros. Antes se abria solo el primero -[0] de la lista- y el segundo
+    // no habia forma de verlo ni de anularlo desde el calendario.
+    assert.match(
+        calendar,
+        /const records = replacementId[\s\S]{0,320}: getReplacementsForWorkerShift\(profileName, keyDay\);/
+    );
+    assert.match(calendar, /const multiple = records.length > 1;/);
+});
+
+test("cada turno del dia trae su propio Anular reemplazo", () => {
+    assert.match(calendar, /data-replacement-id="\${escapeHTML\(String\(replacement.id \|\| ""\)\)}"/);
+    // El manejador se ata por registro, no uno global.
+    assert.match(
+        calendar,
+        /querySelectorAll\("\[data-action='undo'\]"\)[\s\S]{0,200}const replacement = records.find\(record =>/
+    );
+});
+
+test("con un solo turno el cuadro se ve igual que siempre", () => {
+    // El boton de anular sigue en el pie cuando hay uno solo.
+    assert.match(calendar, /\${canEdit && !multiple \? `/);
+    assert.match(
+        calendar,
+        /: replacementDetailRowsHTML\(records\[0\], profileName\)/
+    );
+});
+
+test("tras anular uno, el detalle se reabre con los que quedan", () => {
+    // Si no, habria que volver a buscar la casilla para anular el segundo.
+    assert.match(
+        calendar,
+        /if \([\s\S]{0,120}multiple &&[\s\S]{0,120}getReplacementsForWorkerShift\(profileName, keyDay\).length[\s\S]{0,80}openReplacementDetailDialog\(profileName, keyDay\);/
+    );
+});
