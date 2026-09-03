@@ -880,7 +880,11 @@ test("si anoche hubo Noche, la salida temprana NO es una incidencia", () => {
 
     const dia = getAttendanceCells("1-9", "2026-08-10", {
         ...larga,
-        previousEndsNextMorning: true
+        previousEndsNextMorning: true,
+        // Una Larga empieza por la manana, y eso es lo que decide si la
+        // etiqueta manda: con turno de manana, una "entrada" a las 08:02 es la
+        // llegada de hoy y solo la "salida" se va con la noche de anoche.
+        startsInTheMorning: true
     });
 
     assert.equal(dia.entrada, "08:02");

@@ -555,6 +555,35 @@ function morningClosing(marks, { labelMatters }) {
 }
 
 /**
+ * Todas las marcas del momento en que se cerro el turno de anoche.
+ *
+ * No basta con la primera. Quien aprieta dos veces al salir -o aprieta el boton
+ * equivocado y corrige en el acto- deja DOS marcas de una sola salida, y
+ * llevarse solo una dejaba la otra suelta en el dia siguiente: si ese dia era
+ * libre, aparecia como "marcaje en dia libre", como si hubiera venido a
+ * trabajar. Son el mismo momento y van juntas a la fila de la noche, donde se
+ * cuentan en el ⋯ y se nombran en el hover.
+ *
+ * Con turno por la manana solo se lleva las SALIDAS: ahi la etiqueta es lo
+ * unico que separa el cierre de anoche de la llegada de hoy, y las dos caen
+ * dentro del mismo momento -la noche termina a las 8 y la manana empieza a las
+ * 8-. Sin turno de manana no hay llegada posible y el momento entero es el
+ * cierre, diga lo que diga cada boton.
+ */
+function morningClosingEvent(marks, { labelMatters }) {
+    const closing = morningClosing(marks, { labelMatters });
+
+    if (!closing) return [];
+
+    const evento = groupMarkEvents(marks)
+        .find(grupo => grupo.includes(closing)) || [closing];
+
+    return labelMatters
+        ? evento.filter(mark => mark.type === "out")
+        : evento;
+}
+
+/**
  * Marcas que pertenecen al turno que empieza en `iso`, en orden.
  *
  * Un turno no cabe siempre dentro de su fecha: el que lleva noche se cierra a
@@ -568,26 +597,32 @@ function shiftMarksFor(rut, iso, options) {
         nextStartsInTheMorning
     } = options;
     const own = ownMarksFor(rut, iso);
-    // La marca con que cerro el turno de anoche se muestra en SU fila; dejarla
-    // aqui tambien la contaria dos veces.
+    // Las marcas con que cerro el turno de anoche se muestran en SU fila;
+    // dejarlas aqui tambien las contaria dos veces.
     const previous = previousEndsNextMorning
-        ? morningClosing(own, { labelMatters: startsInTheMorning })
-        : null;
-    const marks = previous ? own.filter(mark => mark !== previous) : own;
-    const previousClosed = Boolean(previous);
+        ? morningClosingEvent(own, { labelMatters: startsInTheMorning })
+        : [];
+    const marks = previous.length
+        ? own.filter(mark => !previous.includes(mark))
+        : own;
+    const previousClosed = previous.length > 0;
 
     if (!endsNextMorning) return { marks, previousClosed };
 
     const nextIso = shiftIsoDay(iso, 1);
-    const cierre = morningClosing(ownMarksFor(rut, nextIso), {
+    const cierre = morningClosingEvent(ownMarksFor(rut, nextIso), {
         labelMatters: nextStartsInTheMorning
     });
 
-    // Va al final y NO se reordena: es del dia siguiente, asi que cronologica-
-    // mente cierra la lista aunque su hora sea menor que las de la tarde.
+    // Van al final y NO se reordenan: son del dia siguiente, asi que
+    // cronologicamente cierran la lista aunque su hora sea menor que las de la
+    // tarde. La primera es la salida; las demas son el mismo momento y quedan
+    // para el ⋯ y el hover.
     return {
         previousClosed,
-        marks: cierre ? [...marks, { ...cierre, iso: nextIso }] : marks
+        marks: cierre.length
+            ? [...marks, ...cierre.map(mark => ({ ...mark, iso: nextIso }))]
+            : marks
     };
 }
 

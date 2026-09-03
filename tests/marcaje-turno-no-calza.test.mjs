@@ -686,6 +686,111 @@ test("una Noche con marcas por dentro SIGUE siendo incidencia", async () => {
 });
 
 /* =========================================================
+   Marcar dos veces al salir de una noche
+
+   Quinto caso real, del 11/08: un dia LIBRE que aparecia como "marcaje en dia
+   libre". Lo que habia pasado es que al salir de la noche del 10 apreto dos
+   veces a las 08:06. La fila de la noche se llevaba UNA de las dos y la gemela
+   quedaba suelta en el dia siguiente, donde se leia como si hubiera venido a
+   trabajar en su dia libre.
+
+   Son el mismo momento y van juntas a la fila de la noche.
+========================================================= */
+
+const MARCAS_DOBLE_SALIDA = {
+    [iso(10)]: [{ time: "20:04", type: "in" }],
+    [iso(11)]: [
+        { time: "08:06", type: "out" },
+        { time: "08:06", type: "in" }
+    ],
+    [iso(12)]: [
+        { time: "08:00", type: "in" },
+        { time: "20:03", type: "out" }
+    ]
+};
+
+test("apretar dos veces al salir no es marcaje en dia libre", async () => {
+    sembrar(
+        { [dia(10)]: TURNO.NOCHE, [dia(11)]: 0, [dia(12)]: TURNO.LARGA },
+        MARCAS_DOBLE_SALIDA
+    );
+
+    const delDia = await incidenciasDe(11);
+
+    assert.deepEqual(tipos(delDia), [], "el 11 es libre y no vino a trabajar");
+});
+
+test("las dos van a la fila de la noche, agrupadas en el ⋯", async () => {
+    sembrar(
+        { [dia(10)]: TURNO.NOCHE, [dia(11)]: 0, [dia(12)]: TURNO.LARGA },
+        MARCAS_DOBLE_SALIDA
+    );
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(10));
+    const noche = filas.find(item => item.iso === iso(10));
+    const libre = filas.find(item => item.iso === iso(11));
+
+    // El ⋯ va siempre en la entrada, que es donde empieza a leerse la fila; el
+    // hover de las dos celdas nombra las tres marcas.
+    assert.equal(noche.entrada, `20:04${NBSP}⋯1`);
+    assert.equal(noche.salida, `08:06${NBSP}*`);
+    // Y el dia libre queda con su guion, sin marcas propias.
+    assert.equal(libre.entrada, "-");
+    assert.equal(libre.salida, "-");
+});
+
+test("la noche tampoco se queda con la llegada del dia siguiente", async () => {
+    // El limite: si al dia siguiente SI empieza turno de manana, una entrada
+    // temprana es su llegada y no el cierre de la noche, aunque caigan dentro
+    // del mismo momento -la noche termina a las 8 y la manana empieza a las 8-.
+    // Ahi la etiqueta es lo unico que las distingue.
+    sembrar(
+        { [dia(10)]: TURNO.NOCHE, [dia(11)]: TURNO.LARGA },
+        {
+            [iso(10)]: [{ time: "20:04", type: "in" }],
+            [iso(11)]: [
+                { time: "08:06", type: "out" },
+                { time: "08:09", type: "in" },
+                { time: "20:03", type: "out" }
+            ]
+        }
+    );
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(11));
+    const larga = filas.find(item => item.iso === iso(11));
+
+    assert.equal(larga.entrada, "08:09");
+    assert.equal(larga.salida, "20:03");
+});
+
+test("y una marca de OTRO momento en el dia libre si se reporta", async () => {
+    // Lo que se agrupa es el mismo momento. Venir a las 14:00 en un dia libre
+    // sigue siendo lo que era.
+    sembrar(
+        { [dia(10)]: TURNO.NOCHE, [dia(11)]: 0 },
+        {
+            [iso(10)]: [{ time: "20:04", type: "in" }],
+            [iso(11)]: [
+                { time: "08:06", type: "out" },
+                { time: "08:06", type: "in" },
+                { time: "14:00", type: "in" }
+            ],
+            [iso(12)]: [{ time: "08:00", type: "in" }]
+        }
+    );
+
+    const delDia = await incidenciasDe(11);
+
+    assert.ok(delDia.some(evento => evento.kind === "markOnFreeDay"));
+    assert.match(
+        delDia.find(evento => evento.kind === "markOnFreeDay").detail,
+        /14:00/
+    );
+});
+
+/* =========================================================
    El motor, suelto
 ========================================================= */
 
