@@ -2544,6 +2544,18 @@ function weeklyProfileMatchesFilters(
     return roleMatches && professionMatches;
 }
 
+/**
+ * .Este estamento pasa los chips de estamento?
+ *
+ * Lo mismo que weeklyProfileMatchesFilters hace con un perfil, pero con un
+ * estamento suelto: una carencia de rotativa no tiene ficha ni profesion.
+ */
+function weeklyRoleFilterAllows(estamento, roleFilter = "Todos") {
+    const roles = weeklyTokens(roleFilter, "Todos");
+
+    return !roles.length || roles.includes(estamento);
+}
+
 function weeklyAvailableProfessions(roleFilter) {
     return [...new Set(
         getProfiles()
@@ -3159,16 +3171,31 @@ function renderStaffingWeeklyCell(
     isToday = false,
     onlyTrouble = false
 ) {
-    const people = weeklyShiftProfiles(
+    // La dotacion COMPLETA del turno, sin chips. Los filtros esconden gente,
+    // no la sacan del turno: contar la carencia sobre la lista filtrada
+    // inventaba huecos -al dejar solo Profesional, los tecnicos del turno
+    // pasaban a valer cero y el grupo aparecia corto de tres.
+    const roster = weeklyShiftProfiles(
         date,
         shift.key,
         absenceCache,
-        roleFilter,
-        professionFilter
+        "Todos",
+        "Todas"
+    );
+    const people = roster.filter(item =>
+        weeklyProfileMatchesFilters(
+            item.profile,
+            roleFilter,
+            professionFilter
+        )
     );
     // Carencias del grupo que entra hoy, solo en los turnos que trabaja.
-    const cellGroup = shift.key === "diurno" ? "" : weeklyCellGroup(people);
-    const rotaGaps = weeklyRotaGapsForCell(cellGroup, people);
+    const cellGroup = shift.key === "diurno" ? "" : weeklyCellGroup(roster);
+    // Se cuentan sobre el turno entero, pero solo se muestran las del
+    // estamento que se esta mirando: con el chip de Profesional puesto, lo
+    // que le falte al de tecnicos es ruido de otra columna.
+    const rotaGaps = weeklyRotaGapsForCell(cellGroup, roster)
+        .filter(gap => weeklyRoleFilterAllows(gap.estamento, roleFilter));
     const rotaMissing = rotaGaps.reduce(
         (total, gap) => total + gap.missing,
         0
@@ -3234,7 +3261,7 @@ function renderStaffingWeeklyCell(
             }
             <div class="staffing-weekly-people">
                 ${rotaGaps.map(gap =>
-                    weeklyRotaGapHTML(gap, cellGroup, date, shift, people)
+                    weeklyRotaGapHTML(gap, cellGroup, date, shift, roster)
                 ).join("")}
                 ${
                     shownPeople.length

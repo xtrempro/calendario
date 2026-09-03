@@ -206,7 +206,105 @@ test("solo en los turnos que ese grupo trabaja", () => {
     // El diurno no pertenece a ningun grupo del 4to turno.
     assert.match(
         staffing,
-        /const cellGroup = shift\.key === "diurno" \? "" : weeklyCellGroup\(people\)/
+        /const cellGroup = shift\.key === "diurno" \? "" : weeklyCellGroup\(roster\)/
+    );
+});
+
+/* ======================================================================
+   Los chips de estamento no inventan carencias
+   ====================================================================== */
+
+/** El cuerpo de una funcion en una sola linea, para leerlo de corrido. */
+const seguido = name => grab(staffing, name).replace(/\s+/g, " ");
+
+const weeklyRotaGapsForCell = new Function(
+    "getShiftGroupGaps",
+    "currentDate",
+    "normalizeStaffingEstamento",
+    `${grab(staffing, "weeklyRotaGapsForCell")}\nreturn weeklyRotaGapsForCell;`
+)(
+    // Al grupo C le faltaria un tecnico si entrara con menos de tres.
+    () => new Map([["C", [{ estamento: "Técnico", reference: 3 }]]]),
+    new Date(2026, 8, 1),
+    value => String(value || "").trim()
+);
+
+const turnoCompleto = [
+    ...Array.from({ length: 6 }, () => ({
+        type: "profile",
+        group: "C",
+        profile: { estamento: "Profesional" }
+    })),
+    ...Array.from({ length: 3 }, () => ({
+        type: "profile",
+        group: "C",
+        profile: { estamento: "Técnico" }
+    }))
+];
+
+test("el turno completo no tiene carencia", () => {
+    assert.deepEqual(weeklyRotaGapsForCell("C", turnoCompleto), []);
+});
+
+test("mirar solo un estamento NO deja al turno corto de los otros", () => {
+    // El chip esconde gente, no la saca del turno. Contando sobre la lista ya
+    // filtrada, los tres tecnicos del turno valian cero y el mismo turno de
+    // arriba aparecia con tres casillas de "Falta 1 Técnico".
+    const soloProfesionales = turnoCompleto.filter(item =>
+        item.profile.estamento === "Profesional"
+    );
+
+    assert.equal(weeklyRotaGapsForCell("C", soloProfesionales).length, 1);
+    assert.equal(weeklyRotaGapsForCell("C", soloProfesionales)[0].missing, 3);
+    // Por eso la celda cuenta sobre la dotacion entera y no sobre lo visible.
+    assert.match(
+        seguido("renderStaffingWeeklyCell"),
+        /const roster = weeklyShiftProfiles\( date, shift\.key, absenceCache, "Todos", "Todas" \);/
+    );
+    assert.match(
+        grab(staffing, "renderStaffingWeeklyCell"),
+        /weeklyRotaGapsForCell\(cellGroup, roster\)/
+    );
+});
+
+test("lo que se ve sigue siendo lo filtrado", () => {
+    // La dotacion entera es para contar; las tarjetas siguen saliendo del
+    // filtro, que es para lo que el supervisor lo prendio.
+    assert.match(
+        seguido("renderStaffingWeeklyCell"),
+        /const people = roster\.filter\(item => weeklyProfileMatchesFilters\( item\.profile, roleFilter, professionFilter \) \);/
+    );
+});
+
+const weeklyRoleFilterAllows = new Function(`
+    ${grab(staffing, "weeklyTokens")}
+    ${grab(staffing, "weeklyRoleFilterAllows")}
+    return weeklyRoleFilterAllows;
+`)();
+
+test("una carencia real solo se muestra en su propio estamento", () => {
+    // Sin chips, todo; con el de Profesional puesto, lo que le falte al de
+    // tecnicos es ruido de otra columna.
+    assert.equal(weeklyRoleFilterAllows("Técnico", "Todos"), true);
+    assert.equal(weeklyRoleFilterAllows("Técnico", "Técnico"), true);
+    assert.equal(weeklyRoleFilterAllows("Técnico", "Profesional"), false);
+    // Los chips son combinables.
+    assert.equal(
+        weeklyRoleFilterAllows("Técnico", "Profesional,Técnico"),
+        true
+    );
+    assert.match(
+        grab(staffing, "renderStaffingWeeklyCell"),
+        /\.filter\(gap => weeklyRoleFilterAllows\(gap\.estamento, roleFilter\)\)/
+    );
+});
+
+test("el inicio pide la dotacion entera, como siempre", () => {
+    // getRotaGapShifts ya contaba sobre el turno completo: es de ahi que la
+    // celda se habia desviado.
+    assert.match(
+        seguido("getRotaGapShifts"),
+        /absenceCache, "Todos", "Todas"/
     );
 });
 
