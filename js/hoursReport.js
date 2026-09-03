@@ -1013,7 +1013,20 @@ function attendanceDayFacts(profile, iso, day) {
         startsInTheMorning: shiftStartsInTheMorning(day.workedShift),
         nextStartsInTheMorning: shiftStartsInTheMorning(day.nextWorkedShift),
         splitSegments: shiftHasSeparateSegments(day.workedShift),
-        canSplitOnMarks: shiftHasTwoParts(day.workedShift),
+        // .Tiene este dia mas de un tramo de trabajo seguido?
+        //
+        // Lo es por composicion -un 24 es Larga + Noche, un 18 horas es
+        // Extension + Noche- y tambien cuando el supervisor le corrio la hora
+        // con el boton de marcajes. Una Noche a la que se le autorizo entrar a
+        // las 12:00 son ocho horas de extension pegadas a la noche: el
+        // trabajador no se va en el medio, pero el momento en que pasa de una
+        // a la otra existe y lo puede marcar.
+        //
+        // En los tres casos vale lo mismo: si marco ese traspaso, la fila lo
+        // muestra en sus dos lineas, y si no, no falta nada. Marcarlo no es una
+        // anomalia (ver handoverInside en getAttendanceCells).
+        canSplitOnMarks: shiftHasTwoParts(day.workedShift) ||
+            day.entryMoved || day.exitMoved,
         entryMoved: day.entryMoved,
         nextEntryMoved: day.nextEntryMoved,
         workedShift: day.workedShift,

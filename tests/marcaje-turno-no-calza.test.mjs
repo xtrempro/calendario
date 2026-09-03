@@ -611,6 +611,69 @@ test("pero la marca se sigue viendo: la celda la cuenta y el hover la nombra", a
     assert.match(fila.entrada, /⋯1/, "la celda avisa que esconde una marca");
 });
 
+/* =========================================================
+   La extension horaria pegada al turno
+
+   Cuarto caso real, del 21/08: turno de Noche con una extension aplicada sobre
+   la MARCACION -no como turno extra-. Le tocaba llegar a las 12:00 y seguir de
+   largo con su noche, y marco el traspaso de las 20:00.
+
+   Son ocho horas de extension pegadas a una noche: exactamente la misma forma
+   que un 24, aunque el turno siga diciendo Noche. La fila lo mostraba en una
+   sola linea -11:58 ⋯2- y contaba las 20:00 como marca sin justificar.
+========================================================= */
+
+// La extension se aplica autorizando la hora de entrada del tramo.
+function conExtension(nombreSegmento, hora, keyDay) {
+    set(`clockMarks_${NOMBRE}`, {
+        [keyDay]: { segments: { [nombreSegmento]: { entryTime: hora } } }
+    });
+}
+
+const MARCAS_CON_EXTENSION = {
+    [iso(21)]: [
+        { time: "11:58", type: "in" },
+        { time: "20:00", type: "out" },
+        { time: "20:00", type: "in" }
+    ],
+    [iso(22)]: [{ time: "08:05", type: "out" }]
+};
+
+test("una Noche con extension se lee como un 24, en dos lineas", async () => {
+    sembrar({ [dia(21)]: TURNO.NOCHE }, MARCAS_CON_EXTENSION);
+    conExtension("noche", "12:00", dia(21));
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(21));
+    const fila = filas.find(item => item.iso === iso(21));
+
+    // Una entrada sobre la otra y una salida sobre la otra, igual que un 24
+    // con el traspaso marcado.
+    assert.equal(fila.entrada, "11:58\n20:00");
+    assert.equal(fila.salida, `20:00\n08:05${NBSP}*`);
+    // Y ya no esconde nada: las cuatro marcas estan a la vista.
+    assert.doesNotMatch(fila.entrada, /⋯/);
+});
+
+test("y el traspaso de las 20:00 deja de ser una incidencia", async () => {
+    sembrar({ [dia(21)]: TURNO.NOCHE }, MARCAS_CON_EXTENSION);
+    conExtension("noche", "12:00", dia(21));
+
+    assert.deepEqual(await incidenciasDe(21), []);
+});
+
+test("sin la extension, esas mismas marcas SI son una incidencia", async () => {
+    // Es el punto: lo que cambia el caso es que el supervisor haya registrado
+    // la extension. Sin ella, una Noche que marca a las 11:58 es un turno que
+    // nadie anoto, que es el caso del 26/08.
+    sembrar({ [dia(21)]: TURNO.NOCHE }, MARCAS_CON_EXTENSION);
+
+    const delDia = await incidenciasDe(21);
+
+    assert.ok(delDia.some(evento => evento.kind === "unexplainedMarks"));
+    assert.ok(delDia.some(evento => evento.kind === "earlyEntry"));
+});
+
 test("una Noche con marcas por dentro SIGUE siendo incidencia", async () => {
     // La excepcion es solo para los turnos continuos de dos tramos. Una Noche
     // es de uno solo: no tiene traspaso que marcar, y una marca a las 20:00
