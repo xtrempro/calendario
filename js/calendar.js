@@ -4,11 +4,19 @@ import {
     LEAVE_ATTACHMENT_ACCEPT,
     addLeaveAttachment,
     getLeaveAttachments,
-    hasLeaveAttachments,
     leaveTypeNeedsDocument,
     openLeaveAttachment,
     removeLeaveAttachment
 } from "./leaveAttachments.js";
+import {
+    MEMO_ATTACHMENT_ACCEPT,
+    addMemoDocument,
+    findClockMemoForDay,
+    findLeaveMemoForDay,
+    getMemoDocuments,
+    openMemoDocument,
+    removeMemoDocument
+} from "./memos.js";
 import {
     aplicarCambiosTurno,
     fusionarTurnos,
@@ -259,6 +267,7 @@ import {
 import { runCooperativeRange } from "./mainThreadScheduler.js";
 import {
     canEditTarget,
+    canViewTarget,
     ensureCanEditTarget
 } from "./workspacePermissions.js";
 import { searchReplacementsInWorker } from "./workerService.js";
@@ -3874,58 +3883,79 @@ function leaveDateLabelFromKey(keyDay) {
 }
 
 /* =========================================================
-   Respaldos de una licencia medica
+   Documentos de respaldo de una casilla
 
    Un mismo cuadro sirve para adjuntar y para ver, porque son la misma pantalla
    en dos momentos distintos: si no hay documentos muestra el selector, y si los
    hay muestra la lista con la opcion de agregar otro.
+
+   Lo usan dos origenes con el mismo aspecto: el respaldo de una licencia medica
+   (que vive en leaveAttachments, atado al registro del LOG) y el documento de un
+   memorandum (que vive en el propio memorandum y por eso se ve tambien desde el
+   menu MEMOS). La diferencia queda en las funciones que se le pasan; el cuadro
+   no sabe de cual de los dos se trata.
 ========================================================= */
 
-function leaveAttachmentRowHTML(attachment) {
-    const size = Number(attachment.size) || 0;
-    const peso = size >= 1024 * 1024
-        ? `${(size / (1024 * 1024)).toFixed(1)} MB`
-        : `${Math.max(Math.round(size / 1024), 1)} KB`;
+function attachmentSizeLabel(size) {
+    const bytes = Number(size) || 0;
 
+    return bytes >= 1024 * 1024
+        ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.max(Math.round(bytes / 1024), 1)} KB`;
+}
+
+function leaveAttachmentRowHTML(attachment) {
     return `
         <div class="leave-doc-row">
             <button class="leave-doc-open" type="button"
                 data-open-leave-doc="${escapeHTML(String(attachment.id))}">
                 <span>
                     <strong>${escapeHTML(attachment.name || "Documento")}</strong>
-                    <small>${escapeHTML(peso)}</small>
+                    <small>${escapeHTML(attachmentSizeLabel(attachment.size))}</small>
                 </span>
             </button>
             <button class="leave-doc-remove" type="button"
                 data-remove-leave-doc="${escapeHTML(String(attachment.id))}"
-                aria-label="Quitar documento">&times;</button>
+                aria-label="Eliminar documento">&times;</button>
         </div>`;
 }
 
 /**
- * Cuadro de respaldos de una licencia.
+ * Cuadro de documentos de respaldo.
  *
- * @param {{profile: string, logId: string, title?: string, canEdit?: boolean}} options
+ * @param {{
+ *   profile: string,
+ *   title?: string,
+ *   canEdit?: boolean,
+ *   accept: string,
+ *   emptyText: string,
+ *   note: string,
+ *   removeQuestion: string,
+ *   list: () => Array<Object>,
+ *   add: (file: File) => Promise<any>,
+ *   open: (attachment: Object) => Promise<any>,
+ *   remove: (attachmentId: string) => Promise<any>
+ * }} options
  */
-function openLeaveDocumentsDialog({
+function openDocumentsDialog({
     profile,
-    logId,
-    title = "Respaldo de la licencia",
-    canEdit = true
+    title = "Documento de respaldo",
+    canEdit = true,
+    accept,
+    emptyText,
+    note,
+    removeQuestion,
+    list,
+    add,
+    open,
+    remove
 }) {
-    if (!profile || !logId) {
-        alert(
-            "Esta licencia no tiene un registro que permita asociarle documentos."
-        );
-        return;
-    }
-
     const backdrop = document.createElement("div");
 
     backdrop.className = "turn-change-dialog-backdrop";
 
     const render = () => {
-        const attachments = getLeaveAttachments(profile, logId);
+        const attachments = list();
 
         backdrop.innerHTML = `
             <section class="turn-change-dialog leave-detail-dialog" role="dialog" aria-modal="true">
@@ -3935,18 +3965,13 @@ function openLeaveDocumentsDialog({
                 </div>
                 ${attachments.length
                     ? `<div class="leave-doc-list">${attachments.map(leaveAttachmentRowHTML).join("")}</div>`
-                    : `<p class="leave-detail-note">
-                        Aun no hay documentos adjuntos para esta licencia.
-                    </p>`}
+                    : `<p class="leave-detail-note">${escapeHTML(emptyText)}</p>`}
                 ${canEdit ? `
                     <label class="leave-doc-add">
-                        <input type="file" accept="${LEAVE_ATTACHMENT_ACCEPT}" data-leave-doc-input>
+                        <input type="file" accept="${accept}" data-leave-doc-input>
                         <span>${attachments.length ? "Adjuntar otro documento" : "Adjuntar documento"}</span>
                     </label>
-                    <p class="leave-detail-note">
-                        Imagen o PDF, hasta 10 MB. El archivo queda guardado y se
-                        puede volver a abrir desde aca.
-                    </p>
+                    <p class="leave-detail-note">${escapeHTML(note)}</p>
                 ` : ""}
                 <div class="turn-change-dialog__actions">
                     <button class="ghost-button" type="button" data-action="close">Cerrar</button>
@@ -3982,7 +4007,7 @@ function openLeaveDocumentsDialog({
 
             await withBusyState(async () => {
                 try {
-                    await addLeaveAttachment(profile, logId, file);
+                    await add(file);
                     render();
                 } catch (error) {
                     console.warn("No se pudo adjuntar el documento.", error);
@@ -3995,17 +4020,16 @@ function openLeaveDocumentsDialog({
             .querySelectorAll("[data-open-leave-doc]")
             .forEach(button => {
                 button.addEventListener("click", async () => {
-                    const attachment = getLeaveAttachments(profile, logId)
-                        .find(item =>
-                            String(item.id) === button.dataset.openLeaveDoc
-                        );
+                    const attachment = list().find(item =>
+                        String(item.id) === button.dataset.openLeaveDoc
+                    );
 
                     if (!attachment) return;
 
                     button.disabled = true;
 
                     try {
-                        await openLeaveAttachment(attachment);
+                        await open(attachment);
                     } catch (error) {
                         console.warn("No se pudo abrir el documento.", error);
                         alert(error?.message || "No se pudo abrir el documento.");
@@ -4022,10 +4046,10 @@ function openLeaveDocumentsDialog({
                     if (!canEdit) return;
 
                     const confirmed = await showConfirm(
-                        "¿Quitar este documento de la licencia?",
+                        removeQuestion,
                         {
-                            title: "Quitar documento",
-                            confirmText: "Quitar",
+                            title: "Eliminar documento",
+                            confirmText: "Eliminar",
                             destructive: true
                         }
                     );
@@ -4033,15 +4057,11 @@ function openLeaveDocumentsDialog({
                     if (!confirmed) return;
 
                     try {
-                        await removeLeaveAttachment(
-                            profile,
-                            logId,
-                            button.dataset.removeLeaveDoc
-                        );
+                        await remove(button.dataset.removeLeaveDoc);
                         render();
                     } catch (error) {
-                        console.warn("No se pudo quitar el documento.", error);
-                        alert(error?.message || "No se pudo quitar el documento.");
+                        console.warn("No se pudo eliminar el documento.", error);
+                        alert(error?.message || "No se pudo eliminar el documento.");
                     }
                 });
             });
@@ -4056,7 +4076,212 @@ function openLeaveDocumentsDialog({
     document.body.appendChild(backdrop);
 }
 
+/**
+ * Cuadro de respaldos de una licencia.
+ *
+ * @param {{profile: string, logId: string, title?: string, canEdit?: boolean}} options
+ */
+function openLeaveDocumentsDialog({
+    profile,
+    logId,
+    title = "Respaldo de la licencia",
+    canEdit = true
+}) {
+    if (!profile || !logId) {
+        alert(
+            "Esta licencia no tiene un registro que permita asociarle documentos."
+        );
+        return;
+    }
+
+    openDocumentsDialog({
+        profile,
+        title,
+        canEdit,
+        accept: LEAVE_ATTACHMENT_ACCEPT,
+        emptyText: "Aun no hay documentos adjuntos para esta licencia.",
+        note:
+            "Imagen o PDF, hasta 10 MB. El archivo queda guardado y se " +
+            "puede volver a abrir desde aca.",
+        removeQuestion: "¿Eliminar este documento de la licencia?",
+        list: () => getLeaveAttachments(profile, logId),
+        add: file => addLeaveAttachment(profile, logId, file),
+        open: attachment => openLeaveAttachment(attachment),
+        remove: attachmentId =>
+            removeLeaveAttachment(profile, logId, attachmentId)
+    });
+}
+
+/**
+ * Cuadro del documento de un memorandum.
+ *
+ * El documento es UNO para todo el permiso: se sube una vez y se ve desde
+ * cualquiera de las casillas que abarca, y tambien desde el menu MEMOS. Por eso
+ * lo que lo guarda es el memorandum y no el dia.
+ *
+ * @param {{profile: string, memoId: string, title?: string, canEdit?: boolean}} options
+ */
+function openMemoDocumentsDialog({
+    profile,
+    memoId,
+    title = "Documento del memorandum",
+    canEdit = true
+}) {
+    if (!profile || !memoId) {
+        alert(
+            "Este permiso no tiene un memorandum al que asociarle documentos."
+        );
+        return;
+    }
+
+    openDocumentsDialog({
+        profile,
+        title,
+        canEdit,
+        accept: MEMO_ATTACHMENT_ACCEPT,
+        emptyText: "Aun no hay documentos adjuntos para este memorandum.",
+        note:
+            "El documento queda asociado a todos los dias del permiso y " +
+            "aparece tambien en el menu MEMOS.",
+        removeQuestion:
+            "¿Eliminar este documento del memorandum? Tambien dejara " +
+            "de verse en las casillas del calendario.",
+        list: () => getMemoDocuments(memoId),
+        add: file => addMemoDocument(memoId, file),
+        open: attachment => openMemoDocument(memoId, attachment.id),
+        remove: documentId => removeMemoDocument(memoId, documentId)
+    });
+}
+
 window.openLeaveDocumentsDialog = openLeaveDocumentsDialog;
+window.openMemoDocumentsDialog = openMemoDocumentsDialog;
+
+function leaveMapsForProfile(profile) {
+    return {
+        admin: getJSON(`admin_${profile}`, {}),
+        legal: getJSON(`legal_${profile}`, {}),
+        comp: getJSON(`comp_${profile}`, {}),
+        absences: getJSON(`absences_${profile}`, {})
+    };
+}
+
+/**
+ * A que documento de respaldo llega una casilla, y cuantos hay ya subidos.
+ *
+ * Son dos origenes distintos y ninguna casilla tiene los dos: una licencia
+ * medica guarda su respaldo contra el registro del LOG que la aplico, y el
+ * resto de los permisos lo guardan en el memorandum que se genero al
+ * aplicarlos. Un permiso de 10 dias tiene UN memorandum, asi que las 10
+ * casillas llegan al mismo documento.
+ *
+ * @param {string} profile
+ * @param {string} keyDay
+ * @param {{admin: Object, legal: Object, comp: Object, absences: Object}} [maps]
+ * @returns {{kind: string, label: string, count: number, logId?: string, memoId?: string}|null}
+ */
+function dayDocumentsTarget(profile, keyDay, maps = null) {
+    if (!profile || !keyDay) return null;
+
+    const { admin, legal, comp, absences } =
+        maps || leaveMapsForProfile(profile);
+    const type = leaveTypeForDay(keyDay, admin, legal, comp, absences);
+
+    if (!type) return null;
+
+    if (leaveTypeNeedsDocument(type)) {
+        // Recorrer el LOG solo aca: el resto de los permisos no lo necesita, y
+        // este cuadro se vuelve a dibujar cada vez que se cambia el alcance de
+        // las sugerencias de reemplazo.
+        const info = getLeaveApplicationInfo({
+            profile,
+            keyDay,
+            type,
+            sourceMap: leaveSourceMapForType(
+                type,
+                admin,
+                legal,
+                comp,
+                absences
+            )
+        });
+        const logId = String(info?.logId || "");
+
+        // Sin registro en el LOG no hay a que colgar el archivo: la licencia se
+        // aplico antes del LOG actual o su registro fue evicto.
+        if (!logId) return null;
+
+        return {
+            kind: "leave",
+            label: leaveLabelForType(type),
+            logId,
+            count: getLeaveAttachments(profile, logId).length
+        };
+    }
+
+    const memo = findLeaveMemoForDay({ profile, leaveType: type, keyDay });
+
+    // Los permisos aplicados antes de que existieran los memorandum no tienen
+    // a que asociar el documento; no se ofrece el boton.
+    if (!memo) return null;
+
+    return memoDocumentsTarget(memo, leaveLabelForType(type));
+}
+
+// El documento vive en el modulo MEMOS, no en el calendario: quien no puede ver
+// ese menu tampoco puede leer el archivo (lo rechaza storage.rules), asi que el
+// boton no se ofrece.
+function memoDocumentsTarget(memo, fallbackLabel) {
+    if (!memo || !canViewTarget("memosPanel")) return null;
+
+    return {
+        kind: "memo",
+        label: memo.typeLabel || fallbackLabel,
+        memoId: memo.id,
+        count: memo.documents.length
+    };
+}
+
+// El memorandum de un marcaje incompleto es de un dia solo, asi que se resuelve
+// aparte del de los permisos.
+function clockDocumentsTarget(profile, keyDay) {
+    return memoDocumentsTarget(
+        findClockMemoForDay({ profile, keyDay }),
+        "Marcaje"
+    );
+}
+
+function documentsButtonHTML(target) {
+    if (!target) return "";
+
+    const label = target.count
+        ? (target.count > 1 ? "Ver documentos" : "Ver documento")
+        : "Adjuntar documento";
+
+    return `<button class="secondary-button" type="button" data-action="leave-docs">${label}</button>`;
+}
+
+function openDocumentsForTarget(target, profile) {
+    if (!target) return;
+
+    if (target.kind === "leave") {
+        openLeaveDocumentsDialog({
+            profile,
+            logId: target.logId,
+            title: `${target.label} · respaldo`,
+            canEdit: canEditTarget("calendarPanel")
+        });
+        return;
+    }
+
+    openMemoDocumentsDialog({
+        profile,
+        memoId: target.memoId,
+        title: `${target.label} · documento`,
+        // El archivo se guarda en el memorandum: manda el permiso de MEMOS, no
+        // el del calendario desde el que se abrio el cuadro.
+        canEdit: canEditTarget("memosPanel")
+    });
+}
 
 function openLeaveDetailDialog({
     profile,
@@ -4095,19 +4320,16 @@ function openLeaveDetailDialog({
         ? getNoCoverageReason(profile, keyDay)
         : "";
 
-    // Respaldo del documento: solo para las licencias, que son las que lo
-    // llevan. El boton cambia segun si ya hay algo adjunto, para que se vea de
-    // una que falta subirlo.
-    const leaveLogId = String(info?.logId || "");
-    const supportsDocuments =
-        leaveTypeNeedsDocument(info?.leaveType) && Boolean(leaveLogId);
-    const hasDocuments =
-        supportsDocuments && hasLeaveAttachments(profile, leaveLogId);
-    const leaveDocsButton = supportsDocuments
-        ? `<button class="secondary-button" type="button" data-action="leave-docs">${
-            hasDocuments ? "Ver adjuntos" : "Adjuntar documento"
-        }</button>`
-        : "";
+    // Documento de respaldo: el de la licencia si es una licencia, y si no el
+    // del memorandum que genero el permiso. El boton cambia segun si ya hay
+    // algo adjunto, para que se vea de una que falta subirlo.
+    const documentsTarget = dayDocumentsTarget(profile, keyDay, {
+        admin,
+        legal,
+        comp,
+        absences
+    });
+    const leaveDocsButton = documentsButtonHTML(documentsTarget);
 
     // Quitar la cobertura sin anular el permiso: el permiso sigue, pero el
     // turno vuelve a quedar pendiente de reemplazo.
@@ -4184,12 +4406,7 @@ function openLeaveDetailDialog({
         .querySelector("[data-action='leave-docs']")
         ?.addEventListener("click", () => {
             close();
-            openLeaveDocumentsDialog({
-                profile,
-                logId: leaveLogId,
-                title: `${label} · respaldo`,
-                canEdit: canEditTarget("calendarPanel")
-            });
+            openDocumentsForTarget(documentsTarget, profile);
         });
     backdrop
         .querySelector("[data-action='require-coverage']")
@@ -4823,19 +5040,14 @@ function replacementDialogHTML({
     // ausente que nombrar, sino un grupo al que le falta alguien.
     rota = null
 }) {
-    // Respaldo de la licencia, junto a "Anular permiso": si todavia no hay
-    // documento el boton invita a subirlo, y si ya lo hay lo abre. Solo aparece
-    // en las licencias, que son las que llevan respaldo.
-    const leaveInfo = getLeaveApplicationInfo(profileName, keyDay);
-    const leaveLogId = String(leaveInfo?.logId || "");
-    const leaveDocsButton =
-        leaveTypeNeedsDocument(leaveInfo?.leaveType) && leaveLogId
-            ? `<button class="secondary-button" type="button" data-action="leave-docs">${
-                hasLeaveAttachments(profileName, leaveLogId)
-                    ? "Ver adjuntos"
-                    : "Adjuntar documento"
-            }</button>`
-            : "";
+    // Documento de respaldo, junto a "Anular permiso": si todavia no hay
+    // documento el boton invita a subirlo, y si ya lo hay lo abre. Este modal es
+    // el que se abre al clickear la casilla mientras el turno esta sin cubrir,
+    // asi que sin esto el documento del permiso quedaba fuera de alcance
+    // justamente en los dias que mas se consultan.
+    const leaveDocsButton = documentsButtonHTML(
+        dayDocumentsTarget(profileName, keyDay)
+    );
 
     const replacementConfig = getReplacementRequestConfig();
     const allowLinkedSuggestions =
@@ -5659,15 +5871,10 @@ async function openReplacementDialog(profileName, keyDay, options = {}) {
             backdrop.querySelector("[data-action='leave-docs']");
         if (leaveDocsBtn) {
             leaveDocsBtn.onclick = () => {
-                const info = getLeaveApplicationInfo(profileName, keyDay);
+                const target = dayDocumentsTarget(profileName, keyDay);
 
                 close();
-                openLeaveDocumentsDialog({
-                    profile: profileName,
-                    logId: String(info?.logId || ""),
-                    title: `${absenceType || "Licencia"} · respaldo`,
-                    canEdit: canEditTarget("calendarPanel")
-                });
+                openDocumentsForTarget(target, profileName);
             };
         }
 
@@ -7235,6 +7442,11 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
         `
         : "";
 
+    // Documento del memorandum de marcaje incompleto. Es el mismo archivo que
+    // se ve en el menu MEMOS: ahi se pide y desde aca se resuelve.
+    const documentsTarget = clockDocumentsTarget(profile, keyDay);
+    const memoDocsButton = documentsButtonHTML(documentsTarget);
+
     const backdrop = document.createElement("div");
     backdrop.className = "turn-change-dialog-backdrop";
     backdrop.innerHTML = `
@@ -7258,6 +7470,7 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
                 ${extraShift
                     ? `<button class="secondary-button" type="button" data-action="extra-shift">Ver turno extra</button>`
                     : ""}
+                ${memoDocsButton}
                 <button class="ghost-button" type="button" data-action="close">Cerrar</button>
             </div>
         </section>
@@ -7294,6 +7507,12 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
                 keyDay,
                 extraShift?.id || ""
             );
+        });
+    backdrop
+        .querySelector("[data-action='leave-docs']")
+        ?.addEventListener("click", () => {
+            close();
+            openDocumentsForTarget(documentsTarget, profile);
         });
 
     document.addEventListener("keydown", onKeydown);

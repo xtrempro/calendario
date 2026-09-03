@@ -562,7 +562,8 @@ export async function aplicarAdministrativo(fecha, cantidad = 1){
         amount: cantidad,
         startKey: keys[0],
         endKey: keys[keys.length - 1],
-        sourceType: "admin"
+        sourceType: "admin",
+        keys
     });
 
     return true;
@@ -626,7 +627,8 @@ export async function aplicarHalfAdministrativo(fecha, tipo="M"){
         endKey: key,
         sourceType: tipo === "M"
             ? "half_admin_morning"
-            : "half_admin_afternoon"
+            : "half_admin_afternoon",
+        keys: [key]
     });
 
     return true;
@@ -821,7 +823,8 @@ export async function aplicarLegal(fecha, cantidad){
         amount: cantidad,
         startKey,
         endKey: nuevos[nuevos.length - 1],
-        sourceType: "legal"
+        sourceType: "legal",
+        keys: nuevos
     });
 
     return true;
@@ -985,7 +988,8 @@ export async function aplicarComp(fecha, cantidad = 10){
         amount: total,
         startKey,
         endKey: nuevos[nuevos.length - 1],
-        sourceType: "comp"
+        sourceType: "comp",
+        keys: nuevos
     });
 
     return true;
@@ -1298,7 +1302,8 @@ export async function aplicarLicencia(
             amount: total,
             startKey,
             endKey: keys[keys.length - 1],
-            sourceType: "unpaid_leave"
+            sourceType: "unpaid_leave",
+            keys
         });
     }
 

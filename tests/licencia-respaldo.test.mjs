@@ -173,11 +173,18 @@ test("se ofrece adjuntar apenas se aplica la licencia", () => {
 });
 
 test("el detalle del permiso muestra adjuntar o ver, segun corresponda", () => {
+    // El texto lo decide un solo lugar, compartido por los tres cuadros que
+    // ofrecen el boton (detalle del permiso, reemplazo y marcaje).
     assert.match(
         calendar,
-        /hasDocuments \? "Ver adjuntos" : "Adjuntar documento"/
+        /\? \(target\.count > 1 \? "Ver documentos" : "Ver documento"\)\s*\n\s*: "Adjuntar documento"/
     );
     assert.match(calendar, /data-action="leave-docs"/);
+    // La licencia sigue contando sus adjuntos contra el registro del LOG.
+    assert.match(
+        calendar,
+        /count: getLeaveAttachments\(profile, logId\)\.length/
+    );
 });
 
 test("el cuadro de reemplazo lo muestra junto a Anular permiso", () => {
@@ -187,8 +194,15 @@ test("el cuadro de reemplazo lo muestra junto a Anular permiso", () => {
     );
     assert.match(
         calendar,
-        /hasLeaveAttachments\(profileName, leaveLogId\)\s*\n\s*\? "Ver adjuntos"\s*\n\s*: "Adjuntar documento"/
+        /const leaveDocsButton = documentsButtonHTML\(\s*\n\s*dayDocumentsTarget\(profileName, keyDay\)\s*\n\s*\);/
     );
+    // getLeaveApplicationInfo recibe un OBJETO. Llamarla con los argumentos
+    // sueltos devolvia siempre null, asi que el boton no aparecia nunca.
+    assert.doesNotMatch(
+        calendar,
+        /getLeaveApplicationInfo\(profileName, keyDay\)/
+    );
+    assert.doesNotMatch(main, /getLeaveApplicationInfo\(profile, keyDay\)/);
 });
 
 test("el LOG expone el tipo de permiso", () => {

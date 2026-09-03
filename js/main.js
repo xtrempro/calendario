@@ -3223,7 +3223,14 @@ async function offerLeaveDocumentPrompt(fecha) {
 
     const profile = getPerfilActual();
     const keyDay = keyFromDate(fecha);
-    const info = getLeaveApplicationInfo(profile, keyDay);
+    // getLeaveApplicationInfo recibe un objeto: pasarle los argumentos sueltos
+    // devolvia siempre null y este aviso no salia nunca.
+    const info = getLeaveApplicationInfo({
+        profile,
+        keyDay,
+        type: licenseType,
+        sourceMap: getJSON(`absences_${profile}`, {})
+    });
     const logId = String(info?.logId || "");
 
     // Sin registro en el LOG no hay a que asociar el documento.

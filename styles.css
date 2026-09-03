@@ -15724,6 +15724,13 @@ body[data-active-view="memos"] .memo-card .memo-detail {
     gap: 8px;
 }
 
+.memo-document-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
 .memo-document-button,
 .memo-file-button {
     display: inline-flex;
@@ -15738,6 +15745,33 @@ body[data-active-view="memos"] .memo-card .memo-detail {
     font-size: 0.82rem;
     font-weight: 800;
     cursor: pointer;
+}
+
+.memo-document-button:disabled,
+.memo-document-remove:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.memo-document-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--text-muted);
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.memo-document-remove:hover {
+    color: #dc2626;
+    border-color: rgba(220, 38, 38, 0.35);
 }
 
 .memo-file-button {
@@ -18848,6 +18882,8 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
 
     body[data-active-view="requests"] .memo-file-button,
     body[data-active-view="memos"] .memo-file-button,
+    body[data-active-view="requests"] .memo-document-item,
+    body[data-active-view="memos"] .memo-document-item,
     body[data-active-view="requests"] .memo-document-button,
     body[data-active-view="memos"] .memo-document-button {
         max-width: 100%;

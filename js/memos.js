@@ -1,16 +1,24 @@
 import { escapeHTML } from "./htmlUtils.js";
 import { addAuditLog, AUDIT_CATEGORY } from "./auditLog.js";
+import { showConfirm } from "./dialogs.js";
 import { getJSON, setJSON } from "./persistence.js";
 import {
     ATTACHMENT_ACCEPT,
+    deleteStoredAttachment,
     hasAttachmentContent,
     openAttachmentFile,
     readAttachmentFile
 } from "./attachmentUtils.js";
 
 const MEMOS_KEY = "memos";
+const DAY_KEY_PATTERN = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 const STATUS_PENDING = "pending";
 const STATUS_COMPLETED = "completed";
+
+// El mismo juego de formatos que acepta el resto del app: el documento del
+// memorandum se abre despues desde el calendario, asi que no hay razon para
+// restringirlo mas aca.
+export const MEMO_ATTACHMENT_ACCEPT = ATTACHMENT_ACCEPT;
 
 let selectedStatus = STATUS_PENDING;
 let selectedMonth = monthValue();
@@ -46,6 +54,12 @@ function normalizeDocument(doc = {}) {
     };
 }
 
+function normalizeKeyList(value) {
+    return (Array.isArray(value) ? value : [])
+        .map(key => String(key || "").trim())
+        .filter(key => DAY_KEY_PATTERN.test(key));
+}
+
 function normalizeMemo(memo = {}) {
     const sourceId = String(memo.sourceId || "");
     const createdAt = memo.createdAt || new Date().toISOString();
@@ -64,6 +78,12 @@ function normalizeMemo(memo = {}) {
         startKey: String(memo.startKey || ""),
         endKey: String(memo.endKey || ""),
         dateKey: String(memo.dateKey || ""),
+        // Que permiso lo origino y que dias abarca. Es lo que deja llegar desde
+        // una casilla del calendario al memorandum que le corresponde. Los
+        // memorandum viejos no lo traen: la busqueda cae al sourceId y al rango
+        // startKey/endKey (ver memoLeaveType y memoCoversDay).
+        leaveType: String(memo.leaveType || ""),
+        keys: normalizeKeyList(memo.keys),
         status,
         createdAt,
         completedAt:
@@ -75,7 +95,7 @@ function normalizeMemo(memo = {}) {
 }
 
 function parseKey(key) {
-    const match = String(key || "").match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    const match = String(key || "").match(DAY_KEY_PATTERN);
 
     if (!match) return null;
 
@@ -284,7 +304,12 @@ export function createLeaveMemoTask({
     amount = 1,
     startKey,
     endKey,
-    sourceType
+    sourceType,
+    // Los dias exactos del permiso. Un feriado legal de 10 dias no ocupa 10
+    // casillas seguidas -salta fines de semana y festivos-, asi que el rango
+    // startKey..endKey no alcanza para saber que casilla pertenece a este
+    // memorandum. Cuando no llega, la busqueda cae al rango.
+    keys = []
 } = {}) {
     if (!profile || !typeLabel || !startKey) return null;
 
@@ -309,7 +334,9 @@ export function createLeaveMemoTask({
         typeLabel,
         detail,
         startKey,
-        endKey: finalEndKey
+        endKey: finalEndKey,
+        leaveType: sourceType || "",
+        keys
     });
 }
 
@@ -396,6 +423,128 @@ export function createReplacementContractMemoTask({
     });
 }
 
+/* =========================================================
+   Desde el calendario hasta el memorandum
+
+   El documento del memorandum tiene que poder abrirse desde cualquiera de las
+   casillas que lo originaron: si a alguien se le aplican 10 feriados legales,
+   el respaldo es uno solo y vale para los 10 dias. Por eso el memorandum no se
+   busca por su id sino por (trabajador, tipo de permiso, dia).
+========================================================= */
+
+function sameProfileName(a, b) {
+    return String(a || "").trim() === String(b || "").trim();
+}
+
+// Los memorandum creados antes de que existiera el campo leaveType lo llevan
+// dentro del sourceId: "leave:<tipo>:<perfil>:<inicio>:<fin>:<cantidad>".
+function memoLeaveType(memo = {}) {
+    if (memo.leaveType) return memo.leaveType;
+
+    const parts = String(memo.sourceId || "").split(":");
+
+    return parts[0] === "leave" ? String(parts[1] || "") : "";
+}
+
+function keyOrder(key) {
+    const match = String(key || "").match(DAY_KEY_PATTERN);
+
+    if (!match) return NaN;
+
+    return Number(match[1]) * 10000 +
+        Number(match[2]) * 100 +
+        Number(match[3]);
+}
+
+function memoCoversDay(memo, keyDay) {
+    if (!keyDay) return false;
+    if (memo.keys.length) return memo.keys.includes(keyDay);
+    if (memo.dateKey) return memo.dateKey === keyDay;
+
+    const day = keyOrder(keyDay);
+    const start = keyOrder(memo.startKey);
+    const end = keyOrder(memo.endKey || memo.startKey);
+
+    if (!Number.isFinite(day) || !Number.isFinite(start)) return false;
+
+    return day >= start && day <= (Number.isFinite(end) ? end : start);
+}
+
+// Los medios dias comparten memorandum con el legado "half_admin", que no
+// distingue ma\u00f1ana de tarde.
+function leaveTypeMatches(memoType, leaveType) {
+    if (!memoType || !leaveType) return false;
+    if (memoType === leaveType) return true;
+
+    const halfAdmin = new Set([
+        "half_admin",
+        "half_admin_morning",
+        "half_admin_afternoon"
+    ]);
+
+    return halfAdmin.has(memoType) && halfAdmin.has(leaveType);
+}
+
+export function getMemoById(id) {
+    const memoId = String(id || "");
+
+    return memoId
+        ? getMemos().find(memo => memo.id === memoId) || null
+        : null;
+}
+
+/**
+ * Memorandum de permiso al que pertenece una casilla del calendario.
+ *
+ * @param {{profile: string, leaveType: string, keyDay: string}} options
+ * @returns {Object|null}
+ */
+export function findLeaveMemoForDay({ profile, leaveType, keyDay } = {}) {
+    if (!profile || !leaveType || !keyDay) return null;
+
+    // getMemos() ya viene ordenado: pendientes primero y, dentro de cada grupo,
+    // del mas nuevo al mas viejo. Si dos aplicaciones del mismo permiso pisan el
+    // mismo dia, gana la mas reciente, que es la que sigue vigente.
+    return getMemos().find(memo =>
+        sameProfileName(memo.profile, profile) &&
+        leaveTypeMatches(memoLeaveType(memo), leaveType) &&
+        memoCoversDay(memo, keyDay)
+    ) || null;
+}
+
+/**
+ * Memorandum de marcaje incompleto de un dia.
+ *
+ * @param {{profile: string, keyDay: string}} options
+ * @returns {Object|null}
+ */
+export function findClockMemoForDay({ profile, keyDay } = {}) {
+    if (!profile || !keyDay) return null;
+
+    return getMemos().find(memo =>
+        String(memo.sourceId || "").startsWith("clock:") &&
+        sameProfileName(memo.profile, profile) &&
+        memo.dateKey === keyDay
+    ) || null;
+}
+
+export function getMemoDocuments(memoId) {
+    return getMemoById(memoId)?.documents || [];
+}
+
+function setMemoDocuments(memoId, documents) {
+    const memos = getMemos();
+    const updated = memos.map(memo =>
+        memo.id === memoId
+            ? normalizeMemo({ ...memo, documents })
+            : memo
+    );
+
+    persistMemos(updated);
+
+    return updated.find(memo => memo.id === memoId) || null;
+}
+
 function setMemoCompleted(id, completed) {
     const memos = getMemos();
     const updated = memos.map(memo => {
@@ -477,21 +626,86 @@ async function fileToMemoDocument(file, memoId) {
     };
 }
 
-async function openMemoDocument(memoId, documentId) {
+/**
+ * Sube un archivo y lo deja adjunto al memorandum.
+ *
+ * Es el mismo camino que usa el panel de memos, expuesto para que el calendario
+ * pueda adjuntar desde la casilla del permiso.
+ *
+ * @param {string} memoId
+ * @param {File} file
+ * @returns {Promise<Object>} el documento guardado
+ */
+export async function addMemoDocument(memoId, file) {
+    if (!getMemoById(memoId)) {
+        throw new Error(
+            "No se pudo identificar el memorandum al que pertenece el documento."
+        );
+    }
+
+    const document = await fileToMemoDocument(file, memoId);
+
+    if (!hasAttachmentContent(document)) {
+        throw new Error("El documento no se pudo guardar. Intenta nuevamente.");
+    }
+
+    attachMemoDocument(memoId, document);
+
+    return document;
+}
+
+/**
+ * Quita un documento del memorandum.
+ *
+ * Primero se borra el archivo y despues la referencia, igual que en las
+ * licencias: al reves, un fallo al eliminar dejaria el archivo en Storage sin
+ * nada que lo alcance.
+ *
+ * @param {string} memoId
+ * @param {string} documentId
+ * @returns {Promise<boolean>}
+ */
+export async function removeMemoDocument(memoId, documentId) {
+    const documents = getMemoDocuments(memoId);
+    const document = documents.find(item =>
+        String(item.id) === String(documentId)
+    );
+
+    if (!document) return false;
+
+    await deleteStoredAttachment(document);
+
+    const memo = setMemoDocuments(
+        memoId,
+        documents.filter(item => item !== document)
+    );
+
+    if (memo) {
+        addAuditLog(
+            AUDIT_CATEGORY.WORKER_REQUESTS,
+            "Elimino documento de memorandum",
+            `${memo.profile || "Sin trabajador"}: ${document.name}.`,
+            {
+                profile: memo.profile,
+                memoId: memo.id,
+                memoType: memo.typeLabel
+            }
+        );
+    }
+
+    return true;
+}
+
+export async function openMemoDocument(memoId, documentId) {
     if (typeof window === "undefined") return;
 
-    const memo = getMemos().find(item => item.id === memoId);
-    const document = memo?.documents?.find(item =>
+    const document = getMemoDocuments(memoId).find(item =>
         item.id === documentId
     );
 
     if (!hasAttachmentContent(document)) return;
 
-    try {
-        await openAttachmentFile(document);
-    } catch (error) {
-        alert(error?.message || "No se pudo abrir el documento.");
-    }
+    await openAttachmentFile(document, { newTab: true });
 }
 
 function statusButtonHTML(status, label, count) {
@@ -511,16 +725,19 @@ function documentsHTML(memo) {
                 ? `
                     <div class="memo-document-list">
                         ${documents.map(document => `
-                            <button class="memo-document-button" type="button" data-memo-doc="${escapeHTML(document.id)}" data-memo-id="${escapeHTML(memo.id)}">
-                                ${escapeHTML(document.name)}
-                            </button>
+                            <span class="memo-document-item">
+                                <button class="memo-document-button" type="button" data-memo-doc="${escapeHTML(document.id)}" data-memo-id="${escapeHTML(memo.id)}">
+                                    ${escapeHTML(document.name)}
+                                </button>
+                                <button class="memo-document-remove" type="button" data-memo-doc-remove="${escapeHTML(document.id)}" data-memo-id="${escapeHTML(memo.id)}" title="Eliminar documento" aria-label="Eliminar ${escapeHTML(document.name)}">&times;</button>
+                            </span>
                         `).join("")}
                     </div>
                 `
                 : `<small>Sin documentos adjuntos.</small>`}
             <label class="memo-file-button">
                 Adjuntar documento
-                <input type="file" accept="${ATTACHMENT_ACCEPT}" data-memo-file="${escapeHTML(memo.id)}">
+                <input type="file" accept="${MEMO_ATTACHMENT_ACCEPT}" data-memo-file="${escapeHTML(memo.id)}">
             </label>
         </div>
     `;
@@ -645,31 +862,67 @@ export function renderMemosPanel() {
         input.onchange = async () => {
             const file = input.files?.[0];
 
+            // Se limpia siempre: elegir DOS VECES el mismo archivo no dispara
+            // "change" y parece que no pasa nada.
+            const memoId = input.dataset.memoFile;
+
+            input.value = "";
+
             if (!file) return;
 
             try {
-                const document = await fileToMemoDocument(
-                    file,
-                    input.dataset.memoFile
-                );
-                attachMemoDocument(input.dataset.memoFile, document);
+                await addMemoDocument(memoId, file);
             } catch (error) {
-                alert(error?.planBlocked
-                    ? error.message
-                    : "No se pudo adjuntar el documento.");
+                alert(error?.message || "No se pudo adjuntar el documento.");
                 console.error(error);
-            } finally {
-                input.value = "";
             }
         };
     });
 
     panel.querySelectorAll("[data-memo-doc]").forEach(button => {
         button.onclick = async () => {
-            await openMemoDocument(
-                button.dataset.memoId,
-                button.dataset.memoDoc
+            button.disabled = true;
+
+            try {
+                await openMemoDocument(
+                    button.dataset.memoId,
+                    button.dataset.memoDoc
+                );
+            } catch (error) {
+                alert(error?.message || "No se pudo abrir el documento.");
+            } finally {
+                button.disabled = false;
+            }
+        };
+    });
+
+    panel.querySelectorAll("[data-memo-doc-remove]").forEach(button => {
+        button.onclick = async () => {
+            const confirmed = await showConfirm(
+                "¿Eliminar este documento del memorandum? " +
+                "Tambien dejara de verse en las casillas del calendario.",
+                {
+                    title: "Eliminar documento",
+                    confirmText: "Eliminar",
+                    destructive: true
+                }
             );
+
+            if (!confirmed) return;
+
+            button.disabled = true;
+
+            try {
+                await removeMemoDocument(
+                    button.dataset.memoId,
+                    button.dataset.memoDocRemove
+                );
+            } catch (error) {
+                alert(error?.message || "No se pudo eliminar el documento.");
+                console.error(error);
+            } finally {
+                button.disabled = false;
+            }
         };
     });
 }
