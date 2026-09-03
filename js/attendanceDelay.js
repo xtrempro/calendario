@@ -289,13 +289,46 @@ export function groupMarkEvents(marks = []) {
  *
  * @param {Array<object>} marks todas las marcas del turno, en orden
  * @param {Array<object|null>} shownMarks las que la fila ya muestra
+ * @param {object} [options]
+ * @param {boolean} [options.handoverInside] el turno es continuo y de dos
+ *   tramos: lo que se marque entre su llegada y su salida es el traspaso
  * @returns {Array<Array<object>>} los eventos que sobran
  */
-export function unexplainedMarkEvents(marks = [], shownMarks = []) {
-    const shown = new Set((shownMarks || []).filter(Boolean));
+export function unexplainedMarkEvents(marks = [], shownMarks = [], options = {}) {
+    const { handoverInside = false } = options;
+    const shown = (shownMarks || []).filter(Boolean);
+    const mostradas = new Set(shown);
+    const sinExplicar = groupMarkEvents(marks)
+        .filter(event => !event.some(mark => mostradas.has(mark)));
 
-    return groupMarkEvents(marks)
-        .filter(event => !event.some(mark => shown.has(mark)));
+    if (!handoverInside || !sinExplicar.length) return sinExplicar;
+
+    // Un turno continuo de dos tramos -un 24, un 18 horas- SI tiene un momento
+    // que se puede marcar por dentro: el traspaso de un tramo al otro. No es
+    // obligatorio, porque el trabajador nunca se va, pero marcarlo tampoco es
+    // una anomalia.
+    //
+    // Si el trabajador aprieta dos veces -salida y entrada- la fila se parte en
+    // dos tramos y las cuatro horas quedan a la vista; si aprieta UNA sola, la
+    // fila no se parte y esa marca queda fuera. Sin esto, apretar una vez o dos
+    // era la diferencia entre un turno impecable y una incidencia, que es una
+    // distincion que no significa nada.
+    //
+    // Se sigue viendo: la celda la cuenta en su ⋯ y el hover la nombra.
+    const limites = shown
+        .map(absoluteMinutes)
+        .filter(minutes => minutes !== null);
+
+    if (limites.length < 2) return sinExplicar;
+
+    const desde = Math.min(...limites);
+    const hasta = Math.max(...limites);
+
+    return sinExplicar.filter(event => {
+        const at = absoluteMinutes(event[0]);
+
+        return at === null || at <= desde || at >= hasta;
+    });
 }
 
 /**

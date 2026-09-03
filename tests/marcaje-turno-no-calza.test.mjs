@@ -538,6 +538,91 @@ test("el 24 sigue siendo corrido: marcar el traspaso no crea una frontera", asyn
 });
 
 /* =========================================================
+   El traspaso de un turno continuo no es una anomalia
+
+   Tercer caso real: varios 24 aparecian como "marcas sin justificar" por la
+   marca de las 20:0x. Un 24 es continuo -el trabajador nunca se va- asi que
+   marcar el traspaso no es obligatorio, pero tampoco es raro.
+
+   Lo que lo delataba era un detalle sin significado: si aprieta DOS veces
+   -salida y entrada- la fila se parte en dos tramos y las cuatro horas quedan
+   a la vista; si aprieta UNA sola, la fila no se parte y esa marca sobra. Una
+   pulsacion de diferencia separaba un turno impecable de una incidencia.
+========================================================= */
+
+// El caso de REINALDO el 13/08: base Larga, realizo un 24, y marco el traspaso
+// una sola vez a las 20:02.
+const MARCAS_DEL_24_UN_TOQUE = {
+    [iso(13)]: [
+        { time: "08:11", type: "in" },
+        { time: "20:02", type: "out" }
+    ],
+    [iso(14)]: [{ time: "08:04", type: "out" }]
+};
+
+test("marcar el traspaso de un 24 una sola vez no es una incidencia", async () => {
+    sembrar(
+        { [dia(13)]: TURNO.TURNO24 },
+        MARCAS_DEL_24_UN_TOQUE,
+        { [dia(13)]: TURNO.LARGA }
+    );
+
+    const delDia = await incidenciasDe(13);
+
+    assert.equal(
+        delDia.filter(evento => evento.kind === "unexplainedMarks").length,
+        0,
+        "las 20:02 son el traspaso del 24, no una marca sin justificar"
+    );
+});
+
+test("apretar una vez o dos da lo mismo", async () => {
+    // La diferencia entre las dos formas de marcar el mismo traspaso no puede
+    // ser la diferencia entre una incidencia y ninguna.
+    sembrar({ [dia(26)]: TURNO.TURNO24 }, MARCAS_DEL_24);
+    const dosToques = await incidenciasDe(26);
+
+    sembrar(
+        { [dia(13)]: TURNO.TURNO24 },
+        MARCAS_DEL_24_UN_TOQUE,
+        { [dia(13)]: TURNO.LARGA }
+    );
+    const unToque = await incidenciasDe(13);
+
+    assert.deepEqual(
+        tipos(dosToques).filter(kind => kind === "unexplainedMarks"),
+        tipos(unToque).filter(kind => kind === "unexplainedMarks")
+    );
+});
+
+test("pero la marca se sigue viendo: la celda la cuenta y el hover la nombra", async () => {
+    // Dejarla pasar como incidencia no es esconderla. Sigue estando ahi para
+    // quien vaya a mirar ese dia.
+    sembrar(
+        { [dia(13)]: TURNO.TURNO24 },
+        MARCAS_DEL_24_UN_TOQUE,
+        { [dia(13)]: TURNO.LARGA }
+    );
+
+    const filas = await attendanceIncidentContext({ name: NOMBRE, rut: RUT },
+        iso(13));
+    const fila = filas.find(item => item.iso === iso(13));
+
+    assert.match(fila.entrada, /⋯1/, "la celda avisa que esconde una marca");
+});
+
+test("una Noche con marcas por dentro SIGUE siendo incidencia", async () => {
+    // La excepcion es solo para los turnos continuos de dos tramos. Una Noche
+    // es de uno solo: no tiene traspaso que marcar, y una marca a las 20:00
+    // entre su llegada y su salida es justamente el 24 que nadie registro.
+    sembrar({ [dia(26)]: TURNO.NOCHE }, MARCAS_DEL_24);
+
+    const delDia = await incidenciasDe(26);
+
+    assert.ok(delDia.some(evento => evento.kind === "unexplainedMarks"));
+});
+
+/* =========================================================
    El motor, suelto
 ========================================================= */
 

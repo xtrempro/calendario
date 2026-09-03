@@ -610,8 +610,25 @@ test("cada fila del detalle se abre y se cierra", () => {
     // Cerrarlo lo quita y las filas se vuelven a juntar.
     assert.match(home, /data-hm="inc-row"/);
     assert.match(home, /fila\.after\(caja\);/);
-    assert.match(home, /fila\.nextElementSibling\.remove\(\);/);
+    assert.match(home, /caja\.remove\(\);/);
     assert.match(home, /aria-expanded="false"/);
+});
+
+test("y se abre de a una: al abrir otra, la anterior se cierra", () => {
+    // Con varias abiertas la lista se estira y hay que acordarse de cerrar la
+    // anterior a mano para volver a verla entera.
+    assert.match(home, /function cerrarIncidenciasAbiertas\(lista\)/);
+    assert.match(
+        home,
+        /cerrarIncidenciasAbiertas\(fila\.parentElement\);\s*\n\s*\n\s*if \(abierto\) return;/
+    );
+    // La fila y su detalle son hermanos, asi que al quitar la caja hay que
+    // devolverle a la fila su aria-expanded o el lector de pantalla la sigue
+    // anunciando desplegada.
+    assert.match(
+        home,
+        /caja\.previousElementSibling\?\.setAttribute\("aria-expanded", "false"\);/
+    );
 });
 
 test("el rayado no se corre al abrir una fila", () => {

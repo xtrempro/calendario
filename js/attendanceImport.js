@@ -429,7 +429,14 @@ export function getAttendanceCells(rut, iso, options = {}) {
         // celda y la incidencia del inicio.
         unexplained: unexplainedMarkEvents(
             marks,
-            segments.flatMap(segment => [segment.entry, segment.exit])
+            segments.flatMap(segment => [segment.entry, segment.exit]),
+            {
+                // Un 24 o un 18 horas son de dos tramos pero continuos: el
+                // traspaso se puede marcar y no es una anomalia. Un D+N no
+                // entra: sus dos tramos son presencias separadas, y entre una
+                // y otra no hay nada que marcar.
+                handoverInside: canSplitOnMarks && !splitSegments
+            }
         )
     };
 }

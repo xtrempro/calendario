@@ -1661,6 +1661,20 @@ const INC_CTX_COLS = [
 ];
 
 /**
+ * Cierra los detalles que estuvieran abiertos, con su fila.
+ *
+ * La fila y su detalle son hermanos, asi que cerrar es quitar la caja y
+ * devolverle a la fila su aria-expanded: si se quita la caja sin mas, el lector
+ * de pantalla sigue anunciando la fila como desplegada.
+ */
+function cerrarIncidenciasAbiertas(lista) {
+    lista?.querySelectorAll(".hm-inc-ctx").forEach(caja => {
+        caja.previousElementSibling?.setAttribute("aria-expanded", "false");
+        caja.remove();
+    });
+}
+
+/**
  * Abre -o cierra- el reporte de esos dias bajo la fila de la incidencia.
  *
  * El detalle entra como hermano de la fila, no dentro de ella: asi empuja
@@ -1671,11 +1685,13 @@ const INC_CTX_COLS = [
 async function alternarIncidenciaDetalle(fila) {
     const abierto = fila.nextElementSibling?.classList.contains("hm-inc-ctx");
 
-    if (abierto) {
-        fila.nextElementSibling.remove();
-        fila.setAttribute("aria-expanded", "false");
-        return;
-    }
+    // Se abre de a uno. Con varios abiertos la lista se estira y hay que
+    // acordarse de cerrar el anterior a mano para volver a verla entera; lo que
+    // se compara casi siempre es una incidencia con la siguiente, no dos que
+    // quedaron lejos.
+    cerrarIncidenciasAbiertas(fila.parentElement);
+
+    if (abierto) return;
 
     const evento = incidenciasDetalle[Number(fila.dataset.idx)];
 
