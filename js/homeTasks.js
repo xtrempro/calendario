@@ -1,12 +1,24 @@
 // Tareas diarias del supervisor en el Home.
 //
-// Persistencia POR USUARIO y por entorno: se guardan en
-// users/{uid}/workspaces/{workspaceId} (un campo del doc de membresia del
-// usuario, que las reglas ya permiten leer/escribir solo a su dueño). Asi
-// cada administrador del entorno ve SUS propias tareas.
+// Una tarea vive en UNO de dos lugares, y lo decide su visibilidad:
 //
-// El documento guarda DOS campos:
-//   homeTasks    -> la lista de tareas (nombre, hora, periodicidad, alerta)
+//   "private" (por defecto) -> users/{uid}/workspaces/{workspaceId}, el doc de
+//       membresia del usuario, que las reglas dejan leer/escribir solo a su
+//       dueño. Es la tarea "sólo yo" de siempre.
+//   compartida ("all", "workers", "estamento:<X>") -> la clave compartida de la
+//       unidad `home_shared_tasks` (modulo de estado "home", ver
+//       js/firebaseStateModules.js). Ahi la ven TODOS los administradores del
+//       entorno, y las dirigidas a trabajadores viajan ademas a la PWA como
+//       recordatorios del supervisor (js/serverEngine.js).
+//
+// El visto NUNCA se comparte: sigue en el doc del usuario (homeTaskDone), asi
+// que cada administrador marca su propia copia de una tarea compartida. Por eso
+// lo que se guarda en la clave compartida va siempre con doneDates vacio: si
+// viajara con los dias marcados de quien la creo, los demas verian hecha una
+// tarea que no hicieron.
+//
+// El documento del usuario guarda DOS campos:
+//   homeTasks    -> sus tareas privadas (nombre, hora, periodicidad, alerta)
 //   homeTaskDone -> el visto por tarea: { [taskId]: [ISO, ...] }
 //
 // El visto va en un campo aparte y se escribe con arrayUnion/arrayRemove. Antes
@@ -25,11 +37,22 @@ import {
     getCurrentFirebaseUser
 } from "./firebaseClient.js";
 import { getActiveWorkspace } from "./workspaces.js";
+import { canEditAnyMenu } from "./workspacePermissions.js";
 import { getJSON, setJSON } from "./persistence.js";
 import { getCachedHolidays } from "./holidays.js";
 import { isBusinessDay } from "./calculations.js";
+// La visibilidad vive aparte, en un modulo puro: la comparten esta pantalla y
+// las dos copias del motor que publican a la PWA.
+import {
+    HOME_SHARED_TASKS_KEY,
+    isSharedHomeTask,
+    isValidHomeTaskVisibility
+} from "./homeSharedTasks.js";
 
+// Lista visible = las privadas de este usuario + las compartidas de la unidad.
 let cache = [];
+// Solo las privadas (las que viajan al doc del usuario).
+let ownTasks = [];
 // Visto por tarea tal como lo entrega el servidor. Manda sobre el visto que
 // venga dentro de la tarea (formato viejo).
 let doneMap = {};
@@ -58,6 +81,47 @@ const RETRY_DELAY_MS = 5000;
 function newId() {
     idCounter += 1;
     return `t${Date.now().toString(36)}${idCounter}`;
+}
+
+// A quien se le atribuye lo que se crea desde este navegador. Mismo criterio que
+// los recordatorios: el uid manda, el correo es el respaldo cuando no hay sesion
+// Firebase (uso local).
+function currentTaskOwner() {
+    const user = getCurrentFirebaseUser();
+    const fallbackName = typeof document !== "undefined"
+        ? document.getElementById("authUserName")?.textContent?.trim()
+        : "";
+    const uid = user?.uid || "";
+    const email = user?.email || "";
+
+    return {
+        uid,
+        email,
+        name: user?.displayName || email || fallbackName || "Usuario local",
+        key: uid
+            ? `uid:${uid}`
+            : (email ? `email:${email.toLowerCase()}` : "local_user")
+    };
+}
+
+/**
+ * Si esta tarea la puede modificar quien esta mirando. Una tarea compartida solo
+ * la edita o borra su autor: para el resto es de lectura (pueden marcar su
+ * propio visto, que es de cada uno).
+ */
+export function canEditHomeTask(task) {
+    if (!isSharedHomeTask(task)) return true;
+
+    const owner = currentTaskOwner();
+
+    if (task.createdByKey) return task.createdByKey === owner.key;
+    if (task.createdByUid && owner.uid) return task.createdByUid === owner.uid;
+
+    if (task.createdByEmail && owner.email) {
+        return task.createdByEmail.toLowerCase() === owner.email.toLowerCase();
+    }
+
+    return owner.key === "local_user";
 }
 
 // Cuantos vistos se conservan por tarea. Una tarea diaria acumularia un ISO por
@@ -99,6 +163,12 @@ function hasDoneEntry(map, id) {
 
 function normalizeTask(task, overrides) {
     const id = task && task.id ? String(task.id) : newId();
+    const visibility = isValidHomeTaskVisibility(task?.visibility)
+        ? task.visibility
+        : "private";
+    // Una tarea sin autor es de quien la esta guardando: o la acaba de escribir,
+    // o venia de la version anterior (y esa lista es su documento privado).
+    const owner = task?.createdByKey ? null : currentTaskOwner();
 
     return {
         id,
@@ -107,6 +177,11 @@ function normalizeTask(task, overrides) {
         repeat: String(task?.repeat || "Diario"),
         date: String(task?.date || ""),
         alert: String(task?.alert || "Sin alerta"),
+        visibility,
+        createdByKey: String(task?.createdByKey || owner?.key || ""),
+        createdByUid: String(task?.createdByUid || owner?.uid || ""),
+        createdByEmail: String(task?.createdByEmail || owner?.email || ""),
+        createdByName: String(task?.createdByName || owner?.name || ""),
         // Fechas (ISO) en que se marcó como realizada, una por dia cumplido.
         doneDates: normalizeDoneDates(
             hasDoneEntry(overrides, id) ? overrides[id] : taskDoneDates(task)
@@ -165,13 +240,70 @@ export function getHomeTasks() {
     return cache.map(task => ({ ...task }));
 }
 
-// Deja la copia local y la pantalla al dia, sin tocar el servidor.
+/* =========================================================
+   La mitad compartida (clave `home_shared_tasks` de la unidad)
+========================================================= */
+
+function readSharedTasks() {
+    const list = getJSON(HOME_SHARED_TASKS_KEY, []);
+
+    return Array.isArray(list) ? list : [];
+}
+
+// Lo que se guarda en la unidad va SIEMPRE sin dias marcados: el visto es de
+// cada administrador y vive en su propio documento.
+function sharedTaskForStorage(task) {
+    return { ...task, doneDates: [] };
+}
+
+/**
+ * Reescribe la lista compartida de la unidad.
+ *
+ * `knownIds` son todas las tareas que esta copia conoce (compartidas y
+ * privadas). Lo que ya estaba en la unidad y no aparece ahi se rescata: puede
+ * ser de otro administrador que lo acaba de crear y que esta copia todavia no
+ * recibio. Sin ese rescate, agregar una tarea propia borraria la suya.
+ */
+function writeSharedTasks(sharedTasks, knownIds, removedIds) {
+    const current = readSharedTasks();
+    const rescued = current.filter(task => {
+        const id = String(task?.id || "");
+
+        return id && !knownIds.has(id) && !removedIds.has(id);
+    });
+    const next = sortByTime(
+        normalizeList([...sharedTasks, ...rescued], {})
+    ).map(sharedTaskForStorage);
+
+    // Cada escritura viaja a toda la unidad: si nada cambio, no se escribe.
+    if (JSON.stringify(next) === JSON.stringify(current)) return;
+
+    setJSON(HOME_SHARED_TASKS_KEY, next);
+}
+
+// La lista visible sale de juntar las dos casas. Si una tarea aparece en las dos
+// -por ejemplo, una que se acaba de compartir y cuyo borrado del documento del
+// usuario todavia no confirma el servidor- manda la compartida, que es la copia
+// que ven los demas.
+function rebuildCache() {
+    const byId = new Map();
+
+    normalizeList(ownTasks, doneMap).forEach(task => byId.set(task.id, task));
+    normalizeList(readSharedTasks(), doneMap)
+        .forEach(task => byId.set(task.id, task));
+
+    cache = sortByTime([...byId.values()]);
+    changeHandler?.(getHomeTasks());
+}
+
+// Deja la copia local y la pantalla al dia, sin tocar el servidor. `tasks` son
+// SOLO las privadas: las compartidas se guardan en writeSharedTasks.
 function applyLocal(tasks, map = doneMap) {
     doneMap = map;
-    cache = normalizeList(tasks, doneMap);
-    setJSON(localKey(), cache);
+    ownTasks = normalizeList(tasks, doneMap);
+    setJSON(localKey(), ownTasks);
     setJSON(doneKey(), doneMap);
-    changeHandler?.(getHomeTasks());
+    rebuildCache();
 }
 
 async function userWorkspaceRef() {
@@ -210,20 +342,34 @@ function whenHydrated() {
 // Guarda la lista completa (agregar / editar / borrar). El visto NO viaja por
 // aca: para eso esta toggleTaskDone.
 export async function saveHomeTasks(tasks, { removedIds = [] } = {}) {
+    // Ultima guarda: un miembro de solo lectura no crea, modifica ni comparte
+    // tareas. La pantalla ya no le ofrece el boton y las reglas rechazan su
+    // escritura en la unidad; esto evita ademas que su copia local quede
+    // mostrando algo que el servidor nunca acepto.
+    if (!canEditAnyMenu()) return;
+
     // La lista que dejo el usuario, aparte de cache: mientras se espera al
     // servidor puede llegar una respuesta y reemplazar cache, y entonces se
     // guardaria lo que ya habia en vez de la edicion recien hecha.
     const intended = normalizeList(tasks);
+    const removed = new Set(removedIds.map(String));
+    // `known` lleva TODAS las tareas de esta copia, no solo las privadas: asi,
+    // la que acaba de cambiar de casa (de privada a compartida o al reves) no la
+    // rescata la otra mitad y no queda duplicada.
+    const known = new Set(intended.map(task => task.id));
 
-    applyLocal(intended);
+    writeSharedTasks(
+        intended.filter(isSharedHomeTask),
+        known,
+        removed
+    );
+    applyLocal(intended.filter(task => !isSharedHomeTask(task)));
 
     const target = await userWorkspaceRef();
     if (!target) return;
 
     await whenHydrated();
 
-    const removed = new Set(removedIds.map(String));
-    const known = new Set(intended.map(task => task.id));
     // Una tarea solo desaparece si se pidio borrarla. Las que el servidor ya
     // tenia y esta copia no conoce se rescatan: si se omitieran, guardar desde
     // una copia vieja borraria tareas que el usuario nunca toco.
@@ -231,14 +377,16 @@ export async function saveHomeTasks(tasks, { removedIds = [] } = {}) {
         task => !known.has(task.id) && !removed.has(task.id)
     );
 
-    applyLocal(sortByTime(intended.concat(rescued)));
+    applyLocal(sortByTime(
+        intended.filter(task => !isSharedHomeTask(task)).concat(rescued)
+    ));
 
     const { firestoreModule, ref } = target;
     // La lista lleva ademas el visto dentro de cada tarea: es el formato que
     // leen las versiones anteriores de la app. Para esta version manda
     // homeTaskDone; la copia de adentro solo se refresca cuando se guarda la
     // lista, que es la unica escritura que puede permitirselo sin riesgo.
-    const payload = { homeTasks: cache };
+    const payload = { homeTasks: ownTasks };
 
     if (removed.size) {
         payload.homeTaskDone = {};
@@ -268,10 +416,9 @@ export async function toggleTaskDone(taskId, iso) {
     const hadEntry = hasDoneEntry(doneMap, id);
     const previousDates = normalizeDoneDates(taskDoneDates(current));
 
-    applyLocal(
-        cache.map(task => (task.id === id ? updated : task)),
-        { ...doneMap, [id]: updated.doneDates }
-    );
+    // El visto solo toca el mapa del usuario: la tarea puede ser compartida, y
+    // guardarla como propia la sacaria de la lista de la unidad.
+    applyLocal(ownTasks, { ...doneMap, [id]: updated.doneDates });
 
     const target = await userWorkspaceRef();
     if (!target) return;
@@ -305,12 +452,7 @@ export async function toggleTaskDone(taskId, iso) {
         if (hadEntry) revertedMap[id] = previousDates;
         else delete revertedMap[id];
 
-        applyLocal(
-            cache.map(task => (
-                task.id === id ? { ...task, doneDates: previousDates } : task
-            )),
-            revertedMap
-        );
+        applyLocal(ownTasks, revertedMap);
         showTasksIssue("No se pudo guardar el visto. Revisa tu conexión.");
     }
 }
@@ -322,8 +464,14 @@ export async function deleteHomeTask(taskId) {
     const nextMap = { ...doneMap };
 
     delete nextMap[id];
-    applyLocal(cache.filter(task => task.id !== id), nextMap);
-    await saveHomeTasks(cache, { removedIds: [id] });
+    doneMap = nextMap;
+
+    // saveHomeTasks reparte lo que queda entre las dos casas, asi que borra la
+    // tarea este donde este (privada o compartida).
+    await saveHomeTasks(
+        cache.filter(task => task.id !== id),
+        { removedIds: [id] }
+    );
 }
 
 function handleSnapshot(snapshot) {
@@ -331,8 +479,8 @@ function handleSnapshot(snapshot) {
 
     doneMap = normalizeDoneMap(data.homeTaskDone);
     remoteTasks = normalizeList(data.homeTasks, doneMap);
-    cache = remoteTasks.map(task => ({ ...task }));
-    setJSON(localKey(), cache);
+    ownTasks = remoteTasks.map(task => ({ ...task }));
+    setJSON(localKey(), ownTasks);
     setJSON(doneKey(), doneMap);
 
     // Solo cuenta como sincronizado lo que vino del servidor. El SDK tambien
@@ -344,7 +492,7 @@ function handleSnapshot(snapshot) {
         resolveHydrated?.();
     }
 
-    changeHandler?.(getHomeTasks());
+    rebuildCache();
 }
 
 function scheduleResubscribe() {
@@ -398,8 +546,8 @@ export async function startHomeTasksSync(workspace, onChange) {
 
     // Hidrata desde cache local para render inmediato.
     doneMap = normalizeDoneMap(getJSON(doneKey(), {}));
-    cache = normalizeList(getJSON(localKey(), []), doneMap);
-    changeHandler?.(getHomeTasks());
+    ownTasks = normalizeList(getJSON(localKey(), []), doneMap);
+    rebuildCache();
 
     if (!currentUid || !currentWid) return;
 
@@ -421,11 +569,33 @@ export function stopHomeTasksSync() {
     currentUid = "";
     currentWid = "";
     cache = [];
+    ownTasks = [];
     doneMap = {};
     remoteTasks = [];
     hydrated = false;
     hydratedPromise = null;
     resolveHydrated = null;
+}
+
+// Lo compartido no llega por el listener del documento del usuario, sino por el
+// sync del estado de la unidad: cuando otro administrador comparte o edita una
+// tarea, el parche entra por aca y hay que repintar.
+function affectsSharedTasks(detail) {
+    if (detail?.type === "app-state-applied") {
+        return !Array.isArray(detail.modules) || detail.modules.includes("home");
+    }
+
+    if (detail?.type !== "app-state-entries-applied") return false;
+
+    return (detail.keys || []).includes(HOME_SHARED_TASKS_KEY);
+}
+
+if (typeof window !== "undefined") {
+    window.addEventListener("proturnos:firebaseAppState", event => {
+        if (!affectsSharedTasks(event.detail)) return;
+
+        rebuildCache();
+    });
 }
 
 /* =========================================================

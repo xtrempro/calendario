@@ -25,7 +25,9 @@ service cloud.firestore {
       ).data;
     }
 
-    function memberRequiresMfa(workspaceId) {
+    // Si el miembro puede editar ALGO en la unidad. Un miembro de solo lectura
+    // -sin edit en ningun menu- da false: mira, no escribe.
+    function memberCanEditSomething(workspaceId) {
       let member = memberData(workspaceId);
       let permissions =
         "permissions" in member ? member.permissions : {};
@@ -45,6 +47,12 @@ service cloud.firestore {
         ("reports" in permissions && permissions.reports.edit == true) ||
         ("dashboard" in permissions && permissions.dashboard.edit == true) ||
         ("log" in permissions && permissions.log.edit == true);
+    }
+
+    // El segundo factor se le exige exactamente a quien puede cambiar algo: a
+    // quien solo mira no hay nada que protegerle.
+    function memberRequiresMfa(workspaceId) {
+      return memberCanEditSomething(workspaceId);
     }
 
     function memberHasExplicitAccess(workspaceId) {
@@ -202,7 +210,11 @@ service cloud.firestore {
         (moduleId == "tasks" && canViewMenu(workspaceId, "tasks")) ||
         (moduleId == "agenda" && canViewMenu(workspaceId, "agenda")) ||
         (moduleId == "reports" && canViewMenu(workspaceId, "reports")) ||
-        (moduleId == "log" && canViewMenu(workspaceId, "log"));
+        (moduleId == "log" && canViewMenu(workspaceId, "log")) ||
+        // El inicio no tiene permiso de menu propio: lo ve cualquier
+        // administrador del entorno, y ahi viven las tareas diarias que uno
+        // comparte con los demas.
+        (moduleId == "home" && isMember(workspaceId));
     }
 
     function canWriteStateModule(workspaceId, moduleId) {
@@ -218,7 +230,16 @@ service cloud.firestore {
         (moduleId == "tasks" && canEditMenu(workspaceId, "tasks")) ||
         (moduleId == "agenda" && canEditMenu(workspaceId, "agenda")) ||
         (moduleId == "reports" && canEditMenu(workspaceId, "reports")) ||
-        (moduleId == "log" && canEditMenu(workspaceId, "log"));
+        (moduleId == "log" && canEditMenu(workspaceId, "log")) ||
+        // El inicio se LEE con ser miembro (hay que ver lo que le compartieron
+        // a uno), pero compartir es escribir en la unidad: un miembro de solo
+        // lectura no lo hace. No hay menu propio que mirar, asi que se le pide
+        // lo mismo que al segundo factor: poder editar algo.
+        (
+          moduleId == "home" &&
+          isMember(workspaceId) &&
+          memberCanEditSomething(workspaceId)
+        );
     }
 
     function validText(value, maxLength) {

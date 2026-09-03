@@ -1,5 +1,6 @@
 import { keyFromDate, toISODate } from "./dateUtils.js";
 import { normalizeText } from "./stringUtils.js";
+import { buildSharedHomeTaskReminders } from "./homeSharedTasks.js";
 // El registro de enlaces vive aparte para que replacements.js -y con el, el
 // motor del servidor- pueda consultarlo sin arrastrar el cliente Firebase.
 import {
@@ -1046,26 +1047,32 @@ function staffingReminderTargetsProfile(reminder, profileRole) {
     return false;
 }
 
-function buildSupervisorReminders(profile) {
+// Al calendario del trabajador llegan DOS cosas por este canal: los
+// recordatorios del resumen RRHH y las tareas diarias del inicio que el
+// supervisor comparta con los trabajadores (js/homeSharedTasks.js).
+function buildSupervisorReminders(profile, today = new Date()) {
     const reminders = getJSON(STAFFING_REMINDERS_KEY, []);
-
-    if (!Array.isArray(reminders)) return [];
-
     const role = profile?.estamento || "";
+    const fromReminders = Array.isArray(reminders)
+        ? reminders
+            .filter(reminder => reminder?.dateISO && reminder?.description)
+            .filter(reminder => staffingReminderTargetsProfile(reminder, role))
+            .map(reminder => ({
+                id: String(reminder.id || ""),
+                date: String(reminder.dateISO || ""),
+                title: String(reminder.description || "").trim(),
+                description: "Recordatorio enviado por el supervisor.",
+                periodicity:
+                    STAFFING_RECURRENCE_TO_WORKER[reminder.recurrence] ||
+                    "Una sola vez",
+                source: "Supervisor"
+            }))
+        : [];
 
-    return reminders
-        .filter(reminder => reminder?.dateISO && reminder?.description)
-        .filter(reminder => staffingReminderTargetsProfile(reminder, role))
-        .map(reminder => ({
-            id: String(reminder.id || ""),
-            date: String(reminder.dateISO || ""),
-            title: String(reminder.description || "").trim(),
-            description: "Recordatorio enviado por el supervisor.",
-            periodicity:
-                STAFFING_RECURRENCE_TO_WORKER[reminder.recurrence] ||
-                "Una sola vez",
-            source: "Supervisor"
-        }));
+    return [
+        ...fromReminders,
+        ...buildSharedHomeTaskReminders(profile, today)
+    ];
 }
 
 async function computeOvertimeSummaries(profile, schedule) {

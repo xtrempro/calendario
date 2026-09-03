@@ -609,6 +609,78 @@ test("reglas modulares de Firestore y Storage", async t => {
     );
 
     await t.test(
+        "las tareas compartidas del inicio: las ve la unidad, las escribe quien puede editar",
+        async () => {
+            // El inicio no es un menu con permiso propio: lo ve cualquier
+            // administrador del entorno. Si su modulo se hubiera colgado de uno
+            // que si tiene permiso (weekly, tasks...), a quien no tuviera ese
+            // menu no le llegaria la tarea que le compartieron.
+            const homePath = [
+                "workspaces",
+                WORKSPACE_ID,
+                "stateModules",
+                "home"
+            ];
+
+            await assertSucceeds(
+                setDoc(
+                    doc(profileEditor.firestore(), ...homePath),
+                    manifest("home", "home")
+                )
+            );
+            await assertSucceeds(
+                setDoc(
+                    doc(
+                        profileEditor.firestore(),
+                        ...homePath,
+                        "entries",
+                        "home_shared_tasks"
+                    ),
+                    stateEntry("home", "home_shared_tasks")
+                )
+            );
+            await assertSucceeds(
+                getDoc(doc(turnosEditor.firestore(), ...homePath))
+            );
+
+            // Solo lectura: ve lo que le compartieron, pero no comparte. Es la
+            // unica via por la que podria escribirle al telefono de todos los
+            // trabajadores, y no la tiene.
+            await assertSucceeds(
+                getDoc(doc(viewer.firestore(), ...homePath))
+            );
+            await assertFails(
+                setDoc(
+                    doc(viewer.firestore(), ...homePath),
+                    manifest("home", "home")
+                )
+            );
+            await assertFails(
+                setDoc(
+                    doc(
+                        viewer.firestore(),
+                        ...homePath,
+                        "entries",
+                        "home_shared_tasks"
+                    ),
+                    stateEntry("home", "home_shared_tasks")
+                )
+            );
+
+            // Fuera de la unidad, nada.
+            await assertFails(
+                getDoc(doc(outsider.firestore(), ...homePath))
+            );
+            await assertFails(
+                setDoc(
+                    doc(outsider.firestore(), ...homePath),
+                    manifest("home", "home")
+                )
+            );
+        }
+    );
+
+    await t.test(
         TEST_MFA_RULES
             ? "Test bloquea operaciones privilegiadas sin MFA"
             : "produccion permite operar sin MFA mientras TOTP esta desactivado",

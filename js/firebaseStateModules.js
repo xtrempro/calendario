@@ -11,6 +11,11 @@ export const FIREBASE_STATE_MODULES = Object.freeze({
     agenda: { permission: "agenda" },
     reports: { permission: "reports" },
     log: { permission: "log" },
+    // El inicio no es un menu con permiso propio: lo ve todo administrador del
+    // entorno. Por eso su permiso no coincide con ninguna clave de
+    // MENU_PERMISSION_DEFS y canViewMenu/canEditMenu lo dejan pasar; en las
+    // reglas basta con ser miembro de la unidad.
+    home: { permission: "home" },
     system: { permission: "owner" }
 });
 
@@ -32,6 +37,10 @@ const EXACT_KEY_MODULES = new Map([
     ["workerNotifications", "requests"],
     ["memos", "memos"],
     ["agenda_contacts", "agenda"],
+    // Tareas diarias del inicio que un administrador comparte con la unidad o
+    // con los trabajadores. Las privadas NO pasan por aca: viven en el
+    // documento de su dueño (ver js/homeTasks.js).
+    ["home_shared_tasks", "home"],
     ["staffing_config", "weekly"],
     ["staffing_applicants", "weekly"],
     ["staffing_custom_reminders", "weekly"],

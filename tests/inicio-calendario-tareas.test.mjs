@@ -488,7 +488,12 @@ test("la lista completa no se sube antes de la primera respuesta del servidor", 
     // esperar al servidor era la via por la que el visto volvia atras.
     assert.match(
         homeTasks,
-        /export async function saveHomeTasks\([\s\S]{0,600}await whenHydrated\(\);/
+        /export async function saveHomeTasks\([\s\S]{0,1200}await whenHydrated\(\);/
+    );
+    // Y la espera va ANTES de la unica escritura al documento del usuario.
+    assert.match(
+        homeTasks,
+        /await whenHydrated\(\);[\s\S]{0,1400}firestoreModule\.setDoc\(ref, payload/
     );
 });
 
@@ -510,14 +515,16 @@ test("un visto que no se pudo guardar no queda marcado en pantalla", () => {
     // Si la escritura falla y la pantalla lo deja marcado, el supervisor lo da
     // por hecho y lo encuentra sin marcar mas tarde: es el mismo sintoma.
     assert.match(homeTasks, /const revertedMap = \{ \.\.\.doneMap \};/);
-    assert.match(homeTasks, /doneDates: previousDates/);
+    assert.match(homeTasks, /revertedMap\[id\] = previousDates;/);
+    assert.match(homeTasks, /applyLocal\(ownTasks, revertedMap\);/);
     assert.match(homeTasks, /showTasksIssue\("No se pudo guardar el visto/);
 });
 
-test("las tareas del inicio no viajan por el estado compartido de la unidad", () => {
+test("las tareas privadas no viajan por el estado compartido de la unidad", () => {
     // Son de UN usuario: en el estado compartido las verian los demas
     // supervisores y replaceLocalSnapshot podria borrarlas o devolverlas a una
-    // version vieja.
+    // version vieja. (Las COMPARTIDAS si viajan, pero por otra clave: ver
+    // tests/inicio-tareas-compartidas.test.mjs.)
     assert.match(persistence, /"homeTasks_",/);
     assert.match(persistence, /"homeTasksDone_",/);
 });

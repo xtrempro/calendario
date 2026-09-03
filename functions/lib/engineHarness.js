@@ -26,7 +26,10 @@ const STATE_MODULES = [
     "clockmarks",
     "hours",
     "weekly",
-    "tasks"
+    "tasks",
+    // Tareas diarias del inicio compartidas con los trabajadores: viajan a la
+    // PWA junto a los recordatorios (js/homeSharedTasks.js).
+    "home"
 ];
 
 // ───────── Shim de globales del navegador (una sola vez por proceso) ─────────

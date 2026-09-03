@@ -9,7 +9,7 @@
 
 import { escapeHTML } from "./htmlUtils.js";
 import { getCurrentFirebaseUser } from "./firebaseClient.js";
-import { isWorkspaceOwner } from "./workspacePermissions.js";
+import { canEditAnyMenu, isWorkspaceOwner } from "./workspacePermissions.js";
 import {
     getAdminDisplayName,
     getReportSignatureConfig,
@@ -55,6 +55,7 @@ import {
 } from "./swaps.js";
 import { TURNO_LABEL, ESTAMENTO, TURNO } from "./constants.js";
 import {
+    canEditHomeTask,
     getHomeTasks,
     saveHomeTasks,
     deleteHomeTask,
@@ -62,6 +63,11 @@ import {
     isTaskDoneOn,
     toggleTaskDone
 } from "./homeTasks.js";
+import {
+    homeTaskVisibilityBadge,
+    homeTaskVisibilityLabel,
+    isSharedHomeTask
+} from "./homeSharedTasks.js";
 import {
     acceptWorkerRequestById,
     rejectWorkerRequestById
@@ -120,6 +126,19 @@ const REPEAT_OPTS = [
 const ALERT_OPTS = [
     "Sin alerta", "Al momento", "5 minutos antes", "15 minutos antes", "30 minutos antes", "1 hora antes"
 ];
+// Con quien se comparte una tarea. Son las mismas opciones que tenian los
+// recordatorios del resumen RRHH -de ahi vienen-, con la diferencia de que aca
+// la primera y la de por defecto es "sólo yo": una tarea diaria es de quien la
+// escribe mientras no diga lo contrario.
+const VISIBILITY_OPTS = [
+    ["private", "Sólo yo (sólo quien la crea)"],
+    ["all", "Todos los usuarios administradores de la unidad"],
+    ["workers", "Todos los trabajadores"],
+    ...ESTAMENTO.map(estamento => [
+        `estamento:${estamento}`,
+        `Trabajadores: ${estamento}`
+    ])
+];
 const REQUEST_LEAVE_TYPES = new Set([
     "",
     "admin",
@@ -150,6 +169,14 @@ let editingTaskId = "";
 
 function optionsHTML(opts, selected) {
     return opts.map(o => `<option ${o === selected ? "selected" : ""}>${esc(o)}</option>`).join("");
+}
+
+function visibilityOptionsHTML(selected = "private") {
+    return VISIBILITY_OPTS
+        .map(([value, label]) => `<option value="${esc(value)}"${
+            value === selected ? " selected" : ""
+        }>${esc(label)}</option>`)
+        .join("");
 }
 
 function todayISO() {
@@ -961,12 +988,47 @@ function panelHead(icon, title, extra = "") {
 }
 
 // ---- Widgets ----
+/**
+ * Si este usuario puede crear, modificar o compartir tareas.
+ *
+ * Un miembro de solo lectura -el que no puede editar NINGUN menu de la unidad-
+ * no las escribe: ve las que le compartieron y marca su propio visto, que es
+ * suyo y vive en su documento. El inicio no tiene menu con permiso propio, asi
+ * que la pregunta es "puede editar algo", que es la misma que hacen las reglas
+ * para el modulo compartido.
+ */
+function canAuthorTasks() {
+    return canEditAnyMenu();
+}
+
+// Las dos condiciones juntas: poder escribir en la unidad y, si la tarea es
+// compartida, ser quien la creo. Es LA pregunta que hacen tanto el modal como
+// los botones de guardar y eliminar.
+function canModifyTask(task) {
+    return canAuthorTasks() && canEditHomeTask(task);
+}
+
+// Marca de "esta tarea no es solo mia". Sin ella, una tarea de otro
+// administrador se ve igual que una propia y no se entiende por que no se puede
+// editar.
+function taskShareBadgeHTML(task) {
+    if (!isSharedHomeTask(task)) return "";
+
+    const detail = canEditHomeTask(task)
+        ? homeTaskVisibilityLabel(task.visibility)
+        : `${homeTaskVisibilityLabel(task.visibility)} · la comparte ${taskAuthorName(task)}`;
+
+    return `<span class="hm-task-share" title="${esc(detail)}">${
+        esc(homeTaskVisibilityBadge(task.visibility))
+    }</span>`;
+}
+
 function taskRowHTML(t) {
     const done = isTaskDoneOn(t, todayISO());
     return `
         <div class="hm-task ${done ? "is-done" : ""}" data-hm="task-row" data-id="${esc(t.id)}" role="button" tabindex="0" title="Modificar tarea">
             <button class="hm-task-check" type="button" data-hm="task-toggle" data-id="${esc(t.id)}" aria-pressed="${done ? "true" : "false"}" aria-label="Marcar como realizada">${svg(IC.check, 'stroke-width="3"')}</button>
-            <span class="hm-task-name">${esc(t.name)}</span>
+            <span class="hm-task-name">${esc(t.name)}${taskShareBadgeHTML(t)}</span>
             <span class="hm-task-time">${esc(t.time)}</span>
         </div>`;
 }
@@ -978,14 +1040,20 @@ function tasksListHTML() {
     const tasks = getTasksForDay(new Date());
 
     if (!tasks.length) {
-        return `<div class="hm-empty">Sin tareas para hoy. Agrégalas con el botón + o revisa el calendario.</div>`;
+        return canAuthorTasks()
+            ? `<div class="hm-empty">Sin tareas para hoy. Agrégalas con el botón + o revisa el calendario.</div>`
+            : `<div class="hm-empty">Sin tareas para hoy.</div>`;
     }
 
     return tasks.map(taskRowHTML).join("");
 }
 
 function tareasWidget() {
-    const addBtn = `<button class="hm-gear" type="button" data-hm="tasks-add" aria-label="Agregar tarea" title="Agregar tarea">${svg(IC.plus, 'stroke-width="2.4"')}</button>`;
+    // Sin el boton no hay por donde agregar: al de solo lectura no se le ofrece
+    // una accion que despues se le va a negar.
+    const addBtn = canAuthorTasks()
+        ? `<button class="hm-gear" type="button" data-hm="tasks-add" aria-label="Agregar tarea" title="Agregar tarea">${svg(IC.plus, 'stroke-width="2.4"')}</button>`
+        : "";
     return `
         <div class="hm-card hm-col-4">
             ${panelHead(IC.checkClip, "Tareas diarias", addBtn)}
@@ -1306,8 +1374,8 @@ function dayTasksModal() {
                 <div class="hm-modal-head">
                     <span class="hm-modal-ico">${svg(IC.checkClip)}</span>
                     <h3 data-hm="dt-title">Tareas del día</h3>
-                    <button class="hm-modal-action" type="button" data-hm="dt-add"
-                        aria-label="Agregar tarea" title="Agregar tarea">${svg(IC.plus, 'stroke-width="2.4"')}</button>
+                    ${canAuthorTasks() ? `<button class="hm-modal-action" type="button" data-hm="dt-add"
+                        aria-label="Agregar tarea" title="Agregar tarea">${svg(IC.plus, 'stroke-width="2.4"')}</button>` : ""}
                     <button class="hm-modal-close" type="button" data-hm="close" aria-label="Cerrar">&times;</button>
                 </div>
                 <div class="hm-modal-body" data-hm="dt-body"></div>
@@ -1324,7 +1392,7 @@ function dayTaskRowHTML(task, iso) {
             <button class="hm-task-check" type="button" data-hm="dt-toggle" data-id="${esc(task.id)}"
                 aria-pressed="${done ? "true" : "false"}" aria-label="Marcar como realizada">${svg(IC.check, 'stroke-width="3"')}</button>
             <span class="hm-dt-time">${esc(task.time)}</span>
-            <span class="hm-dt-name">${esc(task.name)}</span>
+            <span class="hm-dt-name">${esc(task.name)}${taskShareBadgeHTML(task)}</span>
             <span class="hm-dt-repeat">${esc(task.repeat)}</span>
         </div>`;
 }
@@ -2537,6 +2605,10 @@ function tasksModal() {
                                 <option>1 hora antes</option>
                             </select>
                         </label>
+                        <label class="hm-full">Visibilidad
+                            <select data-hm="nt-visibility">${visibilityOptionsHTML()}</select>
+                            <small class="hm-field-note">Compartida, la ven todos los administradores de la unidad; dirigida a trabajadores, les llega además al calendario de su teléfono.</small>
+                        </label>
                     </div>
                 </div>
                 <div class="hm-modal-foot">
@@ -2565,7 +2637,11 @@ function taskEditModal() {
                         <label>Horario <input type="time" data-hm="et-time"></label>
                         <label>Repetir <select data-hm="et-repeat">${optionsHTML(REPEAT_OPTS, "Diario")}</select></label>
                         <label>Alerta <select data-hm="et-alert">${optionsHTML(ALERT_OPTS, "Sin alerta")}</select></label>
+                        <label class="hm-full">Visibilidad
+                            <select data-hm="et-visibility">${visibilityOptionsHTML()}</select>
+                        </label>
                     </div>
+                    <div class="hm-field-note" data-hm="et-shared-note" hidden></div>
                 </div>
                 <div class="hm-modal-foot hm-modal-foot--split">
                     <button class="hm-btn-danger" type="button" data-hm="delete-task">${svg(IC.trash, 'stroke-width="2"')} Eliminar tarea</button>
@@ -2896,7 +2972,7 @@ function homeHTML() {
 // ---- Interactividad ----
 function openTaskAdd(panel, date = todayISO(), options = {}) {
     const modal = panel.querySelector('[data-hm="tasks-modal"]');
-    if (!modal) return;
+    if (!modal || !canAuthorTasks()) return;
 
     modal.classList.toggle("hm-modal-backdrop--top", Boolean(options.top));
     modal.querySelector('[data-hm="nt-name"]').value = "";
@@ -2904,8 +2980,18 @@ function openTaskAdd(panel, date = todayISO(), options = {}) {
     modal.querySelector('[data-hm="nt-time"]').value = "08:00";
     modal.querySelector('[data-hm="nt-repeat"]').value = "Diario";
     modal.querySelector('[data-hm="nt-alert"]').value = "15 minutos antes";
+    modal.querySelector('[data-hm="nt-visibility"]').value = "private";
     modal.hidden = false;
     modal.querySelector('[data-hm="nt-name"]')?.focus();
+}
+
+// Quien comparte la tarea, con el nombre que el supervisor le puso a esa cuenta
+// (el de Google puede ser un alias que nadie reconoce).
+function taskAuthorName(task) {
+    return getAdminDisplayName(task?.createdByEmail) ||
+        task?.createdByName ||
+        task?.createdByEmail ||
+        "otro administrador";
 }
 
 function openTaskEdit(panel, id) {
@@ -2920,6 +3006,32 @@ function openTaskEdit(panel, id) {
     modal.querySelector('[data-hm="et-time"]').value = task.time || "08:00";
     modal.querySelector('[data-hm="et-repeat"]').value = task.repeat || "Diario";
     modal.querySelector('[data-hm="et-alert"]').value = task.alert || "Sin alerta";
+    modal.querySelector('[data-hm="et-visibility"]').value =
+        task.visibility || "private";
+
+    // Dos motivos para abrirlo de solo lectura: el usuario no puede escribir
+    // nada en la unidad, o la tarea es de otro (una compartida la edita o borra
+    // SOLO quien la creo). Marcar el visto si que pueden los dos: es de cada uno
+    // y vive en su documento.
+    const readOnlyUser = !canAuthorTasks();
+    const editable = canModifyTask(task);
+    const note = modal.querySelector('[data-hm="et-shared-note"]');
+
+    modal.querySelectorAll("input, select").forEach(field => {
+        field.disabled = !editable;
+    });
+    modal.querySelectorAll('[data-hm="save-task"], [data-hm="delete-task"]')
+        .forEach(button => { button.hidden = !editable; });
+
+    if (note) {
+        note.hidden = editable;
+        note.textContent = editable
+            ? ""
+            : (readOnlyUser
+                ? "Tu usuario tiene permiso solo de lectura: puedes marcarla como realizada, pero no modificarla."
+                : `Compartida por ${taskAuthorName(task)}: solo puedes marcarla como realizada.`);
+    }
+
     modal.hidden = false;
 }
 
@@ -2972,12 +3084,16 @@ function wire(panel) {
                 if (!name) { nameInput.focus(); return; }
                 const tasks = getHomeTasks();
                 const task = tasks.find(t => t.id === editingTaskId);
-                if (task) {
+                // El boton esta oculto para quien no puede, pero la guarda va
+                // igual: la tarea es de toda la unidad y ni un click sintetico
+                // ni un usuario de solo lectura pueden reescribirla.
+                if (task && canModifyTask(task)) {
                     task.name = name;
                     task.date = editModal.querySelector('[data-hm="et-date"]').value;
                     task.time = editModal.querySelector('[data-hm="et-time"]').value || "08:00";
                     task.repeat = editModal.querySelector('[data-hm="et-repeat"]').value;
                     task.alert = editModal.querySelector('[data-hm="et-alert"]').value;
+                    task.visibility = editModal.querySelector('[data-hm="et-visibility"]').value;
                     tasks.sort((a, b) => a.time.localeCompare(b.time));
                     saveHomeTasks(tasks);
                     refreshTasks();
@@ -2986,7 +3102,9 @@ function wire(panel) {
                 return;
             }
             if (event.target.closest('[data-hm="delete-task"]')) {
-                if (editingTaskId) {
+                const task = getHomeTasks().find(t => t.id === editingTaskId);
+
+                if (task && canModifyTask(task)) {
                     // Borrar es la UNICA via por la que una tarea desaparece del
                     // documento: guardar una lista sin ella no la borra.
                     void deleteHomeTask(editingTaskId);
@@ -3013,6 +3131,7 @@ function wire(panel) {
                 return;
             }
             if (event.target.closest('[data-hm="add-task"]')) {
+                if (!canAuthorTasks()) { closeTaskAdd(); return; }
                 const nameInput = modal.querySelector('[data-hm="nt-name"]');
                 const name = String(nameInput.value || "").trim();
                 if (!name) { nameInput.focus(); return; }
@@ -3023,6 +3142,7 @@ function wire(panel) {
                     repeat: modal.querySelector('[data-hm="nt-repeat"]').value,
                     date: modal.querySelector('[data-hm="nt-date"]').value,
                     alert: modal.querySelector('[data-hm="nt-alert"]').value,
+                    visibility: modal.querySelector('[data-hm="nt-visibility"]').value,
                     doneDates: []
                 });
                 tasks.sort((a, b) => a.time.localeCompare(b.time));
