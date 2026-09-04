@@ -104,6 +104,7 @@
     "test:worker": "node --test tests/schedule-worker.test.mjs",
     "test:linked-units": "node --test tests/linked-units-on-demand.test.mjs",
     "test:leave-application": "node --test tests/leave-application.test.mjs",
+    "test:permiso-espera": "node --test tests/permiso-espera-cobertura.test.mjs",
     "test:profile-leave-history": "node --test tests/profile-leave-history.test.mjs",
     "test:hosting-security": "node --test tests/hosting-security-config.test.mjs",
     "test:app-check": "node --test tests/firebase-app-check-config.test.mjs",

@@ -1,4 +1,4 @@
-import { keyFromDate, toISODate } from "./dateUtils.js";
+import { isoFromKey, keyFromDate, toISODate } from "./dateUtils.js";
 import { normalizeText } from "./stringUtils.js";
 import { buildSharedHomeTaskReminders } from "./homeSharedTasks.js";
 // El registro de enlaces vive aparte para que replacements.js -y con el, el
@@ -40,6 +40,7 @@ import {
     getTurnoExtraAgregado,
     obtenerLabelDia
 } from "./rulesEngine.js";
+import { heldLeaveKeys } from "./leaveHold.js";
 import { canSwapProfiles, activeMonthlySwapCount, getCambioTurnoCalendario } from "./swaps.js";
 import { getWorkerBlockedDays } from "./workerAvailability.js";
 import {
@@ -121,7 +122,12 @@ const WORKER_APP_PROJECTION_PROFILE_STATE_PREFIXES = [
     "contractHistory_",
     "leaveBalances_",
     "hourReturns_",
-    "clockMarks_"
+    "clockMarks_",
+    // La cobertura decide si un permiso ya puede viajar: sin estas dos, la Cloud
+    // Function las leeria viejas y publicaria (o seguiria escondiendo) permisos
+    // que aqui ya se resolvieron. Ver js/leaveHold.js.
+    "noCoverage_",
+    "leaveHold_"
 ];
 const WORKER_APP_PROJECTION_GLOBAL_STATE_KEYS = [
     "profiles",
@@ -154,7 +160,12 @@ const PROFILE_KEY_PREFIXES = [
     "clockMarks_",
     "gradeHistory_",
     "contractHistory_",
-    "carry_"
+    "carry_",
+    // Cubrir un turno (o marcarlo sin cobertura) puede LIBERAR un permiso que
+    // estaba en espera: el calendario del trabajador cambia sin que cambie
+    // ningun mapa de permisos. Ver js/leaveHold.js.
+    "noCoverage_",
+    "leaveHold_"
 ];
 
 // Las claves globales se reconocen, pero no disparan una republicacion masiva:
@@ -526,12 +537,37 @@ function classNameForDay(state, hasLeave) {
     }
 }
 
+function omitLeaveKeys(map, keys) {
+    const result = {};
+
+    Object.entries(map || {}).forEach(([key, value]) => {
+        if (!keys.has(key)) result[key] = value;
+    });
+
+    return result;
+}
+
+// Un permiso EN ESPERA DE COBERTURA no existe todavia para el trabajador: se
+// quita de los mapas antes de calcular nada, y asi el dia, su etiqueta, su
+// color, las excepciones y los saldos salen todos como si no se hubiera
+// aplicado. Ver js/leaveHold.js.
+// Copia identica en serverEngine.js (motor duplicado).
 function profileLeaveMaps(profileName) {
-    return {
+    const maps = {
         admin: getJSON("admin_" + profileName, {}),
         legal: getJSON("legal_" + profileName, {}),
         comp: getJSON("comp_" + profileName, {}),
         absences: getJSON("absences_" + profileName, {})
+    };
+    const held = heldLeaveKeys(profileName);
+
+    if (!held.size) return maps;
+
+    return {
+        ...maps,
+        admin: omitLeaveKeys(maps.admin, held),
+        legal: omitLeaveKeys(maps.legal, held),
+        comp: omitLeaveKeys(maps.comp, held)
     };
 }
 
@@ -906,7 +942,7 @@ async function hasContinuousLegalBlock(
     year,
     holidays = null
 ) {
-    const legal = getJSON("legal_" + profileName, {});
+    const legal = profileLeaveMaps(profileName).legal;
     const yearHolidays = holidays || await fetchHolidays(year);
     const cursor = new Date(year, 0, 1);
     let currentRun = 0;
@@ -2621,6 +2657,31 @@ function shouldDeferDirectEditCalendarEvent(metadata) {
     );
 }
 
+const HELDABLE_LEAVE_EVENT_SOURCES = new Set([
+    "administrative_leave",
+    "legal_leave",
+    "compensatory_leave"
+]);
+
+// Un permiso EN ESPERA DE COBERTURA tampoco avisa. La notificacion sale despues,
+// cuando el supervisor cubre uno de los turnos comprometidos y el bloque se
+// libera (js/leaveHold.js -> releaseLeaveHoldsForCoverage). Solo se calla si
+// TODOS los dias del cambio estan en espera: un permiso que ademas toca dias ya
+// publicados si tiene que avisar.
+function shouldSilenceHeldLeaveCalendarEvent(metadata, profileName) {
+    if (!HELDABLE_LEAVE_EVENT_SOURCES.has(metadata?.source)) return false;
+
+    const dates = metadata.affectedDates || [];
+
+    if (!dates.length) return false;
+
+    const held = new Set(
+        [...heldLeaveKeys(profileName)].map(isoFromKey)
+    );
+
+    return dates.every(date => held.has(date));
+}
+
 function applyDirtyFromKeys(keys, changes = {}) {
     if (!activeWorkspace?.id || !getWorkerAppLinkList().length) return;
     if (!Array.isArray(keys) || !keys.length) return;
@@ -2664,12 +2725,21 @@ function applyDirtyFromKeys(keys, changes = {}) {
                 continue;
             }
 
-            registerCalendarEventForLinkedProfile({
-                profile: item.profile,
-                link: item.link,
+            // El permiso en espera SI publica (asi `leaveHold_` llega a Firestore
+            // antes de que la Cloud Function recalcule); lo unico que se calla es
+            // el aviso al trabajador.
+            if (!shouldSilenceHeldLeaveCalendarEvent(
                 metadata,
-                entityId: key
-            });
+                result.profileName
+            )) {
+                registerCalendarEventForLinkedProfile({
+                    profile: item.profile,
+                    link: item.link,
+                    metadata,
+                    entityId: key
+                });
+            }
+
             relevant = true;
             shouldPublishNow = true;
         }

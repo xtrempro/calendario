@@ -62,7 +62,9 @@ test("cancelReplacedProfileLeave reporta a los trabajadores que cubrian", () => 
     const start = calendar.indexOf(
         "async function cancelReplacedProfileLeave("
     );
-    const body = calendar.slice(start, start + 5000);
+    // La ventana tiene que cubrir el cuerpo entero: la funcion crecio al limpiar
+    // tambien la espera de cobertura del permiso (js/leaveHold.js).
+    const body = calendar.slice(start, start + 6000);
 
     // Captura determinista de quienes cubren ANTES de cancelar (no depende de la
     // salida del undo, que no siempre reporta a esos trabajadores).

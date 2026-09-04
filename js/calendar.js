@@ -180,6 +180,10 @@ import {
     getPreassignmentTurnForWorker
 } from "./preassignments.js";
 import {
+    releaseLeaveHoldsForCoverage,
+    removeLeaveHoldKeys
+} from "./leaveHold.js";
+import {
     clearClockMark,
     clockMarkAppliesToTurn,
     getClockMarks,
@@ -5609,6 +5613,9 @@ async function cancelReplacedProfileLeave(profileName, keyDay) {
         });
 
         if (result?.ok) {
+            // El permiso ya no existe: su espera de cobertura tampoco.
+            removeLeaveHoldKeys(profileName, cancelKeys);
+
             // Trabajadores cuyos reemplazos se cancelaron: hay que refrescar sus
             // filas del timeline para quitar el turno cubierto y sus HH.EE. Se
             // unen los capturados antes y los que reporta el undo del LOG.
@@ -5631,6 +5638,9 @@ async function cancelReplacedProfileLeave(profileName, keyDay) {
             delete sourceMap[dayKey];
         }
     });
+
+    // El permiso ya no existe: su espera de cobertura tampoco.
+    removeLeaveHoldKeys(profileName, cancelKeys);
 
     if (
         type === "admin" ||
@@ -6014,6 +6024,10 @@ async function openReplacementDialog(profileName, keyDay, options = {}) {
                     }
 
                     setNoCoverageDay(profileName, keyDay, true, reason);
+                    // Declarar que este turno no necesita reemplazo tambien
+                    // resuelve la cobertura: libera el permiso que estaba en
+                    // espera y lo manda a la PWA. Ver js/leaveHold.js.
+                    releaseLeaveHoldsForCoverage(profileName);
                     addAuditLog(
                         AUDIT_CATEGORY.CALENDAR,
                         "Marco sin cobertura",
@@ -7933,6 +7947,44 @@ function dayNeedsReplacement(
         !getInheritedReplacementContractForCoveredShift(profileName, keyDay) &&
         !isNoCoverageDay(profileName, keyDay)
     );
+}
+
+/**
+ * Abre las sugerencias de reemplazo sobre el PRIMER turno que un permiso recien
+ * aplicado dejo descubierto. El calendario lo llama al aplicar un
+ * P. Administrativo: resolver ese turno -asignando a alguien o marcandolo sin
+ * cobertura- es justo lo que libera el permiso hacia la PWA (js/leaveHold.js),
+ * asi que la accion que falta se ofrece en el acto y no queda para despues.
+ *
+ * @returns {Promise<boolean>} si se abrio el modal.
+ */
+export async function openReplacementSuggestionsForLeaveBlock(
+    profileName,
+    keys = []
+) {
+    if (!profileName) return false;
+
+    const admin = getJSON(`admin_${profileName}`, {});
+    const legal = getJSON(`legal_${profileName}`, {});
+    const comp = getJSON(`comp_${profileName}`, {});
+    const absences = getJSON(`absences_${profileName}`, {});
+    const pending = (Array.isArray(keys) ? keys : [keys])
+        .map(key => String(key || "").trim())
+        .filter(Boolean)
+        .find(keyDay => dayNeedsReplacement(
+            profileName,
+            keyDay,
+            admin,
+            legal,
+            comp,
+            absences
+        ));
+
+    if (!pending) return false;
+
+    await openReplacementDialog(profileName, pending);
+
+    return true;
 }
 
 async function clickDia(

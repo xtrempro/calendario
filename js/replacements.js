@@ -44,6 +44,7 @@ import {
     AUDIT_CATEGORY
 } from "./auditLog.js";
 import { getWorkerAppLinkForProfile } from "./workerAppLinks.js";
+import { releaseLeaveHoldsForCoverage } from "./leaveHold.js";
 import { removePreassignment } from "./preassignments.js";
 
 function formatNotificationDate(value) {
@@ -1042,6 +1043,13 @@ export function saveReplacement(data) {
                 }
             })
         );
+    }
+
+    // Este era el turno que el permiso del ausente dejaba descubierto: al
+    // cubrirlo se libera el bloque entero hacia su PWA, con el aviso que se
+    // callo al aplicarlo. Ver js/leaveHold.js.
+    if (record.replaced) {
+        releaseLeaveHoldsForCoverage(record.replaced);
     }
 
     addAuditLog(

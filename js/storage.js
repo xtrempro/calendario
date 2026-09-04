@@ -2020,6 +2020,7 @@ export function updateProfile(oldName, nextProfile){
         "admin_",
         "legal_",
         "comp_",
+        "leaveHold_",
         "absences_",
         "rotativa_",
         "leaveBalances_",

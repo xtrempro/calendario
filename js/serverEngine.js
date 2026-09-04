@@ -23,6 +23,7 @@ import {
     getGradeHistory
 } from "./storage.js";
 import { getTurnoExtraAgregado, obtenerLabelDia } from "./rulesEngine.js";
+import { heldLeaveKeys } from "./leaveHold.js";
 import { turnoLabel } from "./uiEngine.js";
 import { getDayColorGradient, buildHexColorResolver } from "./dayColorBands.js";
 import { getTurnoColorConfig } from "./turnoColors.js";
@@ -344,12 +345,37 @@ function classNameForDay(state, hasLeave) {
     }
 }
 
+function omitLeaveKeys(map, keys) {
+    const result = {};
+
+    Object.entries(map || {}).forEach(([key, value]) => {
+        if (!keys.has(key)) result[key] = value;
+    });
+
+    return result;
+}
+
+// Un permiso EN ESPERA DE COBERTURA no existe todavia para el trabajador: se
+// quita de los mapas antes de calcular nada, y asi el dia, su etiqueta, su
+// color, las excepciones y los saldos salen todos como si no se hubiera
+// aplicado. Ver js/leaveHold.js.
+// Copia identica en workerAppDataSync.js (motor duplicado).
 function profileLeaveMaps(profileName) {
-    return {
+    const maps = {
         admin: getJSON("admin_" + profileName, {}),
         legal: getJSON("legal_" + profileName, {}),
         comp: getJSON("comp_" + profileName, {}),
         absences: getJSON("absences_" + profileName, {})
+    };
+    const held = heldLeaveKeys(profileName);
+
+    if (!held.size) return maps;
+
+    return {
+        ...maps,
+        admin: omitLeaveKeys(maps.admin, held),
+        legal: omitLeaveKeys(maps.legal, held),
+        comp: omitLeaveKeys(maps.comp, held)
     };
 }
 
@@ -668,7 +694,7 @@ function usedAdministrativeDays(map, year) {
 }
 
 function hasContinuousLegalBlock(profileName, year, holidays) {
-    const legal = getJSON("legal_" + profileName, {});
+    const legal = profileLeaveMaps(profileName).legal;
     const cursor = new Date(year, 0, 1);
     let currentRun = 0;
 

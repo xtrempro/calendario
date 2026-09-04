@@ -58,6 +58,7 @@ import {
     tieneTurnoExtraAgregado,
     esTurnoCapacitacionValido
 } from "./rulesEngine.js";
+import { holdLeaveApplication } from "./leaveHold.js";
 import { createLeaveMemoTask } from "./memos.js";
 import { showConfirm } from "./dialogs.js";
 
@@ -70,6 +71,20 @@ function formatKey(key) {
     const parts = iso.split("-");
 
     return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+/**
+ * Deja el bloque recien aplicado a la espera de cobertura, si quien lo aplica lo
+ * pide (hoy solo el calendario del supervisor: la aprobacion de una solicitud del
+ * propio trabajador no espera, porque el ya sabe que la pidio).
+ *
+ * Se anota ANTES de guardar el mapa del permiso: el aviso a la PWA se decide en
+ * el mismo instante en que `admin_`/`legal_`/`comp_` cambian. Ver js/leaveHold.js.
+ */
+function holdLeaveIfRequested(options, profile, keys) {
+    if (options?.holdUntilCovered !== true) return;
+
+    holdLeaveApplication(profile, keys);
 }
 
 function replacementConflictLine(replacement) {
@@ -466,7 +481,7 @@ function contarHabilesEnAno(obj, year, holidays){
     return total;
 }
 
-export async function aplicarAdministrativo(fecha, cantidad = 1){
+export async function aplicarAdministrativo(fecha, cantidad = 1, options = {}){
 
     const admin = getAdminDays();
     const legal = getLegalDays();
@@ -537,6 +552,7 @@ export async function aplicarAdministrativo(fecha, cantidad = 1){
         admin[key] = 1;
     });
 
+    holdLeaveIfRequested(options, currentProfile, keys);
     saveAdminDays(admin);
 
     if (changedAbsences) {
@@ -720,7 +736,7 @@ export async function validarCantidadLegalAnual(cantidad, year = new Date().getF
     };
 }
 
-export async function aplicarLegal(fecha, cantidad){
+export async function aplicarLegal(fecha, cantidad, options = {}){
 
     const legal = getLegalDays();
     const blocked = getBlockedDays();
@@ -797,6 +813,7 @@ export async function aplicarLegal(fecha, cantidad){
         blocked[k] = true;
     });
 
+    holdLeaveIfRequested(options, getCurrentProfile(), nuevos);
     saveLegalDays(legal);
     saveBlockedDays(blocked);
 
@@ -858,7 +875,7 @@ function ultimoLegalHasta(fechaLimite){
     return ult;
 }
 
-export async function aplicarComp(fecha, cantidad = 10){
+export async function aplicarComp(fecha, cantidad = 10, options = {}){
     const total = Number(cantidad);
 
     if (
@@ -962,6 +979,7 @@ export async function aplicarComp(fecha, cantidad = 10){
         blocked[k] = true;
     });
 
+    holdLeaveIfRequested(options, getCurrentProfile(), nuevos);
     saveCompDays(comp);
     saveBlockedDays(blocked);
 

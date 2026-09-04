@@ -13,6 +13,7 @@ const PROFILE_BUCKET_LABELS = {
     baseData: "turnos base",
     legal: "feriados legales",
     comp: "feriados compensatorios",
+    leaveHold: "permisos en espera de cobertura",
     leaveBalances: "saldos de vacaciones",
     hourReturns: "devolucion de horas",
     hheeReturnTransfers: "horas extras a devolucion",
@@ -267,6 +268,9 @@ function snapshotProfile(p){
         admin: getRaw(key(p,"admin")),
         legal: getRaw(key(p,"legal")),
         comp: getRaw(key(p,"comp")),
+        // Deshacer la aplicacion de un permiso tiene que llevarse tambien su
+        // espera de cobertura (js/leaveHold.js), o queda una anotacion huerfana.
+        leaveHold: getRaw(key(p,"leaveHold")),
         leaveBalances: getRaw(
             key(p,"leaveBalances")
         ),
@@ -295,6 +299,7 @@ function restoreProfile(p, state){
     setRaw(key(p,"admin"), state.admin || "{}");
     setRaw(key(p,"legal"), state.legal || "{}");
     setRaw(key(p,"comp"), state.comp || "{}");
+    setRaw(key(p,"leaveHold"), state.leaveHold || "{}");
     setRaw(
         key(p,"leaveBalances"),
         state.leaveBalances || "{}"

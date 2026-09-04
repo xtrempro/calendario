@@ -195,6 +195,7 @@ import {
     setCalendarSelectionHandler,
     addTurnToDay,
     openManualExtraReasonForDay,
+    openReplacementSuggestionsForLeaveBlock,
     updateDayCell,
     updateDayCells,
     updateVisibleCalendarDays
@@ -13012,6 +13013,22 @@ DOM.redoBtn.onclick = () => {
     }
 };
 
+// Dias corridos que ocupa un P. Administrativo aplicado desde el calendario.
+// Avanza dia a dia sin saltar fines de semana, igual que aplicarAdministrativo:
+// son las mismas claves que quedaron a la espera de cobertura.
+function leaveBlockKeys(fecha, cantidad) {
+    const keys = [];
+    const cursor = new Date(fecha);
+    const total = Math.max(1, Number(cantidad) || 1);
+
+    for (let i = 0; i < total; i++) {
+        keys.push(keyFromDate(cursor));
+        cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return keys;
+}
+
 setCalendarSelectionHandler(async ({ cell: celda, date: fecha }) => {
     if (selectionMode && !canModifyCurrentProfile()) {
         clearSelectionMode(false);
@@ -13103,7 +13120,9 @@ setCalendarSelectionHandler(async ({ cell: celda, date: fecha }) => {
 
     if (selectionMode === "comp") {
         pushHistory();
-        const aplicado = await aplicarComp(fecha, compCantidad);
+        const aplicado = await aplicarComp(fecha, compCantidad, {
+            holdUntilCovered: true
+        });
 
         if (aplicado) {
             decrementManualBalance(
@@ -13124,7 +13143,9 @@ setCalendarSelectionHandler(async ({ cell: celda, date: fecha }) => {
     if (selectionMode === "legal") {
         pushHistory();
         const aplicado =
-            await aplicarLegal(fecha, legalCantidad);
+            await aplicarLegal(fecha, legalCantidad, {
+                holdUntilCovered: true
+            });
 
         if (!aplicado) {
             alert(
@@ -13163,18 +13184,34 @@ setCalendarSelectionHandler(async ({ cell: celda, date: fecha }) => {
 
     if (selectionMode === "admin") {
         pushHistory();
+
+        const profile = getCurrentProfile();
+        const cantidad = adminCantidad;
         const aplicado =
-            await aplicarAdministrativo(fecha, adminCantidad);
+            await aplicarAdministrativo(fecha, cantidad, {
+                holdUntilCovered: true
+            });
 
         if (aplicado) {
             decrementManualBalance(
                 "admin",
-                adminCantidad,
+                cantidad,
                 fecha.getFullYear()
             );
         }
 
         clearSelectionMode();
+
+        if (aplicado) {
+            // El permiso queda en espera hasta que se cubra uno de sus turnos
+            // (js/leaveHold.js): las sugerencias se abren aqui mismo para que el
+            // supervisor resuelva la cobertura sin tener que volver al dia.
+            await openReplacementSuggestionsForLeaveBlock(
+                profile,
+                leaveBlockKeys(fecha, cantidad)
+            );
+        }
+
         return;
     }
 

@@ -80,6 +80,9 @@ const PREFIX_KEY_MODULES = [
     ["absences_", "turnos"],
     ["blocked_", "turnos"],
     ["noCoverage_", "turnos"],
+    // Permisos aplicados que aun no viajan a la PWA (js/leaveHold.js). Viaja con
+    // los permisos porque el motor del servidor lo lee para decidir que esconder.
+    ["leaveHold_", "turnos"],
     ["leaveBalances_", "turnos"],
     ["clockMarks_", "clockmarks"],
     ["carry_", "hours"],
