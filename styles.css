@@ -15355,6 +15355,19 @@ button.staffing-pill {
     background: var(--text-muted);
 }
 
+/* Preasignado: el mismo color del turno pero el punto va HUECO. Es la misma
+   diferencia que representa -el turno esta reservado, no puesto- y se ve sin
+   leer la etiqueta, que es lo unico que si no los distinguiria de un vistazo
+   estando uno debajo del otro. */
+.add-turn-button--pre .add-turn-button__dot::before {
+    background: transparent;
+    box-shadow: inset 0 0 0 2.5px var(--add-turn-color, var(--muted));
+}
+
+.add-turn-button--pre:disabled .add-turn-button__dot::before {
+    box-shadow: inset 0 0 0 2.5px var(--text-muted);
+}
+
 .add-turn-button--diurno {
     --add-turn-color: #0b8853;
 }

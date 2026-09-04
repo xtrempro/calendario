@@ -7915,6 +7915,45 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
     backdrop.querySelector("[data-action='edit']")?.focus();
 }
 
+/**
+ * Confirma un turno preasignado que no cubre a nadie: lo aplica de verdad.
+ *
+ * Va por addTurnToDay -el mismo camino del boton normal- en vez de crear un
+ * reemplazo: no hay ausente, asi que un reemplazo sin reemplazado seria un
+ * registro que no describe lo que paso. Si el turno ya no cabe -el dia cambio
+ * mientras la reserva esperaba- no se aplica nada y la reserva se queda, para
+ * que el supervisor vea que sigue pendiente.
+ */
+async function confirmStandalonePreassignment(preassignment, keyDay) {
+    const { worker, turno, id } = preassignment;
+    const date = dateFromKeyDay(keyDay);
+    const holidays = await fetchHolidays(date.getFullYear());
+
+    window.pushUndoState?.("Confirmar turno preasignado");
+
+    const aplicado = addTurnToDay(worker, keyDay, Number(turno) || 0, {
+        date,
+        holidays,
+        isHab: isBusinessDay(date, holidays)
+    });
+
+    if (!aplicado) {
+        alert(
+            "Ese turno ya no cabe en el día. La reserva se mantiene: revisa el " +
+            "día y vuelve a confirmar."
+        );
+        return;
+    }
+
+    removePreassignment(id);
+    addAuditLog(
+        AUDIT_CATEGORY.CALENDAR,
+        "Confirmo turno preasignado",
+        `${worker}: se aplico el turno preasignado del ${keyDay}.`,
+        { profile: worker, keyDay }
+    );
+}
+
 // Modal de un turno PREASIGNADO (cobertura tentativa). Se abre al clickear la
 // casilla del ausente o del reemplazante preasignado. Permite Confirmar (el
 // trabajador acepto -> pasa a reemplazo real: proyecta + suma horas) o Cancelar
@@ -7944,17 +7983,24 @@ function openPreassignmentDialog({ profile, keyDay }) {
         <section class="turn-change-dialog leave-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="preassignDialogTitle">
             <strong id="preassignDialogTitle">Turno preasignado</strong>
             <div class="leave-detail-rows">
-                <div><span>Reemplaza a</span><b>${escapeHTML(replaced)}</b></div>
-                <div><span>Reemplazante</span><b>${escapeHTML(worker)}</b></div>
+                ${replaced
+                    ? `<div><span>Reemplaza a</span><b>${escapeHTML(replaced)}</b></div>
+                <div><span>Reemplazante</span><b>${escapeHTML(worker)}</b></div>`
+                    : `<div><span>Trabajador</span><b>${escapeHTML(worker)}</b></div>`}
                 <div><span>Turno</span><b>${escapeHTML(turnoReplacementLabel(turno))}</b></div>
                 <div><span>Fecha</span><b>${escapeHTML(leaveDateLabelFromKey(keyDay))}</b></div>
                 <div><span>Preasignado</span><b>${escapeHTML(preassignedLabel)}</b></div>
                 <div><span>Por</span><b>${actorHTML}</b></div>
             </div>
             <p class="leave-detail-note">
-                Reserva tentativa: aun no proyecta el turno ni suma horas. Confirma
+                ${replaced
+                    ? `Reserva tentativa: aun no proyecta el turno ni suma horas. Confirma
                 cuando el trabajador acepte; cancelar deja el turno pendiente de
-                cobertura ("!").
+                cobertura ("!").`
+                    : `Reserva tentativa: el turno queda registrado aqui pero NO se
+                publica a la aplicacion del trabajador, ni suma horas. Confirma
+                para aplicarlo de verdad; cancelar lo borra y el dia vuelve a
+                como estaba.`}
             </p>
             <div class="turn-change-dialog__actions leave-detail-actions--stacked">
                 ${canEdit ? `
@@ -7993,10 +8039,19 @@ function openPreassignmentDialog({ profile, keyDay }) {
         .querySelector("[data-action='confirm']")
         ?.addEventListener("click", async () => {
             await withBusyState(async () => {
-                // Pasa a reemplazo real (proyecta + suma horas), igual que el
-                // paso directo de asignar. La accion vive en replacements.js
-                // porque tambien la dispara la tarjeta de cobertura del inicio.
-                confirmPreassignment(preassignment);
+                if (replaced) {
+                    // Pasa a reemplazo real (proyecta + suma horas), igual que
+                    // el paso directo de asignar. La accion vive en
+                    // replacements.js porque tambien la dispara la tarjeta de
+                    // cobertura del inicio.
+                    confirmPreassignment(preassignment);
+                } else {
+                    // Sin ausente no hay reemplazo que crear: el turno se
+                    // aplica por el MISMO camino que el boton normal, que es
+                    // de lo que este preasignado era la version tentativa.
+                    await confirmStandalonePreassignment(preassignment, keyDay);
+                }
+
                 close();
                 await refresh();
             }, { label: "Confirmando..." });
@@ -8543,6 +8598,65 @@ export function addTurnToDay(profileName, keyDay, turnoElegido, options = {}) {
     return true;
 }
 
+/**
+ * Deja un turno PREASIGNADO en un dia: se pinta la casilla y no se publica.
+ *
+ * Es el gemelo tentativo de addTurnToDay y usa su MISMA regla para decidir si
+ * el turno cabe: una casilla que se ilumina para el boton normal se ilumina
+ * para este, y al reves. Lo que cambia es donde se guarda -en
+ * `preassignments`, que ni el motor de horas ni la proyeccion miran- asi que
+ * el turno queda registrado para el supervisor y el telefono del trabajador no
+ * se entera hasta que se confirme.
+ *
+ * Es la misma reserva que ya se hacia desde el cuadro de sugerencias de
+ * reemplazo, sin un ausente a quien cubrir: aqui no se esta tapando el turno de
+ * nadie, solo anotando el que este trabajador haria.
+ */
+export function addPreassignedTurnToDay(
+    profileName,
+    keyDay,
+    turnoElegido,
+    options = {}
+) {
+    if (!profileName || !turnoElegido) return false;
+
+    const isHab = options.isHab !== false;
+    const effectiveBaseTurn = aplicarCambiosTurno(
+        profileName,
+        keyDay,
+        getTurnoBase(profileName, keyDay),
+        { includeReplacements: false }
+    );
+    const result = getAddTurnResult(
+        profileName,
+        keyDay,
+        turnoElegido,
+        isHab,
+        {
+            effectiveBaseTurn,
+            actualState: getActualState(profileName, keyDay)
+        }
+    );
+
+    if (!result.allowed) return false;
+
+    addPreassignment({
+        worker: profileName,
+        // Sin ausente: no cubre a nadie, es el turno de este trabajador.
+        replaced: "",
+        keyDay,
+        turno: turnoElegido
+    });
+    addAuditLog(
+        AUDIT_CATEGORY.CALENDAR,
+        "Preasigno turno",
+        `${profileName}: ${turnoLabel(turnoElegido)} preasignado para el ${keyDay}, sin publicar a la aplicacion.`,
+        { profile: profileName, keyDay }
+    );
+
+    return true;
+}
+
 async function renderCalendarImpl(options = {}) {
     if (
         calendarDirectEditRefreshTimer &&
@@ -8905,10 +9019,19 @@ async function renderCalendarImpl(options = {}) {
             activeProfile,
             keyDay
         );
-        const preassignDisplayTurn =
-            preassignedWorker && (Number(state) || 0) === TURNO.LIBRE
-                ? getPreassignmentTurnForWorker(activeProfile, keyDay)
-                : TURNO.LIBRE;
+        // El turno tentativo se SUMA al que el dia ya tiene, con la misma regla
+        // que la edicion directa: preasignar una Noche sobre una Larga muestra
+        // 24h. Antes solo se pintaba en un dia libre, asi que preasignar sobre
+        // un dia con turno no se veia por ninguna parte. Sigue siendo solo
+        // pintura: no toca getTurnoReal, ni las horas, ni la proyeccion.
+        const preassignDisplayTurn = preassignedWorker
+            ? turnoDesdeComponentes([
+                ...getTurnoComponentes(Number(state) || TURNO.LIBRE),
+                ...getTurnoComponentes(
+                    getPreassignmentTurnForWorker(activeProfile, keyDay)
+                )
+            ])
+            : TURNO.LIBRE;
 
         const date = new Date(y, m, d);
         const isWeekendDay = isWeekend(date);

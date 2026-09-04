@@ -40,8 +40,20 @@ export function addPreassignment(data = {}) {
     };
     // Una cobertura por ausente/dia: reemplaza cualquier preasignacion previa de
     // ese mismo turno del ausente.
-    const list = getPreassignments().filter(item =>
-        !(item?.replaced === record.replaced && item?.date === date)
+    //
+    // Sin ausente a quien cubrir -un turno preasignado desde el boton- no hay
+    // cobertura que reemplazar, y filtrar por `replaced` vacio borraria la
+    // preasignacion de OTRO trabajador del mismo dia. Ahi lo unico que no puede
+    // repetirse es el mismo turno del mismo trabajador: dos turnos distintos si
+    // conviven, y se suman (ver getPreassignmentTurnForWorker).
+    const list = getPreassignments().filter(item => record.replaced
+        ? !(item?.replaced === record.replaced && item?.date === date)
+        : !(
+            !item?.replaced &&
+            item?.worker === record.worker &&
+            item?.date === date &&
+            (Number(item?.turno) || TURNO.LIBRE) === record.turno
+        )
     );
 
     list.push(record);

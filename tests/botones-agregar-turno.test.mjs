@@ -28,6 +28,11 @@ globalThis.localStorage = new MemoryStorage();
 const { setJSON } = await import("../js/persistence.js");
 const { getAddTurnResult } = await import("../js/turnEngine.js");
 const { TURNO } = await import("../js/constants.js");
+const {
+    addPreassignment,
+    getPreassignments,
+    getPreassignmentTurnForWorker
+} = await import("../js/preassignments.js");
 
 const leer = async name => (await readFile(
     new URL(name, import.meta.url), "utf8"
@@ -336,7 +341,14 @@ test("al agregar un turno se abre el modal de respaldo", () => {
     // "?" y casi nunca se completa.
     assert.match(
         main,
-        /clearSelectionMode\(\);[\s\S]{0,700}await openManualExtraReasonForDay\(profile, keyDay\);/
+        /clearSelectionMode\(\);[\s\S]{0,1200}await openManualExtraReasonForDay\(profile, keyDay\);/
+    );
+    // Salvo con un turno PREASIGNADO: no se publica ni suma horas, asi que no
+    // hay motivo de horas extra que pedir todavia. Se pregunta al confirmarlo,
+    // que es cuando pasa a ser un turno de verdad.
+    assert.match(
+        main,
+        /if \(preasignar\) \{[\s\S]{0,220}return;\s*\n\s*\}[\s\S]{0,400}await openManualExtraReasonForDay/
     );
     // Se abre DESPUES de apagar el modo: el modal no sale mientras haya una
     // seleccion activa (openExtraReasonDialog corta con window.selectionMode).
@@ -516,4 +528,123 @@ test("tras anular uno, el detalle se reabre con los que quedan", () => {
         calendar,
         /if \([\s\S]{0,120}multiple &&[\s\S]{0,120}getReplacementsForWorkerShift\(profileName, keyDay\).length[\s\S]{0,80}openReplacementDetailDialog\(profileName, keyDay\);/
     );
+});
+
+/* =========================================================
+   Los mismos turnos, pero PREASIGNADOS
+
+   "DIURNO/LARGA/NOCHE PREASIGNADO" ponen el mismo turno que sus gemelos, pero
+   como reserva: la casilla se pinta y el turno NO viaja a la aplicacion del
+   trabajador hasta que se confirme. Es la misma reserva que ya se hacia desde
+   el cuadro de sugerencias de reemplazo, sin un ausente a quien cubrir.
+========================================================= */
+
+test("los tres botones preasignados viven junto a los otros tres", () => {
+    const panel = html.slice(
+        html.indexOf('id="turnosSidePanel"'),
+        html.indexOf("</section>", html.indexOf('id="turnosSidePanel"'))
+    );
+
+    assert.match(panel, /data-add-turn="diurno-pre"/);
+    assert.match(panel, /data-add-turn="larga-pre"/);
+    assert.match(panel, /data-add-turn="noche-pre"/);
+    assert.match(panel, />DIURNO PREASIGNADO</);
+    assert.match(panel, />LARGA PREASIGNADO</);
+    assert.match(panel, />NOCHE PREASIGNADO</);
+});
+
+test("se distinguen de los otros sin leer la etiqueta", () => {
+    // Uno debajo del otro y con el mismo color, la etiqueta seria lo unico que
+    // los separa. El punto hueco dice "reservado, no puesto".
+    assert.match(css, /\.add-turn-button--pre \.add-turn-button__dot::before \{/);
+    assert.match(css, /box-shadow: inset 0 0 0 2\.5px var\(--add-turn-color, var\(--muted\)\);/);
+});
+
+test("el turno preasignado NO se publica: se guarda aparte", () => {
+    // preassignments vive fuera de los reemplazos a proposito, para que ni el
+    // motor de horas ni la proyeccion lo vean.
+    assert.match(calendar, /export function addPreassignedTurnToDay\(/);
+    assert.match(calendar, /addPreassignment\(\{[\s\S]{0,220}replaced: "",/);
+    assert.match(main, /addPreassignedTurnToDay\(profile, keyDay, turno, \{/);
+});
+
+test("cabe donde cabria el turno de verdad, ni mas ni menos", () => {
+    // Sale del MISMO getAddTurnResult que usa el boton normal: una casilla que
+    // se ilumina para uno se ilumina para el otro, o el supervisor veria
+    // iluminada una casilla que despues rechaza la reserva.
+    const bloque = calendar.slice(
+        calendar.indexOf("export function addPreassignedTurnToDay(")
+    ).slice(0, 1600);
+
+    assert.match(bloque, /const result = getAddTurnResult\(/);
+    assert.match(bloque, /if \(!result\.allowed\) return false;/);
+});
+
+test("el boton armado no se confunde con el de su mismo turno", () => {
+    // "Noche" y "Noche preasignado" ponen el mismo turno: sin mirar tambien el
+    // modo, apretar uno marcaba los dos.
+    assert.match(main, /const armadoPre = Boolean\(window\.pendingAddTurnPreassign\);/);
+    assert.match(
+        main,
+        /const activo = opcion\.turno === armado &&\s*\n\s*Boolean\(opcion\.preassign\) === armadoPre;/
+    );
+    // Y al apagar cualquier modo de seleccion se limpia con lo demas.
+    assert.match(main, /window\.pendingAddTurnPreassign = false;/);
+});
+
+test("la casilla preasignada se pinta sumando al turno del dia", () => {
+    // Antes solo se pintaba en un dia LIBRE, asi que preasignar sobre un dia
+    // con turno no se veia por ninguna parte. Sigue siendo solo pintura.
+    assert.match(
+        calendar,
+        /const preassignDisplayTurn = preassignedWorker\s*\n\s*\? turnoDesdeComponentes\(\[/
+    );
+});
+
+test("dos preasignaciones sueltas del mismo dia no se pisan", () => {
+    // El filtro por (ausente, dia) borraba la de OTRO trabajador cuando no hay
+    // ausente: todas comparten `replaced` vacio.
+    localStorage.clear();
+
+    addPreassignment({ worker: "Ana", replaced: "", keyDay: "2026-7-13", turno: TURNO.NOCHE });
+    addPreassignment({ worker: "Bruno", replaced: "", keyDay: "2026-7-13", turno: TURNO.NOCHE });
+
+    assert.equal(getPreassignments().length, 2);
+});
+
+test("pero el mismo turno del mismo dia no se duplica", () => {
+    localStorage.clear();
+
+    addPreassignment({ worker: "Ana", replaced: "", keyDay: "2026-7-13", turno: TURNO.NOCHE });
+    addPreassignment({ worker: "Ana", replaced: "", keyDay: "2026-7-13", turno: TURNO.NOCHE });
+
+    assert.equal(getPreassignments().length, 1);
+});
+
+test("y dos turnos distintos del mismo dia conviven y se suman", () => {
+    localStorage.clear();
+
+    addPreassignment({ worker: "Ana", replaced: "", keyDay: "2026-7-13", turno: TURNO.LARGA });
+    addPreassignment({ worker: "Ana", replaced: "", keyDay: "2026-7-13", turno: TURNO.NOCHE });
+
+    assert.equal(getPreassignments().length, 2);
+    assert.equal(
+        getPreassignmentTurnForWorker("Ana", "2026-7-13"),
+        TURNO.TURNO24
+    );
+});
+
+test("confirmar un preasignado sin ausente aplica el turno de verdad", () => {
+    // Un reemplazo sin reemplazado seria un registro que no describe lo que
+    // paso: se aplica por el mismo camino que el boton normal.
+    assert.match(calendar, /async function confirmStandalonePreassignment\(/);
+    assert.match(calendar, /const aplicado = addTurnToDay\(worker, keyDay, Number\(turno\) \|\| 0, \{/);
+    assert.match(calendar, /removePreassignment\(id\);/);
+    // Y si el dia cambio mientras esperaba, la reserva se queda.
+    assert.match(calendar, /if \(!aplicado\) \{[\s\S]{0,220}return;/);
+});
+
+test("el modal no habla de un reemplazado que no existe", () => {
+    assert.match(calendar, /\$\{replaced\s*\n\s*\? `<div><span>Reemplaza a<\/span>/);
+    assert.match(calendar, /NO se\s*\n\s*publica a la aplicacion del trabajador/);
 });

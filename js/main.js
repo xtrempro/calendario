@@ -194,6 +194,7 @@ import {
     goToCalendarMonth,
     setCalendarSelectionHandler,
     addTurnToDay,
+    addPreassignedTurnToDay,
     openManualExtraReasonForDay,
     openReplacementSuggestionsForLeaveBlock,
     updateDayCell,
@@ -7606,6 +7607,7 @@ function clearSelectionMode(shouldRefresh = true) {
     pendingRotationChange = null;
     pendingShiftMove = null;
     window.pendingAddTurn = 0;
+    window.pendingAddTurnPreassign = false;
     window.pendingShiftMoveSourceKey = "";
     window.pendingShiftMoveDestinationTurn = 0;
     compCantidad = 0;
@@ -11598,16 +11600,37 @@ async function handleClockMarkSelection(fecha) {
    despues el modo se apaga solo, para no dejarlo armado sin querer.
 ====================================================== */
 
+// Cada boton con su turno. Los "-pre" ponen el MISMO turno pero como reserva:
+// se pinta la casilla y no se publica a la aplicacion del trabajador hasta que
+// se confirme (ver addPreassignedTurnToDay).
 const ADD_TURN_OPTIONS = {
     diurno: { turno: TURNO.DIURNO, label: "Diurno" },
     larga: { turno: TURNO.LARGA, label: "Larga" },
-    noche: { turno: TURNO.NOCHE, label: "Noche" }
+    noche: { turno: TURNO.NOCHE, label: "Noche" },
+    "diurno-pre": {
+        turno: TURNO.DIURNO,
+        label: "Diurno preasignado",
+        preassign: true
+    },
+    "larga-pre": {
+        turno: TURNO.LARGA,
+        label: "Larga preasignado",
+        preassign: true
+    },
+    "noche-pre": {
+        turno: TURNO.NOCHE,
+        label: "Noche preasignado",
+        preassign: true
+    }
 };
 
 function syncAddTurnButtons() {
     const armado = window.selectionMode === "addturn"
         ? Number(window.pendingAddTurn) || 0
         : 0;
+    // El turno solo no basta para saber cual boton esta armado: "Noche" y
+    // "Noche preasignado" ponen el mismo, y sin esto se marcaban los dos.
+    const armadoPre = Boolean(window.pendingAddTurnPreassign);
     // El punto del boton lleva el color CONFIGURADO del turno, no uno fijo en
     // el CSS: la unidad puede cambiarlos, y el boton tiene que leerse como la
     // casilla que va a pintar.
@@ -11620,7 +11643,8 @@ function syncAddTurnButtons() {
 
             if (!opcion) return;
 
-            const activo = opcion.turno === armado;
+            const activo = opcion.turno === armado &&
+                Boolean(opcion.preassign) === armadoPre;
 
             button.style.setProperty(
                 "--add-turn-color",
@@ -11642,20 +11666,35 @@ async function handleAddTurnSelection(fecha) {
     }
 
     const holidays = await fetchHolidays(fecha.getFullYear());
+    const preasignar = Boolean(window.pendingAddTurnPreassign);
 
     pushHistory();
 
-    const aplicado = addTurnToDay(profile, keyDay, turno, {
-        date: fecha,
-        holidays,
-        isHab: isBusinessDay(fecha, holidays)
-    });
+    const aplicado = preasignar
+        ? addPreassignedTurnToDay(profile, keyDay, turno, {
+            isHab: isBusinessDay(fecha, holidays)
+        })
+        : addTurnToDay(profile, keyDay, turno, {
+            date: fecha,
+            holidays,
+            isHab: isBusinessDay(fecha, holidays)
+        });
 
     // Un boton, un turno.
     clearSelectionMode();
 
     if (!aplicado) {
         alert("Ese turno no se puede agregar en este dia.");
+        return;
+    }
+
+    // Un turno preasignado no se publica ni suma horas, asi que no hay motivo
+    // de horas extra que pedir: eso se pregunta al confirmarlo, que es cuando
+    // pasa a ser un turno de verdad. Repintar si hace falta, porque no paso por
+    // commitCalendarTurnChange.
+    if (preasignar) {
+        await updateDayCell(profile, keyDay);
+        await updateVisibleCalendarDays({ updateSummary: true });
         return;
     }
 
@@ -11675,18 +11714,26 @@ function activarModoAgregarTurno(clave) {
     // sin ir hasta "Cancelar".
     if (
         window.selectionMode === "addturn" &&
-        Number(window.pendingAddTurn) === opcion.turno
+        Number(window.pendingAddTurn) === opcion.turno &&
+        Boolean(window.pendingAddTurnPreassign) === Boolean(opcion.preassign)
     ) {
         clearSelectionMode();
         return;
     }
 
     window.pendingAddTurn = opcion.turno;
-    activarModo("addturn", `Agregando turno ${opcion.label}`);
+    window.pendingAddTurnPreassign = Boolean(opcion.preassign);
+    activarModo(
+        "addturn",
+        opcion.preassign
+            ? `Preasignando ${opcion.label.replace(" preasignado", "")}`
+            : `Agregando turno ${opcion.label}`
+    );
 
     if (!window.selectionMode) {
         // activarModo se planta si el perfil no se puede modificar.
         window.pendingAddTurn = 0;
+        window.pendingAddTurnPreassign = false;
     }
 
     syncAddTurnButtons();
