@@ -854,26 +854,19 @@
                          que lo reemplace. Mientras este vacio no pinta nada
                          (ver .turnos-side-panel:empty en styles.css). -->
                     <section class="panel turnos-side-panel" id="turnosSidePanel">
-                        <div class="add-turn-panel">
-                            <h3 class="add-turn-panel__title">Agregar turno</h3>
-                            <p class="add-turn-panel__hint">
-                                Elige un turno y marca el d&#237;a en el calendario. Se
-                                iluminan solo los d&#237;as donde ese turno cabe.
-                            </p>
-                            <div class="add-turn-panel__buttons">
-                                <button id="addTurnDiurnoBtn" class="add-turn-button add-turn-button--diurno" type="button" data-add-turn="diurno">
-                                    <span class="add-turn-button__dot"></span>
-                                    <span>Diurno</span>
-                                </button>
-                                <button id="addTurnLargaBtn" class="add-turn-button add-turn-button--larga" type="button" data-add-turn="larga">
-                                    <span class="add-turn-button__dot"></span>
-                                    <span>Larga</span>
-                                </button>
-                                <button id="addTurnNocheBtn" class="add-turn-button add-turn-button--noche" type="button" data-add-turn="noche">
-                                    <span class="add-turn-button__dot"></span>
-                                    <span>Noche</span>
-                                </button>
-                            </div>
+                        <div class="legend-list add-turn-panel">
+                            <button id="addTurnDiurnoBtn" class="legend-action add-turn-button add-turn-button--diurno" type="button" data-add-turn="diurno">
+                                <span class="legend-dot add-turn-button__dot"></span>
+                                <span>DIURNO</span>
+                            </button>
+                            <button id="addTurnLargaBtn" class="legend-action add-turn-button add-turn-button--larga" type="button" data-add-turn="larga">
+                                <span class="legend-dot add-turn-button__dot"></span>
+                                <span>LARGA</span>
+                            </button>
+                            <button id="addTurnNocheBtn" class="legend-action add-turn-button add-turn-button--noche" type="button" data-add-turn="noche">
+                                <span class="legend-dot add-turn-button__dot"></span>
+                                <span>NOCHE</span>
+                            </button>
                         </div>
                     </section>
 

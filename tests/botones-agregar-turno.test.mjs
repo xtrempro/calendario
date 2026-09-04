@@ -34,6 +34,7 @@ const leer = async name => (await readFile(
 )).replace(/\r\n/g, "\n");
 
 const html = await leer("../index.html");
+const css = await leer("../styles.css");
 const main = await leer("../js/main.js");
 const calendar = await leer("../js/calendar.js");
 
@@ -158,6 +159,48 @@ test("los tres botones viven en el espacio del menu Turnos", () => {
     assert.match(panel, /data-add-turn="diurno"/);
     assert.match(panel, /data-add-turn="larga"/);
     assert.match(panel, /data-add-turn="noche"/);
+});
+
+test("y se ven igual que los de la columna de al lado", () => {
+    // Las dos columnas del menu Turnos son la misma cosa -elegir algo y marcar
+    // un dia-, asi que se leen como una sola lista: misma clase, misma caja y
+    // el mismo hueco de 24px para el icono. Con dos formatos distintos parecian
+    // dos controles que funcionan distinto.
+    const panel = html.slice(
+        html.indexOf('id="turnosSidePanel"'),
+        html.indexOf("</section>", html.indexOf('id="turnosSidePanel"'))
+    );
+
+    assert.match(panel, /class="legend-list add-turn-panel"/);
+    ["diurno", "larga", "noche"].forEach(turno => {
+        assert.match(
+            panel,
+            new RegExp(`class="legend-action add-turn-button add-turn-button--${turno}"`)
+        );
+    });
+    // El punto de color se centra DENTRO del hueco del icono en vez de
+    // ocuparlo, o las etiquetas de las dos columnas quedarian desalineadas.
+    assert.match(panel, /class="legend-dot add-turn-button__dot"/);
+    assert.match(css, /\.add-turn-button__dot::before \{/);
+});
+
+test("sin titulo ni instrucciones encima", () => {
+    // Los pidio fuera el usuario: la columna de al lado tampoco los tiene y el
+    // texto separaba dos listas que son lo mismo.
+    const panel = html.slice(
+        html.indexOf('id="turnosSidePanel"'),
+        html.indexOf("</section>", html.indexOf('id="turnosSidePanel"'))
+    );
+
+    assert.doesNotMatch(panel, /add-turn-panel__title|add-turn-panel__hint/);
+    assert.doesNotMatch(css, /\.add-turn-panel__title|\.add-turn-panel__hint/);
+});
+
+test("el turno armado se sigue notando", () => {
+    // Al compartir caja con los de permisos, el borde de "armado" es lo unico
+    // que distingue el boton elegido.
+    assert.match(css, /\.add-turn-button\.is-armed \{/);
+    assert.match(css, /border-color: var\(--add-turn-color, var\(--accent\)\);/);
 });
 
 test("un boton pone un turno y despues el modo se apaga solo", () => {

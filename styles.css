@@ -10986,7 +10986,8 @@ body.theme-light .holiday:not(.green):not(.blue):not(.purple):not(.lightgreen):n
     font-weight: 800;
 }
 
-body[data-active-view="turnos"] .leave-panel .legend-action span:last-child {
+body[data-active-view="turnos"] .leave-panel .legend-action span:last-child,
+body[data-active-view="turnos"] .add-turn-panel .legend-action span:last-child {
     font-weight: 500;
 }
 
@@ -15328,61 +15329,30 @@ button.staffing-pill {
 /* Botones de turno: se elige uno y se marca el dia en el calendario, sin pasar
    por el switch de "Editar". El punto de color es el MISMO del turno en el
    calendario, para que el boton y la casilla se lean como lo mismo. */
-.add-turn-panel {
-    display: grid;
-    gap: 10px;
-}
-
-.add-turn-panel__title {
-    margin: 0;
-    color: var(--text);
-    font-family: var(--font-display);
-    font-size: 0.98rem;
-}
-
-.add-turn-panel__hint {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 0.78rem;
-    line-height: 1.45;
-}
-
-.add-turn-panel__buttons {
-    display: grid;
-    gap: 8px;
-}
-
-.add-turn-button {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    padding: 10px 13px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    background: var(--panel-alt);
-    font: inherit;
-    font-size: 0.88rem;
-    font-weight: 700;
-    text-align: left;
-    cursor: pointer;
-    transition:
-        border-color 0.15s ease,
-        background 0.15s ease;
-}
-
-.add-turn-button:hover {
-    border-color: var(--accent);
-    background: var(--panel-hover);
-}
-
+/* Se dibujan como los de Permisos/Ausencias -misma clase `legend-action`, misma
+   caja y mismo hueco de 24px para el icono- para que las dos columnas del menu
+   Turnos se lean como una sola lista y no como dos controles distintos. Lo
+   propio de estos es el color: el punto lleva el MISMO del turno en el
+   calendario. */
 .add-turn-button__dot {
-    width: 13px;
-    height: 13px;
-    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* El punto va dentro del hueco de 24px en vez de ocuparlo: asi las etiquetas de
+   las dos columnas quedan a la misma altura, aunque una lleve icono dibujado y
+   la otra un punto de color. */
+.add-turn-button__dot::before {
+    content: "";
+    width: 14px;
+    height: 14px;
     border-radius: 5px;
     background: var(--add-turn-color, var(--muted));
+}
+
+.add-turn-button:disabled .add-turn-button__dot::before {
+    background: var(--text-muted);
 }
 
 .add-turn-button--diurno {
