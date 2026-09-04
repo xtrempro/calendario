@@ -28,7 +28,9 @@ import {
     getRotativa,
     getManualLeaveBalances,
     getProfileData,
-    saveManualLeaveBalances
+    isNoCoverageDay,
+    saveManualLeaveBalances,
+    setNoCoverageDay
 } from "./storage.js";
 
 import {
@@ -289,6 +291,38 @@ function validarRangoAusencias(fechas){
     return true;
 }
 
+/**
+ * Borra el "no requiere cobertura" que quedo de un permiso ANTERIOR.
+ *
+ * La marca vive en `noCoverage_{trabajador}` por dia, aparte del permiso que la
+ * motivo, asi que sobrevivia a su anulacion: volver a poner un permiso en ese
+ * mismo dia lo daba por "sin cobertura" sin preguntar, y el turno se quedaba
+ * sin el "!" que pide reemplazo.
+ *
+ * Se limpia al APLICAR y no al anular porque no hay un solo camino para quitar
+ * un permiso -la anulacion desde el calendario, la del trabajador, la que
+ * arrastra un reemplazo- y olvidar uno deja el mismo agujero. Aqui es seguro:
+ * un dia solo admite un permiso a la vez, asi que si esta recibiendo uno nuevo
+ * es que no tenia ninguno, y una marca sobre un dia sin permiso no significa
+ * nada.
+ */
+function clearStaleNoCoverage(profile, keys = []) {
+    if (!profile) return;
+
+    keys.forEach(key => {
+        if (!key || !isNoCoverageDay(profile, key)) return;
+
+        setNoCoverageDay(profile, key, false);
+        addAuditLog(
+            AUDIT_CATEGORY.CALENDAR,
+            "Cobertura vuelve a pedirse",
+            `${profile}: el ${key} recibio un permiso nuevo, asi que la marca `
+            + "de \"no requiere cobertura\" del permiso anterior se descarto.",
+            { profile, keyDay: key }
+        );
+    });
+}
+
 export async function aplicarAusenciaInjustificada(fecha){
     const currentProfile = getCurrentProfile();
 
@@ -330,6 +364,7 @@ export async function aplicarAusenciaInjustificada(fecha){
     };
     blocked[key] = true;
 
+    clearStaleNoCoverage(currentProfile, [key]);
     saveAbsences(absences);
     saveBlockedDays(blocked);
 
@@ -418,6 +453,7 @@ export async function aplicarCapacitacion(
     };
     blocked[key] = true;
 
+    clearStaleNoCoverage(currentProfile, [key]);
     saveAbsences(absences);
     saveBlockedDays(blocked);
 
@@ -552,6 +588,7 @@ export async function aplicarAdministrativo(fecha, cantidad = 1, options = {}){
         admin[key] = 1;
     });
 
+    clearStaleNoCoverage(currentProfile, keys);
     holdLeaveIfRequested(options, currentProfile, keys);
     saveAdminDays(admin);
 
@@ -614,6 +651,7 @@ export async function aplicarHalfAdministrativo(fecha, tipo="M"){
     admin[key] =
         tipo === "M" ? "0.5M" : "0.5T";
 
+    clearStaleNoCoverage(currentProfile, [key]);
     saveAdminDays(admin);
 
     addAuditLog(
@@ -813,6 +851,7 @@ export async function aplicarLegal(fecha, cantidad, options = {}){
         blocked[k] = true;
     });
 
+    clearStaleNoCoverage(getCurrentProfile(), nuevos);
     holdLeaveIfRequested(options, getCurrentProfile(), nuevos);
     saveLegalDays(legal);
     saveBlockedDays(blocked);
@@ -979,6 +1018,7 @@ export async function aplicarComp(fecha, cantidad = 10, options = {}){
         blocked[k] = true;
     });
 
+    clearStaleNoCoverage(getCurrentProfile(), nuevos);
     holdLeaveIfRequested(options, getCurrentProfile(), nuevos);
     saveCompDays(comp);
     saveBlockedDays(blocked);
@@ -1288,6 +1328,7 @@ export async function aplicarLicencia(
     await returnCompBalance(returnedComp);
     returnAdminBalance(returnedAdmin);
 
+    clearStaleNoCoverage(getCurrentProfile(), keys);
     saveAdminDays(admin);
     saveLegalDays(legal);
     saveCompDays(comp);

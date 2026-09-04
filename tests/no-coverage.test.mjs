@@ -112,3 +112,62 @@ test("el footer Anular/Cancelar queda en 2 columnas", async () => {
         /\.replacement-dialog \.turn-change-dialog__actions \{\s*grid-template-columns: 1fr 1fr/
     );
 });
+
+/* =========================================================
+   La marca no sobrevive al permiso que la motivo
+
+   Caso real: se puso un P. Administrativo, se marco "no requiere cobertura", se
+   anulo el permiso y se volvio a poner otro el mismo dia. El nuevo salio ya
+   marcado como sin cobertura, sin preguntar, y el turno se quedo sin el "!" que
+   pide reemplazo.
+
+   La marca vive por (trabajador, dia) aparte del permiso, asi que le sobrevivia.
+========================================================= */
+
+test("aplicar un permiso descarta la marca del permiso anterior", async () => {
+    const motor = (await readFile(
+        new URL("../js/leaveEngine.js", import.meta.url),
+        "utf8"
+    )).replace(/\r\n/g, "\n");
+
+    assert.match(motor, /function clearStaleNoCoverage\(profile, keys = \[\]\)/);
+    assert.match(motor, /if \(!key \|\| !isNoCoverageDay\(profile, key\)\) return;/);
+    assert.match(motor, /setNoCoverageDay\(profile, key, false\);/);
+});
+
+test("se limpia al APLICAR y no al anular, que tiene varios caminos", async () => {
+    // La anulacion ocurre desde el calendario, desde el trabajador y arrastrada
+    // por un reemplazo: olvidar uno deja el mismo agujero. Al aplicar hay un
+    // solo momento, y ademas es seguro: un dia solo admite un permiso a la vez,
+    // asi que si recibe uno nuevo es que no tenia ninguno.
+    const motor = (await readFile(
+        new URL("../js/leaveEngine.js", import.meta.url),
+        "utf8"
+    )).replace(/\r\n/g, "\n");
+
+    // Los siete caminos que dejan un dia con permiso, licencia o ausencia.
+    assert.equal(
+        (motor.match(/^\s*clearStaleNoCoverage\(/gm) || []).length,
+        7,
+        "cada aplicador de permiso tiene que limpiar la marca"
+    );
+});
+
+test("y no toca los dias que no reciben permiso", async () => {
+    // Solo limpia las claves que se estan escribiendo: la marca de OTRO dia del
+    // mismo trabajador sigue donde estaba.
+    localStorage.clear();
+
+    setNoCoverageDay("Ana", "2026-7-13", true, "Turno cubierto por el equipo");
+    setNoCoverageDay("Ana", "2026-7-20", true);
+
+    assert.equal(isNoCoverageDay("Ana", "2026-7-13"), true);
+    assert.equal(isNoCoverageDay("Ana", "2026-7-20"), true);
+    // Y el motivo guardado se recupera mientras la marca siga viva.
+    const { getNoCoverageReason } = await import("../js/storage.js");
+
+    assert.equal(
+        getNoCoverageReason("Ana", "2026-7-13"),
+        "Turno cubierto por el equipo"
+    );
+});
