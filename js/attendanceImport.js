@@ -196,10 +196,21 @@ export function mergeAttendanceMarks(marks) {
     const store = getAttendanceMarks();
     const dates = new Set();
     const workers = new Set();
+    // TODOS los RUT del archivo, no solo los que traen marcas nuevas.
+    //
+    // Una marca puede estar guardada localmente desde una importacion anterior y
+    // no haber llegado nunca a la proyeccion del trabajador. Si solo se
+    // republicaban los del lote nuevo, esa marca no se recuperaba en ninguna
+    // carga posterior: quedaba correcta en el reporte del supervisor y ausente
+    // en el telefono para siempre. La planilla es la verdad para todos los que
+    // vienen en ella, no solo para los que cambiaron.
+    const fileRuts = new Set();
     let added = 0;
     let duplicated = 0;
 
     marks.forEach(mark => {
+        fileRuts.add(mark.rut);
+
         const byDate = store[mark.rut] || (store[mark.rut] = {});
         const list = byDate[mark.date] || (byDate[mark.date] = []);
         const identity = markIdentity(mark);
@@ -239,7 +250,7 @@ export function mergeAttendanceMarks(marks) {
                         // Los RUT que trajo el archivo. Con ellos se republica
                         // solo a esos trabajadores, en vez de a la unidad
                         // entera.
-                        ruts: [...workers]
+                        ruts: [...fileRuts]
                     }
                 }
             ));

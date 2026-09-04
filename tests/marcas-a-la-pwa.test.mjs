@@ -298,5 +298,11 @@ test("solo a los que venian en el archivo, no a la unidad entera", () => {
 });
 
 test("el archivo informa que RUT trajo", () => {
-    assert.match(importacion, /ruts: \[\.\.\.workers\]/);
+    // TODOS los que vienen en el archivo, no solo los que traen marcas nuevas.
+    // Este assert fijaba `[...workers]`, que son los del lote nuevo: una marca
+    // guardada en una carga anterior y nunca proyectada no se recuperaba en
+    // ninguna carga posterior. Ver tests/marcas-reloj-a-la-proyeccion.test.mjs,
+    // que lo comprueba ejecutando la importacion.
+    assert.match(importacion, /ruts: \[\.\.\.fileRuts\]/);
+    assert.match(importacion, /fileRuts\.add\(mark\.rut\)/);
 });

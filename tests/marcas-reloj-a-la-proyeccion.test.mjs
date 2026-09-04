@@ -17,6 +17,30 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
+class MemoryStorage {
+    constructor() { this.values = new Map(); }
+    get length() { return this.values.size; }
+    clear() { this.values.clear(); }
+    getItem(key) { return this.values.has(key) ? this.values.get(key) : null; }
+    key(index) { return [...this.values.keys()][index] ?? null; }
+    removeItem(key) { this.values.delete(key); }
+    setItem(key, value) { this.values.set(key, String(value)); }
+}
+
+const dispatched = [];
+
+globalThis.localStorage = new MemoryStorage();
+globalThis.CustomEvent = class {
+    constructor(type, init = {}) { this.type = type; this.detail = init.detail; }
+};
+globalThis.window = {
+    localStorage: globalThis.localStorage,
+    addEventListener() {},
+    removeEventListener() {},
+    location: { hostname: "localhost" },
+    dispatchEvent(event) { dispatched.push(event); return true; }
+};
+
 const workerAppSrc = await readFile(
     new URL("../js/workerAppDataSync.js", import.meta.url),
     "utf8"
@@ -96,5 +120,57 @@ test("attendanceMarks NO esta en la lista global fija", () => {
         /attendanceMarks/,
         "el vaciado escribe todas las claves que recibe: en la lista fija, " +
         "esto reescribiria el archivo del reloj entero en cada edicion"
+    );
+});
+
+// El caso que se escapo: la salida del 31-08 ya estaba guardada de una carga
+// anterior, asi que no venia entre las "30 nuevas" y su proyeccion nunca se
+// pidio. En el reporte del supervisor estaba, en el telefono no, y ninguna
+// carga posterior lo recuperaba.
+test("una planilla republica a TODOS los que trae, no solo a los que cambian", async () => {
+    const { mergeAttendanceMarks } = await import("../js/attendanceImport.js");
+
+    const salida = {
+        rut: "17816632-8",
+        name: "Alan Plaza",
+        date: "2026-08-31",
+        time: "20:10",
+        type: "salida",
+        id: "m-salida"
+    };
+
+    // Primera carga: la marca entra.
+    dispatched.length = 0;
+    const primera = mergeAttendanceMarks([salida]);
+    assert.equal(primera.added, 1);
+
+    // Segunda carga: su marca ya estaba (duplicada), pero OTRO trabajador trae
+    // una nueva. Su RUT tiene que viajar igual en el evento.
+    dispatched.length = 0;
+    const segunda = mergeAttendanceMarks([
+        salida,
+        {
+            rut: "11111111-1",
+            name: "Otra Persona",
+            date: "2026-09-01",
+            time: "08:00",
+            type: "entrada",
+            id: "m-otro"
+        }
+    ]);
+
+    assert.equal(segunda.duplicated, 1, "su marca se reconoce como repetida");
+    assert.equal(segunda.added, 1, "solo entra la del otro trabajador");
+
+    const evento = dispatched.find(
+        item => item.type === "proturnos:attendanceMarksChanged"
+    );
+
+    assert.ok(evento, "la carga tiene que anunciar el cambio");
+    assert.deepEqual(
+        [...evento.detail.ruts].sort(),
+        ["11111111-1", "17816632-8"],
+        "el RUT con marca repetida tambien se republica: pudo no haber " +
+        "llegado nunca a su proyeccion"
     );
 });
