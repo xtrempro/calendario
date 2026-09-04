@@ -194,6 +194,21 @@ export function planPartialStateEntries({
 
         if (!moduleId) return;
 
+        // Que esta sesion NO TENGA la clave no significa que haya que borrarla
+        // para todos.
+        //
+        // `nextRaw` sale de leer el almacenamiento local, y ahi un `null` puede
+        // ser cualquier cosa menos una decision: la sesion todavia no hidrato
+        // ese modulo, se acaba de cambiar de unidad, el navegador desalojo la
+        // clave. Publicar eso como `deleted` convierte una ausencia local en
+        // una destruccion remota: el 2026-09-03 una sesion borro asi el
+        // catalogo entero de tareas de Imagenologia, y de rebote se perdieron
+        // 298 asignaciones.
+        //
+        // Un borrado de VERDAD siempre llega marcado: removeKey() emite el
+        // cambio con `removed: true`. Sin esa marca, no hay nada que publicar.
+        if (nextRaw === null && change.removed !== true) return;
+
         if (!isPartialStateMapKey(storageKey)) {
             const listEntries = planListStateEntries({
                 moduleId,

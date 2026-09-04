@@ -14,3 +14,7 @@ functions/engine/
 
 # Archivos de trabajo de los mockups (lienzo de diseno)
 .design/
+
+# Volcados de rescate: llevan datos de produccion, no van al repo.
+catalogo-tareas-rescatado.json
+asignaciones-rescatadas.json
