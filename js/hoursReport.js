@@ -1502,6 +1502,62 @@ export async function buildAttendanceIncidents(profiles, monthDate) {
  *   atraso: string, entrada: string, salida: string
  * }>>}
  */
+/**
+ * Todas las marcas del reloj de UN dia, tal como las reparte el reporte.
+ *
+ * Es lo que necesita la casilla del calendario para mostrar el marcaje al
+ * abrirla, y sale de los MISMOS hechos que dibujan la fila del reporte: la
+ * salida de una noche viene ya traida al dia en que se entro, y las que la fila
+ * resume -el traspaso de un 24, el doble apreton al salir- vienen tambien, que
+ * es justamente lo que no se alcanza a ver en la tabla.
+ *
+ * @param {{name: string, rut: string}} profile
+ * @param {string} keyDay clave interna del dia
+ * @returns {Promise<{turno: string, entrada: string, salida: string,
+ *   marks: Array<{time: string, type: string, iso: string}>}|null>}
+ */
+export async function attendanceDayMarks(profile, keyDay) {
+    const profileName = profile?.name;
+
+    if (!profileName || !keyDay) return null;
+
+    const date = parseKey(keyDay);
+
+    if (Number.isNaN(date.getTime())) return null;
+
+    const holidays = await fetchReportHolidays(date.getFullYear());
+    const data = getProfileData(profileName);
+    const maps = getReportMaps(profileName);
+    const baseWithSwaps = baseWithSwapsForReport(profileName, keyDay);
+    const actual = actualStateForReport(profileName, data, keyDay);
+    const absence = dayAbsenceDetail(keyDay, maps);
+    const { cells } = attendanceDayFacts(
+        profile,
+        isoFromKey(keyDay),
+        attendanceDay(profileName, keyDay, date, holidays, data, {
+            baseShift: baseWithSwaps,
+            extraShift: getTurnoExtraAgregado(baseWithSwaps, actual),
+            workedShift: actual,
+            absent: Boolean(absence?.full),
+            today: startOfToday(),
+            coverage: attendanceCoverage()
+        })
+    );
+
+    if (!cells.marks?.length) return null;
+
+    return {
+        turno: absence?.label || turnoLabel(actual),
+        entrada: cells.entrada,
+        salida: cells.salida,
+        marks: cells.marks.map(mark => ({
+            time: mark.time,
+            type: mark.type === "out" ? "out" : "in",
+            iso: mark.iso || ""
+        }))
+    };
+}
+
 export async function attendanceIncidentContext(profile, iso) {
     const profileName = profile?.name;
     const centro = iso ? keyFromISO(iso) : "";

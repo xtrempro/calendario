@@ -7077,6 +7077,66 @@ td.mini.timeline-leave-pending > .timeline-replacement-marker {
     margin: 4px 0 12px;
 }
 
+/* Lo que el reloj registro ese dia, marca por marca. Va ARRIBA de las
+   incidencias: primero el hecho -a que hora apreto- y despues lo que se le
+   encontro raro, que es el orden en que se revisa un dia. */
+.attendance-marks {
+    display: grid;
+    gap: 2px;
+    margin: 4px 0 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel-alt);
+}
+
+.attendance-marks-turn {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+}
+
+.attendance-mark,
+.attendance-marks-turn {
+    font-size: 0.86rem;
+}
+
+.attendance-mark {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 3px 0;
+}
+
+.attendance-mark span,
+.attendance-marks-turn span {
+    min-width: 62px;
+    color: var(--text-soft);
+}
+
+.attendance-mark b,
+.attendance-marks-turn b {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+/* La marca que se trajo del dia siguiente: sin la fecha, una salida a las 08:06
+   dentro de un turno de noche se lee como si fuera de la manana anterior. */
+.attendance-mark em {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-style: normal;
+}
+
+.attendance-marks-loading {
+    color: var(--text-muted);
+    font-size: 0.86rem;
+    font-style: italic;
+}
+
 .attendance-incident-item {
     padding: 12px 14px;
     border: 1px solid var(--border);

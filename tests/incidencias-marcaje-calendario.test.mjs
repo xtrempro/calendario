@@ -87,7 +87,7 @@ test("el icono se agrega ADEMAS de la insignia principal", () => {
 /* ───────── Al pulsarlo se abre el detalle ───────── */
 
 test("pulsar el icono abre el detalle y no hace nada mas", () => {
-    assert.match(calendar, /function openAttendanceIncidentDialog\(profileName, keyDay\)/);
+    assert.match(calendar, /function openAttendanceIncidentDialog\(\s*\n\s*profileName,\s*\n\s*keyDay,/);
     // Va primero y corta: si no, el click caeria en lo que hace el resto de la
     // casilla (ciclo de turnos, cuadros de permiso).
     assert.match(
@@ -107,7 +107,10 @@ test("las incidencias salen del mismo calculo que el reporte", () => {
     // Una segunda version de la regla acabaria contando cosas distintas y el
     // supervisor no sabria a cual creerle.
     assert.match(indice, /import \{ buildAttendanceIncidents \} from "\.\/hoursReport\.js";/);
-    assert.match(calendar, /import \{ ATTENDANCE_INCIDENT_KINDS \} from "\.\/hoursReport\.js";/);
+    assert.match(
+        calendar,
+        /import \{\s*\n\s*ATTENDANCE_INCIDENT_KINDS,\s*\n\s*attendanceDayMarks\s*\n\} from "\.\/hoursReport\.js";/
+    );
 });
 
 test("el inicio y el calendario comparten que datos invalidan lo calculado", () => {
@@ -159,4 +162,64 @@ test("el calculo no bloquea el pintado y repinta al terminar", () => {
 test("un mes pedido dos veces se calcula una sola", () => {
     assert.match(indice, /if \(cache\.has\(clave\)\) return false;/);
     assert.match(indice, /if \(pending\.has\(clave\)\) return pending\.get\(clave\);/);
+});
+
+/* =========================================================
+   El marcaje del dia, al abrir la casilla
+
+   La insignia llevaba al problema y en ninguna parte se veian las HORAS que lo
+   explican: para entender un dia habia que ir al reporte. Ahora el modal es
+   uno solo -las marcas arriba, la incidencia debajo- y se llega tambien desde
+   la casilla, no solo desde la insignia.
+========================================================= */
+
+test("el modal muestra las marcas del reloj, no solo la incidencia", () => {
+    assert.match(calendar, /<div class="attendance-marks" data-attendance-marks>/);
+    assert.match(calendar, /function attendanceMarkRowHTML\(mark\)/);
+    assert.match(calendar, /mark\.type === "out" \? "Salida" : "Entrada"/);
+});
+
+test("las marcas salen del reporte, no se leen aparte", () => {
+    // Es la misma razon de siempre: una segunda lectura del archivo del reloj
+    // acabaria diciendo algo distinto a la fila del reporte.
+    assert.match(calendar, /await attendanceDayMarks\(/);
+});
+
+test("la marca traida del dia siguiente dice de que dia es", () => {
+    // Una salida a las 08:06 dentro de un turno de noche se lee como si fuera
+    // de la manana anterior si no se dice la fecha.
+    assert.match(calendar, /mark\.iso\s*\n\s*\? `<em>\$\{escapeHTML\(replacementDetailDateLabel\(mark\.iso\)\)\}<\/em>`/);
+    assert.match(css, /\.attendance-mark em \{/);
+});
+
+test("el modal no bloquea: se abre con la incidencia y las marcas entran despues", () => {
+    // Resolver feriados y turno tarda; con la incidencia a la vista ya se puede
+    // leer lo que se venia a leer.
+    assert.match(calendar, /void fillAttendanceMarks\(backdrop, profileName, keyDay\);/);
+    assert.match(calendar, /if \(!host\.isConnected\) return;/);
+});
+
+test("con el switch de Editar apagado, la casilla abre su marcaje", () => {
+    // Con el switch ENCENDIDO el click cicla el turno, y quedarse sin esa via
+    // seria peor que no tener el detalle.
+    assert.match(
+        calendar,
+        /openAttendanceIncidentDialog\(profileName, keyDay, \{\s*\n\s*requireIncidents: false\s*\n\s*\}\);/
+    );
+});
+
+test("pero el turno agregado a mano sigue mandando", () => {
+    // Ese click ya ofrecia quitarlo, y es lo unico accionable del dia.
+    assert.match(
+        calendar,
+        /if \(manualExtraForDay\(profileName, keyDay\)\.extra\) \{\s*\n\s*await offerManualExtraRemoval/
+    );
+});
+
+test("un dia sin marcas ni incidencias no abre un modal vacio", () => {
+    assert.match(calendar, /function dayHasClockMarks\(profileName, keyDay\)/);
+    assert.match(
+        calendar,
+        /if \(!incidents\.length && !dayHasClockMarks\(profileName, keyDay\)\) \{\s*\n\s*return false;/
+    );
 });

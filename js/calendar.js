@@ -208,7 +208,11 @@ import {
     getAttendanceIncidentsForDay,
     onAttendanceIncidentIndexReady
 } from "./attendanceIncidentIndex.js";
-import { ATTENDANCE_INCIDENT_KINDS } from "./hoursReport.js";
+import {
+    ATTENDANCE_INCIDENT_KINDS,
+    attendanceDayMarks
+} from "./hoursReport.js";
+import { getMarksFor } from "./attendanceImport.js";
 import { rotationPositionLabel } from "./rotationUtils.js";
 import {
     TURNO,
@@ -3183,28 +3187,68 @@ function attendanceIncidentSummary(incidents) {
     return `Incidencia de marcaje: ${tipos.join(", ")}`;
 }
 
-function openAttendanceIncidentDialog(profileName, keyDay) {
+/**
+ * .Registro el reloj algo este dia?
+ *
+ * Se pregunta en el acto -sin esperar el calculo del mes- porque decide si el
+ * click de la casilla abre el detalle o no hace nada. Mira las marcas PROPIAS
+ * del dia: la salida de una noche vive en el dia siguiente, pero ese dia ya
+ * tiene su incidencia si algo falta.
+ */
+function dayHasClockMarks(profileName, keyDay) {
+    const rut = getProfiles()
+        .find(profile => profile.name === profileName)?.rut;
+
+    return Boolean(rut) &&
+        getMarksFor(rut, isoFromKeyDay(keyDay)).length > 0;
+}
+
+/**
+ * El marcaje de un dia: lo que el reloj registro y lo que se le encontro raro.
+ *
+ * Es un solo modal a proposito. La insignia de incidencia y el click de la
+ * casilla llevaban a dos sitios distintos -uno con el problema y otro con las
+ * horas- y para entender un dia habia que abrir los dos. Aqui la incidencia se
+ * lee al lado de las marcas que la explican.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.requireIncidents] no abrir si el dia no tiene
+ *   ninguna. Lo usa la insignia, que solo existe cuando las hay.
+ */
+function openAttendanceIncidentDialog(
+    profileName,
+    keyDay,
+    { requireIncidents = true } = {}
+) {
     const incidents = getAttendanceIncidentsForDay(profileName, keyDay);
 
-    if (!incidents.length) return false;
+    if (requireIncidents && !incidents.length) return false;
+    if (!incidents.length && !dayHasClockMarks(profileName, keyDay)) {
+        return false;
+    }
 
     const backdrop = document.createElement("div");
 
     backdrop.className = "turn-change-dialog-backdrop";
     backdrop.innerHTML = `
         <section class="turn-change-dialog attendance-incident-dialog" role="dialog" aria-modal="true" aria-labelledby="attendanceIncidentTitle">
-            <strong id="attendanceIncidentTitle">Incidencias de marcaje</strong>
+            <strong id="attendanceIncidentTitle">Marcaje del día</strong>
             <p>
                 ${escapeHTML(profileName)} &middot; ${escapeHTML(replacementDetailDateLabel(isoFromKeyDay(keyDay)))}
             </p>
-            <div class="attendance-incident-list">
+            <div class="attendance-marks" data-attendance-marks>
+                <div class="attendance-marks-loading">Buscando las marcas...</div>
+            </div>
+            ${incidents.length
+                ? `<div class="attendance-incident-list">
                 ${incidents.map(incident => `
                     <article class="attendance-incident-item">
                         <span class="attendance-incident-kind">${escapeHTML(attendanceIncidentLabel(incident.kind))}</span>
                         <p>${escapeHTML(incident.detail || "Sin detalle.")}</p>
                     </article>
                 `).join("")}
-            </div>
+            </div>`
+                : ""}
             <p class="leave-detail-note">
                 Salen del reporte del reloj control. Se corrigen subiendo una
                 planilla nueva o ajustando el marcaje del dia.
@@ -3237,7 +3281,59 @@ function openAttendanceIncidentDialog(profileName, keyDay) {
     document.body.appendChild(backdrop);
     backdrop.querySelector("[data-action='cancel']")?.focus();
 
+    // Las marcas se leen aparte -hay que resolver feriados y turno- y entran
+    // cuando estan. El modal ya esta abierto: con la incidencia a la vista, que
+    // es lo que se venia a leer.
+    void fillAttendanceMarks(backdrop, profileName, keyDay);
+
     return true;
+}
+
+// Como se lee cada marca en el detalle. La etiqueta es la que apreto el
+// trabajador, no la que el turno le asigna: aqui se muestra el registro tal
+// cual, que es contra lo que el supervisor contrasta.
+function attendanceMarkRowHTML(mark) {
+    return `
+        <div class="attendance-mark">
+            <span>${mark.type === "out" ? "Salida" : "Entrada"}</span>
+            <b>${escapeHTML(mark.time)}</b>
+            ${mark.iso
+                ? `<em>${escapeHTML(replacementDetailDateLabel(mark.iso))}</em>`
+                : ""}
+        </div>`;
+}
+
+async function fillAttendanceMarks(backdrop, profileName, keyDay) {
+    const host = backdrop.querySelector("[data-attendance-marks]");
+
+    if (!host) return;
+
+    try {
+        const detail = await attendanceDayMarks(
+            getProfiles().find(profile => profile.name === profileName),
+            keyDay
+        );
+
+        // Se pudo cerrar mientras se buscaba.
+        if (!host.isConnected) return;
+
+        host.innerHTML = detail?.marks?.length
+            ? `<div class="attendance-marks-turn">
+                    <span>Turno</span><b>${escapeHTML(detail.turno || "Libre")}</b>
+                </div>
+                ${detail.marks.map(attendanceMarkRowHTML).join("")}`
+            : `<div class="attendance-marks-loading">
+                    Este día no tiene marcas del reloj.
+                </div>`;
+    } catch (error) {
+        console.warn("No se pudo leer el marcaje del dia.", error);
+
+        if (host.isConnected) {
+            host.innerHTML = `<div class="attendance-marks-loading">
+                No se pudo leer el marcaje de este día.
+            </div>`;
+        }
+    }
 }
 
 async function openReplacementDetailDialog(
@@ -8110,7 +8206,18 @@ async function clickDia(
         // tiene un turno puesto A MANO es la ocasion de ofrecer quitarlo: hasta
         // ahora habia que encender el switch y dar vueltas al ciclo hasta volver
         // al turno original.
-        await offerManualExtraRemoval(profileName, keyDay, options);
+        if (manualExtraForDay(profileName, keyDay).extra) {
+            await offerManualExtraRemoval(profileName, keyDay, options);
+            return;
+        }
+
+        // Y si no hay nada que quitar, el calendario esta en modo consulta: se
+        // abre lo que el reloj registro ese dia. Va aqui y no con el switch
+        // encendido a proposito, porque ahi el click CICLA el turno y quedarse
+        // sin esa via seria peor que no tener el detalle.
+        openAttendanceIncidentDialog(profileName, keyDay, {
+            requireIncidents: false
+        });
         return;
     }
 
