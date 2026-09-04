@@ -31,7 +31,8 @@ const { TURNO } = await import("../js/constants.js");
 const {
     addPreassignment,
     getPreassignments,
-    getPreassignmentTurnForWorker
+    getPreassignmentTurnForWorker,
+    setPreassignmentReason
 } = await import("../js/preassignments.js");
 
 const leer = async name => (await readFile(
@@ -343,12 +344,11 @@ test("al agregar un turno se abre el modal de respaldo", () => {
         main,
         /clearSelectionMode\(\);[\s\S]{0,1200}await openManualExtraReasonForDay\(profile, keyDay\);/
     );
-    // Salvo con un turno PREASIGNADO: no se publica ni suma horas, asi que no
-    // hay motivo de horas extra que pedir todavia. Se pregunta al confirmarlo,
-    // que es cuando pasa a ser un turno de verdad.
+    // Un turno PREASIGNADO pide el suyo por su propio camino: el de respaldos
+    // guarda un respaldo del turno, y ahi el turno todavia no existe.
     assert.match(
         main,
-        /if \(preasignar\) \{[\s\S]{0,220}return;\s*\n\s*\}[\s\S]{0,400}await openManualExtraReasonForDay/
+        /if \(preasignar\) \{[\s\S]{0,700}await openPreassignmentReasonForDay\(profile, keyDay\);\s*\n\s*return;/
     );
     // Se abre DESPUES de apagar el modo: el modal no sale mientras haya una
     // seleccion activa (openExtraReasonDialog corta con window.selectionMode).
@@ -647,4 +647,79 @@ test("confirmar un preasignado sin ausente aplica el turno de verdad", () => {
 test("el modal no habla de un reemplazado que no existe", () => {
     assert.match(calendar, /\$\{replaced\s*\n\s*\? `<div><span>Reemplaza a<\/span>/);
     assert.match(calendar, /NO se\s*\n\s*publica a la aplicacion del trabajador/);
+});
+
+/* =========================================================
+   El motivo de horas extra de una reserva
+
+   Se pide al preasignar -que es cuando el supervisor sabe por que lo hace-, se
+   puede dejar para despues, y al confirmar el turno se convierte en su
+   respaldo. Si sigue sin motivo, se vuelve a preguntar en ese momento.
+========================================================= */
+
+test("el motivo vive en la reserva, no como respaldo del turno", () => {
+    // El respaldo (`manual_extra`) es de un turno que todavia no existe.
+    localStorage.clear();
+
+    const reserva = addPreassignment({
+        worker: "Ana",
+        replaced: "",
+        keyDay: "2026-7-13",
+        turno: TURNO.NOCHE,
+        reason: "Apoyo urgencia"
+    });
+
+    assert.equal(reserva.reason, "Apoyo urgencia");
+    assert.equal(getPreassignments()[0].reason, "Apoyo urgencia");
+});
+
+test("se puede crear sin motivo y definirlo despues", () => {
+    localStorage.clear();
+
+    const reserva = addPreassignment({
+        worker: "Ana",
+        replaced: "",
+        keyDay: "2026-7-13",
+        turno: TURNO.NOCHE
+    });
+
+    assert.equal(reserva.reason, "");
+    assert.equal(setPreassignmentReason(reserva.id, "  Apoyo TAC  "), true);
+    assert.equal(getPreassignments()[0].reason, "Apoyo TAC");
+    // Una reserva que ya no existe no revienta.
+    assert.equal(setPreassignmentReason("no-existe", "x"), false);
+});
+
+test("se pregunta al preasignar, con los mismos motivos guardados", () => {
+    assert.match(calendar, /function openPreassignmentReasonDialog\(\{ profile, keyDay, preassignment \}\)/);
+    assert.match(calendar, /export async function openPreassignmentReasonForDay\(/);
+    assert.match(calendar, /const presets = getManualExtraReasonPresets\(\);/);
+    // Y se puede salir sin poner nada.
+    assert.match(calendar, /data-action="later">Definir después</);
+});
+
+test("desde la casilla se vuelve al motivo si quedo pendiente", () => {
+    assert.match(calendar, /data-action="reason">\$\{\s*\n?\s*preassignment\.reason \? "Cambiar motivo" : "Definir motivo"/);
+    assert.match(calendar, /<div><span>Motivo<\/span><b>\$\{/);
+    assert.match(calendar, /<em>Sin definir<\/em>/);
+});
+
+test("al confirmar, el motivo anotado pasa a ser el respaldo del turno", () => {
+    const bloque = calendar.slice(
+        calendar.indexOf("async function confirmStandalonePreassignment(")
+    ).slice(0, 2200);
+
+    assert.match(bloque, /const motivo = String\(preassignment\.reason \|\| ""\)\.trim\(\);/);
+    assert.match(bloque, /if \(motivo\) \{[\s\S]{0,320}source: "manual_extra"/);
+    // Y si se dejo para despues y sigue sin motivo, se pregunta ahi.
+    assert.match(bloque, /await openManualExtraReasonForDay\(worker, keyDay\);/);
+});
+
+test("el respaldo del preasignado no agrega un turno por su cuenta", () => {
+    // El turno ya lo puso addTurnToDay; este registro solo lo justifica.
+    const bloque = calendar.slice(
+        calendar.indexOf("async function confirmStandalonePreassignment(")
+    ).slice(0, 2200);
+
+    assert.match(bloque, /addsShift: false/);
 });

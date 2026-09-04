@@ -32,6 +32,11 @@ export function addPreassignment(data = {}) {
         replaced: data.replaced || "",
         date,
         turno: Number(data.turno) || TURNO.LIBRE,
+        // Motivo de horas extra de una reserva sin ausente. Vive AQUI y no como
+        // respaldo (`manual_extra`) porque el respaldo es de un turno que
+        // todavia no existe: se convierte en respaldo al confirmar. Puede
+        // quedar vacio y definirse despues.
+        reason: String(data.reason || "").trim(),
         absenceType: data.absenceType || "",
         overtimeHours: data.overtimeHours || null,
         diurnoLongCoverage: Boolean(data.diurnoLongCoverage),
@@ -60,6 +65,26 @@ export function addPreassignment(data = {}) {
     savePreassignments(list);
 
     return record;
+}
+
+/**
+ * Anota -o corrige- el motivo de una reserva ya creada.
+ *
+ * Es la via de "definirlo despues": al preasignar se puede saltar el motivo, y
+ * la casilla queda con su insignia para volver a el.
+ */
+export function setPreassignmentReason(id, reason) {
+    if (!id) return false;
+
+    const list = getPreassignments();
+    const item = list.find(record => String(record?.id) === String(id));
+
+    if (!item) return false;
+
+    item.reason = String(reason || "").trim();
+    savePreassignments(list);
+
+    return true;
 }
 
 export function removePreassignment(id) {

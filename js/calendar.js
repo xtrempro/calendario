@@ -175,6 +175,7 @@ import {
 import {
     addPreassignment,
     removePreassignment,
+    setPreassignmentReason,
     getPreassignmentForCoveredShift,
     getPreassignmentForWorker,
     getPreassignmentTurnForWorker
@@ -7916,6 +7917,126 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
 }
 
 /**
+ * Pide el motivo de horas extra de una reserva sin ausente.
+ *
+ * Es un cuadro propio y no el de respaldos porque ese guarda un respaldo
+ * (`manual_extra`) del turno, y aqui el turno todavia no existe: lo unico que
+ * hay que anotar es POR QUE se va a hacer. El motivo se queda en la reserva y
+ * se convierte en respaldo al confirmarla.
+ *
+ * Se puede saltar: la reserva queda sin motivo, la casilla conserva su insignia
+ * y desde ella se vuelve a este cuadro. Al confirmar, si sigue sin motivo, se
+ * pregunta otra vez.
+ *
+ * @returns {Promise<boolean>} si se guardo un motivo
+ */
+function openPreassignmentReasonDialog({ profile, keyDay, preassignment }) {
+    return new Promise(resolve => {
+        const presets = getManualExtraReasonPresets();
+        const backdrop = document.createElement("div");
+
+        backdrop.className = "turn-change-dialog-backdrop";
+        backdrop.innerHTML = `
+            <section class="turn-change-dialog replacement-dialog" role="dialog" aria-modal="true" aria-labelledby="preassignReasonTitle">
+                <strong id="preassignReasonTitle">Motivo del turno preasignado</strong>
+                <div class="leave-detail-rows">
+                    <div><span>Trabajador</span><b>${escapeHTML(profile)}</b></div>
+                    <div><span>Turno</span><b>${escapeHTML(turnoReplacementLabel(preassignment.turno))}</b></div>
+                    <div><span>Fecha</span><b>${escapeHTML(leaveDateLabelFromKey(keyDay))}</b></div>
+                </div>
+                ${presets.length
+                    ? `<div class="replacement-candidate-list">
+                        ${presets.map(preset => `
+                            <button class="replacement-candidate" type="button" data-preset="${escapeHTML(preset)}">
+                                <span>${escapeHTML(preset)}</span>
+                            </button>
+                        `).join("")}
+                    </div>`
+                    : ""}
+                <label class="extra-reason-field">
+                    <span>Motivo</span>
+                    <textarea data-reason rows="3" placeholder="Por qué se hará este turno">${escapeHTML(preassignment.reason || "")}</textarea>
+                </label>
+                <p class="leave-detail-note">
+                    Queda anotado en la reserva. Al confirmar el turno se guarda
+                    como su motivo de horas extra; si lo dejas para después, se
+                    vuelve a pedir en ese momento.
+                </p>
+                <div class="turn-change-dialog__actions">
+                    <button class="primary-button" type="button" data-action="save">Guardar motivo</button>
+                    <button class="ghost-button" type="button" data-action="later">Definir después</button>
+                </div>
+            </section>
+        `;
+
+        const campo = backdrop.querySelector("[data-reason]");
+        const close = guardado => {
+            document.removeEventListener("keydown", onKeydown);
+            backdrop.remove();
+            resolve(Boolean(guardado));
+        };
+        const onKeydown = event => {
+            if (event.key === "Escape") close(false);
+        };
+
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) close(false);
+        });
+        backdrop.querySelectorAll("[data-preset]").forEach(button => {
+            button.addEventListener("click", () => {
+                campo.value = button.dataset.preset;
+                campo.focus();
+            });
+        });
+        backdrop
+            .querySelector("[data-action='later']")
+            ?.addEventListener("click", () => close(false));
+        backdrop
+            .querySelector("[data-action='save']")
+            ?.addEventListener("click", () => {
+                const motivo = String(campo.value || "").trim();
+
+                if (!motivo) {
+                    alert("Escribe un motivo o usa \"Definir después\".");
+                    return;
+                }
+
+                setPreassignmentReason(preassignment.id, motivo);
+                addAuditLog(
+                    AUDIT_CATEGORY.CALENDAR,
+                    "Motivo de turno preasignado",
+                    `${profile}: ${motivo} (${keyDay}).`,
+                    { profile, keyDay }
+                );
+                close(true);
+            });
+
+        document.addEventListener("keydown", onKeydown);
+        document.body.appendChild(backdrop);
+        campo?.focus();
+    });
+}
+
+/**
+ * Pide el motivo del turno recien preasignado, si es que la reserva existe.
+ *
+ * Lo llama el boton al marcar el dia: el supervisor sabe POR QUE lo esta
+ * reservando justo en ese momento, y dejarlo para despues es lo que hace que
+ * casi nunca se complete.
+ */
+export async function openPreassignmentReasonForDay(profileName, keyDay) {
+    const preassignment = getPreassignmentForWorker(profileName, keyDay);
+
+    if (!preassignment || preassignment.replaced) return false;
+
+    return openPreassignmentReasonDialog({
+        profile: profileName,
+        keyDay,
+        preassignment
+    });
+}
+
+/**
  * Confirma un turno preasignado que no cubre a nadie: lo aplica de verdad.
  *
  * Va por addTurnToDay -el mismo camino del boton normal- en vez de crear un
@@ -7952,6 +8073,28 @@ async function confirmStandalonePreassignment(preassignment, keyDay) {
         `${worker}: se aplico el turno preasignado del ${keyDay}.`,
         { profile: worker, keyDay }
     );
+
+    const motivo = String(preassignment.reason || "").trim();
+
+    // El motivo anotado en la reserva pasa a ser el respaldo del turno, que es
+    // lo que el reporte de horas extra va a buscar. Asi, definido al
+    // preasignar, al confirmar queda todo listo de una.
+    if (motivo) {
+        saveReplacement({
+            worker,
+            keyDay,
+            turno: Number(turno) || 0,
+            reason: motivo,
+            absenceType: "Motivo manual",
+            source: "manual_extra",
+            addsShift: false
+        });
+        return;
+    }
+
+    // Y si se dejo para despues y sigue sin motivo, se pregunta ahora: es el
+    // ultimo momento en que el turno todavia no cuenta horas sin respaldo.
+    await openManualExtraReasonForDay(worker, keyDay);
 }
 
 // Modal de un turno PREASIGNADO (cobertura tentativa). Se abre al clickear la
@@ -7991,6 +8134,13 @@ function openPreassignmentDialog({ profile, keyDay }) {
                 <div><span>Fecha</span><b>${escapeHTML(leaveDateLabelFromKey(keyDay))}</b></div>
                 <div><span>Preasignado</span><b>${escapeHTML(preassignedLabel)}</b></div>
                 <div><span>Por</span><b>${actorHTML}</b></div>
+                ${replaced
+                    ? ""
+                    : `<div><span>Motivo</span><b>${
+                        preassignment.reason
+                            ? escapeHTML(preassignment.reason)
+                            : "<em>Sin definir</em>"
+                    }</b></div>`}
             </div>
             <p class="leave-detail-note">
                 ${replaced
@@ -8005,6 +8155,11 @@ function openPreassignmentDialog({ profile, keyDay }) {
             <div class="turn-change-dialog__actions leave-detail-actions--stacked">
                 ${canEdit ? `
                 <button class="primary-button" type="button" data-action="confirm">Confirmar (el trabajador aceptó)</button>
+                ${replaced
+                    ? ""
+                    : `<button class="secondary-button" type="button" data-action="reason">${
+                        preassignment.reason ? "Cambiar motivo" : "Definir motivo"
+                    }</button>`}
                 <button class="leave-detail-undo" type="button" data-action="cancel-preassign">Cancelar preasignación</button>
                 ` : ""}
                 <button class="ghost-button" type="button" data-action="close">Cerrar</button>
@@ -8055,6 +8210,19 @@ function openPreassignmentDialog({ profile, keyDay }) {
                 close();
                 await refresh();
             }, { label: "Confirmando..." });
+        });
+    backdrop
+        .querySelector("[data-action='reason']")
+        ?.addEventListener("click", async () => {
+            close();
+            // Se reabre despues para que el motivo recien puesto se vea: el
+            // cuadro se dibuja de una vez y no se refresca solo.
+            await openPreassignmentReasonDialog({
+                profile: worker,
+                keyDay,
+                preassignment
+            });
+            openPreassignmentDialog({ profile, keyDay });
         });
     backdrop
         .querySelector("[data-action='cancel-preassign']")

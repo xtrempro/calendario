@@ -196,6 +196,7 @@ import {
     addTurnToDay,
     addPreassignedTurnToDay,
     openManualExtraReasonForDay,
+    openPreassignmentReasonForDay,
     openReplacementSuggestionsForLeaveBlock,
     updateDayCell,
     updateDayCells,
@@ -11688,13 +11689,15 @@ async function handleAddTurnSelection(fecha) {
         return;
     }
 
-    // Un turno preasignado no se publica ni suma horas, asi que no hay motivo
-    // de horas extra que pedir: eso se pregunta al confirmarlo, que es cuando
-    // pasa a ser un turno de verdad. Repintar si hace falta, porque no paso por
-    // commitCalendarTurnChange.
+    // Repintar a mano, porque una reserva no pasa por commitCalendarTurnChange.
     if (preasignar) {
         await updateDayCell(profile, keyDay);
         await updateVisibleCalendarDays({ updateSummary: true });
+        // El motivo se pide AQUI por lo mismo que en el turno normal: es cuando
+        // el supervisor sabe por que lo esta reservando. Se puede dejar para
+        // despues -desde la insignia de la casilla- y si al confirmar sigue sin
+        // motivo, se vuelve a preguntar.
+        await openPreassignmentReasonForDay(profile, keyDay);
         return;
     }
 
