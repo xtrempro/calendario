@@ -179,6 +179,9 @@ let hotPublishTimer = null;
 let hotPublishInFlight = false;
 let hotPublishRequested = false;
 let hotPublishNeedsLocalStateFlush = false;
+// Claves globales pesadas que solo se vacian cuando cambiaron de verdad
+// (hoy: el archivo del reloj). Se acumulan igual que dirtyProfileNames.
+let hotPublishExtraStateKeys = new Set();
 let workerLinksInitialized = false;
 let syncGeneration = 0;
 let workerAppLastUserActivityAt = Date.now();
@@ -2783,7 +2786,10 @@ export function scheduleHotPublish(delay = HOT_PUBLISH_DELAY_MS) {
     hotPublishTimer = setTimeout(() => publishHotNow(), delay);
 }
 
-function workerAppProjectionStateKeysForProfiles(profileNames = []) {
+function workerAppProjectionStateKeysForProfiles(
+    profileNames = [],
+    extraKeys = []
+) {
     const names = Array.from(new Set(
         (Array.isArray(profileNames) ? profileNames : [profileNames])
             .map(name => String(name || "").trim())
@@ -2797,11 +2803,27 @@ function workerAppProjectionStateKeysForProfiles(profileNames = []) {
         });
     });
 
+    // Claves globales que solo hay que vaciar cuando de verdad cambiaron. NO
+    // van en WORKER_APP_PROJECTION_GLOBAL_STATE_KEYS a proposito: el vaciado
+    // escribe TODAS las claves que recibe, cambien o no, y `attendanceMarks`
+    // viaja entera (no esta troceada). Meterla en la lista fija reescribiria el
+    // archivo del reloj completo en cada edicion de turno.
+    (Array.isArray(extraKeys) ? extraKeys : [extraKeys])
+        .map(key => String(key || "").trim())
+        .filter(Boolean)
+        .forEach(key => keys.add(key));
+
     return [...keys];
 }
 
-async function flushWorkerAppProjectionState(profileNames = []) {
-    const keys = workerAppProjectionStateKeysForProfiles(profileNames);
+async function flushWorkerAppProjectionState(
+    profileNames = [],
+    extraKeys = []
+) {
+    const keys = workerAppProjectionStateKeysForProfiles(
+        profileNames,
+        extraKeys
+    );
 
     if (!keys.length) return null;
 
@@ -2831,8 +2853,10 @@ async function publishHotNow() {
     dirtyProfileNames = new Set();
     dirtyWorkerUids = new Set();
     const needsLocalStateFlush = hotPublishNeedsLocalStateFlush;
+    const extraStateKeys = [...hotPublishExtraStateKeys];
     hotPublishRequested = false;
     hotPublishNeedsLocalStateFlush = false;
+    hotPublishExtraStateKeys = new Set();
 
     // La programacion del workspace se publica SIEMPRE, antes del corte de
     // abajo: no depende de que haya perfiles sucios, y si dependiera, editar el
@@ -2845,7 +2869,7 @@ async function publishHotNow() {
 
     try {
         if (needsLocalStateFlush) {
-            await flushWorkerAppProjectionState([...dirtyNames]);
+            await flushWorkerAppProjectionState([...dirtyNames], extraStateKeys);
         }
 
         const { db, firestoreModule } = await getFirebaseServices();
@@ -2874,6 +2898,7 @@ async function publishHotNow() {
         hotPublishRequested = true;
         hotPublishNeedsLocalStateFlush =
             hotPublishNeedsLocalStateFlush || needsLocalStateFlush;
+        extraStateKeys.forEach(key => hotPublishExtraStateKeys.add(key));
         console.warn(
             "No se pudo solicitar la proyeccion del worker-app.",
             error
@@ -3227,6 +3252,14 @@ export function scheduleWorkerAppDataPublish(
         hotPublishNeedsLocalStateFlush = true;
     }
 
+    if (Array.isArray(options?.stateKeys) && options.stateKeys.length) {
+        options.stateKeys
+            .map(key => String(key || "").trim())
+            .filter(Boolean)
+            .forEach(key => hotPublishExtraStateKeys.add(key));
+        hotPublishNeedsLocalStateFlush = true;
+    }
+
     if (changeMetadata) {
         const profiles = getProfiles();
         const linkedByName = new Map();
@@ -3440,6 +3473,7 @@ export function stopWorkerAppDataSync() {
     workerAppForegroundResumeBlockedUntil = 0;
     dirtyProfileNames = new Set();
     dirtyWorkerUids = new Set();
+    hotPublishExtraStateKeys = new Set();
     syncGeneration++;
 }
 

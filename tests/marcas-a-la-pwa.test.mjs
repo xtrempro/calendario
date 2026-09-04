@@ -277,7 +277,14 @@ test("subir una planilla republica a los trabajadores que trae", () => {
     // que algo mas de ese trabajador cambie.
     assert.match(
         main,
-        /addEventListener\("proturnos:attendanceMarksChanged"[\s\S]{0,700}scheduleWorkerAppDataPublish\(300, names, null/
+        /addEventListener\("proturnos:attendanceMarksChanged"[\s\S]{0,1500}scheduleWorkerAppDataPublish\(300, names, null/
+    );
+    // Pedir la proyeccion no basta: hay que vaciar ANTES las claves del reloj a
+    // Firestore, o la Cloud Function calcula con las marcas viejas. Ver
+    // tests/marcas-reloj-a-la-proyeccion.test.mjs.
+    assert.match(
+        main,
+        /addEventListener\("proturnos:attendanceMarksChanged"[\s\S]{0,1800}stateKeys: ATTENDANCE_STATE_KEYS/
     );
 });
 

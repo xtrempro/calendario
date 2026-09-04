@@ -22,6 +22,12 @@ const STORAGE_KEY = "attendanceMarks";
 // esa hora no hay planilla que consultar (ver attendanceCoverage).
 const IMPORTED_AT_KEY = "attendanceMarksImportedAt";
 
+// Las dos claves que escribe la planilla del reloj. Se exportan porque quien
+// pide la proyeccion del worker-app tiene que vaciarlas a Firestore ANTES de
+// pedirla: si no, la Cloud Function calcula con las marcas viejas y al
+// trabajador le falta la salida del turno en su telefono.
+export const ATTENDANCE_STATE_KEYS = [STORAGE_KEY, IMPORTED_AT_KEY];
+
 // Encabezados que se buscan, en minusculas y sin acentos. El sistema los puede
 // traducir o reordenar, asi que las columnas se ubican por NOMBRE y nunca por
 // posicion.

@@ -20,6 +20,7 @@ import {
 import { normalizeText, stripAccents, sanitizeDigits } from "./stringUtils.js";
 import { escapeHTML } from "./htmlUtils.js";
 import {
+    ATTENDANCE_STATE_KEYS,
     importAttendanceFile,
     normalizeRut
 } from "./attendanceImport.js";
@@ -13221,8 +13222,15 @@ window.addEventListener("proturnos:attendanceMarksChanged", event => {
         .map(profile => profile.name);
 
     if (names.length) {
+        // `stateKeys` es lo que hacia falta: el vaciado previo a pedir la
+        // proyeccion solo cubria las claves POR PERFIL (`clockMarks_<nombre>`) y
+        // un puñado de globales, y la planilla del reloj no es ninguna de esas
+        // -escribe la global `attendanceMarks`-. La Cloud Function calculaba
+        // entonces con las marcas viejas: al trabajador le llegaba la entrada y
+        // no la salida, y solo se arreglaba si algo mas volvia a tocarlo.
         scheduleWorkerAppDataPublish(300, names, null, {
-            requiresLocalStateFlush: true
+            requiresLocalStateFlush: true,
+            stateKeys: ATTENDANCE_STATE_KEYS
         });
     }
 });
