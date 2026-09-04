@@ -27,6 +27,7 @@ import {
     getPartialShiftWindow,
     partialShiftLabel
 } from "./partialShift.js";
+import { commemorativeDaysForDate } from "./commemorativeDays.js";
 
 const TASKS_KEY = "weekly_task_assignment_tasks";
 const ASSIGNMENTS_KEY = "weekly_task_assignment_entries";
@@ -1424,13 +1425,13 @@ function bindMultiSelectOutsideClose(root, clearOpenGroup) {
     };
 }
 
-function birthdayProfiles(date) {
+function birthdayProfiles(date, { filtered = true } = {}) {
     const month = date.getMonth();
     const day = date.getDate();
 
     return getProfiles()
         .filter(isProfileActive)
-        .filter(profile => profileMatchesFilters(
+        .filter(profile => !filtered || profileMatchesFilters(
             profile,
             selectedRoles,
             selectedProfessions
@@ -1446,12 +1447,12 @@ function birthdayProfiles(date) {
         .sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
 
-function absenceProfiles(date) {
+function absenceProfiles(date, { filtered = true } = {}) {
     const keyDay = keyFromDate(date);
 
     return getProfiles()
         .filter(isProfileActive)
-        .filter(profile => profileMatchesFilters(
+        .filter(profile => !filtered || profileMatchesFilters(
             profile,
             selectedRoles,
             selectedProfessions
@@ -4133,6 +4134,65 @@ export function taskScheduleHasAssignments(start = currentWeekStart) {
     const week = getAllAssignments()[weekKey(start)];
 
     return Boolean(week && Object.keys(week).length);
+}
+
+/**
+ * Las novedades de la semana -ausencias y permisos, cumpleanos y efemerides-
+ * con la MISMA forma que una seccion de la programacion, para que el visor y la
+ * hoja impresa la dibujen con el mismo codigo que las tablas de tareas.
+ *
+ * Deliberadamente NO entra en getTaskScheduleWeek(): esa sale publicada a la
+ * PWA del trabajador, y ahi estarian las licencias y permisos de toda la unidad
+ * en el telefono de cualquiera. Esto es del supervisor.
+ *
+ * Tampoco aplica los filtros de estamento y profesion del tablero: la
+ * programacion impresa muestra a todos, igual que las filas de tareas.
+ *
+ * @returns {{label: string, rows: Array}|null} null si la semana no tiene ninguna novedad
+ */
+export function getTaskScheduleWeekEvents(start = currentWeekStart) {
+    const days = weekDays(start);
+    const definitions = [
+        {
+            title: "AUSENCIAS Y PERMISOS",
+            // Nombre abreviado, como en las filas de tareas: la columna de un
+            // dia mide 12% de la hoja, y un nombre completo por novedad
+            // estiraria la fila hasta sacar la tabla de la pagina.
+            linesFor: day => absenceProfiles(day, { filtered: false })
+                .map(item =>
+                    `${shortWorkerName(item.profile.name, { compact: true })}` +
+                    ` | ${item.label}`
+                )
+        },
+        {
+            title: "CUMPLEAÑOS",
+            linesFor: day => birthdayProfiles(day, { filtered: false })
+                .map(profile =>
+                    shortWorkerName(profile.name, { compact: true })
+                )
+        },
+        {
+            title: "EFEMÉRIDES",
+            linesFor: day => commemorativeDaysForDate(day)
+        }
+    ];
+    const rows = definitions
+        .map(definition => ({
+            title: definition.title,
+            detail: "",
+            cells: days.map(day => ({
+                lines: definition.linesFor(day),
+                workers: [],
+                note: ""
+            }))
+        }))
+        // Una fila sin nada en los siete dias no se dibuja: en una semana sin
+        // cumpleanos, la fila vacia solo gasta un renglon de la hoja.
+        .filter(row => row.cells.some(cell => cell.lines.length));
+
+    return rows.length
+        ? { label: "Novedades de la semana", rows }
+        : null;
 }
 
 export function taskScheduleWeeks() {

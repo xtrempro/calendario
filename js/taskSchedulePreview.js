@@ -13,6 +13,7 @@
 import { escapeHTML } from "./htmlUtils.js";
 import {
     getTaskScheduleWeek,
+    getTaskScheduleWeekEvents,
     goToTaskScheduleToday,
     moveTaskScheduleWeek
 } from "./taskAssignments.js";
@@ -66,7 +67,11 @@ function clearColors() {
 function cellHTML(cell) {
     const lines = [];
 
-    if (cell.workers.length) lines.push(cell.workers.join("-"));
+    // `lines` son renglones ya listos, uno por novedad. Los nombres de las
+    // tareas siguen viajando en `workers` y se juntan con guiones en UN
+    // renglon, que es como se leen en la programacion.
+    if (cell.lines?.length) lines.push(...cell.lines);
+    if (cell.workers?.length) lines.push(cell.workers.join("-"));
     if (cell.note) lines.push(cell.note);
 
     return lines.length
@@ -118,14 +123,19 @@ function sectionHTML(section, days) {
         </section>`;
 }
 
-function bodyHTML(week) {
+function bodyHTML(week, events) {
+    // Las novedades van DEBAJO de las tareas, y se muestran aunque la semana no
+    // tenga nada repartido: quien abre la programacion de una semana vacia
+    // igual necesita ver quien esta con permiso.
+    const eventsHTML = events ? sectionHTML(events, week.days) : "";
+
     if (!week.sections.length) {
-        return `<div class="ws-empty">Todavía no hay trabajadores asignados en esta semana.</div>`;
+        return `<div class="ws-empty">Todavía no hay trabajadores asignados en esta semana.</div>${eventsHTML}`;
     }
 
     return week.sections
         .map(section => sectionHTML(section, week.days))
-        .join("");
+        .join("") + eventsHTML;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,13 +279,14 @@ function printTableHTML(section, days) {
         </section>`;
 }
 
-function printDocumentHTML(week) {
+function printDocumentHTML(week, events) {
     const title = `Programación · ${weekHeading(week.weekStart)}`;
-    const body = week.sections.length
+    const tables = week.sections.length
         ? week.sections
             .map(section => printTableHTML(section, week.days))
             .join("")
         : `<p class="tsp-print-empty">Todavía no hay trabajadores asignados en esta semana.</p>`;
+    const body = tables + (events ? printTableHTML(events, week.days) : "");
 
     return `<!doctype html>
 <html lang="es">
@@ -320,7 +331,9 @@ function printSchedule() {
     }
 
     doc.open();
-    doc.write(printDocumentHTML(getTaskScheduleWeek()));
+    doc.write(
+        printDocumentHTML(getTaskScheduleWeek(), getTaskScheduleWeekEvents())
+    );
     doc.close();
 
     // Se retira despues de imprimir, no de inmediato: quitar el iframe
@@ -360,7 +373,8 @@ function render() {
 
     backdrop.querySelector("[data-preview-heading]").textContent =
         weekHeading(week.weekStart);
-    backdrop.querySelector("[data-preview-body]").innerHTML = bodyHTML(week);
+    backdrop.querySelector("[data-preview-body]").innerHTML =
+        bodyHTML(week, getTaskScheduleWeekEvents());
 
     const controls = backdrop.querySelector("[data-color-controls]");
 
