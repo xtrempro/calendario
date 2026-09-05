@@ -7080,6 +7080,13 @@ td.mini.timeline-leave-pending > .timeline-replacement-marker {
 /* Lo que el reloj registro ese dia, marca por marca. Va ARRIBA de las
    incidencias: primero el hecho -a que hora apreto- y despues lo que se le
    encontro raro, que es el orden en que se revisa un dia. */
+/* `display: grid` le gana al [hidden] del navegador, asi que hay que decirlo:
+   en los cuadros que no son el del marcaje el hueco arranca oculto y solo
+   aparece si el dia trae marcas. */
+.attendance-marks[hidden] {
+    display: none;
+}
+
 .attendance-marks {
     display: grid;
     gap: 2px;

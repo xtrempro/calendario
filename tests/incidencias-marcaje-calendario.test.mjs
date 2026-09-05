@@ -174,9 +174,37 @@ test("un mes pedido dos veces se calcula una sola", () => {
 ========================================================= */
 
 test("el modal muestra las marcas del reloj, no solo la incidencia", () => {
-    assert.match(calendar, /<div class="attendance-marks" data-attendance-marks>/);
+    assert.match(calendar, /function attendanceMarksSlotHTML\(\)/);
+    assert.match(calendar, /<div class="attendance-marks" data-attendance-marks hidden>/);
     assert.match(calendar, /function attendanceMarkRowHTML\(mark\)/);
     assert.match(calendar, /mark\.type === "out" \? "Salida" : "Entrada"/);
+});
+
+test("y las muestran TODOS los cuadros que hablan de un dia", () => {
+    // Antes solo salian en su propio cuadro, que es el que aparece cuando el
+    // dia no tiene nada mas que contar: justo los dias mas simples, donde menos
+    // falta hacian. La pregunta "y a que hora marco" es la misma en el permiso,
+    // el turno extra, el traslado, la reserva y el marcaje modificado.
+    assert.equal(
+        (calendar.match(/\$\{attendanceMarksSlotHTML\(\)\}/g) || []).length,
+        6,
+        "cada cuadro de dia pone su hueco"
+    );
+    assert.equal(
+        (calendar.match(/void fillAttendanceMarks\(/g) || []).length,
+        6,
+        "y cada uno lo llena"
+    );
+});
+
+test("pero el hueco no se ve cuando el dia no tiene marcas", () => {
+    // Una linea de "no tiene marcas" en cada permiso y cada turno extra es
+    // ruido en los dias que el reloj todavia no cubre. La excepcion es el
+    // cuadro del marcaje, donde eso ES la respuesta.
+    assert.match(calendar, /host\.hidden = !keepWhenEmpty;/);
+    assert.match(calendar, /keepWhenEmpty: true\s*\n\s*\}\);/);
+    // Y el CSS tiene que decirlo, porque display:grid le gana al [hidden].
+    assert.match(css, /\.attendance-marks\[hidden\] \{\s*\n\s*display: none;/);
 });
 
 test("las marcas salen del reporte, no se leen aparte", () => {

@@ -3237,9 +3237,7 @@ function openAttendanceIncidentDialog(
             <p>
                 ${escapeHTML(profileName)} &middot; ${escapeHTML(replacementDetailDateLabel(isoFromKeyDay(keyDay)))}
             </p>
-            <div class="attendance-marks" data-attendance-marks>
-                <div class="attendance-marks-loading">Buscando las marcas...</div>
-            </div>
+            ${attendanceMarksSlotHTML()}
             ${incidents.length
                 ? `<div class="attendance-incident-list">
                 ${incidents.map(incident => `
@@ -3285,9 +3283,33 @@ function openAttendanceIncidentDialog(
     // Las marcas se leen aparte -hay que resolver feriados y turno- y entran
     // cuando estan. El modal ya esta abierto: con la incidencia a la vista, que
     // es lo que se venia a leer.
-    void fillAttendanceMarks(backdrop, profileName, keyDay);
+    //
+    // Aqui el hueco se queda aunque no haya marcas: este cuadro es el del
+    // marcaje, asi que "este dia no tiene marcas" ES la respuesta.
+    void fillAttendanceMarks(backdrop, profileName, keyDay, {
+        keepWhenEmpty: true
+    });
 
     return true;
+}
+
+/**
+ * El hueco donde entran las marcas del reloj de un dia.
+ *
+ * Lo ponen TODOS los cuadros que hablan de un dia de un trabajador -el permiso,
+ * el turno extra, el traslado, la reserva, el marcaje modificado-, porque la
+ * pregunta "y a que hora marco" aparece igual en todos. Antes las marcas solo
+ * se veian en su propio cuadro, que es el que sale cuando el dia no tiene nada
+ * mas que contar: justo los dias mas simples, donde menos falta hacian.
+ *
+ * Va vacio: lo llena fillAttendanceMarks cuando termina de leerlas, para no
+ * retrasar la apertura del cuadro.
+ */
+function attendanceMarksSlotHTML() {
+    return `
+        <div class="attendance-marks" data-attendance-marks hidden>
+            <div class="attendance-marks-loading">Buscando las marcas...</div>
+        </div>`;
 }
 
 // Como se lee cada marca en el detalle. La etiqueta es la que apreto el
@@ -3304,7 +3326,22 @@ function attendanceMarkRowHTML(mark) {
         </div>`;
 }
 
-async function fillAttendanceMarks(backdrop, profileName, keyDay) {
+/**
+ * Llena el hueco de las marcas de un cuadro ya abierto.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.keepWhenEmpty] dejarlo a la vista aunque el dia no
+ *   tenga marcas. Lo usa el cuadro del marcaje, donde eso ES la respuesta; en
+ *   los demas el hueco se queda oculto, porque una linea de "no tiene marcas"
+ *   en cada permiso y cada turno extra es ruido en los dias en que el reloj
+ *   todavia no trae nada.
+ */
+async function fillAttendanceMarks(
+    backdrop,
+    profileName,
+    keyDay,
+    { keepWhenEmpty = false } = {}
+) {
     const host = backdrop.querySelector("[data-attendance-marks]");
 
     if (!host) return;
@@ -3318,22 +3355,29 @@ async function fillAttendanceMarks(backdrop, profileName, keyDay) {
         // Se pudo cerrar mientras se buscaba.
         if (!host.isConnected) return;
 
-        host.innerHTML = detail?.marks?.length
-            ? `<div class="attendance-marks-turn">
-                    <span>Turno</span><b>${escapeHTML(detail.turno || "Libre")}</b>
-                </div>
-                ${detail.marks.map(attendanceMarkRowHTML).join("")}`
-            : `<div class="attendance-marks-loading">
-                    Este día no tiene marcas del reloj.
-                </div>`;
+        if (!detail?.marks?.length) {
+            host.hidden = !keepWhenEmpty;
+            host.innerHTML = `<div class="attendance-marks-loading">
+                Este día no tiene marcas del reloj.
+            </div>`;
+            return;
+        }
+
+        host.hidden = false;
+        host.innerHTML = `
+            <div class="attendance-marks-turn">
+                <span>Turno</span><b>${escapeHTML(detail.turno || "Libre")}</b>
+            </div>
+            ${detail.marks.map(attendanceMarkRowHTML).join("")}`;
     } catch (error) {
         console.warn("No se pudo leer el marcaje del dia.", error);
 
-        if (host.isConnected) {
-            host.innerHTML = `<div class="attendance-marks-loading">
-                No se pudo leer el marcaje de este día.
-            </div>`;
-        }
+        if (!host.isConnected) return;
+
+        host.hidden = !keepWhenEmpty;
+        host.innerHTML = `<div class="attendance-marks-loading">
+            No se pudo leer el marcaje de este día.
+        </div>`;
     }
 }
 
@@ -3403,6 +3447,7 @@ async function openReplacementDetailDialog(
                 </div>
                 `
                 : replacementDetailRowsHTML(records[0], profileName)}
+            ${attendanceMarksSlotHTML()}
             ${canEdit ? `
             <p class="leave-detail-note">
                 Al anularlo, se quitara este turno extra del calendario del trabajador que cubre y se actualizara la cobertura del trabajador reemplazado.
@@ -3541,6 +3586,7 @@ async function openReplacementDetailDialog(
     backdrop
         .querySelector("[data-action='undo']")
         ?.focus();
+    void fillAttendanceMarks(backdrop, profileName, keyDay);
 
     return true;
 }
@@ -3847,6 +3893,7 @@ async function openShiftMoveDetailDialog(marker) {
                     </div>
                 `).join("")}
             </div>
+            ${attendanceMarksSlotHTML()}
             <p class="leave-detail-note">
                 Al anularlo se restauran el dia de origen y el dia de destino al estado previo al movimiento.
             </p>
@@ -3945,6 +3992,13 @@ async function openShiftMoveDetailDialog(marker) {
     backdrop
         .querySelector("[data-action='undo']")
         ?.focus();
+    // El dia que se abrio, no los dos: el marcador dice si se pulso el origen
+    // o el destino, y las marcas son de una fecha concreta.
+    void fillAttendanceMarks(
+        backdrop,
+        move.profile,
+        marker.role === "source" ? move.sourceKey : move.targetKey
+    );
 
     return true;
 }
@@ -4632,6 +4686,7 @@ function openLeaveDetailDialog({
                         : "Este permiso no tiene un registro en el LOG que permita anularlo automaticamente."}
                 </p>
             `}
+            ${attendanceMarksSlotHTML()}
             <div class="turn-change-dialog__actions ${noCoverage ? "leave-detail-actions--stacked" : ""}">
                 ${noCoverage
                     ? `<button class="primary-button" type="button" data-action="require-coverage">Sí requiere cobertura</button>`
@@ -4788,6 +4843,7 @@ function openLeaveDetailDialog({
 
     document.addEventListener("keydown", onKeydown);
     document.body.appendChild(backdrop);
+    void fillAttendanceMarks(backdrop, profile, keyDay);
 }
 
 function previewDirectTurnChange(
@@ -7861,6 +7917,7 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
                 ? `<p class="clock-detail-reason"><span>Motivo horas extras:</span> ${escapeHTML(reason)}</p>`
                 : ""}
             ${extraShiftHTML}
+            ${attendanceMarksSlotHTML()}
             <div class="turn-change-dialog__actions">
                 <button class="primary-button" type="button" data-action="edit">Modificar marcaje</button>
                 ${extraShift
@@ -7914,6 +7971,7 @@ function openClockMarkDetailDialog({ profile, keyDay, date, state, holidays = {}
     document.addEventListener("keydown", onKeydown);
     document.body.appendChild(backdrop);
     backdrop.querySelector("[data-action='edit']")?.focus();
+    void fillAttendanceMarks(backdrop, profile, keyDay);
 }
 
 /**
@@ -8152,6 +8210,7 @@ function openPreassignmentDialog({ profile, keyDay }) {
                 para aplicarlo de verdad; cancelar lo borra y el dia vuelve a
                 como estaba.`}
             </p>
+            ${attendanceMarksSlotHTML()}
             <div class="turn-change-dialog__actions leave-detail-actions--stacked">
                 ${canEdit ? `
                 <button class="primary-button" type="button" data-action="confirm">Confirmar (el trabajador aceptó)</button>
@@ -8237,6 +8296,9 @@ function openPreassignmentDialog({ profile, keyDay }) {
     document.addEventListener("keydown", onKeydown);
     document.body.appendChild(backdrop);
     backdrop.querySelector("[data-action='confirm']")?.focus();
+    // El trabajador de la reserva, que en una cobertura no es el del calendario
+    // abierto: las marcas son de quien va a hacer el turno.
+    void fillAttendanceMarks(backdrop, worker, keyDay);
 }
 
 window.openPreassignmentDialog = openPreassignmentDialog;
