@@ -2730,14 +2730,20 @@ const BRECHA_PLURAL = {
     "Auxiliar": "auxiliares"
 };
 
-const BRECHA_WINDOW_DAYS = 7;
+const BRECHA_WINDOW_DAYS = 30;
 const BRECHA_MAX_ROWS = 8;
 
 let brechaDetail = false;
 
 function getBrechaRows() {
-    // La ventana es mas corta que la de cobertura porque la carencia se repite
-    // cada ciclo: con catorce dias seria la misma fila ocho veces.
+    // Un mes por delante. La carencia no es una falta puntual -es un cargo que
+    // no existe en el grupo-, asi que se repite cada vez que ese grupo entra y
+    // la lista trae la MISMA fila en varias fechas. Es a proposito: son las
+    // fechas concretas en las que va a faltar, que es lo que se necesita para
+    // planificar la cobertura con tiempo.
+    //
+    // Lo que evita que el recuadro se vuelva ilegible es BRECHA_MAX_ROWS: se
+    // ven las primeras y el resto se resume en una linea.
     return getRotaGapShifts({ days: BRECHA_WINDOW_DAYS })
         .flatMap(row => Array.from({ length: row.missing }, () => row));
 }

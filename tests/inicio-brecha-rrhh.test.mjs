@@ -144,13 +144,28 @@ test("solo se miran Larga y Noche", () => {
     );
 });
 
-test("la ventana es corta a proposito", () => {
-    // La carencia se repite cada ciclo: con catorce dias seria la misma fila
-    // ocho veces.
-    assert.match(home, /const BRECHA_WINDOW_DAYS = 7;/);
+test("la ventana mira un mes por delante", () => {
+    // Lo pidio el usuario: con una semana solo se veia la carencia mas
+    // inmediata, y para planificar la cobertura hacen falta las fechas de todo
+    // el mes.
+    assert.match(home, /const BRECHA_WINDOW_DAYS = 30;/);
     assert.match(
         grab(home, "getBrechaRows"),
-        /La ventana es mas corta que la de cobertura/
+        /se repite cada vez que ese grupo entra/
+    );
+});
+
+test("y lo que no cabe se resume en una linea", () => {
+    // Con un mes la MISMA carencia aparece en varias fechas: sin este tope el
+    // recuadro se estira y deja de leerse.
+    assert.match(home, /const BRECHA_MAX_ROWS = 8;/);
+    assert.match(
+        home,
+        /rows\.slice\(0, BRECHA_MAX_ROWS\)/
+    );
+    assert.match(
+        home,
+        /y \$\{rows\.length - BRECHA_MAX_ROWS\} más en los próximos \$\{BRECHA_WINDOW_DAYS\} días\./
     );
 });
 
