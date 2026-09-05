@@ -34,7 +34,14 @@ import {
     getTurnoBase,
     getTurnoProgramado
 } from "./turnEngine.js";
-import { getAbsenceType, tieneAusencia } from "./rulesEngine.js";
+import {
+    getAbsenceType,
+    getTurnoExtraAgregado,
+    restarTurnoCubierto,
+    tieneAusencia,
+    turnoExtraCubreTurno
+} from "./rulesEngine.js";
+import { getBackedTurnForWorker } from "./replacements.js";
 import { calcExtraHours, isBusinessDay } from "./calculations.js";
 import { calculateWorkerMonthTotals } from "./hoursEngine.js";
 import { getBlockedDayForProfile } from "./workerBlockedDays.js";
@@ -403,6 +410,50 @@ export function getTrainingCoverageHours(profileName, keyDay) {
     };
 }
 
+/**
+ * .Tiene ya el turno que se necesita, puesto a mano y SIN motivo?
+ *
+ * Es el caso que dejaba a un trabajador fuera de las sugerencias sin razon: se
+ * le agrego un turno a mano, quedo con el "?" porque nadie anoto por que, y
+ * canCoverShift lo descartaba -ya tiene ese turno, no hay nada que sumarle-.
+ * Pero justamente por eso es el mejor candidato: el turno ya esta puesto y lo
+ * unico que le falta es el motivo, que es el permiso que se esta intentando
+ * cubrir.
+ *
+ * Elegirlo no agrega un turno: enlaza el que ya tiene con esta ausencia.
+ *
+ * No aplica si el turno extra YA tiene respaldo: ahi el turno esta justificado
+ * y volver a usarlo cubriria dos ausencias con la misma jornada.
+ *
+ * @returns {boolean}
+ */
+export function pendingManualExtraCoversTurn(profileName, keyDay, neededTurn) {
+    if (!profileName || !keyDay || !neededTurn) return false;
+
+    const profileData = getProfileData(profileName);
+    const baseWithSwaps = aplicarCambiosTurno(
+        profileName,
+        keyDay,
+        getTurnoBase(profileName, keyDay),
+        { includeReplacements: false }
+    );
+    const actualWithSwaps = aplicarCambiosTurno(
+        profileName,
+        keyDay,
+        Object.prototype.hasOwnProperty.call(profileData, keyDay)
+            ? Number(profileData[keyDay]) || 0
+            : getTurnoBase(profileName, keyDay),
+        { includeReplacements: false }
+    );
+    const pendiente = restarTurnoCubierto(
+        getTurnoExtraAgregado(baseWithSwaps, actualWithSwaps),
+        getBackedTurnForWorker(profileName, keyDay)
+    );
+
+    return Boolean(pendiente) &&
+        turnoExtraCubreTurno(pendiente, neededTurn);
+}
+
 export function canCoverShift(
     currentState,
     neededTurn,
@@ -641,6 +692,13 @@ export async function buildReplacementCandidates(profileName, keyDay, {
                 ),
                 isForced:
                     !profileCanCoverProfile(profile, baseProfile),
+                // Ya tiene este turno puesto a mano y sin motivo: elegirlo no
+                // le agrega nada, enlaza el que tiene con esta ausencia.
+                backsPendingExtra: pendingManualExtraCoversTurn(
+                    profile.name,
+                    keyDay,
+                    neededTurn
+                ),
                 blockedDay,
                 hheeDiurnas,
                 hheeNocturnas,
@@ -675,14 +733,20 @@ export async function buildReplacementCandidates(profileName, keyDay, {
             keyDay,
             neededTurn
         ) &&
-        canCoverShift(
-            candidate.currentState,
-            neededTurn,
-            turnChangeConfig,
-            {
-                allowDiurnoLongCoverage:
-                    candidate.isDiurnoLongCoverage
-            }
+        (
+            // Quien ya tiene el turno puesto a mano y sin motivo pasa igual:
+            // canCoverShift lo descarta porque no hay nada que sumarle, y es
+            // justamente por eso que sirve.
+            candidate.backsPendingExtra ||
+            canCoverShift(
+                candidate.currentState,
+                neededTurn,
+                turnChangeConfig,
+                {
+                    allowDiurnoLongCoverage:
+                        candidate.isDiurnoLongCoverage
+                }
+            )
         )
     );
 

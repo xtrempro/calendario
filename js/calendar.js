@@ -5026,6 +5026,11 @@ function replacementCandidateCoverageAttrs(candidate) {
         attrs.push(`data-overtime-night-hours="${Number(candidate.overtimeHours.n) || 0}"`);
     }
 
+    // Elegirlo respalda el turno que YA tiene, en vez de agregarle uno.
+    if (candidate.backsPendingExtra) {
+        attrs.push(`data-backs-pending-extra="true"`);
+    }
+
     return attrs.join(" ");
 }
 
@@ -5445,7 +5450,7 @@ function replacementDialogHTML({
             if (isRequestMode) {
                 return `
                 ${openSlot}
-                <label class="replacement-candidate replacement-candidate--request ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${limitNote ? "replacement-candidate--over-limit" : ""} ${pendingRequest ? "is-disabled" : ""}">
+                <label class="replacement-candidate replacement-candidate--request ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${limitNote ? "replacement-candidate--over-limit" : ""} ${candidate.backsPendingExtra ? "replacement-candidate--backs-extra" : ""} ${pendingRequest ? "is-disabled" : ""}">
                     <input
                         class="replacement-candidate-checkbox"
                         type="checkbox"
@@ -5492,7 +5497,7 @@ function replacementDialogHTML({
             ${unitHeading}
             ${openSlot}
             <button
-                class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.isLinked ? "replacement-candidate--linked" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${limitNote ? "replacement-candidate--over-limit" : ""} ${pendingRequest ? "is-disabled" : ""}"
+                class="replacement-candidate ${candidate.isForced ? "replacement-candidate--forced" : ""} ${candidate.isLinked ? "replacement-candidate--linked" : ""} ${candidate.blockedDay ? "replacement-candidate--worker-blocked" : ""} ${nextDayNote ? "replacement-candidate--next-day-shift" : ""} ${limitNote ? "replacement-candidate--over-limit" : ""} ${candidate.backsPendingExtra ? "replacement-candidate--backs-extra" : ""} ${pendingRequest ? "is-disabled" : ""}"
                 type="button"
                 data-worker="${escapeHTML(candidate.profile.name)}"
                 data-worker-profile-id="${escapeHTML(candidate.profile.id || "")}"
@@ -5512,6 +5517,13 @@ function replacementDialogHTML({
                             ${limitNote ? `<span class="replacement-candidate-over-limit">${escapeHTML(limitNote)}</span>` : ""}
                     </small>
                     ${warning ? `<small class="replacement-candidate-warning">${escapeHTML(warning)}</small>` : ""}
+                    ${candidate.backsPendingExtra
+                        ? `<small class="replacement-candidate-backs-extra">
+                            Ya tiene un turno agregado en esta fecha y todavía
+                            sin motivo. Al elegirlo no se le suma otro: ese
+                            turno queda respaldado con este permiso.
+                        </small>`
+                        : ""}
                 </span>
                 <span>
                     ${candidate.isLinked ? "<em>Unidad enlazada</em>" : ""}
@@ -6639,6 +6651,32 @@ async function openReplacementDialog(profileName, keyDay, options = {}) {
 
                         if (button.dataset.workerWorkspaceId) {
                             await saveLinkedUnitReplacement(button);
+                        } else if (button.dataset.backsPendingExtra === "true") {
+                            // Ya tiene el turno puesto a mano y sin motivo: no
+                            // se le suma otro -seria trabajarlo dos veces-, se
+                            // respalda el que tiene con esta ausencia. Es el
+                            // mismo registro que deja el cuadro de motivo al
+                            // cruzarlo con un permiso, y por eso `addsShift`
+                            // va en false.
+                            saveReplacement({
+                                worker: button.dataset.worker,
+                                replaced: profileName,
+                                keyDay,
+                                turno: neededTurn,
+                                absenceType,
+                                source: "manual_extra",
+                                addsShift: false,
+                                ...replacementCoverageFromDataset(
+                                    button.dataset
+                                )
+                            });
+                            addAuditLog(
+                                AUDIT_CATEGORY.CALENDAR,
+                                "Respaldo un turno agregado",
+                                `${profileName}: el turno que ${button.dataset.worker} `
+                                + `ya tenia el ${keyDay} quedo respaldado con este permiso.`,
+                                { profile: profileName, keyDay }
+                            );
                         } else {
                             saveReplacement({
                                 worker: button.dataset.worker,

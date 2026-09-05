@@ -9095,6 +9095,27 @@ body.auth-gate-active .app-shell {
         var(--field);
 }
 
+/* Ya tiene el turno puesto a mano y sin motivo: elegirlo no le suma otro, le
+   pone el respaldo al que tiene. Celeste suave -no ambar- porque no es un
+   reparo: es el mejor candidato del dia, y el color lo distingue del resto sin
+   decir "cuidado". */
+.replacement-candidate--backs-extra {
+    border-color: rgba(56, 189, 248, 0.55);
+    background:
+        linear-gradient(135deg, rgba(56, 189, 248, 0.16), transparent 58%),
+        var(--field);
+}
+
+.replacement-candidate-backs-extra {
+    display: block;
+    margin-top: 4px;
+    color: #0369a1;
+    font-size: 0.76rem;
+    font-weight: 600;
+    line-height: 1.4;
+    white-space: normal;
+}
+
 .replacement-candidate--request {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
