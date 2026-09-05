@@ -4060,7 +4060,11 @@ export function getTaskScheduleWeek(start = currentWeekStart) {
 
         if (!cells.some(cell => cell.workers.length)) return;
 
-        section.rows.push({
+        // Va ARRIBA de las tareas del turno: primero quienes estan citados esa
+        // noche y despues como se reparten. Leida al reves -las tareas y al
+        // final la lista de todos- se entiende peor, y ademas dejaba a AUX
+        // TURNO encima de TURNO DE NOCHE, que es lo contrario de como se lee.
+        section.rows.unshift({
             taskId: `duty_${section.shift}`,
             title: dutyLabel,
             detail: "",

@@ -30,6 +30,10 @@ const EXACT_KEY_MODULES = new Map([
     ["manualExtraReasonPresets", "turnos"],
     ["noCoverageReasonPresets", "turnos"],
     ["turnoColorConfig", "turnos"],
+    // La tanda de colores de la programacion. Se comparte porque la
+    // programacion se imprime y se reparte: los colores son una decision de la
+    // unidad, no del navegador que la abrio.
+    ["taskScheduleColorSeed", "turnos"],
     ["replacementRequests", "requests"],
     ["workerRequests", "requests"],
     ["replacementRequestConfig", "requests"],

@@ -17,10 +17,30 @@ const readStyles = () => readFile(
 test("arranca en blanco y negro", async () => {
     const source = await readSource();
 
-    assert.match(source, /let colorSeed = 0;/);
+    // 0 = blanco y negro, y es el valor por defecto del almacen.
+    assert.match(source, /getJSON\(COLOR_SEED_KEY, 0\)/);
+    assert.match(
+        source,
+        /return Number\.isFinite\(stored\) && stored > 0 \? stored : 0;/
+    );
     // Sin semilla no se escribe ningun fondo.
-    assert.match(source, /function rowTint[\s\S]{0,160}if \(!colorSeed\) return "";/);
-    assert.match(source, /function rowLabelTint[\s\S]{0,160}if \(!colorSeed\) return "";/);
+    assert.match(source, /function rowTint[\s\S]{0,160}if \(!getColorSeed\(\)\) return "";/);
+    assert.match(source, /function rowLabelTint[\s\S]{0,160}if \(!getColorSeed\(\)\) return "";/);
+});
+
+test("la tanda elegida se guarda y se comparte con la unidad", async () => {
+    // La programacion se imprime y se reparte: los colores son una decision de
+    // la unidad, no del navegador que la abrio. Antes se perdian al recargar y
+    // cada supervisor veia la tabla de otro color.
+    const source = await readSource();
+    const modules = await readFile(
+        new URL("../js/firebaseStateModules.js", import.meta.url),
+        "utf8"
+    );
+
+    assert.match(source, /const COLOR_SEED_KEY = "taskScheduleColorSeed";/);
+    assert.match(source, /function saveColorSeed\(seed\)/);
+    assert.match(modules, /\["taskScheduleColorSeed", "turnos"\]/);
 });
 
 test("dos filas seguidas nunca caen en el mismo tono", async () => {
@@ -28,7 +48,7 @@ test("dos filas seguidas nunca caen en el mismo tono", async () => {
 
     // Con tonos al azar puro, en una tabla de veinte filas se repiten y quedan
     // dos vecinas iguales. El angulo aureo los reparte.
-    assert.match(source, /\(colorSeed \+ index \* 137\.508\) % 360/);
+    assert.match(source, /\(getColorSeed\(\) \+ index \* 137\.508\) % 360/);
 });
 
 test("barajar cambia la tanda y nunca cae en blanco y negro por accidente", async () => {
@@ -36,8 +56,11 @@ test("barajar cambia la tanda y nunca cae en blanco y negro por accidente", asyn
 
     // El 0 significa blanco y negro: si la semilla aleatoria pudiera valer 0,
     // barajar apagaria los colores de vez en cuando.
-    assert.match(source, /colorSeed = 1 \+ Math\.floor\(Math\.random\(\) \* 3599\)/);
-    assert.match(source, /function clearColors\(\) \{\s*\n\s*colorSeed = 0;/);
+    assert.match(
+        source,
+        /saveColorSeed\(1 \+ Math\.floor\(Math\.random\(\) \* 3599\)\)/
+    );
+    assert.match(source, /function clearColors\(\) \{\s*\n\s*saveColorSeed\(0\);/);
 });
 
 test("el color llega igual al visor y a la hoja impresa", async () => {
@@ -74,7 +97,7 @@ test("los botones cambian segun el estado", async () => {
     // En blanco y negro sobra un boton "B/N" que no haria nada.
     assert.match(
         source,
-        /function colorControlsHTML\(\)[\s\S]{0,400}if \(!colorSeed\) \{[\s\S]{0,300}data-preview-color/
+        /function colorControlsHTML\(\)[\s\S]{0,400}if \(!getColorSeed\(\)\) \{[\s\S]{0,300}data-preview-color/
     );
     assert.match(source, /data-preview-mono/);
     // Se repintan en cada render, asi que sus listeners se rearman ahi mismo.

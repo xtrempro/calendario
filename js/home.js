@@ -92,6 +92,7 @@ import {
 } from "./weeklySchedulePreview.js";
 import { openAttachmentFile } from "./attachmentUtils.js";
 import {
+    goToTaskScheduleToday,
     taskScheduleHasAssignments,
     taskScheduleUpdatedAt
 } from "./taskAssignments.js";
@@ -3622,10 +3623,19 @@ function wire(panel) {
 
     // El acceso vive en la fila de widgets y lo enlaza el manejador de esa
     // fila; aqui solo queda que hace al abrirse.
-    function openWeeklySchedule(target) {
-        // Siempre abre en la semana de hoy, no donde quedo la vez anterior.
-        weeklyScheduleWeek = weekStartMonday(new Date());
-        showWeeklySchedule(target);
+    async function openWeeklySchedule() {
+        // La MISMA tabla que se ve desde Asignacion de tareas, con sus colores
+        // y su boton de imprimir. El inicio tenia su propio visor y las dos
+        // superficies mostraban la misma semana de dos formas distintas: quien
+        // entraba por aqui no veia los colores con los que se reparte impresa.
+        //
+        // Abre en la semana de hoy, no donde quedo la vez anterior.
+        goToTaskScheduleToday();
+
+        const { openTaskSchedulePreview } =
+            await import("./taskSchedulePreview.js");
+
+        openTaskSchedulePreview();
     }
 
     if (weeklyModal) {

@@ -35,8 +35,18 @@ test("la fila se agrega al armar la programacion", async () => {
     assert.match(source, /dutyLabel: "TURNO DE NOCHE"/);
     assert.match(
         source,
-        /function getTaskScheduleWeek[\s\S]{0,4000}section\.rows\.push\(\{\s*\n\s*taskId: `duty_\$\{section\.shift\}`,\s*\n\s*title: dutyLabel,/
+        /function getTaskScheduleWeek[\s\S]{0,4000}section\.rows\.unshift\(\{\s*\n\s*taskId: `duty_\$\{section\.shift\}`,\s*\n\s*title: dutyLabel,/
     );
+});
+
+test("y va ARRIBA de las tareas del turno", async () => {
+    const source = await readSource();
+
+    // Primero quienes estan citados esa noche y despues como se reparten. Al
+    // reves -las tareas y al final la lista de todos- se lee peor, y ademas
+    // dejaba a AUX TURNO encima de TURNO DE NOCHE.
+    assert.match(source, /section\.rows\.unshift\(\{/);
+    assert.doesNotMatch(source, /section\.rows\.push\(\{\s*\n\s*taskId: `duty_/);
 });
 
 test("solo la noche declara la fila", async () => {
@@ -73,13 +83,15 @@ test("los nombres van en el mismo formato que el resto de la programacion", asyn
 test("se agrega despues de las filas reales, fuera de la fusion de casillas", async () => {
     const source = await readSource();
 
-    // Si entrara antes, la fusion de casillas la tomaria por una tarea y le
-    // calcularia rowspans que no le corresponden.
-    const push = source.indexOf("section.rows.push({");
+    // Va primera en la lista, pero se AGREGA al final, cuando las filas reales
+    // ya estan armadas: si entrara antes, la fusion de casillas la tomaria por
+    // una tarea y le calcularia rowspans que no le corresponden. La fusion
+    // busca por id, asi que colarla al principio no le corre los indices.
+    const insert = source.indexOf("section.rows.unshift({");
     const merge = source.indexOf("columnGroups(assignments, section.shift, tasks, keyFromDate(day))");
 
-    assert.ok(push !== -1 && merge !== -1);
-    assert.ok(push < merge, "la fila debe agregarse antes del calculo de rowspan");
+    assert.ok(insert !== -1 && merge !== -1);
+    assert.ok(insert < merge, "la fila debe agregarse antes del calculo de rowspan");
 });
 
 test("si nadie queda suelto, la fila no aparece", async () => {

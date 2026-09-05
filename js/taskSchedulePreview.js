@@ -18,6 +18,7 @@ import {
     moveTaskScheduleWeek
 } from "./taskAssignments.js";
 import { weekHeading } from "./weeklySchedulePreview.js";
+import { getJSON, setJSON } from "./persistence.js";
 
 const PALETTE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.2 0-1 .8-1.8 1.8-1.8H16a5 5 0 0 0 5-5c0-3.9-4-6.7-9-6.7Z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15" cy="8" r="1.2"/></svg>`;
 const SHUFFLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 4l3 3-3 3"/><path d="M17 14l3 3-3 3"/><path d="M4 7h4l8 10h4"/><path d="M4 17h4l2.5-3"/></svg>`;
@@ -25,39 +26,55 @@ const PRINT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const TABLE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14.5h18M9 9v11M15 9v11"/></svg>`;
 
 let backdrop = null;
+
 // 0 = blanco y negro. Cualquier otro valor es la semilla de la tanda de colores
 // actual: las filas derivan su tono de ella, asi que barajar es cambiarla.
-let colorSeed = 0;
+//
+// Se GUARDA, y ademas se sincroniza con el resto de la unidad (ver
+// firebaseStateModules.js). La programacion se imprime y se comparte, asi que
+// los colores son una decision de la unidad y no del navegador que la abrio:
+// antes se perdian al recargar y cada supervisor veia la tabla de otro color.
+const COLOR_SEED_KEY = "taskScheduleColorSeed";
+
+function getColorSeed() {
+    const stored = Number(getJSON(COLOR_SEED_KEY, 0));
+
+    return Number.isFinite(stored) && stored > 0 ? stored : 0;
+}
+
+function saveColorSeed(seed) {
+    setJSON(COLOR_SEED_KEY, Number(seed) || 0);
+}
 
 // Tono por fila a partir de la semilla. El angulo aureo reparte los tonos de
 // modo que dos filas seguidas nunca caen en el mismo color, que es justo lo que
 // arruinaria una tabla de veinte filas si los tonos salieran al azar puro.
 function rowHue(index) {
-    return Math.round((colorSeed + index * 137.508) % 360);
+    return Math.round((getColorSeed() + index * 137.508) % 360);
 }
 
 // Pastel claro para las celdas y un paso mas saturado para la columna del
 // nombre, como en la programacion que arma el supervisor a mano.
 function rowTint(index) {
-    if (!colorSeed) return "";
+    if (!getColorSeed()) return "";
 
     return `background: hsl(${rowHue(index)}, 72%, 89%); color: #111827;`;
 }
 
 function rowLabelTint(index) {
-    if (!colorSeed) return "";
+    if (!getColorSeed()) return "";
 
     return `background: hsl(${rowHue(index)}, 66%, 80%); color: #111827;`;
 }
 
 function shuffleColors() {
     // Se evita el 0, que significa blanco y negro.
-    colorSeed = 1 + Math.floor(Math.random() * 3599);
+    saveColorSeed(1 + Math.floor(Math.random() * 3599));
     render();
 }
 
 function clearColors() {
-    colorSeed = 0;
+    saveColorSeed(0);
     render();
 }
 
@@ -98,7 +115,7 @@ function rowCellsHTML(row, rowIndex = 0) {
 
 function sectionHTML(section, days) {
     const rows = section.rows.map((row, rowIndex) => `
-        <tr class="${colorSeed ? "tsp-row--tinted" : ""}">
+        <tr class="${getColorSeed() ? "tsp-row--tinted" : ""}">
             <th scope="row" class="ws-role" style="${rowLabelTint(rowIndex)}">
                 <strong>${escapeHTML(row.title)}</strong>
                 ${row.detail ? `<span>${escapeHTML(row.detail)}</span>` : ""}
@@ -357,7 +374,7 @@ function printSchedule() {
 // de verdad hacen falta: barajar otra vez y volver atras. Asi la cabecera no
 // carga un boton "B/N" que no hace nada cuando ya se esta en blanco y negro.
 function colorControlsHTML() {
-    if (!colorSeed) {
+    if (!getColorSeed()) {
         return `<button class="hm-btn-secondary tsp-color" type="button" data-preview-color title="Pintar cada tarea de un color">${PALETTE_ICON}Color</button>`;
     }
 

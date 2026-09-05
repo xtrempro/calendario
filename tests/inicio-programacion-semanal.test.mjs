@@ -85,10 +85,15 @@ test("el acceso es un widget de la fila de dotacion y abre en la semana de hoy",
         home,
         /return dotacion \+ programacionWidget\(\) \+ notasWidget\(\);/
     );
-    // No queda donde estaba la vez anterior: se entra por "hoy".
+    // Abre la MISMA tabla que Asignacion de tareas, con sus colores y su boton
+    // de imprimir. El inicio tenia su propio visor y las dos superficies
+    // mostraban la misma semana de dos formas distintas: quien entraba por aqui
+    // no veia los colores con los que se reparte impresa.
+    //
+    // Y no queda donde estaba la vez anterior: se entra por "hoy".
     assert.match(
         home,
-        /function openWeeklySchedule\(target\) \{[\s\S]{0,200}weeklyScheduleWeek = weekStartMonday\(new Date\(\)\)/
+        /async function openWeeklySchedule\(\) \{[\s\S]{0,700}goToTaskScheduleToday\(\);[\s\S]{0,300}openTaskSchedulePreview\(\);/
     );
 });
 
