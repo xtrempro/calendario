@@ -21,7 +21,10 @@ import {
 } from "./auditLog.js";
 import { getTurnoBase, getTurnoProgramado } from "./turnEngine.js";
 import { isReplacementProfile } from "./contracts.js";
-import { getReplacementTurnForWorker } from "./replacements.js";
+import {
+    getReplacementTurnForWorker,
+    moveManualExtraBackup
+} from "./replacements.js";
 import { getBlockedDayForProfile } from "./workerAvailability.js";
 
 function normalizeTextKey(value) {
@@ -265,6 +268,40 @@ export function monthlySwapLimitBlockReason(profiles, year, month) {
 /* =========================================
    REGISTRAR CAMBIO
 ========================================= */
+/**
+ * Lleva el motivo de horas extra de cada uno a la fecha en la que su turno
+ * aterriza, o lo trae de vuelta al deshacer el cambio.
+ *
+ * Los dos participantes se miran por separado y con su propia perspectiva:
+ * quien CEDE en `fecha` recibe en `devolucion`, y su companero al reves. Cada
+ * motivo se mueve de la fecha de la que sale su turno a la fecha a la que
+ * llega.
+ *
+ * @param {object} swap
+ * @param {boolean} [undo] al deshacer, las fechas se recorren al reves
+ */
+function moveSwapManualExtraBackups(swap, undo = false) {
+    if (!swap) return;
+
+    [swap.from, swap.to].filter(Boolean).forEach(profile => {
+        const perspective = getSwapPerspective(swap, profile);
+
+        if (!perspective) return;
+        // Un tramo saltado no mueve turno, asi que tampoco mueve su motivo.
+        if (perspective.changeSkipped || perspective.returnSkipped) return;
+
+        const desde = undo ? perspective.returnDate : perspective.changeDate;
+        const hasta = undo ? perspective.changeDate : perspective.returnDate;
+
+        moveManualExtraBackup(
+            profile,
+            desde,
+            hasta,
+            perspective.changeTurn
+        );
+    });
+}
+
 export function registrarCambio(data) {
 
     const swaps = getSwaps();
@@ -289,6 +326,11 @@ export function registrarCambio(data) {
     });
 
     saveSwaps(swaps);
+    // El motivo de horas extra viaja con el turno: cada uno lo lleva de la
+    // fecha en que CEDE a la fecha en que RECIBE. Sin esto el motivo se quedaba
+    // en la casilla de origen justificando un turno que ese dia ya no se hace,
+    // y la casilla donde el turno aterriza salia sin motivo.
+    moveSwapManualExtraBackups(swaps[swaps.length - 1]);
 
     if (typeof window !== "undefined") {
         window.dispatchEvent(
@@ -424,6 +466,10 @@ export function getCambioTurnoCalendario(nombre, keyDay) {
 
 export function deshacerCambioTurno(swap) {
     if (!swap) return;
+
+    // El motivo vuelve por donde vino: si el turno regresa a su fecha original,
+    // dejarlo en la de devolucion lo colgaria de un turno que ya no esta ahi.
+    moveSwapManualExtraBackups(swap, true);
 
     const fechaKey = keyFromISO(swap.fecha);
     const devolucionKey = keyFromISO(swap.devolucion);

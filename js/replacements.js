@@ -743,6 +743,60 @@ export function cancelReplacementById(
     return canceled;
 }
 
+/**
+ * Mueve el motivo de horas extra de un turno a la fecha a la que se fue.
+ *
+ * El motivo es un respaldo (`manual_extra`) anclado a una FECHA, y un cambio de
+ * turno mueve el turno a otra: el respaldo se quedaba en la casilla de origen
+ * justificando un turno que ese dia ya no se hace, mientras la casilla donde el
+ * turno aterriza aparecia sin motivo. El motivo tiene que viajar con el turno.
+ *
+ * Solo se mueve el respaldo del turno que se esta cambiando: un dia puede tener
+ * el de un Diurno y el de una Larga, y llevarselos los dos dejaria sin motivo a
+ * un turno que no se movio.
+ *
+ * @param {string} profile
+ * @param {string} fromIso fecha de la que sale el turno
+ * @param {string} toIso fecha a la que llega
+ * @param {string} turnCode codigo del turno que se mueve ("L", "N", "24"...)
+ * @returns {number} cuantos respaldos se movieron
+ */
+export function moveManualExtraBackup(profile, fromIso, toIso, turnCode) {
+    if (!profile || !fromIso || !toIso || fromIso === toIso) return 0;
+
+    const replacements = getReplacements();
+    const destino = parseKey(keyFromISO(toIso));
+    let movidos = 0;
+
+    const siguientes = replacements.map(replacement => {
+        if (
+            replacement.canceled ||
+            replacement.source !== "manual_extra" ||
+            replacement.worker !== profile ||
+            replacement.date !== fromIso ||
+            (turnCode && replacement.turno !== turnCode)
+        ) {
+            return replacement;
+        }
+
+        movidos++;
+
+        // `year` y `month` salen de la fecha y se usan para agrupar por mes:
+        // moverlos con ella evita que el respaldo quede contado en el mes que
+        // ya no le corresponde.
+        return {
+            ...replacement,
+            date: toIso,
+            year: destino.getFullYear(),
+            month: destino.getMonth()
+        };
+    });
+
+    if (movidos) saveReplacements(siguientes);
+
+    return movidos;
+}
+
 export function getReplacementTurnForWorker(profile, keyDay) {
     return getReplacementsForWorkerShift(profile, keyDay)
         .filter(replacementAddsShift)
