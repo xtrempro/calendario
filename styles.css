@@ -13031,6 +13031,29 @@ body[data-active-view="turnos"] .add-turn-panel .legend-action span:last-child {
     border-color: transparent;
 }
 
+/* La programacion automatica escribe en la semana entera, asi que se tinta
+   para no confundirse con "Ver programacion", que solo mira. No lleva el
+   degradado del boton primario: el Excel sigue siendo la accion principal de
+   esta barra. */
+.task-assignment-action--auto {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-strong, var(--accent));
+}
+
+.task-assignment-action--auto:hover {
+    color: var(--accent-strong, var(--accent));
+    background: var(--accent-soft);
+    border-color: var(--accent);
+}
+
+/* Mientras el reparto corre el boton queda inerte: recorre los 7 dias y los
+   dos turnos, y un segundo clic abriria el mismo dialogo dos veces. */
+.task-assignment-action--auto:disabled {
+    opacity: 0.55;
+    cursor: progress;
+}
+
 .task-assignment-controls {
     display: flex;
     flex-wrap: wrap;
