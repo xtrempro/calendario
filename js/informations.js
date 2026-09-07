@@ -392,6 +392,29 @@ function fromLocalInputValue(value) {
     return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
+// Iniciales y color del avatar de la ficha de lectura. El tono sale del nombre
+// -no del azar- para que la misma persona salga siempre del mismo color, que es
+// lo que deja reconocerla de un vistazo al recorrer la lista.
+function initialsOf(name) {
+    const parts = String(name || "").trim().split(/\s+/);
+
+    return `${parts[0]?.[0] || ""}${parts[1]?.[0] || ""}`.toUpperCase();
+}
+
+const AVATAR_TONES = ["blue", "purple", "teal", "orange"];
+
+function avatarTone(name, read) {
+    if (!read) return "muted";
+
+    let sum = 0;
+
+    String(name || "").split("").forEach(char => {
+        sum += char.charCodeAt(0);
+    });
+
+    return AVATAR_TONES[sum % AVATAR_TONES.length];
+}
+
 /* ==========================================================================
    Bandeja
    ========================================================================== */
@@ -489,36 +512,59 @@ function readBlockHTML(item, status) {
     `;
 }
 
+// Los cuatro datos de la fila de metadatos llevan icono. No es adorno: los
+// cuatro son texto corto y parecido -"73 personas", "1 archivo", una fecha y
+// otra fecha- y sin el icono hay que LEERLOS para saber cual es cual.
+const CHIP_ICONS = {
+    people: `<path d="M16 19v-1.5a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3V19"></path><circle cx="9.5" cy="7.5" r="3"></circle><path d="M21 19v-1.5a3 3 0 0 0-2.2-2.9"></path><path d="M16 4.6a3 3 0 0 1 0 5.8"></path>`,
+    clip: `<path d="M20 11.5 12.4 19a4.5 4.5 0 0 1-6.4-6.4l7.6-7.5a3 3 0 0 1 4.2 4.2l-7.5 7.6a1.5 1.5 0 0 1-2.1-2.1l6.9-6.9"></path>`,
+    clock: `<circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.6V12l2.8 1.8"></path>`,
+    calendar: `<rect x="3.5" y="5" width="17" height="15.5" rx="3"></rect><path d="M8 2.6v4"></path><path d="M16 2.6v4"></path><path d="M3.5 10h17"></path>`
+};
+
+function chipHTML(icon, text, modifier = "") {
+    return `
+        <span class="information-chip${modifier}">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${CHIP_ICONS[icon]}</svg>
+            ${escapeHTML(text)}
+        </span>
+    `;
+}
+
 function metaChipsHTML(item, status) {
     const targets = audienceProfiles(item.audience);
     const chips = [
-        `<span class="information-chip">${escapeHTML(audienceSummary(item.audience, targets.length))}</span>`
+        chipHTML("people", audienceSummary(item.audience, targets.length))
     ];
 
     if (item.attachments.length) {
-        chips.push(
-            `<span class="information-chip">${item.attachments.length} ${item.attachments.length === 1 ? "archivo" : "archivos"}</span>`
-        );
+        chips.push(chipHTML(
+            "clip",
+            `${item.attachments.length} ${item.attachments.length === 1 ? "archivo" : "archivos"}`
+        ));
     }
 
     if (status === "scheduled" && item.publishAt) {
-        chips.push(
-            `<span class="information-chip information-chip--soon">Se publica el ${escapeHTML(formatDateTime(item.publishAt))}</span>`
-        );
+        chips.push(chipHTML(
+            "clock",
+            `Se publica el ${formatDateTime(item.publishAt)}`,
+            " information-chip--soon"
+        ));
     } else if (status === "draft") {
-        chips.push(
-            `<span class="information-chip">Editado ${escapeHTML(formatDateTime(item.updatedAt))}</span>`
-        );
+        chips.push(chipHTML("clock", `Editado ${formatDateTime(item.updatedAt)}`));
     } else {
-        chips.push(
-            `<span class="information-chip">Publicado ${escapeHTML(formatDateTime(item.publishedAt || item.updatedAt))}</span>`
-        );
+        chips.push(chipHTML(
+            "clock",
+            `Publicado ${formatDateTime(item.publishedAt || item.updatedAt)}`
+        ));
     }
 
     if (item.expiresAt && status !== "draft") {
-        chips.push(
-            `<span class="information-chip information-chip--warn">Se archiva el ${escapeHTML(formatDateTime(item.expiresAt))}</span>`
-        );
+        chips.push(chipHTML(
+            "calendar",
+            `Se archiva el ${formatDateTime(item.expiresAt)}`,
+            " information-chip--warn"
+        ));
     }
 
     return chips.join("");
@@ -832,6 +878,14 @@ function composerHTML() {
     const total = activeProfiles().length;
     const empty = audienceIsEmpty(composerDraft.audience);
     const linked = linkedCount(targets);
+    // La vista previa muestra la publicada mas reciente, atenuada, debajo de la
+    // que se esta escribiendo. Sin ella la tarjeta flota sola y no se ve como
+    // va a quedar EN LA LISTA, que es como el trabajador la va a encontrar.
+    const published = getInformations()
+        .filter(item => effectiveStatus(item) === "published")
+        .filter(item => item.id !== composerDraft.id);
+    const publishedCount = published.length;
+    const previousCard = published[0] || null;
 
     return `
         <div class="information-composer">
@@ -901,7 +955,15 @@ function composerHTML() {
                                 `).join("")}
                             </div>
                         ` : ""}
-                        <input name="files" type="file" multiple accept="${ATTACHMENT_ACCEPT}" data-info-files ${savingInformation ? "disabled" : ""}>
+                        <label class="information-drop${savingInformation ? " is-disabled" : ""}">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M12 16.5V4"></path>
+                                <path d="m7.5 8.5 4.5-4.5 4.5 4.5"></path>
+                                <path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"></path>
+                            </svg>
+                            <span>Arrastra archivos aqu&iacute; o haz clic para elegirlos</span>
+                            <input name="files" type="file" multiple accept="${ATTACHMENT_ACCEPT}" data-info-files ${savingInformation ? "disabled" : ""}>
+                        </label>
                         <small>Hasta ${MAX_ATTACHMENT_FILES} archivos. Imagenes, PDF, texto, Word o Excel.</small>
                     </div>
 
@@ -942,7 +1004,11 @@ function composerHTML() {
                     </div>
 
                     <div class="information-editor__actions">
-                        <button class="primary-button" type="submit" ${savingInformation ? "disabled" : ""}>
+                        <button class="primary-button information-send" type="submit" ${savingInformation ? "disabled" : ""}>
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="m21 3-9.5 9.5"></path>
+                                <path d="M21 3 14.5 21l-3-7.5-7.5-3Z"></path>
+                            </svg>
                             ${savingInformation
                                 ? "Publicando..."
                                 : composerDraft.scheduled && composerDraft.publishAt
@@ -962,8 +1028,18 @@ function composerHTML() {
                     <div class="information-preview__phone">
                         <div class="information-preview__phonehead">
                             <strong>Informaciones</strong>
+                            <span>${publishedCount + 1}</span>
                         </div>
                         ${composerPreviewHTML()}
+                        ${previousCard ? `
+                            <article class="information-preview__card information-preview__card--dim">
+                                <span class="worker-request-type information-type information-type--${escapeAttribute(CATEGORY_TONE[previousCard.category] || "orange")}">${escapeHTML(categoryLabel(previousCard.category))}</span>
+                                <strong>${escapeHTML(previousCard.title)}</strong>
+                                <div class="information-preview__foot">
+                                    <span>${escapeHTML(formatDateTime(previousCard.publishedAt || previousCard.updatedAt))}</span>
+                                </div>
+                            </article>
+                        ` : ""}
                     </div>
                     ${composerDraft.notify && !empty ? `
                         <p class="information-note information-note--warn">Les suena el telefono a ${linked} personas con la app enlazada.</p>
@@ -1033,6 +1109,7 @@ function readerHTML(item) {
 
                     return `
                         <div class="information-reader__row${wantRead ? "" : " is-pending"}">
+                            <span class="information-reader__avatar information-reader__avatar--${escapeAttribute(avatarTone(profile.name, wantRead))}">${escapeHTML(initialsOf(profile.name))}</span>
                             <span class="information-reader__name">
                                 <strong>${escapeHTML(profile.name)}</strong>
                                 <small>${escapeHTML(profile.estamento || "Sin estamento")}${linked ? "" : " &middot; sin la app enlazada"}</small>
@@ -1079,6 +1156,19 @@ export function renderInformationsPanel() {
     const reader = readerInformationId
         ? items.find(item => item.id === readerInformationId)
         : null;
+    // Porcentaje de lectura del conjunto, sumando destinatarios y
+    // confirmaciones de las que SI la piden. Sin ninguna que la pida no se
+    // muestra nada: un "0% de lectura" cuando nadie tenia que confirmar no es
+    // un dato, es una alarma falsa.
+    const acked = published.filter(item => item.requiresAck);
+    const ackTotals = acked.reduce((sum, item) => {
+        const stats = readStatsFor(item);
+
+        return { read: sum.read + stats.read, total: sum.total + stats.total };
+    }, { read: 0, total: 0 });
+    const ackSummary = ackTotals.total
+        ? `${Math.round((ackTotals.read / ackTotals.total) * 100)}% de lectura`
+        : "";
 
     if (composerDraft && !editable) composerDraft = null;
 
@@ -1090,6 +1180,15 @@ export function renderInformationsPanel() {
                     <small>Lo que publiques aqui le llega a la PWA de los trabajadores que elijas.</small>
                 </span>
                 <span class="information-head__actions">
+                    ${ackSummary ? `
+                        <span class="worker-request-counter information-rate">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                            ${escapeHTML(ackSummary)}
+                        </span>
+                    ` : ""}
                     <span class="worker-request-counter">
                         ${published.length} publicacion(es) / ${publishedFiles} archivo(s)
                     </span>

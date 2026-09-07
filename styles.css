@@ -6485,7 +6485,8 @@ body.theme-dark .history-action-toast span {
     min-width: 0;
 }
 
-.secondary-button--small {
+.secondary-button--small,
+.ghost-button--small {
     min-height: 36px;
     padding: 0 12px;
     border-radius: 12px;
@@ -16244,6 +16245,21 @@ button.staffing-pill {
     flex-wrap: wrap;
 }
 
+.information-rate {
+    gap: 7px;
+}
+
+.information-rate svg {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .information-body-panel {
     display: grid;
     gap: 14px;
@@ -16370,6 +16386,39 @@ button.staffing-pill {
     color: var(--accent);
 }
 
+/* En el compositor la categoria elegida se tinta con SU color, no con el azul
+   de la aplicacion: es la misma pastilla que va a ver el trabajador, y verla
+   del color definitivo mientras se redacta evita la sorpresa al publicar. */
+.information-chip-filter--purple.is-on {
+    border-color: #7322a3;
+    background: rgba(143, 44, 201, 0.12);
+    color: #7322a3;
+}
+
+.information-chip-filter--blue.is-on {
+    border-color: #1d4ed8;
+    background: rgba(36, 119, 238, 0.12);
+    color: #1d4ed8;
+}
+
+.information-chip-filter--red.is-on {
+    border-color: #c53030;
+    background: rgba(239, 68, 68, 0.12);
+    color: #c53030;
+}
+
+.information-chip-filter--green.is-on {
+    border-color: #15803d;
+    background: rgba(22, 163, 74, 0.12);
+    color: #15803d;
+}
+
+.information-chip-filter--orange.is-on {
+    border-color: #c2410c;
+    background: rgba(249, 115, 22, 0.13);
+    color: #c2410c;
+}
+
 /* ---------- Bloque de lectura de la tarjeta ---------- */
 
 .information-card__lead {
@@ -16483,6 +16532,20 @@ button.staffing-pill {
     font-size: 0.76rem;
     font-weight: 700;
 }
+
+.information-chip svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.information-chip--warn svg { stroke: #97690a; }
+.information-chip--soon svg { stroke: var(--blue); }
 
 .information-chip--warn {
     border-color: rgba(240, 177, 0, 0.4);
@@ -16622,6 +16685,75 @@ button.staffing-pill {
     resize: vertical;
     min-height: 128px;
     line-height: 1.5;
+}
+
+/* El <input type="file"> del navegador no se puede estilar, asi que se esconde
+   dentro de la etiqueta y lo que se ve es la zona de arrastre. El input sigue
+   siendo el que abre el selector y el que recibe el arrastre: no hay JavaScript
+   supliendo nada. */
+.information-drop {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 62px;
+    padding: 0 14px;
+    border: 1px dashed rgba(var(--brand-blue-rgb), 0.4);
+    border-radius: 12px;
+    background: rgba(var(--brand-blue-rgb), 0.04);
+    color: var(--accent);
+    font-size: 0.84rem;
+    font-weight: 800;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.information-drop:hover {
+    border-color: var(--accent);
+    background: rgba(var(--brand-blue-rgb), 0.08);
+}
+
+.information-drop:focus-within {
+    border-color: var(--accent);
+    outline: 2px solid rgba(var(--brand-blue-rgb), 0.35);
+    outline-offset: 2px;
+}
+
+.information-drop svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* Cubre la zona entera para que el arrastre caiga en el input y no en el
+   documento, pero invisible: lo que se ve es la etiqueta. */
+.information-drop input[type="file"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.information-drop.is-disabled {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+/* El archivo elegido que todavia no se ha subido: mismo bloque, pero de trazo
+   discontinuo, para que se distinga del que ya esta guardado. */
+.information-file--pending {
+    border-style: dashed;
+    border-color: rgba(var(--brand-blue-rgb), 0.34);
+    background: rgba(var(--brand-blue-rgb), 0.04);
 }
 
 /* ---------- Destinatarios ---------- */
@@ -16871,6 +17003,23 @@ button.staffing-pill {
     font-size: 0.84rem;
 }
 
+.information-send svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.information-send {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
 /* ---------- Vista previa ---------- */
 
 .information-preview {
@@ -16908,10 +17057,40 @@ button.staffing-pill {
 }
 
 .information-preview__phonehead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
     padding: 2px 6px 4px;
     font-family: var(--font-display);
     font-size: 0.95rem;
     color: var(--text);
+}
+
+.information-preview__phonehead span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: rgba(36, 119, 238, 0.14);
+    color: var(--blue);
+    font-family: var(--font-ui);
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+/* La publicada anterior, atenuada: ubica la tarjeta nueva dentro de la lista
+   en la que el trabajador la va a encontrar. */
+.information-preview__card--dim {
+    opacity: 0.5;
+    box-shadow: none;
+}
+
+.information-preview__card--dim strong {
+    font-size: 0.86rem;
 }
 
 .information-preview__card {
@@ -17128,9 +17307,27 @@ button.staffing-pill {
     overflow: auto;
 }
 
+.information-reader__avatar {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 900;
+}
+
+.information-reader__avatar--blue { background: rgba(36, 119, 238, 0.14); color: #1d4ed8; }
+.information-reader__avatar--purple { background: rgba(143, 44, 201, 0.13); color: #7322a3; }
+.information-reader__avatar--teal { background: rgba(20, 184, 166, 0.16); color: #0f766e; }
+.information-reader__avatar--orange { background: rgba(249, 115, 22, 0.14); color: #c2410c; }
+.information-reader__avatar--muted { background: rgba(148, 163, 184, 0.24); color: var(--text-muted); }
+
 .information-reader__row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 11px;
     padding: 9px 11px;
@@ -17174,6 +17371,26 @@ button.staffing-pill {
 
 .information-reader__row.is-pending .information-reader__stamp {
     color: #97690a;
+}
+
+.information-actions .danger-action {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid rgba(239, 68, 68, 0.42);
+    border-radius: 12px;
+    background: transparent;
+    color: #c53030;
+    font-size: 0.86rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.information-actions .danger-action:hover {
+    border-color: #c53030;
+    background: rgba(239, 68, 68, 0.08);
 }
 
 .information-editor__actions,
@@ -17240,6 +17457,19 @@ button.staffing-pill {
 .information-type--orange {
     background: rgba(249, 115, 22, 0.13);
     color: #c2410c;
+}
+
+/* Protocolo y Urgente. Sin estas dos, las categorias caian al azul de
+   `.worker-request-type` y las cinco etiquetas se veian casi iguales, que es
+   justo lo que la categoria viene a evitar. */
+.information-type--purple {
+    background: rgba(143, 44, 201, 0.12);
+    color: #7322a3;
+}
+
+.information-type--red {
+    background: rgba(239, 68, 68, 0.12);
+    color: #c53030;
 }
 
 .information-pin {

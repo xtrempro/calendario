@@ -318,3 +318,68 @@ test("el filtro de la PWA no deja la lista vacia sin salida", async () => {
         /if \(!pending && informationFilter !== "todas"\) informationFilter = "todas";/
     );
 });
+
+test("toda clase information-* que se emite tiene estilo", async () => {
+    const [source, css] = await Promise.all([
+        read("../js/informations.js"),
+        read("../styles.css")
+    ]);
+
+    // Asi se colaron `information-type--purple` y `--red`: el panel las
+    // emitia, nadie las habia escrito, y las cinco categorias se veian del
+    // mismo azul. No da error en ningun lado; solo se ve mal.
+    const emitted = new Set();
+    const classAttr = /class="([^"]*)"/g;
+    let match;
+
+    while ((match = classAttr.exec(source))) {
+        match[1]
+            .split(/\s+/)
+            // "information-tab${activeTab === ..." -> "information-tab". Lo que
+            // va detras de la interpolacion son variantes (` is-on`), que se
+            // comprueban por su cuenta mas abajo.
+            .map(name => name.split("${")[0])
+            .filter(name => name.startsWith("information-") && !name.includes("$"))
+            .forEach(name => emitted.add(name));
+    }
+
+    // Las que se arman con un tono: `information-type--${tone}`.
+    const tones = ["purple", "blue", "red", "green", "orange"];
+
+    tones.forEach(tone => {
+        emitted.add(`information-type--${tone}`);
+        emitted.add(`information-chip-filter--${tone}`);
+    });
+    ["pdf", "doc", "xls", "img"].forEach(ext => {
+        emitted.add(`information-file__badge--${ext}`);
+    });
+    ["blue", "purple", "teal", "orange", "muted"].forEach(tone => {
+        emitted.add(`information-reader__avatar--${tone}`);
+    });
+    ["ok", "mid", "low"].forEach(level => {
+        emitted.add(`information-read--${level}`);
+    });
+
+    // Las compartidas con el resto de la aplicacion tambien: `ghost-button--small`
+    // y `danger-action` se emitian sin regla y salian, respectivamente, a doble
+    // altura y como un boton pelado.
+    [
+        "primary-button",
+        "secondary-button",
+        "secondary-button--small",
+        "ghost-button",
+        "ghost-button--small",
+        "danger-action",
+        "empty-state--compact",
+        "worker-request-counter",
+        "worker-request-type"
+    ].forEach(name => emitted.add(name));
+
+    const missing = [...emitted].filter(name => !css.includes(`.${name}`));
+
+    assert.deepEqual(
+        missing,
+        [],
+        `clases sin estilo en styles.css: ${missing.join(", ")}`
+    );
+});
