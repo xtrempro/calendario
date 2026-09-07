@@ -35,6 +35,10 @@ export function getViewForTarget(targetId) {
         return "memos";
     }
 
+    if (targetId === "informationsPanel") {
+        return "informations";
+    }
+
     if (targetId === "reportsPanel") {
         return "reports";
     }

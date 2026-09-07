@@ -47,6 +47,7 @@ const STORAGE_MODULES = new Set([
     "weekly",
     "tasks",
     "requests",
+    "informations",
     // Respaldos de licencias medicas. El ownerId es el trabajador y el recordId
     // el registro del LOG de esa licencia (ver leaveAttachments.js).
     "leaves",

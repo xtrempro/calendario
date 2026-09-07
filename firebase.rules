@@ -42,6 +42,7 @@ service cloud.firestore {
         ("clockmarks" in permissions && permissions.clockmarks.edit == true) ||
         ("requests" in permissions && permissions.requests.edit == true) ||
         ("memos" in permissions && permissions.memos.edit == true) ||
+        ("informations" in permissions && permissions.informations.edit == true) ||
         ("swap" in permissions && permissions.swap.edit == true) ||
         ("hours" in permissions && permissions.hours.edit == true) ||
         ("reports" in permissions && permissions.reports.edit == true) ||
@@ -204,6 +205,7 @@ service cloud.firestore {
         (moduleId == "clockmarks" && canViewMenu(workspaceId, "clockmarks")) ||
         (moduleId == "requests" && canViewMenu(workspaceId, "requests")) ||
         (moduleId == "memos" && canViewMenu(workspaceId, "memos")) ||
+        (moduleId == "informations" && canViewMenu(workspaceId, "informations")) ||
         (moduleId == "swap" && canViewMenu(workspaceId, "swap")) ||
         (moduleId == "hours" && canViewMenu(workspaceId, "hours")) ||
         (moduleId == "weekly" && canViewMenu(workspaceId, "weekly")) ||
@@ -224,6 +226,7 @@ service cloud.firestore {
         (moduleId == "clockmarks" && canEditMenu(workspaceId, "clockmarks")) ||
         (moduleId == "requests" && canEditMenu(workspaceId, "requests")) ||
         (moduleId == "memos" && canEditMenu(workspaceId, "memos")) ||
+        (moduleId == "informations" && canEditMenu(workspaceId, "informations")) ||
         (moduleId == "swap" && canEditMenu(workspaceId, "swap")) ||
         (moduleId == "hours" && canEditMenu(workspaceId, "hours")) ||
         (moduleId == "weekly" && canEditMenu(workspaceId, "weekly")) ||
@@ -1011,8 +1014,10 @@ service cloud.firestore {
       // trabajadores enlazados y los miembros; la publica quien administra.
       match /published/{docId} {
         allow read: if isCurrentLinkedWorker(workspaceId) ||
-          canReadWorkerData(workspaceId);
-        allow write: if canPublishWorkerData(workspaceId);
+          canReadWorkerData(workspaceId) ||
+          (docId == "informations" && canViewMenu(workspaceId, "informations"));
+        allow write: if canPublishWorkerData(workspaceId) ||
+          (docId == "informations" && canEditMenu(workspaceId, "informations"));
       }
 
       match /workerAppData/{userId} {

@@ -4,6 +4,7 @@ export const FIREBASE_STATE_MODULES = Object.freeze({
     clockmarks: { permission: "clockmarks" },
     requests: { permission: "requests" },
     memos: { permission: "memos" },
+    informations: { permission: "informations" },
     swap: { permission: "swap" },
     hours: { permission: "hours" },
     weekly: { permission: "weekly" },
@@ -40,6 +41,7 @@ const EXACT_KEY_MODULES = new Map([
     ["leaveAttachments", "requests"],
     ["workerNotifications", "requests"],
     ["memos", "memos"],
+    ["informations", "informations"],
     ["agenda_contacts", "agenda"],
     // Tareas diarias del inicio que un administrador comparte con la unidad o
     // con los trabajadores. Las privadas NO pasan por aca: viven en el

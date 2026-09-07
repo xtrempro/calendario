@@ -872,6 +872,7 @@ test("el menu va justo despues de Turnos", async () => {
         ["agendaPanel", null],
         ["hoursPanel", null],
         ["memosPanel", null],
+        ["informationsPanel", null],
         ["dashboardPanel", null],
         ["auditLogPanel", null],
         [null, "#undoBtn"],

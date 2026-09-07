@@ -23,6 +23,7 @@ test("clasifica las claves persistidas por modulo de seguridad", () => {
         clockMarks_worker_1: "clockmarks",
         workerRequests: "requests",
         memos: "memos",
+        informations: "informations",
         shiftMoves: "swap",
         carry_worker_1: "hours",
         staffing_applicants: "weekly",
@@ -50,10 +51,12 @@ test("divide un snapshot sin mezclar permisos", () => {
         profiles: [{ id: "worker-1" }],
         data_worker_1: { "2026-06-25": "L" },
         memos: [{ id: "memo-1" }],
+        informations: [{ id: "info-1" }],
         unknown_sensitive_setting: true
     });
 
     assert.deepEqual(Object.keys(modules).sort(), [
+        "informations",
         "memos",
         "profile",
         "system",
@@ -62,6 +65,7 @@ test("divide un snapshot sin mezclar permisos", () => {
     assert.deepEqual(Object.keys(modules.profile), ["profiles"]);
     assert.deepEqual(Object.keys(modules.turnos), ["data_worker_1"]);
     assert.deepEqual(Object.keys(modules.memos), ["memos"]);
+    assert.deepEqual(Object.keys(modules.informations), ["informations"]);
     assert.deepEqual(
         Object.keys(modules.system),
         ["unknown_sensitive_setting"]

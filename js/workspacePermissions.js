@@ -25,6 +25,7 @@ export const MENU_PERMISSION_DEFS = [
     { key: "profile", label: "Perfiles", target: "profileSection" },
     { key: "clockmarks", label: "Marcajes", target: "clockMarksPanel" },
     { key: "requests", label: "Solicitudes", target: "workerRequestsPanel" },
+    { key: "informations", label: "Informaciones", target: "informationsPanel" },
     { key: "memos", label: "Memorándum", target: "memosPanel" },
     { key: "swap", label: "Cambios de Turno", target: "turnChangesView" },
     { key: "hours", label: "HHEE", target: "hoursPanel" },

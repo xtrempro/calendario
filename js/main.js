@@ -444,6 +444,10 @@ import {
     updateMemosNavBadge
 } from "./memos.js";
 import {
+    initInformationsPanel,
+    renderInformationsPanel
+} from "./informations.js";
+import {
     addReplacementContract,
     addHonorariaContract,
     removeHonorariaContract,
@@ -5868,6 +5872,10 @@ async function setActiveShortcut(targetId, options = {}) {
 
         if (nextView === "memos") {
             renderMemosPanel();
+        }
+
+        if (nextView === "informations") {
+            renderInformationsPanel();
         }
 
         if (nextView === "reports") {
@@ -14086,6 +14094,7 @@ loadWorkspacePermissions()
     });
 initHoursCharts(getPerfilActual);
 updateMemosNavBadge();
+initInformationsPanel();
 refreshWorkerRequestsNavBadge();
 initNotificationsBell({
     onOpen: () => { void setActiveShortcut("workerRequestsPanel"); }
