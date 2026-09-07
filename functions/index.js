@@ -125,6 +125,7 @@ const MENU_PERMISSION_KEYS = [
   "clockmarks",
   "requests",
   "memos",
+  "informations",
   "swap",
   "hours",
   "reports",
@@ -139,6 +140,9 @@ const VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate";
 const SCHEDULE_ATTACHMENT_MODULE_ID = "tasks";
 const SCHEDULE_ATTACHMENT_OWNER_ID = "weekly-schedule";
 const SCHEDULE_ATTACHMENT_RECORD_ID = "published-schedule";
+const INFORMATION_ATTACHMENT_MODULE_ID = "informations";
+const INFORMATION_ATTACHMENT_OWNER_ID = "published";
+const INFORMATION_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
 const SCHEDULE_IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -157,6 +161,26 @@ const SCHEDULE_IMAGE_MIME_BY_EXTENSION = {
   bmp: "image/bmp",
   heic: "image/heic",
   heif: "image/heif"
+};
+const INFORMATION_ATTACHMENT_MIME_TYPES = new Set([
+  ...SCHEDULE_IMAGE_MIME_TYPES,
+  "application/pdf",
+  "text/plain",
+  "text/csv",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+]);
+const INFORMATION_ATTACHMENT_MIME_BY_EXTENSION = {
+  ...SCHEDULE_IMAGE_MIME_BY_EXTENSION,
+  pdf: "application/pdf",
+  txt: "text/plain",
+  csv: "text/csv",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 };
 
 function cleanCallableText(value, maxLength = 160) {
@@ -186,6 +210,19 @@ function hasAnyPermission(permissions = {}) {
   return MENU_PERMISSION_KEYS.some(key =>
     permissions[key]?.view === true || permissions[key]?.edit === true
   );
+}
+
+function memberCanPublishInformations(member = {}) {
+  if (member.role === "owner") return true;
+
+  const permissions = member.permissions && typeof member.permissions === "object"
+    ? member.permissions
+    : {};
+
+  if (permissions.informations?.edit === true) return true;
+
+  return !Object.prototype.hasOwnProperty.call(permissions, "informations") &&
+    MENU_PERMISSION_KEYS.some(key => permissions[key]?.edit === true);
 }
 
 function createSupervisorInviteToken() {
@@ -294,6 +331,19 @@ async function requireWorkspaceOwner(workspaceId, uid, token) {
   return member;
 }
 
+async function requireWorkspaceInformationPublisher(workspaceId, uid, token) {
+  const member = await requireWorkspaceMember(workspaceId, uid, token);
+
+  if (!memberCanPublishInformations(member)) {
+    throw new HttpsError(
+      "permission-denied",
+      "No tienes permisos para publicar informaciones en esta unidad."
+    );
+  }
+
+  return member;
+}
+
 function scheduleFileExtension(name) {
   const match = String(name || "").toLowerCase().match(/\.([a-z0-9]+)$/);
   return match?.[1] || "";
@@ -324,6 +374,31 @@ function scheduleContentTypeFor(name, type) {
 
   if (SCHEDULE_IMAGE_MIME_TYPES.has(cleanType)) return cleanType;
   return SCHEDULE_IMAGE_MIME_BY_EXTENSION[extension] || "";
+}
+
+function normalizeInformationAttachmentType(type) {
+  const clean = cleanCallableText(type, 160)
+    .toLowerCase()
+    .split(";")[0]
+    .trim();
+
+  return clean === "image/jpg" || clean === "image/pjpeg"
+    ? "image/jpeg"
+    : clean;
+}
+
+function informationContentTypeFor(name, ...types) {
+  const extension = scheduleFileExtension(name);
+
+  for (const type of types) {
+    const cleanType = normalizeInformationAttachmentType(type);
+
+    if (INFORMATION_ATTACHMENT_MIME_TYPES.has(cleanType)) {
+      return cleanType;
+    }
+  }
+
+  return INFORMATION_ATTACHMENT_MIME_BY_EXTENSION[extension] || "";
 }
 
 function decodeScheduleAttachmentPayload(data = {}) {
@@ -367,6 +442,61 @@ function decodeScheduleAttachmentPayload(data = {}) {
       `programacion.${scheduleFileExtension(name) || "jpg"}`
     )
   };
+}
+
+function decodeInformationAttachmentPayload(data = {}) {
+  const name = cleanCallableText(data.name || "informacion", 180);
+  const dataUrl = String(data.dataUrl || "");
+  const base64Value = String(data.base64 || "");
+  const match = dataUrl.match(/^data:([^;,]+)?;base64,(.*)$/s);
+  const base64 = (match ? match[2] : base64Value).replace(/\s/g, "");
+  const contentType = informationContentTypeFor(name, match?.[1], data.type);
+
+  if (!name || !base64 || !contentType) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Adjunta una imagen, PDF, texto, Word o Excel valido."
+    );
+  }
+
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(base64) || base64.length % 4 === 1) {
+    throw new HttpsError(
+      "invalid-argument",
+      "No se pudo leer el archivo adjunto."
+    );
+  }
+
+  const buffer = Buffer.from(base64, "base64");
+
+  if (!buffer.length || buffer.length > INFORMATION_ATTACHMENT_MAX_SIZE) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El archivo debe pesar hasta 10 MB."
+    );
+  }
+
+  return {
+    buffer,
+    contentType,
+    originalName: name,
+    safeName: safeStoragePathSegment(
+      name,
+      `informacion.${scheduleFileExtension(name) || "bin"}`
+    )
+  };
+}
+
+function isInformationAttachmentStoragePath(workspaceId, storagePath) {
+  const parts = String(storagePath || "").split("/");
+
+  return parts.length === 7 &&
+    parts[0] === "workspaces" &&
+    parts[1] === safeStoragePathSegment(workspaceId, "workspace") &&
+    parts[2] === "attachments" &&
+    parts[3] === INFORMATION_ATTACHMENT_MODULE_ID &&
+    parts[4] === INFORMATION_ATTACHMENT_OWNER_ID &&
+    Boolean(parts[5]) &&
+    Boolean(parts[6]);
 }
 
 function storageDownloadURL(bucketName, storagePath, token) {
@@ -886,6 +1016,150 @@ exports.uploadScheduleAttachment = onCall(
       source: "supervisor_image",
       ocr
     };
+  }
+);
+
+exports.uploadInformationAttachment = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 120,
+    memory: "512MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para adjuntar informacion."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+    const recordId = safeStoragePathSegment(
+      cleanCallableText(request.data?.recordId, 160),
+      "information"
+    );
+
+    if (!workspaceId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Selecciona una unidad antes de adjuntar informacion."
+      );
+    }
+
+    await requireWorkspaceInformationPublisher(
+      workspaceId,
+      uid,
+      request.auth.token || {}
+    );
+
+    const decoded = decodeInformationAttachmentPayload(request.data || {});
+    const bucket = admin.storage().bucket();
+
+    if (!bucket) {
+      throw new HttpsError(
+        "failed-precondition",
+        "El almacenamiento de informaciones no esta disponible."
+      );
+    }
+
+    const id = `information_${Date.now()}_${randomBytes(6).toString("hex")}`;
+    const downloadToken = randomBytes(24).toString("hex");
+    const storagePath = [
+      "workspaces",
+      safeStoragePathSegment(workspaceId, "workspace"),
+      "attachments",
+      INFORMATION_ATTACHMENT_MODULE_ID,
+      INFORMATION_ATTACHMENT_OWNER_ID,
+      recordId,
+      `${safeStoragePathSegment(id, "information")}_${decoded.safeName}`
+    ].join("/");
+    const addedAt = new Date().toISOString();
+
+    await bucket.file(storagePath).save(decoded.buffer, {
+      resumable: false,
+      metadata: {
+        cacheControl: "private, max-age=0, no-cache",
+        contentType: decoded.contentType,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+          workspaceId,
+          moduleId: INFORMATION_ATTACHMENT_MODULE_ID,
+          ownerId: INFORMATION_ATTACHMENT_OWNER_ID,
+          recordId,
+          uploadedByUid: uid,
+          originalName: decoded.originalName
+        }
+      }
+    });
+
+    return {
+      id,
+      name: decoded.originalName,
+      type: decoded.contentType,
+      size: decoded.buffer.length,
+      addedAt,
+      uploadedByUid: uid,
+      storagePath,
+      downloadURL: storageDownloadURL(bucket.name, storagePath, downloadToken)
+    };
+  }
+);
+
+exports.deleteInformationAttachment = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 60,
+    memory: "256MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para eliminar informacion."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+    const storagePath = cleanCallableText(request.data?.storagePath, 500);
+
+    if (!workspaceId || !isInformationAttachmentStoragePath(workspaceId, storagePath)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "El archivo de informacion no es valido para esta unidad."
+      );
+    }
+
+    await requireWorkspaceInformationPublisher(
+      workspaceId,
+      uid,
+      request.auth.token || {}
+    );
+
+    const bucket = admin.storage().bucket();
+
+    if (!bucket) {
+      throw new HttpsError(
+        "failed-precondition",
+        "El almacenamiento de informaciones no esta disponible."
+      );
+    }
+
+    try {
+      await bucket.file(storagePath).delete();
+    } catch (error) {
+      if (Number(error?.code) !== 404) {
+        throw new HttpsError(
+          "internal",
+          "No se pudo eliminar el archivo adjunto de informacion."
+        );
+      }
+    }
+
+    return { deleted: true };
   }
 );
 

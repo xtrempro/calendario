@@ -46,6 +46,7 @@ function permissions(editable = [], hidden = []) {
         "clockmarks",
         "requests",
         "memos",
+        "informations",
         "swap",
         "hours",
         "reports",
@@ -64,6 +65,13 @@ function permissions(editable = [], hidden = []) {
             }
         ])
     );
+}
+
+function legacyPermissions(editable = [], hidden = []) {
+    const next = permissions(editable, hidden);
+
+    delete next.informations;
+    return next;
 }
 
 function manifest(moduleId, permission) {
@@ -193,6 +201,13 @@ test("reglas modulares de Firestore y Storage", async t => {
     });
     const legacyMember = env.authenticatedContext("legacy", {
         email: "legacy@example.com"
+    });
+    const legacyEditor = env.authenticatedContext("legacy-editor", {
+        email: "legacy-editor@example.com",
+        firebase: {
+            sign_in_provider: "google.com",
+            sign_in_second_factor: "totp"
+        }
     });
     const profileEditorWithoutMfa = env.authenticatedContext(
         "profile-editor-no-mfa",
@@ -445,6 +460,10 @@ test("reglas modulares de Firestore y Storage", async t => {
         await setDoc(
             doc(db, "workspaces", WORKSPACE_ID, "members", "legacy"),
             { role: "member" }
+        );
+        await setDoc(
+            doc(db, "workspaces", WORKSPACE_ID, "members", "legacy-editor"),
+            { role: "member", permissions: legacyPermissions(["turnos"]) }
         );
         await setDoc(
             doc(
@@ -1974,6 +1993,81 @@ test("reglas modulares de Firestore y Storage", async t => {
                         "published-schedule",
                         "tasks-editor",
                         "application/pdf"
+                    )
+                )
+            );
+        }
+    );
+
+    await t.test(
+        "Storage permite publicar adjuntos compartidos de informaciones",
+        async () => {
+            const infoPath = [
+                "workspaces",
+                WORKSPACE_ID,
+                "attachments",
+                "informations",
+                "published",
+                "info-1",
+                "foto.jpg"
+            ].join("/");
+            const legacyPath = infoPath.replace("foto.jpg", "foto-legacy.jpg");
+            const viewerPath = infoPath.replace("foto.jpg", "foto-viewer.jpg");
+            const outsiderPath = infoPath.replace("foto.jpg", "foto-outsider.jpg");
+            const bytes = new Uint8Array([255, 216, 255, 224]);
+
+            await assertSucceeds(
+                uploadBytes(
+                    ref(owner.storage(), infoPath),
+                    bytes,
+                    attachmentMetadata(
+                        "informations",
+                        "published",
+                        "info-1",
+                        "owner",
+                        "image/jpeg"
+                    )
+                )
+            );
+            await assertSucceeds(
+                uploadBytes(
+                    ref(legacyEditor.storage(), legacyPath),
+                    bytes,
+                    attachmentMetadata(
+                        "informations",
+                        "published",
+                        "info-1",
+                        "legacy-editor",
+                        "image/jpeg"
+                    )
+                )
+            );
+            await assertSucceeds(
+                getBytes(ref(workerA.storage(), infoPath))
+            );
+            await assertFails(
+                uploadBytes(
+                    ref(viewer.storage(), viewerPath),
+                    bytes,
+                    attachmentMetadata(
+                        "informations",
+                        "published",
+                        "info-1",
+                        "viewer",
+                        "image/jpeg"
+                    )
+                )
+            );
+            await assertFails(
+                uploadBytes(
+                    ref(outsider.storage(), outsiderPath),
+                    bytes,
+                    attachmentMetadata(
+                        "informations",
+                        "published",
+                        "info-1",
+                        "outsider",
+                        "image/jpeg"
                     )
                 )
             );

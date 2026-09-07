@@ -206,7 +206,9 @@ export function attachmentStorageErrorMessage(error, action = "usar") {
     if (
         code === "storage/unauthenticated" ||
         code === "storage/unauthorized" ||
-        code === "permission-denied"
+        code === "permission-denied" ||
+        code === "functions/unauthenticated" ||
+        code === "functions/permission-denied"
     ) {
         if (action === "subir") {
             return "No tienes permisos para subir este archivo adjunto en la unidad activa.";
@@ -243,6 +245,75 @@ function attachmentStorageError(error, action) {
     next.attachmentStorageMessage = true;
 
     return next;
+}
+
+function isPublishedInformationContext(context) {
+    return context?.moduleId === "informations" &&
+        context.ownerId === "published";
+}
+
+function isPublishedInformationStoragePath(storagePath) {
+    const parts = String(storagePath || "").split("/");
+
+    return parts.length === 7 &&
+        parts[0] === "workspaces" &&
+        parts[2] === "attachments" &&
+        parts[3] === "informations" &&
+        parts[4] === "published" &&
+        Boolean(parts[5]) &&
+        Boolean(parts[6]);
+}
+
+async function uploadInformationAttachment(file, context) {
+    const services = await getFirebaseServices();
+
+    await waitForStorageAppCheck(services, "subir");
+
+    const callable = services.functionsModule.httpsCallable(
+        services.functions,
+        "uploadInformationAttachment"
+    );
+    const response = await callable({
+        workspaceId: context.workspaceId,
+        recordId: context.recordId,
+        name: String(file.name || ""),
+        type: fileContentType(file),
+        size: file.size || 0,
+        dataUrl: await readFileAsDataURL(file)
+    });
+    const data = response?.data || {};
+
+    if (!data.storagePath) {
+        throw new Error("La subida no devolvio la ruta del archivo.");
+    }
+
+    return {
+        id: String(data.id || attachmentId("information")),
+        name: String(data.name || file.name || "archivo"),
+        type: String(data.type || fileContentType(file)).toLowerCase(),
+        size: Number(data.size) || file.size || 0,
+        addedAt: String(data.addedAt || new Date().toISOString()),
+        storagePath: String(data.storagePath || ""),
+        downloadURL: String(data.downloadURL || ""),
+        uploadedByUid: String(data.uploadedByUid || context.userId)
+    };
+}
+
+async function deleteInformationAttachment(attachment) {
+    const workspace = getActiveWorkspace();
+    const services = await getFirebaseServices();
+
+    await waitForStorageAppCheck(services, "eliminar");
+
+    const callable = services.functionsModule.httpsCallable(
+        services.functions,
+        "deleteInformationAttachment"
+    );
+
+    await callable({
+        workspaceId: workspace?.id || "",
+        storagePath: String(attachment?.storagePath || "")
+    });
 }
 
 function renderAttachmentTabMessage(openedTab, title, message) {
@@ -470,6 +541,17 @@ export async function readAttachmentFiles(files, options = {}) {
             continue;
         }
 
+        if (isPublishedInformationContext(context)) {
+            try {
+                attachments.push(
+                    await uploadInformationAttachment(file, context)
+                );
+            } catch (error) {
+                throw attachmentStorageError(error, "subir");
+            }
+            continue;
+        }
+
         const id = attachmentId("attachment");
         const safeName = safePathSegment(file.name, "archivo");
         const storagePath = [
@@ -525,10 +607,15 @@ export async function readAttachmentFile(file, options = {}) {
 }
 
 export function hasAttachmentContent(attachment) {
-    return Boolean(attachment?.dataUrl || attachment?.storagePath);
+    return Boolean(
+        attachment?.dataUrl ||
+        attachment?.storagePath ||
+        attachment?.downloadURL
+    );
 }
 
 async function storedAttachmentDownloadURL(attachment) {
+    if (attachment?.downloadURL) return String(attachment.downloadURL);
     if (!attachment?.storagePath) return "";
 
     const { storage, storageModule } = await getStorageServices("abrir");
@@ -577,11 +664,11 @@ export async function openAttachmentFile(
     // termina en storage/retry-limit-exceeded ("no se pudo abrir"). La URL con
     // token se sirve por navegacion, sin CORS ni fetch del binario.
     // Los adjuntos antiguos (solo dataUrl local) siguen usando un object URL.
-    const usesObjectUrl = !attachment.storagePath;
+    const usesObjectUrl = !attachment.storagePath && !attachment.downloadURL;
     let url = "";
 
     try {
-        url = attachment.storagePath
+        url = attachment.storagePath || attachment.downloadURL
             ? await storedAttachmentDownloadURL(attachment)
             : URL.createObjectURL(dataUrlToBlob(attachment.dataUrl));
     } catch (error) {
@@ -618,6 +705,15 @@ export async function openAttachmentFile(
 
 export async function deleteStoredAttachment(attachment) {
     if (!attachment?.storagePath) return;
+
+    if (isPublishedInformationStoragePath(attachment.storagePath)) {
+        try {
+            await deleteInformationAttachment(attachment);
+        } catch (error) {
+            throw attachmentStorageError(error, "eliminar");
+        }
+        return;
+    }
 
     const { storage, storageModule } = await getStorageServices("eliminar");
 

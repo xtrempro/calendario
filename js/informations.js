@@ -45,8 +45,9 @@ function normalizeAttachment(attachment = {}) {
     const name = clampText(attachment.name, 240);
     const dataUrl = String(attachment.dataUrl || "");
     const storagePath = String(attachment.storagePath || "");
+    const downloadURL = String(attachment.downloadURL || "");
 
-    if (!name || (!dataUrl && !storagePath)) return null;
+    if (!name || (!dataUrl && !storagePath && !downloadURL)) return null;
 
     return {
         id: String(attachment.id || makeId("info_file")),
@@ -61,6 +62,7 @@ function normalizeAttachment(attachment = {}) {
         ),
         dataUrl,
         storagePath,
+        downloadURL,
         uploadedByUid: String(attachment.uploadedByUid || "")
     };
 }
@@ -152,6 +154,7 @@ function publicAttachmentPayload(attachment = {}) {
         size: normalized.size,
         addedAt: normalized.addedAt,
         storagePath: normalized.storagePath,
+        downloadURL: normalized.downloadURL,
         uploadedByUid: normalized.uploadedByUid
     };
 }
@@ -173,7 +176,7 @@ export function publicInformationsPayload(items = getInformations()) {
             .map(publicAttachmentPayload)
             .filter(attachment =>
                 attachment &&
-                attachment.storagePath
+                (attachment.storagePath || attachment.downloadURL)
             )
     }));
 }

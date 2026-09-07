@@ -14,6 +14,7 @@ test("Informaciones queda enganchado al panel supervisor y a permisos", async ()
         permissions,
         modules,
         attachments,
+        functionsIndex,
         css
     ] = await Promise.all([
         read("../index.html"),
@@ -22,6 +23,7 @@ test("Informaciones queda enganchado al panel supervisor y a permisos", async ()
         read("../js/workspacePermissions.js"),
         read("../js/firebaseStateModules.js"),
         read("../js/attachmentUtils.js"),
+        read("../functions/index.js"),
         read("../styles.css")
     ]);
 
@@ -34,6 +36,11 @@ test("Informaciones queda enganchado al panel supervisor y a permisos", async ()
     assert.match(modules, /informations:\s*\{\s*permission:\s*"informations"\s*\}/);
     assert.match(modules, /\["informations",\s*"informations"\]/);
     assert.match(attachments, /"informations"/);
+    assert.match(attachments, /uploadInformationAttachment/);
+    assert.match(attachments, /deleteInformationAttachment/);
+    assert.match(functionsIndex, /exports\.uploadInformationAttachment\s*=\s*onCall/);
+    assert.match(functionsIndex, /exports\.deleteInformationAttachment\s*=\s*onCall/);
+    assert.match(functionsIndex, /"informations"/);
     assert.match(css, /body:not\(\[data-active-view="informations"\]\) #informationsPanel/);
     assert.match(css, /\.actionbar \.nav-tile\[data-target="informationsPanel"\]\s*\{[\s\S]{0,80}order:\s*15/);
 });
