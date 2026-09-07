@@ -43,6 +43,7 @@ function permissions(editable = [], hidden = []) {
         "kanban",
         "agenda",
         "profile",
+        "qualifications",
         "clockmarks",
         "requests",
         "memos",
@@ -71,6 +72,7 @@ function legacyPermissions(editable = [], hidden = []) {
     const next = permissions(editable, hidden);
 
     delete next.informations;
+    delete next.qualifications;
     return next;
 }
 
@@ -171,6 +173,13 @@ test("reglas modulares de Firestore y Storage", async t => {
     });
     const profileEditor = env.authenticatedContext("profile-editor", {
         email: "profile@example.com",
+        firebase: {
+            sign_in_provider: "google.com",
+            sign_in_second_factor: "totp"
+        }
+    });
+    const qualificationsEditor = env.authenticatedContext("qualifications-editor", {
+        email: "qualifications@example.com",
         firebase: {
             sign_in_provider: "google.com",
             sign_in_second_factor: "totp"
@@ -286,6 +295,16 @@ test("reglas modulares de Firestore y Storage", async t => {
                 "workspaces",
                 WORKSPACE_ID,
                 "members",
+                "qualifications-editor"
+            ),
+            { role: "member", permissions: permissions(["qualifications"]) }
+        );
+        await setDoc(
+            doc(
+                db,
+                "workspaces",
+                WORKSPACE_ID,
+                "members",
                 "tasks-editor"
             ),
             { role: "member", permissions: permissions(["tasks"]) }
@@ -316,6 +335,7 @@ test("reglas modulares de Firestore y Storage", async t => {
                     "tasks",
                     "kanban",
                     "profile",
+                    "qualifications",
                     "clockmarks",
                     "requests",
                     "memos",
@@ -622,6 +642,54 @@ test("reglas modulares de Firestore y Storage", async t => {
                         "data_Ana"
                     ),
                     stateEntry("turnos", "data_Ana")
+                )
+            );
+        }
+    );
+
+    await t.test(
+        "Calificaciones puede escribir solo su modulo",
+        async () => {
+            const qualificationsPath = [
+                "workspaces",
+                WORKSPACE_ID,
+                "stateModules",
+                "qualifications"
+            ];
+
+            await assertSucceeds(
+                setDoc(
+                    doc(qualificationsEditor.firestore(), ...qualificationsPath),
+                    manifest("qualifications", "qualifications")
+                )
+            );
+            await assertSucceeds(
+                setDoc(
+                    doc(
+                        qualificationsEditor.firestore(),
+                        ...qualificationsPath,
+                        "entries",
+                        "qualifications"
+                    ),
+                    stateEntry("qualifications", "qualifications")
+                )
+            );
+            await assertFails(
+                setDoc(
+                    doc(
+                        qualificationsEditor.firestore(),
+                        "workspaces",
+                        WORKSPACE_ID,
+                        "stateModules",
+                        "profile"
+                    ),
+                    manifest("profile", "profile")
+                )
+            );
+            await assertFails(
+                setDoc(
+                    doc(profileEditor.firestore(), ...qualificationsPath),
+                    manifest("qualifications", "qualifications")
                 )
             );
         }

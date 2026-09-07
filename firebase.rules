@@ -40,6 +40,7 @@ service cloud.firestore {
         ("kanban" in permissions && permissions.kanban.edit == true) ||
         ("agenda" in permissions && permissions.agenda.edit == true) ||
         ("profile" in permissions && permissions.profile.edit == true) ||
+        ("qualifications" in permissions && permissions.qualifications.edit == true) ||
         ("clockmarks" in permissions && permissions.clockmarks.edit == true) ||
         ("requests" in permissions && permissions.requests.edit == true) ||
         ("memos" in permissions && permissions.memos.edit == true) ||
@@ -237,6 +238,7 @@ service cloud.firestore {
     function canReadStateModule(workspaceId, moduleId) {
       return isOwner(workspaceId) ||
         (moduleId == "profile" && canViewMenu(workspaceId, "profile")) ||
+        (moduleId == "qualifications" && canViewMenu(workspaceId, "qualifications")) ||
         (moduleId == "turnos" && canViewMenu(workspaceId, "turnos")) ||
         (moduleId == "clockmarks" && canViewMenu(workspaceId, "clockmarks")) ||
         (moduleId == "requests" && canViewMenu(workspaceId, "requests")) ||
@@ -258,6 +260,7 @@ service cloud.firestore {
     function canWriteStateModule(workspaceId, moduleId) {
       return isOwner(workspaceId) ||
         (moduleId == "profile" && canEditMenu(workspaceId, "profile")) ||
+        (moduleId == "qualifications" && canEditMenu(workspaceId, "qualifications")) ||
         (moduleId == "turnos" && canEditMenu(workspaceId, "turnos")) ||
         (moduleId == "clockmarks" && canEditMenu(workspaceId, "clockmarks")) ||
         (moduleId == "requests" && canEditMenu(workspaceId, "requests")) ||

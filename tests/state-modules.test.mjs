@@ -24,6 +24,7 @@ test("clasifica las claves persistidas por modulo de seguridad", () => {
         workerRequests: "requests",
         memos: "memos",
         informations: "informations",
+        qualifications: "qualifications",
         shiftMoves: "swap",
         carry_worker_1: "hours",
         staffing_applicants: "weekly",
@@ -42,6 +43,7 @@ test("clasifica las claves persistidas por modulo de seguridad", () => {
 });
 
 test("las claves desconocidas quedan reservadas al propietario", () => {
+    assert.equal(stateModulePermission("qualifications"), "qualifications");
     assert.equal(stateModulePermission("system"), "owner");
     assert.equal(stateModulePermission("does-not-exist"), "owner");
 });
@@ -52,6 +54,7 @@ test("divide un snapshot sin mezclar permisos", () => {
         data_worker_1: { "2026-06-25": "L" },
         memos: [{ id: "memo-1" }],
         informations: [{ id: "info-1" }],
+        qualifications: { records: { "2026:sep-dec:worker-1": {} } },
         unknown_sensitive_setting: true
     });
 
@@ -59,6 +62,7 @@ test("divide un snapshot sin mezclar permisos", () => {
         "informations",
         "memos",
         "profile",
+        "qualifications",
         "system",
         "turnos"
     ]);
@@ -66,6 +70,7 @@ test("divide un snapshot sin mezclar permisos", () => {
     assert.deepEqual(Object.keys(modules.turnos), ["data_worker_1"]);
     assert.deepEqual(Object.keys(modules.memos), ["memos"]);
     assert.deepEqual(Object.keys(modules.informations), ["informations"]);
+    assert.deepEqual(Object.keys(modules.qualifications), ["qualifications"]);
     assert.deepEqual(
         Object.keys(modules.system),
         ["unknown_sensitive_setting"]

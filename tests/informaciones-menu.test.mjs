@@ -59,9 +59,9 @@ test("Informaciones queda enganchado al panel supervisor y a permisos", async ()
     assert.match(functionsIndex, /exports\.deleteInformationAttachment\s*=\s*onCall/);
     assert.match(functionsIndex, /"informations"/);
     assert.match(css, /body:not\(\[data-active-view="informations"\]\) #informationsPanel/);
-    assert.match(css, /\.actionbar \.nav-tile\[data-target="taskAssignmentsPanel"\]\s*\{[\s\S]{0,80}order:\s*10/);
-    assert.match(css, /\.actionbar \.nav-tile\[data-target="informationsPanel"\]\s*\{[\s\S]{0,80}order:\s*11/);
-    assert.match(css, /\.actionbar \.nav-tile\[data-target="kanbanPanel"\]\s*\{[\s\S]{0,80}order:\s*12/);
+    assert.match(css, /\.actionbar \.nav-tile\[data-target="taskAssignmentsPanel"\]\s*\{[\s\S]{0,80}order:\s*11/);
+    assert.match(css, /\.actionbar \.nav-tile\[data-target="informationsPanel"\]\s*\{[\s\S]{0,80}order:\s*12/);
+    assert.match(css, /\.actionbar \.nav-tile\[data-target="kanbanPanel"\]\s*\{[\s\S]{0,80}order:\s*13/);
 });
 
 test("Informaciones queda activo por defecto en permisos legados", async () => {

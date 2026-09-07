@@ -1,5 +1,6 @@
 export const FIREBASE_STATE_MODULES = Object.freeze({
     profile: { permission: "profile" },
+    qualifications: { permission: "qualifications" },
     turnos: { permission: "turnos" },
     clockmarks: { permission: "clockmarks" },
     requests: { permission: "requests" },
@@ -22,6 +23,7 @@ export const FIREBASE_STATE_MODULES = Object.freeze({
 
 const EXACT_KEY_MODULES = new Map([
     ["profiles", "profile"],
+    ["qualifications", "qualifications"],
     ["swaps", "swap"],
     ["shiftMoves", "swap"],
     ["turnChangeConfig", "swap"],

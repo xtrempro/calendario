@@ -860,6 +860,7 @@ test("el menu va justo despues de Turnos", async () => {
     const ORDENES = [
         ["homePanel", null],
         ["profileSection", null],
+        ["qualificationsPanel", null],
         ["calendarPanel", null],
         ["shiftHoldersPanel", null],
         [null, "#turnChangesNav"],
@@ -893,8 +894,8 @@ test("el menu va justo despues de Turnos", async () => {
     const numeros = ORDENES.map(orden);
 
     // Titulares queda entre Turnos y Cambios de Turno.
-    assert.equal(numeros[3], numeros[2] + 1, "va después de Turnos");
-    assert.equal(numeros[4], numeros[3] + 1, "y antes de Cambios de Turno");
+    assert.equal(numeros[4], numeros[3] + 1, "va después de Turnos");
+    assert.equal(numeros[5], numeros[4] + 1, "y antes de Cambios de Turno");
     // Y nadie quedó con el mismo número al correr la lista.
     assert.equal(new Set(numeros).size, numeros.length, "hay órdenes repetidos");
     assert.deepEqual(numeros, [...numeros].sort((a, b) => a - b), "sin saltos");

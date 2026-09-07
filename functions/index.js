@@ -123,6 +123,7 @@ const MENU_PERMISSION_KEYS = [
   "kanban",
   "agenda",
   "profile",
+  "qualifications",
   "clockmarks",
   "requests",
   "memos",

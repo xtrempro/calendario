@@ -448,6 +448,10 @@ import {
     renderInformationsPanel
 } from "./informations.js";
 import {
+    initQualificationsPanel,
+    renderQualificationsPanel
+} from "./qualifications.js";
+import {
     addReplacementContract,
     addHonorariaContract,
     removeHonorariaContract,
@@ -5876,6 +5880,10 @@ async function setActiveShortcut(targetId, options = {}) {
 
         if (nextView === "informations") {
             renderInformationsPanel();
+        }
+
+        if (nextView === "qualifications") {
+            renderQualificationsPanel();
         }
 
         if (nextView === "reports") {
@@ -13746,6 +13754,9 @@ function syncWorkspaceStateViews() {
             if (document.body.dataset.activeView === "kanban") {
                 renderKanbanBoard();
             }
+            if (document.body.dataset.activeView === "qualifications") {
+                renderQualificationsPanel();
+            }
             refreshAll();
         },
         {
@@ -14095,6 +14106,7 @@ loadWorkspacePermissions()
 initHoursCharts(getPerfilActual);
 updateMemosNavBadge();
 initInformationsPanel();
+initQualificationsPanel();
 refreshWorkerRequestsNavBadge();
 initNotificationsBell({
     onOpen: () => { void setActiveShortcut("workerRequestsPanel"); }
