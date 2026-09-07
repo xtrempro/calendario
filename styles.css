@@ -4996,23 +4996,23 @@ body[data-active-view="profile"] .profile-view-layout > .sidebar .profile-item__
     order: 10;
 }
 
-.actionbar .nav-tile[data-target="kanbanPanel"] {
+.actionbar .nav-tile[data-target="informationsPanel"] {
     order: 11;
 }
 
-.actionbar .nav-tile[data-target="agendaPanel"] {
+.actionbar .nav-tile[data-target="kanbanPanel"] {
     order: 12;
 }
 
-.actionbar .nav-tile[data-target="hoursPanel"] {
+.actionbar .nav-tile[data-target="agendaPanel"] {
     order: 13;
 }
 
-.actionbar .nav-tile[data-target="memosPanel"] {
+.actionbar .nav-tile[data-target="hoursPanel"] {
     order: 14;
 }
 
-.actionbar .nav-tile[data-target="informationsPanel"] {
+.actionbar .nav-tile[data-target="memosPanel"] {
     order: 15;
 }
 

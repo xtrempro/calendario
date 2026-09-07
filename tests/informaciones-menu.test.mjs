@@ -27,7 +27,14 @@ test("Informaciones queda enganchado al panel supervisor y a permisos", async ()
         read("../styles.css")
     ]);
 
-    assert.match(html, /data-target="informationsPanel"[\s\S]{0,900}INFORMACIONES/);
+    const tasksNavIndex = html.indexOf('data-target="taskAssignmentsPanel"');
+    const informationsNavIndex = html.indexOf('data-target="informationsPanel"');
+    const kanbanNavIndex = html.indexOf('data-target="kanbanPanel"');
+
+    assert.match(html, /data-target="informationsPanel"[\s\S]{0,900}Informaciones/);
+    assert.ok(tasksNavIndex > -1);
+    assert.ok(informationsNavIndex > tasksNavIndex);
+    assert.ok(kanbanNavIndex > informationsNavIndex);
     assert.match(html, /<section id="informationsPanel" class="panel informations-panel"><\/section>/);
     assert.match(navigation, /targetId === "informationsPanel"[\s\S]{0,80}return "informations";/);
     assert.match(main, /renderInformationsPanel/);
@@ -42,7 +49,9 @@ test("Informaciones queda enganchado al panel supervisor y a permisos", async ()
     assert.match(functionsIndex, /exports\.deleteInformationAttachment\s*=\s*onCall/);
     assert.match(functionsIndex, /"informations"/);
     assert.match(css, /body:not\(\[data-active-view="informations"\]\) #informationsPanel/);
-    assert.match(css, /\.actionbar \.nav-tile\[data-target="informationsPanel"\]\s*\{[\s\S]{0,80}order:\s*15/);
+    assert.match(css, /\.actionbar \.nav-tile\[data-target="taskAssignmentsPanel"\]\s*\{[\s\S]{0,80}order:\s*10/);
+    assert.match(css, /\.actionbar \.nav-tile\[data-target="informationsPanel"\]\s*\{[\s\S]{0,80}order:\s*11/);
+    assert.match(css, /\.actionbar \.nav-tile\[data-target="kanbanPanel"\]\s*\{[\s\S]{0,80}order:\s*12/);
 });
 
 test("Informaciones publica a trabajadores enlazados con reglas dedicadas", async () => {

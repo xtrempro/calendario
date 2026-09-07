@@ -386,7 +386,7 @@ export function renderInformationsPanel() {
         <div class="information-root">
             <div class="section-head section-head--with-action information-head">
                 <span class="section-head__title">
-                    <h3>INFORMACIONES</h3>
+                    <h3>Informaciones</h3>
                     <small>Publicaciones visibles para trabajadores en la PWA TurnoPlus.</small>
                 </span>
                 <span class="worker-request-counter">
