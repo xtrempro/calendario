@@ -2068,6 +2068,76 @@ test("reglas modulares de Firestore y Storage", async t => {
     );
 
     await t.test(
+        "La confirmacion de lectura la firma solo su dueno",
+        async () => {
+            const readsPath = ["workspaces", WORKSPACE_ID, "informationReads"];
+            const ack = {
+                profileName: "Trabajador A",
+                acks: { "info-1": "2026-09-07T12:00:00.000Z" },
+                updatedAt: "2026-09-07T12:00:00.000Z"
+            };
+
+            // Cada trabajador escribe SU documento.
+            await assertSucceeds(
+                setDoc(doc(workerA.firestore(), ...readsPath, "worker-a"), ack)
+            );
+
+            // Y no el de otro: nadie confirma por un tercero.
+            await assertFails(
+                setDoc(doc(workerA.firestore(), ...readsPath, "worker-b"), ack)
+            );
+
+            // Ni campos fuera de los tres acordados.
+            await assertFails(
+                setDoc(doc(workerA.firestore(), ...readsPath, "worker-a"), {
+                    ...ack,
+                    supervisorNote: "no corresponde"
+                })
+            );
+
+            // El supervisor lee la coleccion entera para armar el informe.
+            await assertSucceeds(
+                getDocs(collection(owner.firestore(), ...readsPath))
+            );
+
+            // Un ajeno al workspace no ve nada.
+            await assertFails(
+                getDoc(doc(outsider.firestore(), ...readsPath, "worker-a"))
+            );
+
+            // Se pueden AGREGAR confirmaciones sobre las que ya estaban.
+            await assertSucceeds(
+                setDoc(
+                    doc(workerA.firestore(), ...readsPath, "worker-a"),
+                    {
+                        acks: {
+                            "info-1": "2026-09-07T12:00:00.000Z",
+                            "info-2": "2026-09-07T13:00:00.000Z"
+                        },
+                        updatedAt: "2026-09-07T13:00:00.000Z"
+                    },
+                    { merge: true }
+                )
+            );
+
+            // Pero no vaciarlas: seria borrar el documento por la puerta de al
+            // lado.
+            await assertFails(
+                setDoc(doc(workerA.firestore(), ...readsPath, "worker-a"), {
+                    profileName: "Trabajador A",
+                    acks: {},
+                    updatedAt: "2026-09-07T14:00:00.000Z"
+                })
+            );
+
+            // Borrar una confirmacion falsearia el informe.
+            await assertFails(
+                deleteDoc(doc(workerA.firestore(), ...readsPath, "worker-a"))
+            );
+        }
+    );
+
+    await t.test(
         "Storage permite publicar adjuntos compartidos de informaciones",
         async () => {
             const infoPath = [

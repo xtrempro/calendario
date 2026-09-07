@@ -1059,6 +1059,37 @@ service cloud.firestore {
           (docId == "informations" && canEditInformationsMenu(workspaceId));
       }
 
+      // Confirmaciones de lectura de las informaciones: UN documento por
+      // trabajador con el sello de cada una que confirmo
+      // (`{ profileName, acks: { informacionId: fechaISO } }`).
+      //
+      // Lo escribe SOLO el trabajador dueno del documento, y unicamente esos
+      // tres campos: la confirmacion es suya y nadie mas la firma por el, ni
+      // siquiera el supervisor. El supervisor lee la coleccion entera para
+      // armar el informe de quien leyo.
+      match /informationReads/{userId} {
+        allow get: if isLinkedWorker(workspaceId, userId) ||
+          canViewInformationsMenu(workspaceId);
+        allow list: if canViewInformationsMenu(workspaceId);
+        allow create: if isLinkedWorker(workspaceId, userId) &&
+          request.resource.data.keys().hasOnly([
+            "profileName",
+            "acks",
+            "updatedAt"
+          ]);
+        // Una confirmacion SOLO se agrega. Borrar el documento esta prohibido
+        // para que el informe no se pueda vaciar, y sin este `hasAll` el mismo
+        // vaciado se lograba igual escribiendo `acks: {}` encima.
+        allow update: if isLinkedWorker(workspaceId, userId) &&
+          request.resource.data.keys().hasOnly([
+            "profileName",
+            "acks",
+            "updatedAt"
+          ]) &&
+          request.resource.data.acks.keys().hasAll(resource.data.acks.keys());
+        allow delete: if false;
+      }
+
       match /workerAppData/{userId} {
         allow get: if canReadWorkerData(workspaceId) ||
           isLinkedWorker(workspaceId, userId);

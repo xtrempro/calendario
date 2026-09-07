@@ -17,7 +17,27 @@ import {
 } from "./firebaseClient.js";
 import { getActiveWorkspace } from "./workspaces.js";
 import { canEditMenu } from "./workspacePermissions.js";
-import { showConfirm } from "./dialogs.js";
+import { showAlert, showConfirm } from "./dialogs.js";
+import { getProfiles, isProfileActive } from "./storage.js";
+import { getWorkerAppLinkForProfile } from "./workerAppLinks.js";
+import {
+    AUDIENCE_MODES,
+    INFORMATION_CATEGORIES,
+    audienceIncludes,
+    audienceIsEmpty,
+    audienceSummary,
+    categoryLabel,
+    effectiveStatus,
+    normalizeAudience,
+    normalizeCategory,
+    normalizeStatus
+} from "./informationsModel.js";
+import {
+    hasRead,
+    informationReadsError,
+    readStampFor,
+    watchInformationReads
+} from "./informationReads.js";
 
 export const INFORMATIONS_KEY = "informations";
 const PUBLISHED_DOC_ID = "informations";
@@ -27,6 +47,32 @@ const MAX_ITEMS = 200;
 
 let editingInformationId = "";
 let savingInformation = false;
+// null = se ve la bandeja. Un objeto = el compositor esta abierto con ese
+// borrador en pantalla. Vive en el modulo -y no en el DOM- porque el panel se
+// vuelve a pintar entero cada vez que se toca un interruptor, y lo escrito
+// tiene que sobrevivir a eso.
+let composerDraft = null;
+let activeTab = "publicadas";
+let searchQuery = "";
+let categoryFilter = "todas";
+// Informacion cuya ficha de lectura esta abierta.
+let readerInformationId = "";
+let readerTab = "leyeron";
+
+const TAB_STATUS = {
+    publicadas: "published",
+    programadas: "scheduled",
+    borradores: "draft",
+    archivadas: "archived"
+};
+
+const CATEGORY_TONE = {
+    protocolo: "purple",
+    turnos: "blue",
+    urgente: "red",
+    capacitacion: "green",
+    general: "orange"
+};
 
 function makeId(prefix = "info") {
     return globalThis.crypto?.randomUUID?.() ||
@@ -75,6 +121,10 @@ function isImageAttachment(attachment = {}) {
         /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/.test(name);
 }
 
+// Etiqueta VIEJA, derivada del tipo de archivo (Anuncio / Imagen / Documento).
+// La reemplazo la categoria elegida a mano, que dice algo que el adjunto no
+// dice, pero se sigue calculando y publicando: una PWA que todavia no se
+// actualizo lee `type` y se quedaria sin etiqueta si desapareciera.
 function informationType(item = {}) {
     const attachments = Array.isArray(item.attachments)
         ? item.attachments
@@ -86,16 +136,15 @@ function informationType(item = {}) {
     return "announcement";
 }
 
-function informationTypeLabel(type) {
-    if (type === "image") return "Imagen";
-    if (type === "document") return "Documento";
-    return "Anuncio";
-}
+function fileExtLabel(attachment = {}) {
+    const name = String(attachment.name || "").toLowerCase();
 
-function informationTypeTone(type) {
-    if (type === "image") return "green";
-    if (type === "document") return "blue";
-    return "orange";
+    if (isImageAttachment(attachment)) return "IMG";
+    if (/\.pdf$/.test(name)) return "PDF";
+    if (/\.(xlsx?|csv)$/.test(name)) return "XLS";
+    if (/\.(docx?|rtf|txt)$/.test(name)) return "DOC";
+
+    return "DOC";
 }
 
 function normalizeInformation(item = {}) {
@@ -109,7 +158,15 @@ function normalizeInformation(item = {}) {
         title: clampText(item.title || "Informacion", MAX_TITLE_LENGTH),
         body: clampText(item.body || item.message || "", MAX_BODY_LENGTH),
         pinned: Boolean(item.pinned),
-        status: "published",
+        // Sin `status` guardado es una informacion de antes de este cambio:
+        // todas las que existian estaban publicadas.
+        status: normalizeStatus(item.status),
+        category: normalizeCategory(item.category),
+        audience: normalizeAudience(item.audience),
+        requiresAck: Boolean(item.requiresAck),
+        notify: item.notify === undefined ? true : Boolean(item.notify),
+        publishAt: String(item.publishAt || ""),
+        expiresAt: String(item.expiresAt || ""),
         createdAt,
         updatedAt,
         publishedAt: String(item.publishedAt || updatedAt),
@@ -142,6 +199,43 @@ export function getInformations() {
     return normalizeInformations(getJSON(INFORMATIONS_KEY, []));
 }
 
+/* ==========================================================================
+   Destinatarios contra la nomina real
+   ========================================================================== */
+
+function activeProfiles() {
+    return getProfiles().filter(isProfileActive);
+}
+
+export function audienceProfiles(audience) {
+    return activeProfiles().filter(profile => audienceIncludes(audience, profile));
+}
+
+function audienceGroupOptions(mode) {
+    const key = mode === "profession" ? "profession" : "estamento";
+    const fallback = mode === "profession" ? "Sin informacion" : "Sin estamento";
+    const counts = new Map();
+
+    activeProfiles().forEach(profile => {
+        const value = String(profile?.[key] || "").trim() || fallback;
+
+        counts.set(value, (counts.get(value) || 0) + 1);
+    });
+
+    return [...counts.entries()]
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => a.label.localeCompare(b.label, "es"));
+}
+
+function linkedCount(profiles) {
+    return profiles.filter(profile => getWorkerAppLinkForProfile(profile)?.uid)
+        .length;
+}
+
+/* ==========================================================================
+   Lo que viaja a la PWA
+   ========================================================================== */
+
 function publicAttachmentPayload(attachment = {}) {
     const normalized = normalizeAttachment(attachment);
 
@@ -160,25 +254,43 @@ function publicAttachmentPayload(attachment = {}) {
 }
 
 export function publicInformationsPayload(items = getInformations()) {
-    return normalizeInformations(items).map(item => ({
-        id: item.id,
-        title: item.title,
-        body: item.body,
-        type: informationType(item),
-        pinned: item.pinned,
-        status: "published",
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
-        publishedAt: item.publishedAt,
-        createdByUid: item.createdByUid,
-        updatedByUid: item.updatedByUid,
-        attachments: item.attachments
-            .map(publicAttachmentPayload)
-            .filter(attachment =>
-                attachment &&
-                (attachment.storagePath || attachment.downloadURL)
-            )
-    }));
+    return normalizeInformations(items)
+        // El borrador no ha salido y la archivada ya se retiro: ninguna de las
+        // dos tiene por que ocupar espacio en el documento compartido. La
+        // programada SI viaja, con su fecha, y la PWA la esconde hasta el dia;
+        // asi la hora de publicacion se cumple sin que nadie tenga que tener la
+        // aplicacion abierta a esa hora.
+        .filter(item => {
+            const status = normalizeStatus(item.status);
+
+            return status !== "draft" && status !== "archived";
+        })
+        .map(item => ({
+            id: item.id,
+            title: item.title,
+            body: item.body,
+            // `type` es la etiqueta vieja; se mantiene para la PWA que aun no
+            // se actualiza. Ver el comentario de informationType().
+            type: informationType(item),
+            category: item.category,
+            audience: item.audience,
+            requiresAck: item.requiresAck,
+            pinned: item.pinned,
+            status: normalizeStatus(item.status),
+            publishAt: item.publishAt,
+            expiresAt: item.expiresAt,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+            publishedAt: item.publishedAt,
+            createdByUid: item.createdByUid,
+            updatedByUid: item.updatedByUid,
+            attachments: item.attachments
+                .map(publicAttachmentPayload)
+                .filter(attachment =>
+                    attachment &&
+                    (attachment.storagePath || attachment.downloadURL)
+                )
+        }));
 }
 
 function dispatchInformationsChanged() {
@@ -232,24 +344,184 @@ async function saveInformations(items, options = {}) {
     return normalized;
 }
 
-function formatDateTime(value) {
-    const date = new Date(value);
+/* ==========================================================================
+   Formato
+   ========================================================================== */
 
-    if (Number.isNaN(date.getTime())) return "Sin fecha";
+function formatDateTime(value) {
+    const date = new Date(String(value || ""));
+
+    if (Number.isNaN(date.getTime())) return "";
 
     return date.toLocaleString("es-CL", {
-        dateStyle: "short",
-        timeStyle: "short"
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
     });
 }
 
 function formatBytes(value) {
-    const bytes = Number(value) || 0;
+    const size = Number(value) || 0;
 
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
 
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// `datetime-local` quiere `YYYY-MM-DDTHH:mm` en hora local; lo guardado es ISO.
+function toLocalInputValue(iso) {
+    const date = new Date(String(iso || ""));
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    const pad = value => String(value).padStart(2, "0");
+
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+        `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function fromLocalInputValue(value) {
+    const text = String(value || "").trim();
+
+    if (!text) return "";
+
+    const date = new Date(text);
+
+    return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+/* ==========================================================================
+   Bandeja
+   ========================================================================== */
+
+function matchesFilters(item) {
+    const status = effectiveStatus(item);
+
+    if (status !== TAB_STATUS[activeTab]) return false;
+    if (categoryFilter !== "todas" && item.category !== categoryFilter) return false;
+
+    const query = searchQuery.trim().toLowerCase();
+
+    if (!query) return true;
+
+    const haystack = [
+        item.title,
+        item.body,
+        categoryLabel(item.category),
+        ...item.attachments.map(attachment => attachment.name)
+    ].join(" ").toLowerCase();
+
+    return haystack.includes(query);
+}
+
+// El uid del enlace de la PWA de esa persona, que es la llave del documento de
+// confirmaciones. Sin enlace no hay uid: esa persona no puede confirmar nada
+// porque la informacion ni siquiera le llega.
+function uidOf(profile) {
+    return getWorkerAppLinkForProfile(profile)?.uid || "";
+}
+
+function readStatsFor(item) {
+    const targets = audienceProfiles(item.audience);
+    const read = targets.filter(profile => hasRead(item.id, uidOf(profile))).length;
+    const total = targets.length;
+
+    return {
+        total,
+        read,
+        pending: Math.max(total - read, 0),
+        percent: total ? Math.round((read / total) * 100) : 0
+    };
+}
+
+function tagHTML(item) {
+    const tone = CATEGORY_TONE[item.category] || "orange";
+
+    return `<span class="worker-request-type information-type information-type--${escapeAttribute(tone)}">${escapeHTML(categoryLabel(item.category))}</span>`;
+}
+
+function readBlockHTML(item, status) {
+    if (status === "draft") {
+        return `
+            <div class="information-read">
+                <span class="information-read__label">Sin publicar</span>
+                <strong class="information-read__value">--</strong>
+                <small>Todavia no sale de aqui</small>
+            </div>
+        `;
+    }
+
+    const stats = readStatsFor(item);
+
+    if (status === "scheduled") {
+        return `
+            <div class="information-read">
+                <span class="information-read__label">Alcance previsto</span>
+                <strong class="information-read__value">${stats.total}</strong>
+                <small>personas al publicar</small>
+            </div>
+        `;
+    }
+
+    if (!item.requiresAck) {
+        return `
+            <div class="information-read">
+                <span class="information-read__label">Destinatarios</span>
+                <strong class="information-read__value">${stats.total}</strong>
+                <small>sin confirmacion pedida</small>
+            </div>
+        `;
+    }
+
+    const level = stats.percent >= 90
+        ? "ok"
+        : stats.percent >= 60 ? "mid" : "low";
+
+    return `
+        <div class="information-read information-read--${level}">
+            <span class="information-read__label">Confirmaron</span>
+            <strong class="information-read__value">${stats.percent}%</strong>
+            <span class="information-read__bar"><span style="width: ${stats.percent}%"></span></span>
+            <small>${stats.read} de ${stats.total} trabajadores</small>
+        </div>
+    `;
+}
+
+function metaChipsHTML(item, status) {
+    const targets = audienceProfiles(item.audience);
+    const chips = [
+        `<span class="information-chip">${escapeHTML(audienceSummary(item.audience, targets.length))}</span>`
+    ];
+
+    if (item.attachments.length) {
+        chips.push(
+            `<span class="information-chip">${item.attachments.length} ${item.attachments.length === 1 ? "archivo" : "archivos"}</span>`
+        );
+    }
+
+    if (status === "scheduled" && item.publishAt) {
+        chips.push(
+            `<span class="information-chip information-chip--soon">Se publica el ${escapeHTML(formatDateTime(item.publishAt))}</span>`
+        );
+    } else if (status === "draft") {
+        chips.push(
+            `<span class="information-chip">Editado ${escapeHTML(formatDateTime(item.updatedAt))}</span>`
+        );
+    } else {
+        chips.push(
+            `<span class="information-chip">Publicado ${escapeHTML(formatDateTime(item.publishedAt || item.updatedAt))}</span>`
+        );
+    }
+
+    if (item.expiresAt && status !== "draft") {
+        chips.push(
+            `<span class="information-chip information-chip--warn">Se archiva el ${escapeHTML(formatDateTime(item.expiresAt))}</span>`
+        );
+    }
+
+    return chips.join("");
 }
 
 function fileButtonsHTML(item, attachment) {
@@ -257,6 +529,7 @@ function fileButtonsHTML(item, attachment) {
 
     return `
         <span class="information-file">
+            <span class="information-file__badge information-file__badge--${escapeAttribute(fileExtLabel(attachment).toLowerCase())}">${escapeHTML(fileExtLabel(attachment))}</span>
             <span class="information-file__meta">
                 <strong>${escapeHTML(attachment.name)}</strong>
                 <small>${escapeHTML(formatBytes(attachment.size))}</small>
@@ -267,107 +540,522 @@ function fileButtonsHTML(item, attachment) {
             <button class="information-file__button ghost" type="button" data-info-download="${escapeAttribute(item.id)}" data-info-file="${escapeAttribute(attachment.id)}">
                 Descargar
             </button>
-            ${canEditMenu("informations") ? `
-                <button class="information-file__remove" type="button" data-info-remove-file="${escapeAttribute(item.id)}" data-info-file="${escapeAttribute(attachment.id)}" aria-label="Quitar ${escapeAttribute(attachment.name)}">
-                    &times;
-                </button>
-            ` : ""}
         </span>
     `;
 }
 
+function cardActionsHTML(item, status) {
+    if (!canEditMenu("informations")) return "";
+
+    const actions = [];
+
+    if (status === "published") {
+        if (item.requiresAck) {
+            actions.push(
+                `<button class="secondary-button secondary-button--small" type="button" data-info-readers="${escapeAttribute(item.id)}">Ver quien leyo</button>`
+            );
+        }
+        actions.push(
+            `<button class="ghost-button ghost-button--small" type="button" data-info-edit="${escapeAttribute(item.id)}">Editar</button>`,
+            `<button class="ghost-button ghost-button--small" type="button" data-info-archive="${escapeAttribute(item.id)}">Archivar</button>`
+        );
+    } else if (status === "scheduled") {
+        actions.push(
+            `<button class="secondary-button secondary-button--small" type="button" data-info-publish-now="${escapeAttribute(item.id)}">Publicar ahora</button>`,
+            `<button class="ghost-button ghost-button--small" type="button" data-info-edit="${escapeAttribute(item.id)}">Editar</button>`
+        );
+    } else if (status === "draft") {
+        actions.push(
+            `<button class="secondary-button secondary-button--small" type="button" data-info-edit="${escapeAttribute(item.id)}">Continuar redaccion</button>`
+        );
+    } else {
+        actions.push(
+            `<button class="secondary-button secondary-button--small" type="button" data-info-restore="${escapeAttribute(item.id)}">Volver a publicar</button>`
+        );
+    }
+
+    actions.push(
+        `<button class="danger-action" type="button" data-info-delete="${escapeAttribute(item.id)}">Eliminar</button>`
+    );
+
+    return `<div class="information-actions">${actions.join("")}</div>`;
+}
+
 function informationCardHTML(item) {
-    const type = informationType(item);
-    const attachments = Array.isArray(item.attachments)
-        ? item.attachments
-        : [];
-    const editable = canEditMenu("informations");
+    const status = effectiveStatus(item);
+    const attachments = item.attachments || [];
 
     return `
         <article class="information-card ${item.pinned ? "is-pinned" : ""}">
             <div class="information-card__head">
-                <div>
-                    <span class="worker-request-type information-type information-type--${escapeAttribute(informationTypeTone(type))}">
-                        ${escapeHTML(informationTypeLabel(type))}
-                    </span>
+                <div class="information-card__lead">
+                    <div class="information-card__tags">
+                        ${tagHTML(item)}
+                        ${item.pinned ? `<span class="information-pin">Fijado</span>` : ""}
+                        ${item.requiresAck && status === "published" ? `<span class="information-flag">Pide confirmacion</span>` : ""}
+                        ${status === "scheduled" ? `<span class="information-flag information-flag--soon">Programada</span>` : ""}
+                        ${status === "draft" ? `<span class="information-flag information-flag--draft">Borrador</span>` : ""}
+                        ${status === "archived" ? `<span class="information-flag information-flag--draft">Archivada</span>` : ""}
+                    </div>
                     <h4>${escapeHTML(item.title)}</h4>
-                    <small>${escapeHTML(formatDateTime(item.publishedAt || item.updatedAt))}</small>
+                    ${item.body ? `<p class="information-body">${escapeHTML(item.body)}</p>` : ""}
                 </div>
-                ${item.pinned ? `<span class="information-pin">Fijado</span>` : ""}
+                ${readBlockHTML(item, status)}
             </div>
-            ${item.body ? `<p class="information-body">${escapeHTML(item.body)}</p>` : ""}
-            <div class="information-files">
-                ${attachments.length
-                    ? attachments.map(attachment =>
-                        fileButtonsHTML(item, attachment)
-                    ).join("")
-                    : `<small>Sin archivos adjuntos.</small>`}
-            </div>
-            ${editable ? `
-                <div class="information-actions">
-                    <button class="secondary-button" type="button" data-info-edit="${escapeAttribute(item.id)}">Editar</button>
-                    <button class="danger-action" type="button" data-info-delete="${escapeAttribute(item.id)}">Eliminar</button>
+            <div class="information-meta">${metaChipsHTML(item, status)}</div>
+            ${attachments.length ? `
+                <div class="information-files">
+                    ${attachments.map(attachment => fileButtonsHTML(item, attachment)).join("")}
                 </div>
+            ` : ""}
+            ${cardActionsHTML(item, status)}
+        </article>
+    `;
+}
+
+function tabsHTML(items) {
+    const counts = {};
+
+    Object.keys(TAB_STATUS).forEach(tab => {
+        counts[tab] = items.filter(item =>
+            effectiveStatus(item) === TAB_STATUS[tab]
+        ).length;
+    });
+
+    const labels = {
+        publicadas: "Publicadas",
+        programadas: "Programadas",
+        borradores: "Borradores",
+        archivadas: "Archivadas"
+    };
+
+    return Object.keys(TAB_STATUS)
+        .filter(tab => tab !== "archivadas" || counts.archivadas)
+        .map(tab => `
+            <button class="information-tab${activeTab === tab ? " is-on" : ""}" type="button" data-info-tab="${escapeAttribute(tab)}">
+                ${escapeHTML(labels[tab])}
+                <span>${counts[tab]}</span>
+            </button>
+        `).join("");
+}
+
+function categoryFilterHTML() {
+    const options = [
+        { id: "todas", label: "Todas" },
+        ...INFORMATION_CATEGORIES
+    ];
+
+    return options.map(option => `
+        <button class="information-chip-filter${categoryFilter === option.id ? " is-on" : ""}" type="button" data-info-category-filter="${escapeAttribute(option.id)}">
+            ${escapeHTML(option.label)}
+        </button>
+    `).join("");
+}
+
+function inboxHTML(items) {
+    const shown = items.filter(matchesFilters);
+    const error = informationReadsError();
+
+    return `
+        <div class="information-toolbar">
+            <div class="information-tabs">${tabsHTML(items)}</div>
+            <label class="information-search">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <circle cx="11" cy="11" r="7"></circle>
+                    <path d="m20 20-3.2-3.2"></path>
+                </svg>
+                <input type="search" value="${escapeAttribute(searchQuery)}" data-info-search placeholder="Buscar por titulo, texto o archivo" aria-label="Buscar informaciones">
+            </label>
+            <div class="information-chip-filters">${categoryFilterHTML()}</div>
+        </div>
+        ${error ? `<p class="information-note information-note--warn">${escapeHTML(error)}</p>` : ""}
+        <div class="information-list">
+            ${shown.length
+                ? shown.map(informationCardHTML).join("")
+                : `
+                    <div class="empty-state empty-state--compact">
+                        ${items.length
+                            ? "Nada que mostrar con este filtro."
+                            : "Aun no hay informaciones publicadas."}
+                    </div>
+                `}
+        </div>
+    `;
+}
+
+/* ==========================================================================
+   Compositor
+   ========================================================================== */
+
+function draftFromItem(item) {
+    const base = item ? normalizeInformation(item) : null;
+
+    return {
+        id: base?.id || makeId(),
+        isNew: !base,
+        title: base?.title || "",
+        body: base?.body || "",
+        category: base?.category || "general",
+        audience: base?.audience || normalizeAudience({}),
+        pinned: Boolean(base?.pinned),
+        requiresAck: Boolean(base?.requiresAck),
+        notify: base ? Boolean(base.notify) : true,
+        scheduled: Boolean(base?.publishAt) || Boolean(base?.expiresAt),
+        publishAt: base?.publishAt || "",
+        expiresAt: base?.expiresAt || "",
+        attachments: base?.attachments || [],
+        // Archivos recien elegidos que TODAVIA no se han subido. Viven aqui y
+        // no en el <input type="file">: el panel se repinta entero con cada
+        // interruptor, y el input se vacia en cada repintado. Antes de esto,
+        // elegir un archivo y despues cambiar de categoria lo perdia sin aviso.
+        pendingFiles: [],
+        createdAt: base?.createdAt || "",
+        createdByUid: base?.createdByUid || "",
+        status: base ? normalizeStatus(base.status) : "published"
+    };
+}
+
+function audienceModesHTML() {
+    const labels = {
+        all: "Toda la unidad",
+        estamento: "Por estamento",
+        profession: "Por profesion",
+        people: "Personas"
+    };
+
+    return AUDIENCE_MODES.map(mode => `
+        <button class="information-seg${composerDraft.audience.mode === mode ? " is-on" : ""}" type="button" data-info-audience-mode="${escapeAttribute(mode)}">
+            ${escapeHTML(labels[mode])}
+        </button>
+    `).join("");
+}
+
+function audienceBodyHTML() {
+    const mode = composerDraft.audience.mode;
+
+    if (mode === "all") {
+        return `<p class="information-note">Le llega a todos los trabajadores activos de la unidad.</p>`;
+    }
+
+    if (mode === "people") {
+        const chosen = composerDraft.audience.people;
+        const options = activeProfiles()
+            .filter(profile => !chosen.includes(profile.name))
+            .map(profile => `<option value="${escapeAttribute(profile.name)}"></option>`)
+            .join("");
+
+        return `
+            <div class="information-people">
+                ${chosen.map(name => `
+                    <span class="information-person">
+                        ${escapeHTML(name)}
+                        <button type="button" data-info-person-remove="${escapeAttribute(name)}" aria-label="Quitar a ${escapeAttribute(name)}">&times;</button>
+                    </span>
+                `).join("")}
+                <input type="text" list="informationPeopleOptions" data-info-person-input placeholder="Escribe un nombre y pulsa Enter" aria-label="Agregar trabajador">
+                <datalist id="informationPeopleOptions">${options}</datalist>
+            </div>
+        `;
+    }
+
+    const groups = audienceGroupOptions(mode);
+
+    if (!groups.length) {
+        return `<p class="information-note information-note--warn">No hay perfiles activos con ese dato cargado.</p>`;
+    }
+
+    return `
+        <div class="information-groups">
+            ${groups.map(group => {
+                const on = composerDraft.audience.groups.includes(group.label);
+
+                return `
+                    <button class="information-group${on ? " is-on" : ""}" type="button" data-info-group="${escapeAttribute(group.label)}">
+                        ${escapeHTML(group.label)}
+                        <span>${group.count}</span>
+                    </button>
+                `;
+            }).join("")}
+        </div>
+    `;
+}
+
+function optionToggleHTML(key, title, hint) {
+    const on = Boolean(composerDraft[key]);
+
+    return `
+        <button class="information-option${on ? " is-on" : ""}" type="button" data-info-option="${escapeAttribute(key)}" aria-pressed="${on ? "true" : "false"}">
+            <span class="information-switch"><span></span></span>
+            <span class="information-option__text">
+                <strong>${escapeHTML(title)}</strong>
+                <small>${escapeHTML(hint)}</small>
+            </span>
+        </button>
+    `;
+}
+
+function composerPreviewHTML() {
+    const tone = CATEGORY_TONE[composerDraft.category] || "orange";
+
+    return `
+        <article class="information-preview__card${composerDraft.pinned ? " is-pinned" : ""}">
+            <div class="information-card__tags">
+                <span class="worker-request-type information-type information-type--${escapeAttribute(tone)}" data-preview-tag>${escapeHTML(categoryLabel(composerDraft.category))}</span>
+                ${composerDraft.pinned ? `<span class="information-pin">Fijado</span>` : ""}
+            </div>
+            <strong data-preview-title>${escapeHTML(composerDraft.title || "Sin titulo todavia")}</strong>
+            <p data-preview-body>${escapeHTML(composerDraft.body || "Escribe el mensaje y aparece aqui.")}</p>
+            ${composerDraft.attachments.length ? `
+                <div class="information-preview__files">
+                    ${composerDraft.attachments.map(attachment => `
+                        <span class="information-preview__file">
+                            <span class="information-file__badge information-file__badge--${escapeAttribute(fileExtLabel(attachment).toLowerCase())}">${escapeHTML(fileExtLabel(attachment))}</span>
+                            <span>${escapeHTML(attachment.name)}</span>
+                            <em>Ver</em>
+                        </span>
+                    `).join("")}
+                </div>
+            ` : ""}
+            <div class="information-preview__foot">
+                <span>${escapeHTML(composerDraft.scheduled && composerDraft.publishAt ? formatDateTime(composerDraft.publishAt) : "Ahora mismo")}</span>
+                <span>${escapeHTML(getActiveWorkspace()?.name || "Tu unidad")}</span>
+            </div>
+            ${composerDraft.requiresAck ? `
+                <span class="information-preview__ack">Confirmo que lo lei</span>
             ` : ""}
         </article>
     `;
 }
 
-function editorHTML(items) {
-    const editable = canEditMenu("informations");
-
-    if (!editable) {
-        return `
-            <section class="panel information-editor information-editor--readonly">
-                <strong>Solo lectura</strong>
-                <p>Tu usuario puede revisar las informaciones publicadas, pero no modificarlas.</p>
-            </section>
-        `;
-    }
-
-    const editing = editingInformationId
-        ? items.find(item => item.id === editingInformationId)
-        : null;
+function composerHTML() {
+    const targets = audienceProfiles(composerDraft.audience);
+    const total = activeProfiles().length;
+    const empty = audienceIsEmpty(composerDraft.audience);
+    const linked = linkedCount(targets);
 
     return `
-        <section class="panel information-editor">
-            <div class="information-editor__head">
+        <div class="information-composer">
+            <div class="information-composer__head">
                 <div>
-                    <h3>${editing ? "Editar informacion" : "Nueva informacion"}</h3>
-                    <p>Publica anuncios, imagenes o documentos visibles en la PWA.</p>
+                    <h3>${composerDraft.isNew ? "Nueva informacion" : "Editar informacion"}</h3>
+                    <p>Escribe a la izquierda; a la derecha ves como le queda al trabajador en su telefono.</p>
                 </div>
-                ${editing ? `
-                    <button class="ghost-button" type="button" data-info-new>Cancelar edicion</button>
-                ` : ""}
+                <span class="information-reach${empty ? " is-empty" : ""}" data-info-reach>
+                    ${empty ? "Sin destinatarios" : `Llega a ${targets.length} de ${total}`}
+                </span>
             </div>
-            <form class="information-form" data-info-form data-edit-id="${escapeAttribute(editing?.id || "")}">
-                <label>
-                    <span>Titulo</span>
-                    <input name="title" type="text" maxlength="${MAX_TITLE_LENGTH}" value="${escapeAttribute(editing?.title || "")}" placeholder="Titulo de la publicacion" ${savingInformation ? "disabled" : ""} required>
-                </label>
-                <label>
-                    <span>Anuncio</span>
-                    <textarea name="body" rows="5" maxlength="${MAX_BODY_LENGTH}" placeholder="Escribe el anuncio para los trabajadores" ${savingInformation ? "disabled" : ""}>${escapeHTML(editing?.body || "")}</textarea>
-                </label>
-                <label class="information-file-input">
-                    <span>Imagenes o documentos</span>
-                    <input name="files" type="file" multiple accept="${ATTACHMENT_ACCEPT}" ${savingInformation ? "disabled" : ""}>
-                    <small>Hasta ${MAX_ATTACHMENT_FILES} archivos. Imagenes, PDF, texto, Word o Excel.</small>
-                </label>
-                <label class="information-pin-toggle">
-                    <input name="pinned" type="checkbox" ${editing?.pinned ? "checked" : ""} ${savingInformation ? "disabled" : ""}>
-                    <span>Fijar arriba</span>
-                </label>
-                <div class="information-editor__actions">
-                    <button class="primary-button" type="submit" ${savingInformation ? "disabled" : ""}>
-                        ${savingInformation ? "Publicando..." : editing ? "Guardar cambios" : "Publicar"}
-                    </button>
-                    <button class="secondary-button" type="button" data-info-new ${savingInformation ? "disabled" : ""}>Limpiar</button>
+
+            <form class="information-composer__grid" data-info-form>
+                <div class="information-composer__main">
+                    <label class="information-field">
+                        <span>Categoria</span>
+                        <div class="information-chip-filters">
+                            ${INFORMATION_CATEGORIES.map(category => `
+                                <button class="information-chip-filter information-chip-filter--${escapeAttribute(CATEGORY_TONE[category.id])}${composerDraft.category === category.id ? " is-on" : ""}" type="button" data-info-category="${escapeAttribute(category.id)}">
+                                    ${escapeHTML(category.label)}
+                                </button>
+                            `).join("")}
+                        </div>
+                    </label>
+
+                    <label class="information-field">
+                        <span>Titulo</span>
+                        <input name="title" type="text" maxlength="${MAX_TITLE_LENGTH}" value="${escapeAttribute(composerDraft.title)}" data-info-title placeholder="Ej: Nuevo protocolo de contraste en Resonancia" ${savingInformation ? "disabled" : ""} required>
+                    </label>
+
+                    <label class="information-field">
+                        <span class="information-field__row">
+                            Mensaje
+                            <small data-info-body-count>${composerDraft.body.length} de ${MAX_BODY_LENGTH} caracteres</small>
+                        </span>
+                        <textarea name="body" rows="5" maxlength="${MAX_BODY_LENGTH}" data-info-body placeholder="Lo primero que se lee en el telefono son las dos primeras lineas." ${savingInformation ? "disabled" : ""}>${escapeHTML(composerDraft.body)}</textarea>
+                    </label>
+
+                    <div class="information-field">
+                        <span>Imagenes o documentos</span>
+                        ${composerDraft.attachments.length ? `
+                            <div class="information-files">
+                                ${composerDraft.attachments.map(attachment => `
+                                    <span class="information-file">
+                                        <span class="information-file__badge information-file__badge--${escapeAttribute(fileExtLabel(attachment).toLowerCase())}">${escapeHTML(fileExtLabel(attachment))}</span>
+                                        <span class="information-file__meta">
+                                            <strong>${escapeHTML(attachment.name)}</strong>
+                                            <small>${escapeHTML(formatBytes(attachment.size))}</small>
+                                        </span>
+                                        <button class="information-file__remove" type="button" data-info-draft-file="${escapeAttribute(attachment.id)}" aria-label="Quitar ${escapeAttribute(attachment.name)}">&times;</button>
+                                    </span>
+                                `).join("")}
+                            </div>
+                        ` : ""}
+                        ${composerDraft.pendingFiles.length ? `
+                            <div class="information-files">
+                                ${composerDraft.pendingFiles.map((file, index) => `
+                                    <span class="information-file information-file--pending">
+                                        <span class="information-file__badge information-file__badge--${escapeAttribute(fileExtLabel(file).toLowerCase())}">${escapeHTML(fileExtLabel(file))}</span>
+                                        <span class="information-file__meta">
+                                            <strong>${escapeHTML(file.name)}</strong>
+                                            <small>${escapeHTML(formatBytes(file.size))} &middot; sin subir</small>
+                                        </span>
+                                        <button class="information-file__remove" type="button" data-info-pending-file="${index}" aria-label="Quitar ${escapeAttribute(file.name)}">&times;</button>
+                                    </span>
+                                `).join("")}
+                            </div>
+                        ` : ""}
+                        <input name="files" type="file" multiple accept="${ATTACHMENT_ACCEPT}" data-info-files ${savingInformation ? "disabled" : ""}>
+                        <small>Hasta ${MAX_ATTACHMENT_FILES} archivos. Imagenes, PDF, texto, Word o Excel.</small>
+                    </div>
+
+                    <div class="information-audience">
+                        <div class="information-field__row">
+                            <span>Destinatarios</span>
+                            <small>Filtra lo que se muestra, no es una barrera de seguridad</small>
+                        </div>
+                        <div class="information-segs">${audienceModesHTML()}</div>
+                        ${audienceBodyHTML()}
+                        <p class="information-note${empty ? " information-note--warn" : ""}" data-info-reach-detail>
+                            ${empty
+                                ? "Todavia no llega a nadie: elige al menos un destinatario."
+                                : `Llega a ${targets.length} de ${total} trabajadores. ${linked} tienen la app enlazada.`}
+                        </p>
+                    </div>
+
+                    <div class="information-field">
+                        <span>Opciones de envio</span>
+                        <div class="information-options">
+                            ${optionToggleHTML("pinned", "Fijar arriba", "Queda primera en la lista del trabajador hasta que la desfijes.")}
+                            ${optionToggleHTML("requiresAck", "Pedir confirmacion de lectura", "El trabajador confirma desde la app y tu ves quien falta.")}
+                            ${optionToggleHTML("notify", "Avisar por notificacion", "Ademas de dejarla en la lista, le suena el telefono.")}
+                            ${optionToggleHTML("scheduled", "Programar y vencer", "Elige cuando se publica y cuando se archiva sola.")}
+                        </div>
+                        ${composerDraft.scheduled ? `
+                            <div class="information-schedule">
+                                <label>
+                                    <span>Se publica el</span>
+                                    <input type="datetime-local" data-info-publish-at value="${escapeAttribute(toLocalInputValue(composerDraft.publishAt))}">
+                                </label>
+                                <label>
+                                    <span>Se archiva sola el</span>
+                                    <input type="datetime-local" data-info-expires-at value="${escapeAttribute(toLocalInputValue(composerDraft.expiresAt))}">
+                                </label>
+                            </div>
+                        ` : ""}
+                    </div>
+
+                    <div class="information-editor__actions">
+                        <button class="primary-button" type="submit" ${savingInformation ? "disabled" : ""}>
+                            ${savingInformation
+                                ? "Publicando..."
+                                : composerDraft.scheduled && composerDraft.publishAt
+                                    ? "Programar envio"
+                                    : "Publicar ahora"}
+                        </button>
+                        <button class="secondary-button" type="button" data-info-save-draft ${savingInformation ? "disabled" : ""}>Guardar borrador</button>
+                        <button class="ghost-button" type="button" data-info-cancel ${savingInformation ? "disabled" : ""}>Descartar</button>
+                    </div>
                 </div>
+
+                <aside class="information-preview">
+                    <div class="information-field__row">
+                        <span>Como lo ve el trabajador</span>
+                        <small class="information-live">En vivo</small>
+                    </div>
+                    <div class="information-preview__phone">
+                        <div class="information-preview__phonehead">
+                            <strong>Informaciones</strong>
+                        </div>
+                        ${composerPreviewHTML()}
+                    </div>
+                    ${composerDraft.notify && !empty ? `
+                        <p class="information-note information-note--warn">Les suena el telefono a ${linked} personas con la app enlazada.</p>
+                    ` : ""}
+                </aside>
             </form>
+        </div>
+    `;
+}
+
+/* ==========================================================================
+   Ficha de lectura
+   ========================================================================== */
+
+function readerHTML(item) {
+    const targets = audienceProfiles(item.audience);
+    const wantRead = readerTab === "leyeron";
+    const rows = targets
+        .filter(profile => hasRead(item.id, uidOf(profile)) === wantRead)
+        .sort((a, b) => a.name.localeCompare(b.name, "es"));
+    const read = targets.filter(profile => hasRead(item.id, uidOf(profile))).length;
+    const pending = targets.length - read;
+    const unlinked = targets.filter(profile => !uidOf(profile)).length;
+    const percent = targets.length ? Math.round((read / targets.length) * 100) : 0;
+
+    return `
+        <div class="information-reader-backdrop" data-info-reader-close></div>
+        <section class="information-reader" role="dialog" aria-modal="true" aria-label="Confirmaciones de lectura">
+            <div class="information-reader__head">
+                <div>
+                    ${tagHTML(item)}
+                    <h3>${escapeHTML(item.title)}</h3>
+                    <small>Publicado el ${escapeHTML(formatDateTime(item.publishedAt || item.updatedAt))} &middot; ${escapeHTML(audienceSummary(item.audience, targets.length))}</small>
+                </div>
+                <button class="ghost-button ghost-button--small" type="button" data-info-reader-close aria-label="Cerrar">&times;</button>
+            </div>
+
+            <div class="information-reader__stats">
+                <div class="information-reader__stat information-reader__stat--ok">
+                    <span>Confirmaron</span>
+                    <strong>${read}</strong>
+                    <small>${percent}% de los destinatarios</small>
+                </div>
+                <div class="information-reader__stat information-reader__stat--warn">
+                    <span>Pendientes</span>
+                    <strong>${pending}</strong>
+                    <small>${unlinked} sin la app enlazada</small>
+                </div>
+                <div class="information-reader__stat">
+                    <span>Destinatarios</span>
+                    <strong>${targets.length}</strong>
+                    <small>segun la nomina de hoy</small>
+                </div>
+            </div>
+
+            <div class="information-reader__bar"><span style="width: ${percent}%"></span></div>
+
+            <div class="information-tabs">
+                <button class="information-tab${wantRead ? " is-on" : ""}" type="button" data-info-reader-tab="leyeron">Confirmaron <span>${read}</span></button>
+                <button class="information-tab${wantRead ? "" : " is-on"}" type="button" data-info-reader-tab="pendientes">Pendientes <span>${pending}</span></button>
+            </div>
+
+            <div class="information-reader__list">
+                ${rows.length ? rows.map(profile => {
+                    const stamp = readStampFor(item.id, uidOf(profile));
+                    const linked = Boolean(uidOf(profile));
+
+                    return `
+                        <div class="information-reader__row${wantRead ? "" : " is-pending"}">
+                            <span class="information-reader__name">
+                                <strong>${escapeHTML(profile.name)}</strong>
+                                <small>${escapeHTML(profile.estamento || "Sin estamento")}${linked ? "" : " &middot; sin la app enlazada"}</small>
+                            </span>
+                            <span class="information-reader__stamp">${escapeHTML(wantRead ? formatDateTime(stamp) : linked ? "Sin abrir" : "No le llega")}</span>
+                        </div>
+                    `;
+                }).join("") : `<div class="empty-state empty-state--compact">${wantRead ? "Nadie ha confirmado todavia." : "No queda nadie pendiente."}</div>`}
+            </div>
+
+            <div class="information-editor__actions">
+                <button class="primary-button" type="button" data-info-remind="${escapeAttribute(item.id)}" ${pending ? "" : "disabled"}>
+                    Recordar a los ${pending} pendientes
+                </button>
+                <button class="ghost-button" type="button" data-info-reader-close>Cerrar</button>
+            </div>
         </section>
     `;
 }
+
+/* ==========================================================================
+   Pintado
+   ========================================================================== */
 
 export function renderInformationsPanel() {
     if (typeof document === "undefined") return;
@@ -376,46 +1064,59 @@ export function renderInformationsPanel() {
 
     if (!panel) return;
 
+    // Idempotente: engancha el listener de confirmaciones la primera vez y en
+    // cada cambio de unidad, y no hace nada el resto de las veces. Va aqui
+    // -y no en el arranque- porque al arrancar todavia no hay unidad activa.
+    void watchInformationReads();
+
     const items = getInformations();
-    const publishedFiles = items.reduce(
+    const editable = canEditMenu("informations");
+    const published = items.filter(item => effectiveStatus(item) === "published");
+    const publishedFiles = published.reduce(
         (count, item) => count + (item.attachments?.length || 0),
         0
     );
+    const reader = readerInformationId
+        ? items.find(item => item.id === readerInformationId)
+        : null;
+
+    if (composerDraft && !editable) composerDraft = null;
 
     panel.innerHTML = `
         <div class="information-root">
             <div class="section-head section-head--with-action information-head">
                 <span class="section-head__title">
                     <h3>Informaciones</h3>
-                    <small>Publicaciones visibles para trabajadores en la PWA TurnoPlus.</small>
+                    <small>Lo que publiques aqui le llega a la PWA de los trabajadores que elijas.</small>
                 </span>
-                <span class="worker-request-counter">
-                    ${items.length} publicacion(es) / ${publishedFiles} archivo(s)
+                <span class="information-head__actions">
+                    <span class="worker-request-counter">
+                        ${published.length} publicacion(es) / ${publishedFiles} archivo(s)
+                    </span>
+                    ${editable && !composerDraft ? `
+                        <button class="primary-button" type="button" data-info-new>Nueva informacion</button>
+                    ` : ""}
                 </span>
             </div>
-            <div class="information-grid">
-                ${editorHTML(items)}
-                <section class="panel information-list-panel">
-                    <div class="information-list-head">
-                        <h3>Publicado</h3>
-                        <small>Los trabajadores enlazados pueden ver y descargar estos archivos.</small>
-                    </div>
-                    <div class="information-list">
-                        ${items.length
-                            ? items.map(informationCardHTML).join("")
-                            : `
-                                <div class="empty-state empty-state--compact">
-                                    Aun no hay informaciones publicadas.
-                                </div>
-                            `}
-                    </div>
+            ${editable ? "" : `
+                <section class="panel information-editor--readonly">
+                    <strong>Solo lectura</strong>
+                    <p>Tu usuario puede revisar las informaciones publicadas, pero no modificarlas.</p>
                 </section>
-            </div>
+            `}
+            <section class="panel information-body-panel">
+                ${composerDraft ? composerHTML() : inboxHTML(items)}
+            </section>
+            ${reader ? readerHTML(reader) : ""}
         </div>
     `;
 
     bindInformationsPanel(panel);
 }
+
+/* ==========================================================================
+   Guardado
+   ========================================================================== */
 
 async function uploadInformationFiles(files, informationId) {
     if (!files?.length) return [];
@@ -427,24 +1128,41 @@ async function uploadInformationFiles(files, informationId) {
     });
 }
 
-async function handleSubmit(form) {
-    const title = clampText(form.elements.title?.value, MAX_TITLE_LENGTH);
-    const body = clampText(form.elements.body?.value, MAX_BODY_LENGTH);
-    const editId = String(form.dataset.editId || "");
-    const items = getInformations();
-    const current = editId
-        ? items.find(item => item.id === editId)
-        : null;
-    const id = current?.id || makeId();
-    const files = Array.from(form.elements.files?.files || []);
+function readComposerFields(form) {
+    if (!composerDraft || !form) return;
 
-    if (!title) {
-        alert("Ingresa un titulo para publicar.");
+    composerDraft.title = clampText(form.elements.title?.value, MAX_TITLE_LENGTH);
+    composerDraft.body = clampText(form.elements.body?.value, MAX_BODY_LENGTH);
+}
+
+async function persistDraft(form, { asDraft = false } = {}) {
+    if (!composerDraft) return;
+
+    readComposerFields(form);
+
+    const files = composerDraft.pendingFiles;
+
+    if (!composerDraft.title) {
+        await showAlert("Ingresa un titulo para publicar.", {
+            title: "Informaciones",
+            tone: "warning"
+        });
         return;
     }
 
-    if (!body && !files.length && !current?.attachments?.length) {
-        alert("Agrega un anuncio o al menos un archivo.");
+    if (!composerDraft.body && !files.length && !composerDraft.attachments.length) {
+        await showAlert("Agrega un anuncio o al menos un archivo.", {
+            title: "Informaciones",
+            tone: "warning"
+        });
+        return;
+    }
+
+    if (!asDraft && audienceIsEmpty(composerDraft.audience)) {
+        await showAlert(
+            "Elige al menos un destinatario: asi como esta no le llega a nadie.",
+            { title: "Informaciones", tone: "warning" }
+        );
         return;
     }
 
@@ -454,38 +1172,75 @@ async function handleSubmit(form) {
     });
 
     try {
-        const uploaded = await uploadInformationFiles(files, id);
+        const uploaded = await uploadInformationFiles(files, composerDraft.id);
         const now = new Date().toISOString();
         const user = getCurrentFirebaseUser();
+        const items = getInformations();
+        const current = items.find(item => item.id === composerDraft.id) || null;
+        const scheduled = composerDraft.scheduled &&
+            composerDraft.publishAt &&
+            Date.parse(composerDraft.publishAt) > Date.now();
+        const status = asDraft ? "draft" : scheduled ? "scheduled" : "published";
         const nextItem = normalizeInformation({
             ...(current || {}),
-            id,
-            title,
-            body,
-            pinned: Boolean(form.elements.pinned?.checked),
-            createdAt: current?.createdAt || now,
-            publishedAt: now,
+            id: composerDraft.id,
+            title: composerDraft.title,
+            body: composerDraft.body,
+            category: composerDraft.category,
+            audience: composerDraft.audience,
+            pinned: composerDraft.pinned,
+            requiresAck: composerDraft.requiresAck,
+            notify: composerDraft.notify,
+            status,
+            publishAt: composerDraft.scheduled ? composerDraft.publishAt : "",
+            expiresAt: composerDraft.scheduled ? composerDraft.expiresAt : "",
+            createdAt: composerDraft.createdAt || current?.createdAt || now,
+            // Una que sale de borrador estrena fecha de publicacion; una que ya
+            // estaba publicada y solo se corrige conserva la suya, para que no
+            // salte al principio de la lista del trabajador por una coma.
+            publishedAt: status === "published"
+                ? (current && effectiveStatus(current) === "published"
+                    ? current.publishedAt
+                    : now)
+                : "",
             updatedAt: now,
-            createdByUid: current?.createdByUid || user?.uid || "",
+            createdByUid: composerDraft.createdByUid || current?.createdByUid || user?.uid || "",
             updatedByUid: user?.uid || "",
-            attachments: [
-                ...(current?.attachments || []),
-                ...uploaded
-            ]
+            attachments: [...composerDraft.attachments, ...uploaded]
         });
         const nextItems = current
             ? items.map(item => item.id === current.id ? nextItem : item)
             : [nextItem, ...items];
 
         await saveInformations(nextItems);
+
+        // Los adjuntos que se quitaron en el compositor se borran de Storage
+        // AQUI y no al quitarlos: hasta que no se guarda, el supervisor puede
+        // descartar el cambio, y un archivo borrado antes de tiempo dejaria a
+        // la informacion publicada apuntando a nada.
+        const kept = new Set(nextItem.attachments.map(file => file.id));
+
+        await Promise.all(
+            (current?.attachments || [])
+                .filter(file => !kept.has(file.id))
+                .map(file => deleteStoredAttachment(file).catch(error => {
+                    console.warn("No se pudo borrar un archivo quitado.", error);
+                }))
+        );
+
+        composerDraft = null;
         editingInformationId = "";
+        activeTab = status === "draft"
+            ? "borradores"
+            : status === "scheduled" ? "programadas" : "publicadas";
     } catch (error) {
         console.error("No se pudo publicar la informacion.", error);
-        alert(
+        await showAlert(
             error?.attachmentStorageMessage || String(error?.code || "").startsWith("storage/")
                 ? attachmentStorageErrorMessage(error, "subir")
                 : error?.message ||
-                    "No se pudo publicar la informacion. Revisa la conexion e intenta nuevamente."
+                    "No se pudo publicar la informacion. Revisa la conexion e intenta nuevamente.",
+            { title: "Informaciones", tone: "danger" }
         );
     } finally {
         savingInformation = false;
@@ -516,127 +1271,438 @@ async function openInformationAttachment(button, { newTab = true } = {}) {
     try {
         await openAttachmentFile(attachment, { newTab });
     } catch (error) {
-        alert(
+        await showAlert(
             error?.attachmentStorageMessage
                 ? error.message
-                : error?.message || "No se pudo abrir el archivo."
+                : error?.message || "No se pudo abrir el archivo.",
+            { title: "Informaciones", tone: "danger" }
         );
     } finally {
         button.disabled = false;
     }
 }
 
-async function removeInformationFile(button) {
-    const infoId = button.dataset.infoRemoveFile;
-    const fileId = button.dataset.infoFile;
+async function setInformationStatus(id, status) {
     const items = getInformations();
-    const item = items.find(information => information.id === infoId);
-    const attachment = item?.attachments?.find(file => file.id === fileId);
+    const current = items.find(item => item.id === id);
 
-    if (!item || !attachment) return;
+    if (!current) return;
 
-    const ok = await showConfirm(
-        `Se quitara el archivo "${attachment.name}" de la publicacion.`,
-        {
-            title: "Quitar archivo",
-            tone: "danger",
-            confirmText: "Quitar",
-            destructive: true
-        }
-    );
-
-    if (!ok) return;
+    const now = new Date().toISOString();
+    const expired = current.expiresAt && Date.parse(current.expiresAt) <= Date.now();
 
     try {
-        await deleteStoredAttachment(attachment);
-        await saveInformations(items.map(information =>
-            information.id === infoId
-                ? normalizeInformation({
-                    ...information,
-                    attachments: information.attachments.filter(file =>
-                        file.id !== fileId
-                    ),
-                    updatedAt: new Date().toISOString()
-                })
-                : information
+        await saveInformations(items.map(item => item.id === id
+            ? normalizeInformation({
+                ...item,
+                status,
+                // Publicar ahora una programada apaga su fecha: si se quedara,
+                // el calculo del estado volveria a esconderla.
+                publishAt: status === "published" ? "" : item.publishAt,
+                // Y volver a publicar una que se archivo SOLA tiene que apagar
+                // tambien su vencimiento, o el mismo calculo la archiva de
+                // nuevo en el acto y el boton no hace nada visible.
+                expiresAt: status === "published" && expired ? "" : item.expiresAt,
+                publishedAt: status === "published" ? now : item.publishedAt,
+                updatedAt: now
+            })
+            : item
         ));
     } catch (error) {
-        console.error("No se pudo quitar el archivo.", error);
-        alert(
-            error?.attachmentStorageMessage
-                ? error.message
-                : "No se pudo quitar el archivo. Intenta nuevamente."
+        console.error("No se pudo cambiar el estado de la informacion.", error);
+        await showAlert(
+            error?.message ||
+            "No se pudo guardar el cambio. Revisa la conexion e intenta nuevamente.",
+            { title: "Informaciones", tone: "danger" }
         );
-    } finally {
-        renderInformationsPanel();
     }
 }
 
 async function deleteInformation(id) {
     const items = getInformations();
-    const item = items.find(information => information.id === id);
+    const current = items.find(item => item.id === id);
 
-    if (!item) return;
+    if (!current) return;
 
-    const ok = await showConfirm(
-        "Se eliminara la publicacion y sus archivos adjuntos.",
+    if (!await showConfirm(
+        "Se eliminara la informacion junto con sus archivos, y desaparece de la aplicacion de los trabajadores.",
         {
             title: "Eliminar informacion",
             tone: "danger",
             confirmText: "Eliminar",
             destructive: true
         }
-    );
-
-    if (!ok) return;
+    )) {
+        return;
+    }
 
     try {
-        await Promise.allSettled(
-            (item.attachments || []).map(deleteStoredAttachment)
+        await Promise.all(
+            (current.attachments || []).map(attachment =>
+                deleteStoredAttachment(attachment).catch(error => {
+                    console.warn("No se pudo borrar un archivo.", error);
+                })
+            )
         );
-        await saveInformations(items.filter(information =>
-            information.id !== id
-        ));
+        await saveInformations(items.filter(item => item.id !== id));
 
         if (editingInformationId === id) editingInformationId = "";
+        if (composerDraft?.id === id) composerDraft = null;
+        if (readerInformationId === id) readerInformationId = "";
     } catch (error) {
         console.error("No se pudo eliminar la informacion.", error);
-        alert(
-            error?.message ||
-            "No se pudo eliminar la informacion. Intenta nuevamente."
+        await showAlert(
+            error?.message || "No se pudo eliminar la informacion. Intenta nuevamente.",
+            { title: "Informaciones", tone: "danger" }
         );
     } finally {
         renderInformationsPanel();
     }
 }
 
-function bindInformationsPanel(panel) {
+async function remindPending(id) {
+    const items = getInformations();
+    const item = items.find(entry => entry.id === id);
+
+    if (!item) return;
+
+    const pending = audienceProfiles(item.audience)
+        .filter(profile => uidOf(profile))
+        .filter(profile => !hasRead(id, uidOf(profile)));
+
+    if (!pending.length) {
+        await showAlert(
+            "No queda nadie a quien recordarle: o ya confirmaron, o no tienen la app enlazada.",
+            { title: "Informaciones", tone: "info" }
+        );
+        return;
+    }
+
+    if (!await showConfirm(
+        `Se les enviara un recordatorio a ${pending.length} ${pending.length === 1 ? "persona" : "personas"} que aun no confirman "${item.title}".`,
+        { title: "Recordar lectura", confirmText: "Enviar" }
+    )) {
+        return;
+    }
+
+    const { notifyWorkerApp } = await import("./workerAppDataSync.js");
+    let sent = 0;
+
+    for (const profile of pending) {
+        const ok = await notifyWorkerApp(
+            profile.name,
+            `Recordatorio: te falta confirmar la informacion "${item.title}".`
+        );
+
+        if (ok) sent += 1;
+    }
+
+    await showAlert(
+        `Recordatorio enviado a ${sent} ${sent === 1 ? "persona" : "personas"}.`,
+        { title: "Informaciones", tone: "success" }
+    );
+}
+
+/* ==========================================================================
+   Eventos
+   ========================================================================== */
+
+function updateComposerLive(panel) {
+    if (!composerDraft) return;
+
+    const title = panel.querySelector("[data-preview-title]");
+    const body = panel.querySelector("[data-preview-body]");
+    const count = panel.querySelector("[data-info-body-count]");
+
+    if (title) title.textContent = composerDraft.title || "Sin titulo todavia";
+    if (body) body.textContent = composerDraft.body || "Escribe el mensaje y aparece aqui.";
+    if (count) {
+        count.textContent = `${composerDraft.body.length} de ${MAX_BODY_LENGTH} caracteres`;
+    }
+}
+
+function bindComposer(panel) {
     const form = panel.querySelector("[data-info-form]");
 
-    if (form) {
-        form.onsubmit = event => {
-            event.preventDefault();
-            void handleSubmit(form);
+    if (!form || !composerDraft) return;
+
+    form.onsubmit = event => {
+        event.preventDefault();
+        void persistDraft(form);
+    };
+
+    // El titulo y el mensaje NO vuelven a pintar el panel: se guardan en el
+    // borrador y se copian a la vista previa a mano. Repintar con cada tecla
+    // le quitaria el foco al campo en el que se esta escribiendo.
+    const titleInput = panel.querySelector("[data-info-title]");
+    const bodyInput = panel.querySelector("[data-info-body]");
+
+    if (titleInput) {
+        titleInput.oninput = () => {
+            composerDraft.title = titleInput.value.slice(0, MAX_TITLE_LENGTH);
+            updateComposerLive(panel);
         };
     }
 
-    panel.querySelectorAll("[data-info-new]").forEach(button => {
+    if (bodyInput) {
+        bodyInput.oninput = () => {
+            composerDraft.body = bodyInput.value.slice(0, MAX_BODY_LENGTH);
+            updateComposerLive(panel);
+        };
+    }
+
+    panel.querySelectorAll("[data-info-category]").forEach(button => {
         button.onclick = () => {
-            editingInformationId = "";
+            readComposerFields(form);
+            composerDraft.category = button.dataset.infoCategory;
             renderInformationsPanel();
         };
     });
 
+    panel.querySelectorAll("[data-info-audience-mode]").forEach(button => {
+        button.onclick = () => {
+            readComposerFields(form);
+            composerDraft.audience = normalizeAudience({
+                ...composerDraft.audience,
+                mode: button.dataset.infoAudienceMode
+            });
+            renderInformationsPanel();
+        };
+    });
+
+    panel.querySelectorAll("[data-info-group]").forEach(button => {
+        button.onclick = () => {
+            readComposerFields(form);
+
+            const label = button.dataset.infoGroup;
+            const groups = composerDraft.audience.groups.includes(label)
+                ? composerDraft.audience.groups.filter(entry => entry !== label)
+                : [...composerDraft.audience.groups, label];
+
+            composerDraft.audience = normalizeAudience({
+                ...composerDraft.audience,
+                groups
+            });
+            renderInformationsPanel();
+        };
+    });
+
+    const personInput = panel.querySelector("[data-info-person-input]");
+
+    if (personInput) {
+        personInput.onkeydown = event => {
+            if (event.key !== "Enter") return;
+
+            event.preventDefault();
+
+            const typed = personInput.value.trim();
+
+            if (!typed) return;
+
+            // Solo nombres de la nomina: un nombre mal escrito publicaria a
+            // cero personas y el aviso no le llegaria a nadie.
+            const match = activeProfiles().find(profile =>
+                profile.name.toLowerCase() === typed.toLowerCase()
+            );
+
+            if (!match) {
+                personInput.setCustomValidity?.("");
+                void showAlert(
+                    `No hay ningun trabajador activo que se llame "${typed}". Elige uno de la lista.`,
+                    { title: "Destinatarios", tone: "warning" }
+                );
+                return;
+            }
+
+            readComposerFields(form);
+            composerDraft.audience = normalizeAudience({
+                ...composerDraft.audience,
+                people: [...composerDraft.audience.people, match.name]
+            });
+            renderInformationsPanel();
+        };
+    }
+
+    panel.querySelectorAll("[data-info-person-remove]").forEach(button => {
+        button.onclick = () => {
+            readComposerFields(form);
+            composerDraft.audience = normalizeAudience({
+                ...composerDraft.audience,
+                people: composerDraft.audience.people.filter(
+                    name => name !== button.dataset.infoPersonRemove
+                )
+            });
+            renderInformationsPanel();
+        };
+    });
+
+    panel.querySelectorAll("[data-info-option]").forEach(button => {
+        button.onclick = () => {
+            readComposerFields(form);
+
+            const key = button.dataset.infoOption;
+
+            composerDraft[key] = !composerDraft[key];
+            renderInformationsPanel();
+        };
+    });
+
+    const filesInput = panel.querySelector("[data-info-files]");
+
+    if (filesInput) {
+        filesInput.onchange = () => {
+            readComposerFields(form);
+            composerDraft.pendingFiles = [
+                ...composerDraft.pendingFiles,
+                ...Array.from(filesInput.files || [])
+            ].slice(0, MAX_ATTACHMENT_FILES);
+            renderInformationsPanel();
+        };
+    }
+
+    panel.querySelectorAll("[data-info-pending-file]").forEach(button => {
+        button.onclick = () => {
+            readComposerFields(form);
+
+            const index = Number(button.dataset.infoPendingFile);
+
+            composerDraft.pendingFiles = composerDraft.pendingFiles.filter(
+                (_file, position) => position !== index
+            );
+            renderInformationsPanel();
+        };
+    });
+
+    panel.querySelectorAll("[data-info-draft-file]").forEach(button => {
+        button.onclick = () => {
+            readComposerFields(form);
+            composerDraft.attachments = composerDraft.attachments.filter(
+                attachment => attachment.id !== button.dataset.infoDraftFile
+            );
+            renderInformationsPanel();
+        };
+    });
+
+    const publishAt = panel.querySelector("[data-info-publish-at]");
+    const expiresAt = panel.querySelector("[data-info-expires-at]");
+
+    if (publishAt) {
+        publishAt.onchange = () => {
+            composerDraft.publishAt = fromLocalInputValue(publishAt.value);
+        };
+    }
+
+    if (expiresAt) {
+        expiresAt.onchange = () => {
+            composerDraft.expiresAt = fromLocalInputValue(expiresAt.value);
+        };
+    }
+
+    panel.querySelector("[data-info-save-draft]")?.addEventListener("click", () => {
+        void persistDraft(form, { asDraft: true });
+    });
+
+    panel.querySelector("[data-info-cancel]")?.addEventListener("click", () => {
+        composerDraft = null;
+        editingInformationId = "";
+        renderInformationsPanel();
+    });
+}
+
+function openComposer(item) {
+    composerDraft = draftFromItem(item);
+    editingInformationId = item?.id || "";
+    renderInformationsPanel();
+}
+
+function bindInformationsPanel(panel) {
+    bindComposer(panel);
+
+    panel.querySelector("[data-info-new]")?.addEventListener("click", () => {
+        openComposer(null);
+    });
+
+    panel.querySelectorAll("[data-info-tab]").forEach(button => {
+        button.onclick = () => {
+            activeTab = button.dataset.infoTab;
+            renderInformationsPanel();
+        };
+    });
+
+    panel.querySelectorAll("[data-info-category-filter]").forEach(button => {
+        button.onclick = () => {
+            categoryFilter = button.dataset.infoCategoryFilter;
+            renderInformationsPanel();
+        };
+    });
+
+    const search = panel.querySelector("[data-info-search]");
+
+    if (search) {
+        search.oninput = () => {
+            searchQuery = search.value;
+
+            const list = panel.querySelector(".information-list");
+
+            if (!list) return;
+
+            // Igual que el compositor: se repinta SOLO la lista para no perder
+            // el cursor del buscador con cada letra.
+            const items = getInformations();
+            const shown = items.filter(matchesFilters);
+
+            list.innerHTML = shown.length
+                ? shown.map(informationCardHTML).join("")
+                : `<div class="empty-state empty-state--compact">Nada que mostrar con este filtro.</div>`;
+            bindCardActions(panel);
+        };
+    }
+
+    bindCardActions(panel);
+    bindReader(panel);
+}
+
+function bindCardActions(panel) {
     panel.querySelectorAll("[data-info-edit]").forEach(button => {
         button.onclick = () => {
-            editingInformationId = button.dataset.infoEdit || "";
-            renderInformationsPanel();
+            const id = button.dataset.infoEdit;
+
+            openComposer(getInformations().find(item => item.id === id) || null);
         };
     });
 
     panel.querySelectorAll("[data-info-delete]").forEach(button => {
         button.onclick = () => {
             void deleteInformation(button.dataset.infoDelete);
+        };
+    });
+
+    panel.querySelectorAll("[data-info-archive]").forEach(button => {
+        button.onclick = async () => {
+            await setInformationStatus(button.dataset.infoArchive, "archived");
+            renderInformationsPanel();
+        };
+    });
+
+    panel.querySelectorAll("[data-info-restore]").forEach(button => {
+        button.onclick = async () => {
+            await setInformationStatus(button.dataset.infoRestore, "published");
+            renderInformationsPanel();
+        };
+    });
+
+    panel.querySelectorAll("[data-info-publish-now]").forEach(button => {
+        button.onclick = async () => {
+            await setInformationStatus(button.dataset.infoPublishNow, "published");
+            renderInformationsPanel();
+        };
+    });
+
+    panel.querySelectorAll("[data-info-readers]").forEach(button => {
+        button.onclick = () => {
+            readerInformationId = button.dataset.infoReaders;
+            readerTab = "leyeron";
+            renderInformationsPanel();
         };
     });
 
@@ -651,48 +1717,60 @@ function bindInformationsPanel(panel) {
             void openInformationAttachment(button, { newTab: false });
         };
     });
+}
 
-    panel.querySelectorAll("[data-info-remove-file]").forEach(button => {
+function bindReader(panel) {
+    panel.querySelectorAll("[data-info-reader-close]").forEach(node => {
+        node.onclick = () => {
+            readerInformationId = "";
+            renderInformationsPanel();
+        };
+    });
+
+    panel.querySelectorAll("[data-info-reader-tab]").forEach(button => {
         button.onclick = () => {
-            void removeInformationFile(button);
+            readerTab = button.dataset.infoReaderTab;
+            renderInformationsPanel();
+        };
+    });
+
+    panel.querySelectorAll("[data-info-remind]").forEach(button => {
+        button.onclick = () => {
+            void remindPending(button.dataset.infoRemind);
         };
     });
 }
 
+/* ==========================================================================
+   Arranque
+   ========================================================================== */
+
 export function initInformationsPanel() {
     if (typeof window === "undefined") return;
 
-    window.addEventListener("proturnos:informationsChanged", () => {
+    const repaint = () => {
         if (document.body.dataset.activeView === "informations") {
             renderInformationsPanel();
         }
-    });
+    };
+    // Las confirmaciones llegan solas desde los telefonos, en cualquier
+    // momento. Repintar con el compositor abierto le quitaria el cursor al
+    // supervisor a media frase, y lo que cambia -el recuento de la bandeja- ni
+    // siquiera esta en pantalla.
+    const repaintInbox = () => {
+        if (!composerDraft) repaint();
+    };
+
+    window.addEventListener("proturnos:informationsChanged", repaint);
+    window.addEventListener("proturnos:informationReadsChanged", repaintInbox);
 
     window.addEventListener("proturnos:persistenceChanged", event => {
-        const keys = event.detail?.keys || [];
-
-        if (
-            keys.includes(INFORMATIONS_KEY) &&
-            document.body.dataset.activeView === "informations"
-        ) {
-            renderInformationsPanel();
-        }
+        if ((event.detail?.keys || []).includes(INFORMATIONS_KEY)) repaint();
     });
 
     window.addEventListener("proturnos:firebaseAppState", event => {
-        const keys = event.detail?.keys || [];
-
-        if (
-            keys.includes(INFORMATIONS_KEY) &&
-            document.body.dataset.activeView === "informations"
-        ) {
-            renderInformationsPanel();
-        }
+        if ((event.detail?.keys || []).includes(INFORMATIONS_KEY)) repaint();
     });
 
-    window.addEventListener("proturnos:workspacePermissionsChanged", () => {
-        if (document.body.dataset.activeView === "informations") {
-            renderInformationsPanel();
-        }
-    });
+    window.addEventListener("proturnos:workspacePermissionsChanged", repaint);
 }
