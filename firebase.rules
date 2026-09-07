@@ -25,8 +25,9 @@ service cloud.firestore {
       ).data;
     }
 
-    // Si el miembro puede editar ALGO en la unidad. Un miembro de solo lectura
-    // -sin edit en ningun menu- da false: mira, no escribe.
+    // Si el miembro puede editar ALGO en la unidad. Informaciones se considera
+    // activo cuando falta en permisos antiguos para que el nuevo menu nazca
+    // habilitado en administradores ya existentes.
     function memberCanEditSomething(workspaceId) {
       let member = memberData(workspaceId);
       let permissions =
@@ -43,6 +44,7 @@ service cloud.firestore {
         ("requests" in permissions && permissions.requests.edit == true) ||
         ("memos" in permissions && permissions.memos.edit == true) ||
         ("informations" in permissions && permissions.informations.edit == true) ||
+        !("informations" in permissions) ||
         ("swap" in permissions && permissions.swap.edit == true) ||
         ("hours" in permissions && permissions.hours.edit == true) ||
         ("reports" in permissions && permissions.reports.edit == true) ||
@@ -228,10 +230,7 @@ service cloud.firestore {
             "informations" in permissions &&
             permissions.informations.edit == true
           ) ||
-          (
-            !("informations" in permissions) &&
-            memberCanEditSomething(workspaceId)
-          )
+          !("informations" in permissions)
         );
     }
 

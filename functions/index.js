@@ -119,13 +119,13 @@ const MENU_PERMISSION_KEYS = [
   "turnos",
   "weekly",
   "tasks",
+  "informations",
   "kanban",
   "agenda",
   "profile",
   "clockmarks",
   "requests",
   "memos",
-  "informations",
   "swap",
   "hours",
   "reports",
@@ -193,13 +193,21 @@ function cleanManifestParam(value, pattern, maxLength) {
 }
 
 function normalizeSupervisorPermissions(input = {}) {
+  const source = input && typeof input === "object" ? input : {};
+
   return MENU_PERMISSION_KEYS.reduce((permissions, key) => {
-    const raw = input && typeof input === "object" ? input[key] || {} : {};
-    const view = raw.view === true;
+    const hasExplicitPermission = Object.prototype.hasOwnProperty.call(
+      source,
+      key
+    );
+    const raw = hasExplicitPermission ? source[key] || {} : {};
+    const enabledByDefault =
+      !hasExplicitPermission && key === INFORMATION_ATTACHMENT_MODULE_ID;
+    const view = enabledByDefault || raw.view === true;
 
     permissions[key] = {
       view,
-      edit: view && raw.edit === true
+      edit: view && (enabledByDefault || raw.edit === true)
     };
 
     return permissions;
@@ -221,8 +229,7 @@ function memberCanPublishInformations(member = {}) {
 
   if (permissions.informations?.edit === true) return true;
 
-  return !Object.prototype.hasOwnProperty.call(permissions, "informations") &&
-    MENU_PERMISSION_KEYS.some(key => permissions[key]?.edit === true);
+  return !Object.prototype.hasOwnProperty.call(permissions, "informations");
 }
 
 function createSupervisorInviteToken() {

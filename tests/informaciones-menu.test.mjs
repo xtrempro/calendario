@@ -6,6 +6,16 @@ async function read(path) {
     return readFile(new URL(path, import.meta.url), "utf8");
 }
 
+function sourceBlock(source, startNeedle, endNeedle) {
+    const start = source.indexOf(startNeedle);
+    const end = source.indexOf(endNeedle, start);
+
+    assert.notEqual(start, -1, `no se encontro ${startNeedle}`);
+    assert.notEqual(end, -1, `no se encontro el limite de ${startNeedle}`);
+
+    return source.slice(start, end);
+}
+
 test("Informaciones queda enganchado al panel supervisor y a permisos", async () => {
     const [
         html,
@@ -54,6 +64,34 @@ test("Informaciones queda enganchado al panel supervisor y a permisos", async ()
     assert.match(css, /\.actionbar \.nav-tile\[data-target="kanbanPanel"\]\s*\{[\s\S]{0,80}order:\s*12/);
 });
 
+test("Informaciones queda activo por defecto en permisos legados", async () => {
+    const { normalizeMenuPermissions } =
+        await import("../js/workspacePermissions.js");
+    const functionsIndex = await read("../functions/index.js");
+
+    const legacy = normalizeMenuPermissions({
+        tasks: { view: true, edit: false }
+    });
+    const explicitOff = normalizeMenuPermissions({
+        informations: { view: false, edit: false }
+    });
+    const explicitReadOnly = normalizeMenuPermissions({
+        informations: { view: true, edit: false }
+    });
+
+    assert.deepEqual(legacy.informations, { view: true, edit: true });
+    assert.deepEqual(explicitOff.informations, { view: false, edit: false });
+    assert.deepEqual(explicitReadOnly.informations, {
+        view: true,
+        edit: false
+    });
+    assert.match(functionsIndex, /key === INFORMATION_ATTACHMENT_MODULE_ID/);
+    assert.match(
+        functionsIndex,
+        /edit:\s*view && \(enabledByDefault \|\| raw\.edit === true\)/
+    );
+});
+
 test("Informaciones publica a trabajadores enlazados con reglas dedicadas", async () => {
     const firestoreRules = await read("../firebase.rules");
     const storageRules = await read("../storage.rules");
@@ -64,9 +102,20 @@ test("Informaciones publica a trabajadores enlazados con reglas dedicadas", asyn
     assert.match(source, /publicInformationsPayload/);
     assert.doesNotMatch(source, /dataUrl:[\s\S]{0,80}publicAttachmentPayload/);
 
+    const firestoreEditAny =
+        sourceBlock(firestoreRules, "function memberCanEditSomething", "function memberRequiresMfa");
+    const firestoreEditInformations =
+        sourceBlock(firestoreRules, "function canEditInformationsMenu", "function canReadStateModule");
+    const storageRequiresMfa =
+        sourceBlock(storageRules, "function memberRequiresMfa", "function memberHasExplicitAccess");
+    const storagePublishInformations =
+        sourceBlock(storageRules, "function canPublishInformationAttachment", "function canPublishScheduleAttachment");
+
     assert.match(firestoreRules, /function canViewInformationsMenu\(workspaceId\)/);
     assert.match(firestoreRules, /function canEditInformationsMenu\(workspaceId\)/);
-    assert.match(firestoreRules, /!\("informations" in permissions\)[\s\S]{0,80}memberCanEditSomething\(workspaceId\)/);
+    assert.match(firestoreEditAny, /!\("informations" in permissions\)/);
+    assert.match(firestoreEditInformations, /!\("informations" in permissions\)/);
+    assert.doesNotMatch(firestoreEditInformations, /memberCanEditSomething\(workspaceId\)/);
     assert.match(firestoreRules, /docId == "informations" && canViewInformationsMenu\(workspaceId\)/);
     assert.match(firestoreRules, /docId == "informations" && canEditInformationsMenu\(workspaceId\)/);
     assert.match(firestoreRules, /moduleId == "informations" && canViewInformationsMenu\(workspaceId\)/);
@@ -75,7 +124,9 @@ test("Informaciones publica a trabajadores enlazados con reglas dedicadas", asyn
     assert.match(storageRules, /function isPublishedInformationAttachment\(moduleId, ownerId\)/);
     assert.match(storageRules, /moduleId == "informations"[\s\S]{0,80}ownerId == "published"/);
     assert.match(storageRules, /function canPublishInformationAttachment\(workspaceId\)/);
-    assert.match(storageRules, /!\("informations" in permissions\)[\s\S]{0,80}memberRequiresMfa\(workspaceId\)/);
+    assert.match(storageRequiresMfa, /!\("informations" in permissions\)/);
+    assert.match(storagePublishInformations, /!\("informations" in permissions\)/);
+    assert.doesNotMatch(storagePublishInformations, /memberRequiresMfa\(workspaceId\)/);
     assert.match(storageRules, /isPublishedInformationAttachment\(moduleId, ownerId\)[\s\S]{0,160}canPublishInformationAttachment\(workspaceId\)[\s\S]{0,80}allowedFile\(\)/);
     assert.match(storageRules, /isPublishedInformationAttachment\(moduleId, ownerId\)[\s\S]{0,180}workerLinks/);
 });

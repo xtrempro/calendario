@@ -54,6 +54,10 @@ let permissionState = {
 };
 let unsubscribePermissions = null;
 
+function defaultEnabledWhenMissing(menuKey) {
+    return menuKey === "informations";
+}
+
 function defaultMenuPermissions() {
     return MENU_PERMISSION_DEFS.reduce((map, menu) => {
         map[menu.key] = {
@@ -96,11 +100,20 @@ function dispatchPermissionsChanged() {
 
 export function normalizeMenuPermissions(permissions = {}) {
     const normalized = noAccessMenuPermissions();
+    const source = permissions && typeof permissions === "object"
+        ? permissions
+        : {};
 
     MENU_PERMISSION_DEFS.forEach(menu => {
-        const raw = permissions?.[menu.key] || {};
-        const view = raw.view === true;
-        const edit = view && raw.edit === true;
+        const hasExplicitPermission = Object.prototype.hasOwnProperty.call(
+            source,
+            menu.key
+        );
+        const raw = hasExplicitPermission ? source[menu.key] || {} : {};
+        const enabledByDefault =
+            !hasExplicitPermission && defaultEnabledWhenMissing(menu.key);
+        const view = enabledByDefault || raw.view === true;
+        const edit = view && (enabledByDefault || raw.edit === true);
 
         normalized[menu.key] = {
             view,

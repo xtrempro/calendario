@@ -75,6 +75,11 @@ function guardarCompartidas(tasks) {
     localStorage.setItem(HOME_SHARED_TASKS_KEY, JSON.stringify(tasks));
 }
 
+test("el inicio no muestra la nota final de datos reales", () => {
+    assert.doesNotMatch(home, /Datos reales:/);
+    assert.doesNotMatch(home, /tareas \(por usuario, con alerta sonora\)/);
+});
+
 /* ───────── 1. Lo de por defecto es privado ───────── */
 
 test("una tarea sin visibilidad queda privada", () => {

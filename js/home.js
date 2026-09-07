@@ -3209,10 +3209,6 @@ function homeHTML() {
                 </div>
             </section>
 
-            <div class="hm-note">
-                ${svg('<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/>', 'width="18" height="18"')}
-                <span><b>Datos reales:</b> tareas (por usuario, con alerta sonora), dotación, ausencias, cambios de turno y cobertura.</span>
-            </div>
         </div>
         ${tasksModal()}
         ${taskEditModal()}
