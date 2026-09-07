@@ -48,12 +48,18 @@ test("Informaciones publica a trabajadores enlazados con reglas dedicadas", asyn
     assert.match(source, /publicInformationsPayload/);
     assert.doesNotMatch(source, /dataUrl:[\s\S]{0,80}publicAttachmentPayload/);
 
-    assert.match(firestoreRules, /docId == "informations" && canViewMenu\(workspaceId, "informations"\)/);
-    assert.match(firestoreRules, /docId == "informations" && canEditMenu\(workspaceId, "informations"\)/);
-    assert.match(firestoreRules, /moduleId == "informations" && canViewMenu\(workspaceId, "informations"\)/);
-    assert.match(firestoreRules, /moduleId == "informations" && canEditMenu\(workspaceId, "informations"\)/);
+    assert.match(firestoreRules, /function canViewInformationsMenu\(workspaceId\)/);
+    assert.match(firestoreRules, /function canEditInformationsMenu\(workspaceId\)/);
+    assert.match(firestoreRules, /!\("informations" in permissions\)[\s\S]{0,80}memberCanEditSomething\(workspaceId\)/);
+    assert.match(firestoreRules, /docId == "informations" && canViewInformationsMenu\(workspaceId\)/);
+    assert.match(firestoreRules, /docId == "informations" && canEditInformationsMenu\(workspaceId\)/);
+    assert.match(firestoreRules, /moduleId == "informations" && canViewInformationsMenu\(workspaceId\)/);
+    assert.match(firestoreRules, /moduleId == "informations" && canEditInformationsMenu\(workspaceId\)/);
 
     assert.match(storageRules, /function isPublishedInformationAttachment\(moduleId, ownerId\)/);
     assert.match(storageRules, /moduleId == "informations"[\s\S]{0,80}ownerId == "published"/);
+    assert.match(storageRules, /function canPublishInformationAttachment\(workspaceId\)/);
+    assert.match(storageRules, /!\("informations" in permissions\)[\s\S]{0,80}memberRequiresMfa\(workspaceId\)/);
+    assert.match(storageRules, /isPublishedInformationAttachment\(moduleId, ownerId\)[\s\S]{0,160}canPublishInformationAttachment\(workspaceId\)[\s\S]{0,80}allowedFile\(\)/);
     assert.match(storageRules, /isPublishedInformationAttachment\(moduleId, ownerId\)[\s\S]{0,180}workerLinks/);
 });

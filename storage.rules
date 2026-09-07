@@ -183,6 +183,41 @@ service firebase.storage {
         ownerId == "published";
     }
 
+    function canViewInformationAttachment(workspaceId) {
+      let data = member(workspaceId);
+      let permissions =
+        "permissions" in data ? data.permissions : {};
+
+      return isWorkspaceMember(workspaceId) &&
+        (
+          isWorkspaceOwner(workspaceId) ||
+          (
+            "informations" in permissions &&
+            permissions.informations.view == true
+          ) ||
+          !("informations" in permissions)
+        );
+    }
+
+    function canPublishInformationAttachment(workspaceId) {
+      let data = member(workspaceId);
+      let permissions =
+        "permissions" in data ? data.permissions : {};
+
+      return isWorkspaceMember(workspaceId) &&
+        (
+          isWorkspaceOwner(workspaceId) ||
+          (
+            "informations" in permissions &&
+            permissions.informations.edit == true
+          ) ||
+          (
+            !("informations" in permissions) &&
+            memberRequiresMfa(workspaceId)
+          )
+        );
+    }
+
     function canPublishScheduleAttachment(workspaceId) {
       return signedIn() &&
         (
@@ -207,6 +242,10 @@ service firebase.storage {
         (
           isMessageAttachment(moduleId) ||
           isLeaveAttachment(moduleId) ||
+          (
+            isPublishedInformationAttachment(moduleId, ownerId) &&
+            canViewInformationAttachment(workspaceId)
+          ) ||
           canViewModule(workspaceId, moduleId) ||
           resource.metadata.uploadedByUid == request.auth.uid
         ) ||
@@ -233,6 +272,11 @@ service firebase.storage {
             allowedScheduleImage()
           ) ||
           (
+            isPublishedInformationAttachment(moduleId, ownerId) &&
+            canPublishInformationAttachment(workspaceId) &&
+            allowedFile()
+          ) ||
+          (
             isMessageAttachment(moduleId) &&
             isWorkspaceMember(workspaceId) &&
             allowedMessageFile()
@@ -247,6 +291,7 @@ service firebase.storage {
             !isMessageAttachment(moduleId) &&
             !isLeaveAttachment(moduleId) &&
             !isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
+            !isPublishedInformationAttachment(moduleId, ownerId) &&
             canEditModule(workspaceId, moduleId) &&
             allowedFile()
           )

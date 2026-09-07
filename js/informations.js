@@ -446,7 +446,9 @@ async function handleSubmit(form) {
     }
 
     savingInformation = true;
-    renderInformationsPanel();
+    Array.from(form.querySelectorAll("input, textarea, button")).forEach(control => {
+        control.disabled = true;
+    });
 
     try {
         const uploaded = await uploadInformationFiles(files, id);
