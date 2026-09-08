@@ -4,6 +4,12 @@ import { getJSON, setJSON, getRaw } from "./persistence.js";
 import { getCurrentFirebaseUser, getFirebaseServices } from "./firebaseClient.js";
 import { getActiveWorkspace } from "./workspaces.js";
 import { showConfirm } from "./dialogs.js";
+import {
+    MEDICAL_EQUIPMENT_KEY,
+    medicalEquipmentContractRenewalKanbanCards,
+    selectMedicalEquipment
+} from "./medicalEquipment.js";
+import { canEditMenu, canViewMenu } from "./workspacePermissions.js";
 
 const LEGACY_STORAGE_KEY = "kanban_cards";
 const STORAGE_KEY_PREFIX = "kanban_private_cards";
@@ -25,6 +31,7 @@ const CARD_COLORS = [
 
 let draggedCardId = "";
 const migratedLocalKeys = new Set();
+let automaticKanbanRefreshBound = false;
 
 function isValidColumn(status) {
     return KANBAN_COLUMNS.some(column => column.key === status);
@@ -92,6 +99,31 @@ function saveCards(cards) {
 
     setJSON(getKanbanStorageKey(), normalized);
     persistKanbanToFirebase(normalized);
+}
+
+function canViewMedicalEquipmentRenewalCards() {
+    return canViewMenu("medicalEquipment") && canEditMenu("medicalEquipment");
+}
+
+function isAutomaticCard(card) {
+    return card?.auto === true || card?.source === "medicalEquipmentRenewal";
+}
+
+export function getAutomaticKanbanCards(today) {
+    if (!canViewMedicalEquipmentRenewalCards()) return [];
+
+    return medicalEquipmentContractRenewalKanbanCards(today);
+}
+
+export function getKanbanCardsForRender(cards = getCards(), today) {
+    const manualCards = (Array.isArray(cards) ? cards : [])
+        .map(normalizeCard)
+        .filter(card => card.title);
+    const manualIds = new Set(manualCards.map(card => card.id));
+    const automaticCards = getAutomaticKanbanCards(today)
+        .filter(card => !manualIds.has(card.id));
+
+    return [...manualCards, ...automaticCards];
 }
 
 // --- Respaldo por usuario en Firebase --------------------------------------
@@ -301,7 +333,10 @@ function moveCard(cardId, nextStatus) {
 }
 
 function formatDate(value) {
-    const date = new Date(value);
+    const raw = String(value || "");
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+        ? new Date(`${raw}T12:00:00`)
+        : new Date(value);
 
     if (Number.isNaN(date.getTime())) return "";
 
@@ -312,11 +347,16 @@ function formatDate(value) {
 }
 
 function renderCard(card) {
-    return `
-        <article class="kanban-card kanban-card--${escapeHTML(card.color)}" draggable="true" data-kanban-card="${escapeHTML(card.id)}">
-            <div class="kanban-card__head">
-                <strong>${escapeHTML(card.title)}</strong>
-                <span class="kanban-card__actions">
+    const automatic = isAutomaticCard(card);
+    const cardAttrs = automatic
+        ? `data-kanban-auto-card="${escapeHTML(card.id)}"`
+        : `draggable="true" data-kanban-card="${escapeHTML(card.id)}"`;
+    const actions = automatic
+        ? `
+                    <button class="kanban-card__open" type="button" aria-label="Ver equipo médico" data-kanban-medical-equipment="${escapeHTML(card.equipmentId || "")}">
+                        Ver equipo
+                    </button>`
+        : `
                     <button class="kanban-card__edit" type="button" aria-label="Editar tarjeta" data-kanban-edit="${escapeHTML(card.id)}">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                             <path d="M12 20h9"></path>
@@ -331,11 +371,18 @@ function renderCard(card) {
                             <path d="M10 11v5"></path>
                             <path d="M14 11v5"></path>
                         </svg>
-                    </button>
+                    </button>`;
+
+    return `
+        <article class="kanban-card kanban-card--${escapeHTML(card.color)} ${automatic ? "kanban-card--automatic" : ""}" ${cardAttrs}>
+            <div class="kanban-card__head">
+                <strong>${escapeHTML(card.title)}</strong>
+                <span class="kanban-card__actions">
+                    ${actions}
                 </span>
             </div>
             ${card.detail ? `<p>${escapeHTML(card.detail)}</p>` : ""}
-            <small>${escapeHTML(formatDate(card.updatedAt))}</small>
+            <small>${escapeHTML(automatic ? `Vence ${formatDate(card.dueDate || card.updatedAt)}` : formatDate(card.updatedAt))}</small>
         </article>
     `;
 }
@@ -456,6 +503,17 @@ function renderColumnAddButton(column) {
     `;
 }
 
+function openMedicalEquipmentFromKanban(equipmentId) {
+    const id = String(equipmentId || "");
+
+    if (!id) return;
+
+    selectMedicalEquipment(id);
+    document
+        .querySelector('.nav-tile[data-target="medicalEquipmentPanel"]')
+        ?.click();
+}
+
 function renderColumn(column, cards) {
     const columnCards = cards.filter(card => card.status === column.key);
 
@@ -488,6 +546,11 @@ function renderShell(cards) {
 function bindKanbanEvents(root) {
     root.querySelectorAll("[data-kanban-add-status]").forEach(button => {
         button.onclick = () => openCreateCardDialog(button.dataset.kanbanAddStatus);
+    });
+
+    root.querySelectorAll("[data-kanban-medical-equipment]").forEach(button => {
+        button.onclick = () =>
+            openMedicalEquipmentFromKanban(button.dataset.kanbanMedicalEquipment);
     });
 
     root.querySelectorAll("[data-kanban-delete]").forEach(button => {
@@ -558,12 +621,47 @@ function bindKanbanEvents(root) {
     });
 }
 
+function shouldRefreshForMedicalEquipment(event) {
+    const keys = event?.detail?.keys;
+
+    return !Array.isArray(keys) ||
+        !keys.length ||
+        keys.includes(MEDICAL_EQUIPMENT_KEY);
+}
+
+function refreshKanbanForMedicalEquipment(event) {
+    if (!shouldRefreshForMedicalEquipment(event)) return;
+    if (document.body?.dataset?.activeView !== "kanban") return;
+
+    renderKanbanBoard();
+}
+
+function bindAutomaticKanbanRefresh() {
+    if (automaticKanbanRefreshBound || typeof window === "undefined") return;
+
+    automaticKanbanRefreshBound = true;
+    window.addEventListener(
+        "proturnos:medicalEquipmentChanged",
+        refreshKanbanForMedicalEquipment
+    );
+    window.addEventListener(
+        "proturnos:workspacePermissionsChanged",
+        refreshKanbanForMedicalEquipment
+    );
+    window.addEventListener(
+        "proturnos:persistenceChanged",
+        refreshKanbanForMedicalEquipment
+    );
+}
+
 export function renderKanbanBoard() {
     const root = document.getElementById("kanbanPanel");
 
     if (!root) return;
 
-    root.innerHTML = renderShell(getCards());
+    bindAutomaticKanbanRefresh();
+
+    root.innerHTML = renderShell(getKanbanCardsForRender());
     bindKanbanEvents(root);
 
     // Traer el respaldo del usuario desde Firebase (una vez por entorno/usuario)
@@ -574,7 +672,7 @@ export function renderKanbanBoard() {
         const node = document.getElementById("kanbanPanel");
         if (!node) return;
 
-        node.innerHTML = renderShell(getCards());
+        node.innerHTML = renderShell(getKanbanCardsForRender());
         bindKanbanEvents(node);
     });
 }

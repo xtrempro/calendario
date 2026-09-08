@@ -9,7 +9,12 @@
 
 import { escapeHTML } from "./htmlUtils.js";
 import { getCurrentFirebaseUser } from "./firebaseClient.js";
-import { canEditAnyMenu, isWorkspaceOwner } from "./workspacePermissions.js";
+import {
+    canEditAnyMenu,
+    canEditMenu,
+    canViewMenu,
+    isWorkspaceOwner
+} from "./workspacePermissions.js";
 import {
     getAdminDisplayName,
     getReportSignatureConfig,
@@ -105,6 +110,11 @@ import {
     attendanceIncidentContext,
     buildAttendanceIncidents
 } from "./hoursReport.js";
+import {
+    MEDICAL_EQUIPMENT_KEY,
+    medicalEquipmentCalendarEventsForRange,
+    selectMedicalEquipment
+} from "./medicalEquipment.js";
 import {
     campaignStatusLabel,
     formatCoverageTimeLeft,
@@ -1376,13 +1386,48 @@ export function getTasksForDay(date, tasks = getHomeTasks(), holidays) {
         .sort((a, b) => String(a.time).localeCompare(String(b.time)));
 }
 
+function canViewMedicalEquipmentCalendarEvents() {
+    return canViewMenu("medicalEquipment") && canEditMenu("medicalEquipment");
+}
+
+function calendarItemSortKey(item) {
+    return String(item?.sortTime || item?.time || "");
+}
+
+function getMedicalEquipmentEventsForCalendarMonth(year, month) {
+    if (!canViewMedicalEquipmentCalendarEvents()) return [];
+
+    const first = isoFromDate(new Date(year, month, 1));
+    const last = isoFromDate(new Date(year, month + 1, 0));
+
+    return medicalEquipmentCalendarEventsForRange(first, last);
+}
+
+export function getTaskCalendarItemsForDay(
+    date,
+    tasks = getHomeTasks(),
+    holidays,
+    calendarEvents = []
+) {
+    const iso = isoFromDate(date);
+    const events = (Array.isArray(calendarEvents) ? calendarEvents : [])
+        .filter(item => item?.source === "medicalEquipment" && item.date === iso);
+
+    return [...getTasksForDay(date, tasks, holidays), ...events]
+        .sort((a, b) =>
+            calendarItemSortKey(a).localeCompare(calendarItemSortKey(b)) ||
+            String(a?.name || "").localeCompare(String(b?.name || ""), "es")
+        );
+}
+
 // Las casillas del mes, con los blancos iniciales para que el dia 1 caiga en su
 // columna. null = casilla vacia antes del dia 1.
 export function buildTaskCalendarCells(
     year,
     month,
     tasks = getHomeTasks(),
-    holidays = getCachedHolidays(year)
+    holidays = getCachedHolidays(year),
+    calendarEvents = getMedicalEquipmentEventsForCalendarMonth(year, month)
 ) {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     // getDay() da 0 en domingo; con la semana en lunes, domingo es la columna 6.
@@ -1395,7 +1440,7 @@ export function buildTaskCalendarCells(
         cells.push({
             day,
             iso: isoFromDate(date),
-            tasks: getTasksForDay(date, tasks, holidays)
+            tasks: getTaskCalendarItemsForDay(date, tasks, holidays, calendarEvents)
         });
     }
 
@@ -1415,7 +1460,22 @@ function dateLabelFromISO(iso) {
     return `${DIAS[date.getDay()]}, ${day} de ${MESES[month - 1]} de ${year}`;
 }
 
+function isMedicalEquipmentCalendarItem(item) {
+    return item?.source === "medicalEquipment";
+}
+
 function taskChipHTML(task, iso) {
+    if (isMedicalEquipmentCalendarItem(task)) {
+        const detail = [task.time, task.name, task.detail]
+            .filter(Boolean)
+            .join(" · ");
+
+        return `
+        <span class="hm-tc-chip hm-tc-chip--medeq hm-tc-chip--${esc(task.tone || "equipment")}" title="${esc(detail)}">
+            <b>${esc(task.time)}</b>${esc(task.name)}
+        </span>`;
+    }
+
     const done = isTaskDoneOn(task, iso);
 
     return `
@@ -1663,7 +1723,26 @@ function dayTasksModal() {
         </div>`;
 }
 
+function dayMedicalEquipmentRowHTML(event) {
+    const detail = event.detail
+        ? `<small>${esc(event.detail)}</small>`
+        : "";
+
+    return `
+        <div class="hm-dt-row hm-dt-row--medeq" data-hm="dt-medeq-row"
+            data-equipment-id="${esc(event.equipmentId || "")}" role="button"
+            tabindex="0" title="Ver en Equipos Médicos">
+            <span class="hm-dt-time hm-dt-time--medeq">${esc(event.time)}</span>
+            <span class="hm-dt-name">${esc(event.name)}${detail}</span>
+            <span class="hm-dt-repeat hm-dt-repeat--medeq">Equipos Médicos</span>
+        </div>`;
+}
+
 function dayTaskRowHTML(task, iso) {
+    if (isMedicalEquipmentCalendarItem(task)) {
+        return dayMedicalEquipmentRowHTML(task);
+    }
+
     const done = isTaskDoneOn(task, iso);
 
     return `
@@ -1687,7 +1766,15 @@ function renderDayTasks(panel) {
 
     const iso = openDayIso;
     const [year, month, day] = String(iso).split("-").map(Number);
-    const tasks = getTasksForDay(new Date(year, month - 1, day));
+    const calendarEvents = canViewMedicalEquipmentCalendarEvents()
+        ? medicalEquipmentCalendarEventsForRange(iso, iso)
+        : [];
+    const tasks = getTaskCalendarItemsForDay(
+        new Date(year, month - 1, day),
+        getHomeTasks(),
+        getCachedHolidays(year),
+        calendarEvents
+    );
 
     modal.querySelector('[data-hm="dt-title"]').textContent = dateLabelFromISO(iso);
     modal.querySelector('[data-hm="dt-body"]').innerHTML = tasks.length
@@ -3247,6 +3334,17 @@ function taskAuthorName(task) {
         "otro administrador";
 }
 
+function openMedicalEquipmentFromTaskCalendar(equipmentId) {
+    const id = String(equipmentId || "");
+
+    if (!id) return;
+
+    selectMedicalEquipment(id);
+    document
+        .querySelector('.nav-tile[data-target="medicalEquipmentPanel"]')
+        ?.click();
+}
+
 function openTaskEdit(panel, id) {
     const task = getHomeTasks().find(t => t.id === id);
     if (!task) return;
@@ -4005,6 +4103,13 @@ function wire(panel) {
                 return;
             }
 
+            const equipmentRow = event.target.closest('[data-hm="dt-medeq-row"]');
+
+            if (equipmentRow) {
+                openMedicalEquipmentFromTaskCalendar(equipmentRow.dataset.equipmentId);
+                return;
+            }
+
             const toggle = event.target.closest('[data-hm="dt-toggle"]');
 
             if (toggle) {
@@ -4021,6 +4126,14 @@ function wire(panel) {
         });
         dayTasks.addEventListener("keydown", event => {
             if (event.key !== "Enter" && event.key !== " ") return;
+
+            const equipmentRow = event.target.closest('[data-hm="dt-medeq-row"]');
+
+            if (equipmentRow) {
+                event.preventDefault();
+                openMedicalEquipmentFromTaskCalendar(equipmentRow.dataset.equipmentId);
+                return;
+            }
 
             const row = event.target.closest('[data-hm="dt-row"]');
 
@@ -4269,11 +4382,49 @@ function reRenderRequestsSummary(panel) {
     if (list) list.hidden = !requestsDetail;
 }
 
-// Refresca solo el listado de tareas (para el sync remoto de Firestore).
+function shouldRefreshMedicalEquipmentCalendar(event) {
+    const keys = event?.detail?.keys;
+
+    return !Array.isArray(keys) ||
+        !keys.length ||
+        keys.includes(MEDICAL_EQUIPMENT_KEY);
+}
+
+function refreshTaskCalendarSurfaces(panel = document.getElementById("homePanel")) {
+    if (!panel) return;
+
+    reRenderTaskCalendar(panel);
+    renderDayTasks(panel);
+}
+
+if (typeof window !== "undefined") {
+    const refreshMedicalEquipmentCalendar = event => {
+        if (!shouldRefreshMedicalEquipmentCalendar(event)) return;
+
+        refreshTaskCalendarSurfaces();
+    };
+
+    window.addEventListener(
+        "proturnos:medicalEquipmentChanged",
+        refreshMedicalEquipmentCalendar
+    );
+    window.addEventListener(
+        "proturnos:workspacePermissionsChanged",
+        refreshMedicalEquipmentCalendar
+    );
+    window.addEventListener(
+        "proturnos:persistenceChanged",
+        refreshMedicalEquipmentCalendar
+    );
+}
+
+// Refresca los listados de tareas y el calendario (para el sync remoto de Firestore).
 export function refreshHomeTasks() {
-    const list = document.getElementById("homePanel")
-        ?.querySelector('[data-hm="tasks-list"]');
+    const panel = document.getElementById("homePanel");
+    const list = panel?.querySelector('[data-hm="tasks-list"]');
+
     if (list) list.innerHTML = tasksListHTML();
+    refreshTaskCalendarSurfaces(panel);
 }
 
 export function renderHomePanel() {

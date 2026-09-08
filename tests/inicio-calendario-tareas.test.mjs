@@ -49,8 +49,15 @@ globalThis.document = {
 globalThis.alert = () => {};
 globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
 
-const { buildRequestSummary, buildTaskCalendarCells, getTasksForDay } =
+const {
+    buildRequestSummary,
+    buildTaskCalendarCells,
+    getTaskCalendarItemsForDay,
+    getTasksForDay
+} =
     await import("../js/home.js");
+const { medicalEquipmentCalendarEventsForRange } =
+    await import("../js/medicalEquipment.js");
 const { applyDoneMap, isTaskActiveOn, isTaskDoneOn, toggleTaskDoneOn } =
     await import("../js/homeTasks.js");
 
@@ -410,6 +417,93 @@ test("desde el calendario se puede agregar una tarea en el dia abierto", () => {
     assert.match(home, /data-hm="dt-add"/);
     assert.match(home, /openTaskAdd\(panel, openDayIso, \{ top: true \}\)/);
     assert.match(home, /modal\.querySelector\('\[data-hm="nt-date"\]'\)\.value = date \|\| todayISO\(\);/);
+});
+
+test("el calendario integra mantenimientos y vencimientos de equipos medicos", () => {
+    const equipment = [{
+        id: "rx-1",
+        name: "Arco C",
+        code: "AC-22",
+        location: "Box 1",
+        serviceActive: true,
+        serviceProvider: "Servicio Tecnico",
+        serviceUntil: "2026-09-20",
+        nextMaintenanceAt: "2026-09-15",
+        maintenances: [{
+            id: "mant-1",
+            type: "preventive",
+            date: "2026-09-10",
+            startAt: "2026-09-10T09:00",
+            endAt: "2026-09-11T12:00",
+            provider: "Servicio Tecnico",
+            summary: "Preventivo",
+            taskIds: []
+        }]
+    }];
+    const events = medicalEquipmentCalendarEventsForRange(
+        "2026-09-01",
+        "2026-09-30",
+        equipment
+    );
+    const cells = buildTaskCalendarCells(2026, 8, [], {}, events);
+
+    assert.deepEqual(
+        events.map(event => `${event.kind}:${event.date}`),
+        [
+            "maintenance:2026-09-10",
+            "maintenance:2026-09-11",
+            "nextMaintenance:2026-09-15",
+            "serviceUntil:2026-09-20"
+        ]
+    );
+    assert.equal(celda(cells, 10).tasks[0].source, "medicalEquipment");
+    assert.equal(celda(cells, 15).tasks[0].name, "Próximo mantenimiento · Arco C");
+    assert.equal(celda(cells, 20).tasks[0].name, "Vence servicio técnico · Arco C");
+});
+
+test("los eventos de equipos quedan visibles solo con ver y editar el menu", () => {
+    assert.match(home, /canViewMenu\("medicalEquipment"\) && canEditMenu\("medicalEquipment"\)/);
+    assert.match(home, /medicalEquipmentCalendarEventsForRange\(first, last\)/);
+    assert.match(home, /medicalEquipmentCalendarEventsForRange\(iso, iso\)/);
+    assert.match(home, /data-hm="dt-medeq-row"/);
+    assert.match(home, /selectMedicalEquipment\(id\)/);
+    assert.match(home, /proturnos:medicalEquipmentChanged/);
+    assert.match(home, /MEDICAL_EQUIPMENT_KEY/);
+});
+
+test("las tareas y los eventos de equipos se ordenan juntos por hora", () => {
+    const task = tarea({
+        id: "tarde",
+        name: "Tarea tarde",
+        time: "18:00",
+        repeat: "Una sola vez",
+        date: "2026-09-10"
+    });
+    const events = medicalEquipmentCalendarEventsForRange(
+        "2026-09-10",
+        "2026-09-10",
+        [{
+            id: "eco-1",
+            name: "Ecografo",
+            maintenances: [{
+                id: "mant-1",
+                type: "corrective",
+                date: "2026-09-10",
+                startAt: "2026-09-10T08:00",
+                endAt: "2026-09-10T09:00"
+            }]
+        }]
+    );
+
+    assert.deepEqual(
+        getTaskCalendarItemsForDay(
+            new Date(2026, 8, 10),
+            [task],
+            {},
+            events
+        ).map(item => item.source || item.id),
+        ["medicalEquipment", "tarde"]
+    );
 });
 
 test("modificar una tarea repinta las tres superficies", () => {

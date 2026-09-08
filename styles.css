@@ -3035,6 +3035,14 @@ body.theme-light .tt-worker {
 .hm-tc-chip b { font-weight: 800; color: var(--accent); margin-right: 5px; font-variant-numeric: tabular-nums; }
 .hm-tc-chip.is-done { color: var(--text-muted); text-decoration: line-through; }
 .hm-tc-chip.is-done b { color: var(--text-muted); }
+.hm-tc-chip--medeq { border-color: #c4b5fd; background: #f5f3ff; color: #33245e; }
+.hm-tc-chip--medeq b { color: #6d3fd9; }
+.hm-tc-chip--maintenance { border-color: #86efac; background: #ecfdf5; color: #064e3b; }
+.hm-tc-chip--maintenance b { color: #047857; }
+.hm-tc-chip--next { border-color: #93c5fd; background: #eff6ff; color: #123a6f; }
+.hm-tc-chip--next b { color: #0f559d; }
+.hm-tc-chip--service { border-color: #f6c453; background: #fff7e6; color: #533b07; }
+.hm-tc-chip--service b { color: #a66a00; }
 
 /* Ausencias del mes: cada ausencia lleva su marca de jornada, que es lo que
    decide a quien hay que llamar para cubrirla. D = dia, N = noche, DN = ambas
@@ -3114,6 +3122,11 @@ body.theme-light .tt-worker {
 .hm-dt-row:hover { border-color: var(--accent); }
 .hm-dt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .hm-dt-row.is-done .hm-task-check { background: var(--hm-good); border-color: var(--hm-good); color: #fff; }
+.hm-dt-row--medeq { border-color: #c7d2fe; background: #f8fbff; }
+.hm-dt-row--medeq:hover { border-color: #7c3aed; }
+.hm-dt-time--medeq { color: #6d3fd9; }
+.hm-dt-name small { display: block; margin-top: 2px; color: var(--text-muted); font-size: 0.72rem; font-weight: 600; line-height: 1.25; }
+.hm-dt-repeat--medeq { color: #5b21b6; background: #ede9fe; }
 /* Modificar una tarea se abre por encima del listado del dia, que a su vez esta
    por encima del calendario. */
 .hm-modal-backdrop--top { z-index: 1220; }
@@ -14989,6 +15002,19 @@ body.theme-dark .task-assignment-shift-badge--night { color: #7dabe8; }
     background: #ff6267;
 }
 
+.kanban-card--automatic {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    color: #3f2a13;
+    box-shadow:
+        0 12px 18px rgba(124, 45, 18, 0.13),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+
+.kanban-card--automatic:active {
+    cursor: default;
+}
+
 .kanban-card__head {
     display: flex;
     align-items: start;
@@ -15026,10 +15052,9 @@ body.theme-dark .task-assignment-shift-badge--night { color: #7dabe8; }
 }
 
 .kanban-card__edit,
-.kanban-card__delete {
+.kanban-card__delete,
+.kanban-card__open {
     flex: 0 0 auto;
-    width: 28px;
-    height: 28px;
     display: grid;
     place-items: center;
     border-radius: 8px;
@@ -15037,8 +15062,24 @@ body.theme-dark .task-assignment-shift-badge--night { color: #7dabe8; }
     background: rgba(255, 255, 255, 0.3);
 }
 
+.kanban-card__edit,
+.kanban-card__delete {
+    width: 28px;
+    height: 28px;
+}
+
+.kanban-card__open {
+    min-height: 28px;
+    padding: 0 8px;
+    color: #7c2d12;
+    font-size: 0.68rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
 .kanban-card__edit:hover,
-.kanban-card__delete:hover {
+.kanban-card__delete:hover,
+.kanban-card__open:hover {
     background: rgba(255, 255, 255, 0.54);
 }
 

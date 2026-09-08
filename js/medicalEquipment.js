@@ -92,6 +92,45 @@ function todayISO() {
     return new Date().toISOString().slice(0, 10);
 }
 
+function dateFromISO(iso) {
+    const [year, month, day] = String(iso || "").split("-").map(Number);
+
+    if (!year || !month || !day) return null;
+
+    return new Date(year, month - 1, day);
+}
+
+function addDaysISO(iso, days) {
+    const date = dateFromISO(iso);
+
+    if (!date) return "";
+
+    date.setDate(date.getDate() + days);
+
+    return date.toISOString().slice(0, 10);
+}
+
+function addMonthsISO(iso, months) {
+    const date = dateFromISO(iso);
+
+    if (!date) return "";
+
+    const originalDay = date.getDate();
+
+    date.setDate(1);
+    date.setMonth(date.getMonth() + months);
+
+    const lastDay = new Date(
+        date.getFullYear(),
+        date.getMonth() + 1,
+        0
+    ).getDate();
+
+    date.setDate(Math.min(originalDay, lastDay));
+
+    return date.toISOString().slice(0, 10);
+}
+
 function isoDate(value) {
     const clean = clampText(value, 10);
     return /^\d{4}-\d{2}-\d{2}$/.test(clean) ? clean : "";
@@ -100,6 +139,24 @@ function isoDate(value) {
 function isoDateTime(value) {
     const clean = clampText(value, 30);
     return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(clean) ? clean : "";
+}
+
+function timeFromISODateTime(value) {
+    const clean = isoDateTime(value);
+
+    return clean ? clean.slice(11, 16) : "";
+}
+
+function formatDateForSentence(iso) {
+    const date = dateFromISO(iso);
+
+    if (!date) return String(iso || "");
+
+    return [
+        String(date.getDate()).padStart(2, "0"),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        date.getFullYear()
+    ].join("/");
 }
 
 function optionLabel(options, value, fallback = "") {
@@ -294,6 +351,10 @@ export function normalizeMedicalEquipment(value = []) {
 
 export function getMedicalEquipment() {
     return normalizeMedicalEquipment(getJSON(MEDICAL_EQUIPMENT_KEY, []));
+}
+
+export function selectMedicalEquipment(id) {
+    selectedEquipmentId = String(id || "");
 }
 
 function getTaskCatalog() {
@@ -1195,6 +1256,199 @@ export function medicalEquipmentOutagesForRange(startISO, endISO) {
     });
 
     return items;
+}
+
+function equipmentCalendarDetail(equipment, extra = "") {
+    const details = [
+        equipment.code ? `Código ${equipment.code}` : "",
+        equipment.location || "",
+        extra
+    ].filter(Boolean);
+
+    return details.join(" · ");
+}
+
+function dateRangeBetween(fromISO, toISO, startISO, endISO) {
+    const from = fromISO < startISO ? startISO : fromISO;
+    const to = toISO > endISO ? endISO : toISO;
+    const dates = [];
+
+    if (!from || !to || to < from) return dates;
+
+    let cursor = from;
+    let guard = 0;
+
+    while (cursor && cursor <= to && guard < 370) {
+        dates.push(cursor);
+        cursor = addDaysISO(cursor, 1);
+        guard += 1;
+    }
+
+    return dates;
+}
+
+function maintenanceTimeLabel(record) {
+    const start = timeFromISODateTime(record.startAt);
+    const end = timeFromISODateTime(record.endAt);
+
+    if (start && end && start !== end) return `${start}-${end}`;
+    if (start) return start;
+
+    return "Mant.";
+}
+
+function pushMedicalCalendarEvent(events, event) {
+    if (!event.date) return;
+
+    events.push({
+        source: "medicalEquipment",
+        readOnly: true,
+        repeat: "Equipos Médicos",
+        alert: "Sin alerta",
+        visibility: "medicalEquipment",
+        ...event
+    });
+}
+
+export function medicalEquipmentCalendarEventsForRange(
+    startISO,
+    endISO,
+    equipmentItems = getMedicalEquipment()
+) {
+    const start = isoDate(startISO);
+    const end = isoDate(endISO) || start;
+    const events = [];
+
+    if (!start || !end) return events;
+
+    normalizeMedicalEquipment(equipmentItems).forEach(equipment => {
+        const maintenanceDates = new Set();
+
+        equipment.maintenances.forEach(record => {
+            const from =
+                isoDate(String(record.startAt || "").slice(0, 10)) ||
+                record.date;
+            const to =
+                isoDate(String(record.endAt || "").slice(0, 10)) ||
+                from;
+            const typeLabel = optionLabel(
+                MAINTENANCE_TYPES,
+                record.type,
+                "Mantenimiento"
+            );
+            const dates = dateRangeBetween(from, to, start, end);
+
+            dateRangeBetween(from, to, from, to).forEach(date => {
+                maintenanceDates.add(date);
+            });
+
+            dates.forEach(date => {
+                pushMedicalCalendarEvent(events, {
+                    id: `${equipment.id}:${record.id}:${date}`,
+                    kind: "maintenance",
+                    tone: "maintenance",
+                    equipmentId: equipment.id,
+                    maintenanceId: record.id,
+                    date,
+                    time: maintenanceTimeLabel(record),
+                    sortTime: timeFromISODateTime(record.startAt) || "08:00",
+                    name: `${typeLabel} · ${equipment.name}`,
+                    detail: equipmentCalendarDetail(
+                        equipment,
+                        record.provider || record.summary
+                    )
+                });
+            });
+        });
+
+        if (
+            equipment.nextMaintenanceAt &&
+            !maintenanceDates.has(equipment.nextMaintenanceAt) &&
+            equipment.nextMaintenanceAt >= start &&
+            equipment.nextMaintenanceAt <= end
+        ) {
+            pushMedicalCalendarEvent(events, {
+                id: `${equipment.id}:next-maintenance:${equipment.nextMaintenanceAt}`,
+                kind: "nextMaintenance",
+                tone: "next",
+                equipmentId: equipment.id,
+                date: equipment.nextMaintenanceAt,
+                time: "Prox.",
+                sortTime: "08:00",
+                name: `Próximo mantenimiento · ${equipment.name}`,
+                detail: equipmentCalendarDetail(
+                    equipment,
+                    equipment.serviceProvider
+                )
+            });
+        }
+
+        if (
+            equipment.serviceUntil &&
+            equipment.serviceUntil >= start &&
+            equipment.serviceUntil <= end
+        ) {
+            pushMedicalCalendarEvent(events, {
+                id: `${equipment.id}:service-until:${equipment.serviceUntil}`,
+                kind: "serviceUntil",
+                tone: "service",
+                equipmentId: equipment.id,
+                date: equipment.serviceUntil,
+                time: "Vig.",
+                sortTime: "17:00",
+                name: `Vence servicio técnico · ${equipment.name}`,
+                detail: equipmentCalendarDetail(
+                    equipment,
+                    equipment.serviceProvider
+                )
+            });
+        }
+    });
+
+    return events.sort((a, b) =>
+        a.date.localeCompare(b.date) ||
+        String(a.sortTime || a.time).localeCompare(String(b.sortTime || b.time)) ||
+        a.name.localeCompare(b.name, "es")
+    );
+}
+
+export function medicalEquipmentContractRenewalKanbanCards(
+    today = todayISO(),
+    equipmentItems = getMedicalEquipment()
+) {
+    const baseDate = isoDate(today) || todayISO();
+    const warningLimit = addMonthsISO(baseDate, 3);
+
+    if (!warningLimit) return [];
+
+    return normalizeMedicalEquipment(equipmentItems)
+        .filter(equipment =>
+            equipment.status !== "inactive" &&
+            equipment.serviceUntil &&
+            equipment.serviceUntil <= warningLimit
+        )
+        .sort((a, b) =>
+            a.serviceUntil.localeCompare(b.serviceUntil) ||
+            a.name.localeCompare(b.name, "es")
+        )
+        .map(equipment => ({
+            id: `medical_contract_${equipment.id}_${equipment.serviceUntil}`,
+            source: "medicalEquipmentRenewal",
+            auto: true,
+            readOnly: true,
+            status: "pending",
+            color: "coral",
+            equipmentId: equipment.id,
+            dueDate: equipment.serviceUntil,
+            title: `Renovar contrato de mantenimiento del equipo ${equipment.name}, la vigencia del contrato dura hasta ${formatDateForSentence(equipment.serviceUntil)}`,
+            detail: [
+                equipment.serviceProvider ? `Servicio técnico: ${equipment.serviceProvider}` : "",
+                equipment.code ? `Código: ${equipment.code}` : "",
+                equipment.location ? `Ubicación: ${equipment.location}` : ""
+            ].filter(Boolean).join("\n"),
+            createdAt: `${baseDate}T00:00:00.000Z`,
+            updatedAt: `${equipment.serviceUntil}T12:00:00.000Z`
+        }));
 }
 
 async function handleUpload(group, fileList) {

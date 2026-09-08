@@ -19,7 +19,8 @@ test("Equipos Medicos queda enganchado a ProTurnos, permisos y PWA", async () =>
         storageRules,
         css,
         source,
-        taskAssignments
+        taskAssignments,
+        home
     ] = await Promise.all([
         read("../index.html"),
         read("../js/main.js"),
@@ -32,7 +33,8 @@ test("Equipos Medicos queda enganchado a ProTurnos, permisos y PWA", async () =>
         read("../storage.rules"),
         read("../styles.css"),
         read("../js/medicalEquipment.js"),
-        read("../js/taskAssignments.js")
+        read("../js/taskAssignments.js"),
+        read("../js/home.js")
     ]);
 
     const informationsNavIndex = html.indexOf('data-target="informationsPanel"');
@@ -65,11 +67,15 @@ test("Equipos Medicos queda enganchado a ProTurnos, permisos y PWA", async () =>
     assert.match(css, /\.actionbar \.nav-tile\[data-target="medicalEquipmentPanel"\]\s*\{[\s\S]{0,80}order:\s*13/);
     assert.match(source, /export async function publishMedicalEquipmentToWorkers/);
     assert.match(source, /export function medicalEquipmentOutagesForRange/);
+    assert.match(source, /export function medicalEquipmentCalendarEventsForRange/);
     assert.match(source, /REPORTS_COLLECTION = "medicalEquipmentReports"/);
     assert.match(taskAssignments, /medicalEquipmentOutagesForRange/);
     assert.match(taskAssignments, /task-assignment-cell--maintenance/);
     assert.match(taskAssignments, /data-maintenance-blocked="true"/);
     assert.match(taskAssignments, /cell\.dataset\.maintenanceBlocked === "true"/);
+    assert.match(home, /medicalEquipmentCalendarEventsForRange/);
+    assert.match(home, /canViewMenu\("medicalEquipment"\) && canEditMenu\("medicalEquipment"\)/);
+    assert.match(home, /data-hm="dt-medeq-row"/);
 });
 
 test("Equipos Medicos queda activo para administradores legados con permiso completo", async () => {
