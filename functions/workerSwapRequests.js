@@ -462,20 +462,16 @@ function validateBasePayload(request, HttpsError) {
   return { uid, workspaceId };
 }
 
+// La devolucion SI puede caer el mismo dia del cambio: es el cruce en que uno
+// entrega su Noche y recibe la Larga del otro. Los dos turnos salen y entran el
+// mismo dia, asi que nadie queda con 24h; exigir fechas distintas bloqueaba un
+// cambio que el supervisor si puede registrar en ProTurnos.
 function validateSwapDates({ ownDate, returnDate, HttpsError }) {
   if (!parseISODateParts(ownDate) || !parseISODateParts(returnDate)) {
     callableError(
       HttpsError,
       "invalid-argument",
       "Las fechas del cambio de turno no son validas."
-    );
-  }
-
-  if (ownDate === returnDate) {
-    callableError(
-      HttpsError,
-      "failed-precondition",
-      "La fecha de cambio y devolucion deben ser distintas."
     );
   }
 
@@ -889,14 +885,6 @@ async function respondWorkerSwapRequestHandler(request, dependencies) {
           HttpsError,
           "invalid-argument",
           "Selecciona una fecha valida para devolver el turno."
-        );
-      }
-
-      if (changeDate === effectiveReturnDate) {
-        callableError(
-          HttpsError,
-          "failed-precondition",
-          "La fecha de cambio y devolucion deben ser distintas."
         );
       }
 
