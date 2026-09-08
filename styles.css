@@ -15707,6 +15707,215 @@ button.staffing-pill {
     margin-bottom: 0;
 }
 
+/* ---------- Bandeja a ancho completo / ficha a ancho completo ---------- */
+
+/* Son dos PANTALLAS, no dos columnas. Con la lista y la ficha lado a lado
+   ninguna tenia sitio: las escalas de nota y los antecedentes de cada factor
+   quedaban metidos en columnas de trescientos pixeles. */
+.qual-root {
+    display: grid;
+    gap: 14px;
+}
+
+.qual-list-panel,
+.qual-detail-panel {
+    display: grid;
+    gap: 14px;
+    align-content: start;
+    padding: 16px;
+}
+
+.qual-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    width: max-content;
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel-alt);
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.qual-back:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.qual-back svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.qual-detail-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+        "back back"
+        "id periods";
+    align-items: start;
+    gap: 12px;
+}
+
+.qual-back { grid-area: back; }
+.qual-detail-id { grid-area: id; }
+.qual-detail-periods { grid-area: periods; }
+
+.qual-detail-id {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+    min-width: 0;
+}
+
+.qual-detail-name {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+}
+
+.qual-detail-name h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    letter-spacing: -0.02em;
+}
+
+.qual-detail-id small {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-soft);
+    font-size: 0.84rem;
+    font-weight: 600;
+}
+
+.qual-avatar--lg {
+    width: 52px;
+    height: 52px;
+    font-size: 1.05rem;
+}
+
+.qual-detail-periods {
+    display: grid;
+    justify-items: end;
+    gap: 6px;
+}
+
+.qual-detail-kind {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.qual-periods--compact .qual-period {
+    min-height: 32px;
+    padding: 0 11px;
+    font-size: 0.78rem;
+}
+
+/* Franja de antecedentes del periodo, encima de los tres factores. */
+.qual-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 11px 13px;
+    border: 1px solid rgba(var(--brand-blue-rgb), 0.22);
+    border-radius: 14px;
+    background: rgba(var(--brand-blue-rgb), 0.04);
+}
+
+.qual-strip__label {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.qual-strip__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.qual-strip__chip strong { font-weight: 900; }
+
+.qual-strip__chip--ok { background: rgba(34, 197, 94, 0.12); color: #15803d; }
+.qual-strip__chip--warn { background: rgba(240, 177, 0, 0.14); color: #97690a; }
+.qual-strip__chip--bad { background: rgba(239, 68, 68, 0.1); color: #c53030; }
+
+.qual-strip__chip--mute {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text-soft);
+}
+
+.qual-strip__hint {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    font-weight: 700;
+}
+
+.qual-queue-foot {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.qual-queue-foot small {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.qual-queue-foot .ghost-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.qual-queue-foot svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+@media (max-width: 860px) {
+    .qual-detail-head {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas:
+            "back"
+            "id"
+            "periods";
+    }
+
+    .qual-detail-periods {
+        justify-items: start;
+    }
+}
+
 /* ---------- Cabecera del ciclo ---------- */
 
 .qual-head__actions {
@@ -16030,20 +16239,6 @@ button.staffing-pill {
 .qual-kpi--teal { border-left-color: #0d9488; }
 .qual-kpi--violet { border-left-color: #7c3aed; }
 .qual-kpi--slate { border-left-color: #64748b; }
-
-.qual-layout {
-    display: grid;
-    grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
-    gap: 14px;
-    align-items: start;
-}
-
-.qual-list-panel,
-.qual-detail-panel {
-    display: grid;
-    gap: 14px;
-    align-content: start;
-}
 
 .qual-list-tools {
     display: grid;
@@ -17064,13 +17259,6 @@ button.staffing-pill {
 }
 
 @media (max-width: 1050px) {
-    .qual-layout {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .qual-worker-list {
-        max-height: none;
-    }
 }
 
 @media (max-width: 720px) {

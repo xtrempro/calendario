@@ -167,7 +167,8 @@ const PERIOD_DEFS = [
 let selectedCycleStartYear = evaluationCycleStartYear();
 let selectedPeriodId = currentPeriodId(new Date(), selectedCycleStartYear);
 let selectedStatus = STATUS_ALL;
-let selectedProfileKey = "";
+// Trabajador con la ficha ABIERTA. Vacio = se ve la bandeja.
+let openProfileKey = "";
 let searchText = "";
 let searchRenderTimer = null;
 let incidentCache = {
@@ -976,7 +977,7 @@ function filterButtonHTML(status, label, count) {
 
 function workerRowHTML(summary) {
     const profile = summary.profile;
-    const selected = summary.profileKey === selectedProfileKey;
+    const selected = summary.profileKey === openProfileKey;
     const points = qualificationPoints(summary.record, profile);
 
     return `
@@ -1562,7 +1563,7 @@ function bindNoteScales(form, summary, period) {
     refreshAnnualTotals(form, summary.profile);
 }
 
-function detailHTML(summary, period, readonly) {
+function detailHTML(summary, period, readonly, queue = []) {
     if (!summary) {
         return `
             <section class="panel qual-detail-panel">
@@ -1574,8 +1575,8 @@ function detailHTML(summary, period, readonly) {
     }
 
     return isAnnualPeriod(period)
-        ? annualDetailHTML(summary, period, readonly)
-        : quarterDetailHTML(summary, period, readonly);
+        ? annualDetailHTML(summary, period, readonly, queue)
+        : quarterDetailHTML(summary, period, readonly, queue);
 }
 
 function detailHeadHTML(summary, period) {
@@ -1584,20 +1585,77 @@ function detailHeadHTML(summary, period) {
 
     return `
         <div class="qual-detail-head">
-            <div>
-                <span class="worker-request-type">
+            <button class="qual-back" type="button" data-qual-back>
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="m14 6-6 6 6 6"></path>
+                </svg>
+                Volver a la lista
+            </button>
+
+            <div class="qual-detail-id">
+                <span class="qual-avatar qual-avatar--lg">${escapeHTML(initials(profile.name))}</span>
+                <div>
+                    <div class="qual-detail-name">
+                        <h3>${escapeHTML(profile.name || "Sin nombre")}</h3>
+                        <span class="worker-request-status worker-request-status--${statusClass(summary.status)}">
+                            ${escapeHTML(statusLabel(summary.status))}
+                        </span>
+                    </div>
+                    <small>${escapeHTML([
+                        profile.rut || "Sin RUT",
+                        profile.estamento ? `Planta ${profile.estamento}` : "",
+                        profile.profession || ""
+                    ].filter(Boolean).join(" \u00b7 "))}</small>
+                </div>
+            </div>
+
+            <div class="qual-detail-periods">
+                <span class="qual-detail-kind">
                     ${annual ? "Calificacion anual" : "Informe cuatrimestral"}
                 </span>
-                <h3>${escapeHTML(profile.name || "Sin nombre")}</h3>
-                <small>${escapeHTML([
-                    profile.rut || "Sin RUT",
-                    profile.estamento || "",
-                    profile.profession || ""
-                ].filter(Boolean).join(" | "))}</small>
+                <div class="qual-periods qual-periods--compact">
+                    ${qualificationCycleSteps(period.cycleStartYear).map(step => `
+                        <button class="qual-period${step.id === period.id ? " is-active" : ""}${isAnnualPeriod(step) ? " qual-period--annual" : ""}"
+                            type="button"
+                            data-qual-period="${escapeAttribute(step.id)}">
+                            <strong>${escapeHTML(step.shortLabel)}</strong>
+                        </button>
+                    `).join("")}
+                </div>
             </div>
-            <span class="worker-request-status worker-request-status--${statusClass(summary.status)}">
-                ${escapeHTML(statusLabel(summary.status))}
+        </div>
+    `;
+}
+
+// Franja de antecedentes del periodo, arriba de los tres factores. Reemplaza a
+// la rejilla de contadores: dice lo mismo en una linea y deja sitio para lo que
+// de verdad se hace en esta pantalla, que es escribir.
+function ledgerStripHTML(summary, period) {
+    const training = summary.training.length + summary.calendarTraining.length;
+    const leaveDays = summary.calendar.filter(item =>
+        item.kind !== "training"
+    ).length;
+    const chips = [
+        ["ok", summary.merits.length, "merito", "meritos"],
+        ["warn", summary.demerits.length, "demerito", "demeritos"],
+        ["bad", summary.lateCount, "atraso", "atrasos"],
+        ["ok", training, "capacitacion", "capacitaciones"],
+        ["mute", leaveDays, "dia de permiso", "dias de permiso"]
+    ].filter(([, count]) => count > 0);
+
+    return `
+        <div class="qual-strip">
+            <span class="qual-strip__label">
+                Antecedentes de ${escapeHTML(period.label.toLowerCase())}
             </span>
+            ${chips.length
+                ? chips.map(([tone, count, one, many]) => `
+                    <span class="qual-strip__chip qual-strip__chip--${tone}">
+                        <strong>${count}</strong> ${escapeHTML(count === 1 ? one : many)}
+                    </span>
+                `).join("")
+                : `<span class="qual-strip__chip qual-strip__chip--mute">Sin antecedentes en el periodo</span>`}
+            <span class="qual-strip__hint">Toca un antecedente y se copia a la apreciacion</span>
         </div>
     `;
 }
@@ -1629,7 +1687,33 @@ function supervisorFieldsHTML(record, editable) {
    Informe cuatrimestral: tres al ano, escrito y SIN notas.
    ========================================================================== */
 
-function quarterDetailHTML(summary, period, readonly) {
+// "3 de 73" y el salto al siguiente sin evaluar: es lo que evita volver a la
+// bandeja entre trabajador y trabajador cuando hay setenta y tres que escribir.
+function queueFooterHTML(summary, queue = []) {
+    const index = queue.findIndex(item =>
+        item.profileKey === summary.profileKey
+    );
+    const next = queue.find(item =>
+        item.profileKey !== summary.profileKey &&
+        item.status !== STATUS_ARCHIVED
+    );
+
+    return `
+        <span class="qual-queue-foot">
+            <small>${index >= 0 ? index + 1 : 1} de ${queue.length || 1}</small>
+            ${next ? `
+                <button class="ghost-button ghost-button--small" type="button" data-qual-next="${escapeAttribute(next.profileKey)}">
+                    Siguiente sin evaluar
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="m10 6 6 6-6 6"></path>
+                    </svg>
+                </button>
+            ` : ""}
+        </span>
+    `;
+}
+
+function quarterDetailHTML(summary, period, readonly, queue = []) {
     const record = summary.record;
     const editable = !readonly;
     const evidence = evidenceByFactor(summary);
@@ -1642,24 +1726,7 @@ function quarterDetailHTML(summary, period, readonly) {
         <section class="panel qual-detail-panel">
             ${detailHeadHTML(summary, period)}
 
-            <div class="qual-evidence-grid">
-                ${kpiCardHTML("Meritos", summary.merits.length, "Hoja de vida", "green")}
-                ${kpiCardHTML("Demeritos", summary.demerits.length, "Hoja de vida", "red")}
-                ${kpiCardHTML("Atrasos", summary.lateCount, "Reloj control", "orange")}
-                ${kpiCardHTML("Marcajes", summary.clockIssueCount, "Incidencias", "slate")}
-                ${kpiCardHTML(
-                    "Capacitacion",
-                    summary.training.length + summary.calendarTraining.length,
-                    "Periodo evaluado",
-                    "teal"
-                )}
-                ${kpiCardHTML(
-                    "Apreciaciones",
-                    `${written} de 3`,
-                    complete ? "Listas para imprimir" : "Faltan por escribir",
-                    complete ? "blue" : "orange"
-                )}
-            </div>
+            ${ledgerStripHTML(summary, period)}
 
             <p class="qual-note">
                 Este informe va SIN notas: son apreciaciones escritas. Las notas,
@@ -1682,15 +1749,16 @@ function quarterDetailHTML(summary, period, readonly) {
                 ${paperFlowHTML(summary, summary.status)}
 
                 <div class="qual-actions">
+                    <button class="secondary-button" type="button" data-qual-print ${complete && editable ? "" : "disabled"}>
+                        ${complete ? "Imprimir formulario" : "Escribe las tres apreciaciones"}
+                    </button>
                     <button class="primary-button" type="submit" ${editable ? "" : "disabled"}>
                         Guardar borrador
-                    </button>
-                    <button class="secondary-button" type="button" data-qual-print ${complete && editable ? "" : "disabled"}>
-                        Imprimir formulario
                     </button>
                     <button class="danger-action" type="button" data-qual-reset ${editable ? "" : "disabled"}>
                         Reiniciar
                     </button>
+                    ${queueFooterHTML(summary, queue)}
                 </div>
             </form>
         </section>
@@ -1743,7 +1811,7 @@ function quarterReportsHTML(summary, period) {
     `;
 }
 
-function annualDetailHTML(summary, period, readonly) {
+function annualDetailHTML(summary, period, readonly, queue = []) {
     const profile = summary.profile;
     const record = summary.record;
     const editable = !readonly;
@@ -1806,6 +1874,7 @@ function annualDetailHTML(summary, period, readonly) {
                     <button class="danger-action" type="button" data-qual-reset ${editable ? "" : "disabled"}>
                         Reiniciar
                     </button>
+                    ${queueFooterHTML(summary, queue)}
                 </div>
             </form>
         </section>
@@ -1937,18 +2006,7 @@ function removeRecord(summary, period) {
     saveQualificationState(state);
 }
 
-function selectedSummaryFrom(summaries) {
-    if (!summaries.length) return null;
 
-    const selected = summaries.find(summary =>
-        summary.profileKey === selectedProfileKey
-    );
-
-    if (selected) return selected;
-
-    selectedProfileKey = summaries[0].profileKey;
-    return summaries[0];
-}
 
 // Estado del cuatrimestre dentro del ciclo, para la pastilla del boton: lo que
 // ya paso, lo que corre y lo que todavia no empieza.
@@ -2212,16 +2270,25 @@ export function renderQualificationsPanel() {
         )
     );
     const visible = visibleSummaries(summaries);
-    const selected = selectedSummaryFrom(visible);
+    // Solo hay ficha abierta si el supervisor eligio a alguien. Sin eleccion
+    // se ve la bandeja entera, que es donde se pasa la mayor parte del tiempo.
+    const selected = openProfileKey
+        ? visible.find(summary => summary.profileKey === openProfileKey) ||
+            summaries.find(summary => summary.profileKey === openProfileKey) ||
+            null
+        : null;
     const readonly = !canEditMenu("qualifications");
+
+    if (openProfileKey && !selected) openProfileKey = "";
 
     panel.innerHTML = `
         <div class="qual-root">
-            ${renderHeader(period, summaries)}
-            <div class="qual-layout">
-                ${renderList(visible, summaries, period)}
-                ${detailHTML(selected, period, readonly)}
-            </div>
+            ${selected
+                ? detailHTML(selected, period, readonly, visible)
+                : `
+                    ${renderHeader(period, summaries)}
+                    ${renderList(visible, summaries, period)}
+                `}
         </div>
     `;
 
@@ -2237,7 +2304,7 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
         button.onclick = () => {
             selectedCycleStartYear += Number(button.dataset.qualCycle) || 0;
             selectedPeriodId = "sep-dec";
-            selectedProfileKey = "";
+            openProfileKey = "";
             incidentCache = {
                 key: "",
                 loading: false,
@@ -2250,7 +2317,9 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
     panel.querySelectorAll("[data-qual-period]").forEach(button => {
         button.onclick = () => {
             selectedPeriodId = button.dataset.qualPeriod || "sep-dec";
-            selectedProfileKey = "";
+            // NO se cierra la ficha: dentro de una evaluacion los cuatro pasos
+            // del ciclo son pestañas de la MISMA persona, y cerrarla obligaria
+            // a volver a buscarla en la lista para ver su otro cuatrimestre.
             incidentCache = {
                 key: "",
                 loading: false,
@@ -2263,7 +2332,7 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
     panel.querySelectorAll("[data-qual-status]").forEach(button => {
         button.onclick = () => {
             selectedStatus = button.dataset.qualStatus || STATUS_ALL;
-            selectedProfileKey = "";
+            openProfileKey = "";
             renderQualificationsPanel();
         };
     });
@@ -2273,7 +2342,7 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
     if (search) {
         search.oninput = () => {
             searchText = search.value || "";
-            selectedProfileKey = "";
+            openProfileKey = "";
             const cursor = search.selectionStart;
 
             clearTimeout(searchRenderTimer);
@@ -2294,6 +2363,16 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
         };
     }
 
+    panel.querySelector("[data-qual-back]")?.addEventListener("click", () => {
+        openProfileKey = "";
+        renderQualificationsPanel();
+    });
+
+    panel.querySelector("[data-qual-next]")?.addEventListener("click", event => {
+        openProfileKey = event.currentTarget.dataset.qualNext || "";
+        renderQualificationsPanel();
+    });
+
     panel.querySelector("[data-qual-queue]")?.addEventListener("click", () => {
         // Salta al primero que aun no este archivado, respetando el orden de
         // la lista: primero lo que falta por escribir.
@@ -2303,13 +2382,13 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
 
         if (!next) return;
 
-        selectedProfileKey = next.profileKey;
+        openProfileKey = next.profileKey;
         renderQualificationsPanel();
     });
 
     panel.querySelectorAll("[data-qual-profile]").forEach(button => {
         button.onclick = () => {
-            selectedProfileKey = button.dataset.qualProfile || "";
+            openProfileKey = button.dataset.qualProfile || "";
             renderQualificationsPanel();
         };
     });
@@ -2373,10 +2452,10 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
     if (
         selected &&
         !summaries.some(summary =>
-            summary.profileKey === selectedProfileKey
+            summary.profileKey === openProfileKey
         )
     ) {
-        selectedProfileKey = selected.profileKey;
+        openProfileKey = selected.profileKey;
     }
 }
 

@@ -407,3 +407,41 @@ test("la cabecera muestra el ciclo, el avance y los antecedentes de la unidad", 
     // El atajo para no volver a la lista entre trabajador y trabajador.
     assert.match(source, /data-qual-queue/);
 });
+
+test("la bandeja y la evaluacion son dos pantallas, no dos columnas", async () => {
+    const [source, css] = await Promise.all([
+        read("../js/qualifications.js"),
+        read("../styles.css")
+    ]);
+
+    // Lado a lado ninguna tenia sitio: las escalas de nota y los antecedentes
+    // de cada factor quedaban metidos en columnas de trescientos pixeles.
+    assert.doesNotMatch(source, /qual-layout/);
+    assert.doesNotMatch(css, /\.qual-layout/);
+    // Sin trabajador elegido se ve la bandeja; con uno, la ficha la reemplaza.
+    assert.match(source, /let openProfileKey = ""/);
+    assert.match(source, /\$\{selected\s*\n\s*\? detailHTML/);
+    assert.match(source, /data-qual-back/);
+});
+
+test("dentro de la ficha, los periodos son pestanas de la misma persona", async () => {
+    const source = await read("../js/qualifications.js");
+
+    // Cambiar de cuatrimestre no debe devolver a la lista: obligaria a buscar
+    // otra vez a la misma persona para ver su otro periodo.
+    const handler = source.slice(
+        source.lastIndexOf('panel.querySelectorAll("[data-qual-period]")'),
+        source.lastIndexOf('panel.querySelectorAll("[data-qual-status]")')
+    );
+
+    assert.doesNotMatch(handler, /openProfileKey = ""/);
+    assert.match(source, /qual-periods--compact/);
+});
+
+test("la ficha lleva la franja de antecedentes y el pie de la fila", async () => {
+    const source = await read("../js/qualifications.js");
+
+    assert.match(source, /function ledgerStripHTML/);
+    assert.match(source, /function queueFooterHTML/);
+    assert.match(source, /data-qual-next=/);
+});
