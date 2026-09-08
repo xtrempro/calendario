@@ -16287,6 +16287,14 @@ button.staffing-pill {
 .qual-list-head,
 .qual-subhead,
 .qual-detail-head,
+.qual-factor-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+}
+
 /* ---------- Encabezado de la calificacion anual ---------- */
 
 /* Volver y los cuatro pasos del ciclo comparten la primera linea, para que la
@@ -17031,7 +17039,33 @@ button.staffing-pill {
 
 .qual-reports {
     display: grid;
-    gap: 8px;
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--panel-alt);
+}
+
+/* El rotulo del bloque en versalitas, como el resto de los encabezados de
+   seccion del menu: el titulo en negrita y a tamano de parrafo competia con el
+   nombre de los tres informes, que es lo que hay que leer. */
+.qual-reports .qual-subhead {
+    align-items: baseline;
+}
+
+.qual-reports .qual-subhead h4 {
+    font-family: var(--font-ui);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.qual-reports .qual-subhead span {
+    color: var(--text-muted);
+    font-size: 0.74rem;
+    font-weight: 600;
 }
 
 .qual-report {

@@ -536,3 +536,41 @@ test("la tarjeta de puntaje compara con el ciclo anterior", async () => {
     assert.match(source, /function previousCyclePoints/);
     assert.match(source, /Ciclo anterior: \$\{escapeHTML/);
 });
+
+test("ninguna insercion parte una lista de selectores del CSS", async () => {
+    const css = await read("../styles.css");
+    const lines = css.split("\n");
+    const broken = [];
+
+    // Insertar un bloque usando como ancla la ULTIMA linea de una lista de
+    // selectores la parte: el prefijo se queda colgado y se pega al primer
+    // selector del bloque nuevo. Paso de verdad con
+    // `.qual-list-head, .qual-subhead, .qual-detail-head, .qual-factor-head`,
+    // que perdio sus propiedades y estuvo semanas descuadrando el encabezado.
+    lines.forEach((line, index) => {
+        if (!line.trimEnd().endsWith(",")) return;
+
+        let next = index + 1;
+
+        while (next < lines.length && !lines[next].trim()) next += 1;
+
+        if (next < lines.length && lines[next].trimStart().startsWith("/*")) {
+            broken.push(`${index + 1}: ${line.trim()}`);
+        }
+    });
+
+    assert.deepEqual(
+        broken,
+        [],
+        `listas de selectores partidas por un comentario: ${broken.join(" | ")}`
+    );
+});
+
+test("los tres informes van dentro de un recuadro gris", async () => {
+    const css = await read("../styles.css");
+
+    // Las tarjetas blancas necesitan un fondo del que despegarse; sueltas
+    // sobre el panel el bloque no se leia como una unidad.
+    assert.match(css, /\.qual-reports \{[^}]*background: var\(--panel-alt\)/);
+    assert.match(css, /\.qual-reports \.qual-subhead h4 \{[^}]*text-transform: uppercase/);
+});
