@@ -169,6 +169,8 @@ let selectedPeriodId = currentPeriodId(new Date(), selectedCycleStartYear);
 let selectedStatus = STATUS_ALL;
 // Trabajador con la ficha ABIERTA. Vacio = se ve la bandeja.
 let openProfileKey = "";
+// Cual de los tres informes cuatrimestrales se lee desplegado en la anual.
+let openReportId = "";
 let searchText = "";
 let searchRenderTimer = null;
 let incidentCache = {
@@ -864,20 +866,6 @@ function deadlineText(period, pendingCount) {
     return `${days} dia(s) restantes`;
 }
 
-function scoreAverage(record) {
-    if (!record) return "";
-
-    const values = QUALIFICATION_FACTORS
-        .map(factor => factorComputedScore(record.factors?.[factor.key]))
-        .filter(Number.isFinite);
-
-    if (!values.length) return "";
-
-    return (
-        values.reduce((sum, value) => sum + value, 0) / values.length
-    ).toFixed(1);
-}
-
 export function qualificationCoefficientGroup(profile = {}) {
     const estamento = normalizePlainText(
         profile.estamento || profile.role || profile.profession
@@ -1428,12 +1416,17 @@ function factorFieldHTML(factor, record, editable, previousScores = {}) {
 // cada franja es su tramo de puntos, no una porcion igual. Es lo unico con
 // efecto de verdad (ascenso, estimulos, eliminacion) y hasta ahora no se veia
 // hasta guardar.
-function scoreBandHTML(points, coefficientGroup) {
+function scoreCardHTML(record, points) {
     const value = Number(points) || 0;
-    const list = qualificationList(value);
     const marker = value
         ? Math.max(0, Math.min(100, ((value - 10) / 90) * 100))
         : 0;
+    const filled = QUALIFICATION_FACTORS.reduce((count, factor) =>
+        count + factor.subfactors.filter(subfactor => scoreNumber(
+            record?.factors?.[factor.key]?.subfactors?.[subfactor.key]?.score
+        )).length,
+        0
+    );
 
     return `
         <section class="qual-scoreboard">
@@ -1460,12 +1453,9 @@ function scoreBandHTML(points, coefficientGroup) {
             <div class="qual-bands__scale">
                 <span>10</span><span>30</span><span>46</span><span>81</span><span>100</span>
             </div>
-            <small class="qual-scoreboard__foot">
-                ${escapeHTML(coefficientGroup.label)}:
-                ${QUALIFICATION_FACTORS.map(factor =>
-                    `${factor.label} ${coefficientGroup[factor.key]}`
-                ).join(" | ")}
-            </small>
+            <div class="qual-scoreboard__foot">
+                <span data-qual-filled>${filled} de 6 notas puestas</span>
+            </div>
         </section>
     `;
 }
@@ -1517,6 +1507,21 @@ function refreshAnnualTotals(form, profile) {
 
     if (totalNode) totalNode.textContent = rounded ? rounded.toFixed(2) : "--";
     if (listNode) listNode.textContent = qualificationListLabel(rounded);
+
+    const filledNode = form.querySelector("[data-qual-filled]");
+
+    if (filledNode) {
+        const filled = QUALIFICATION_FACTORS.reduce((count, factor) =>
+            count + factor.subfactors.filter(subfactor => scoreNumber(
+                form.querySelector(
+                    `[data-qual-sub-score="${factor.key}:${subfactor.key}"]`
+                )?.value
+            )).length,
+            0
+        );
+
+        filledNode.textContent = `${filled} de 6 notas puestas`;
+    }
 
     if (marker) {
         marker.hidden = !rounded;
@@ -1795,6 +1800,15 @@ function quarterDetailHTML(summary, period, readonly, queue = []) {
    Calificacion anual: una al ano, con las notas del articulo 14.
    ========================================================================== */
 
+// Las dos primeras lineas del informe, para poder compararlos sin abrirlos.
+function reportExcerpt(parts) {
+    const text = parts.map(part => part.text).join(" ").trim();
+
+    if (!text) return "Sin escribir en este cuatrimestre.";
+
+    return text.length > 96 ? `${text.slice(0, 95)}...` : text;
+}
+
 function quarterReportsHTML(summary, period) {
     const state = getQualificationState();
     const reports = qualificationPeriods(period.cycleStartYear).map(quarter => {
@@ -1809,30 +1823,47 @@ function quarterReportsHTML(summary, period) {
         return { quarter, parts };
     });
 
+    const openId = openReportId ||
+        (reports.find(item => item.parts.length) || reports[0])?.quarter.id ||
+        "";
+    const open = reports.find(item => item.quarter.id === openId);
+
     return `
         <section class="qual-reports">
             <div class="qual-subhead">
-                <h4>Los tres informes del periodo</h4>
-                <span>Articulo 19: antecedente de la precalificacion</span>
+                <h4>Los tres informes cuatrimestrales del periodo</h4>
+                <span>Art. 19: antecedente relevante de la precalificacion</span>
             </div>
-            ${reports.map(({ quarter, parts }) => `
-                <details class="qual-report">
-                    <summary>
-                        <strong>${escapeHTML(quarter.label)}</strong>
-                        <span class="${parts.length ? "is-ok" : "is-missing"}">
-                            ${parts.length ? "escrito" : "sin escribir"}
+            <div class="qual-reports__cards">
+                ${reports.map(({ quarter, parts }) => `
+                    <button class="qual-report-card${quarter.id === openId ? " is-open" : ""}"
+                        type="button"
+                        data-qual-report="${escapeAttribute(quarter.id)}">
+                        <span class="qual-report-card__head">
+                            <strong>${escapeHTML(quarter.shortLabel)} ${quarter.endDate.getFullYear()}</strong>
+                            <span class="${parts.length ? "is-ok" : "is-missing"}">
+                                ${parts.length ? "escrita" : "sin escribir"}
+                            </span>
                         </span>
-                    </summary>
-                    ${parts.length
-                        ? parts.map(part => `
-                            <div class="qual-report__part">
-                                <strong>${escapeHTML(part.label)}</strong>
-                                <p>${escapeHTML(part.text)}</p>
-                            </div>
-                        `).join("")
-                        : `<p class="qual-evidence-empty">No se escribio el informe de este cuatrimestre.</p>`}
-                </details>
-            `).join("")}
+                        <small>${escapeHTML(reportExcerpt(parts))}</small>
+                    </button>
+                `).join("")}
+            </div>
+            ${open && open.parts.length ? `
+                <div class="qual-report__body">
+                    <span class="qual-report__title">${escapeHTML(open.quarter.label)} ${open.quarter.endDate.getFullYear()}</span>
+                    ${open.parts.map(part => `
+                        <div class="qual-report__part">
+                            <strong>${escapeHTML(part.label)}</strong>
+                            <p>${escapeHTML(part.text)}</p>
+                        </div>
+                    `).join("")}
+                </div>
+            ` : `
+                <p class="qual-evidence-empty">
+                    No se escribio el informe de ese cuatrimestre.
+                </p>
+            `}
         </section>
     `;
 }
@@ -1841,31 +1872,49 @@ function annualDetailHTML(summary, period, readonly, queue = []) {
     const profile = summary.profile;
     const record = summary.record;
     const editable = !readonly;
-    const average = scoreAverage(record) || "-";
     const points = qualificationPoints(record, profile);
     const coefficientGroup =
         QUALIFICATION_COEFFICIENTS[qualificationCoefficientGroup(profile)] ||
         QUALIFICATION_COEFFICIENTS.administrativos_auxiliares;
     const previousScores = previousCycleScores(profile, period.cycleStartYear);
 
+    const coefficients = QUALIFICATION_FACTORS
+        .map(factor => String(coefficientGroup[factor.key]).replace(".", ","))
+        .join(" / ");
+
     return `
         <section class="panel qual-detail-panel">
-            ${detailHeadHTML(summary, period)}
+            <div class="qual-detail-bar">
+                <button class="qual-back" type="button" data-qual-back>
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="m14 6-6 6 6 6"></path>
+                    </svg>
+                    Volver a la lista
+                </button>
+                <div class="qual-periods qual-periods--compact">
+                    ${qualificationCycleSteps(period.cycleStartYear).map(step => `
+                        <button class="qual-period${step.id === period.id ? " is-active" : ""}${isAnnualPeriod(step) ? " qual-period--annual" : ""}"
+                            type="button"
+                            data-qual-period="${escapeAttribute(step.id)}">
+                            <strong>${escapeHTML(step.shortLabel)}</strong>
+                        </button>
+                    `).join("")}
+                </div>
+            </div>
 
-            ${scoreBandHTML(points, coefficientGroup)}
-
-            <div class="qual-evidence-grid">
-                ${kpiCardHTML("Promedio", average, "Notas de subfactor", "violet")}
-                ${kpiCardHTML("Meritos", summary.merits.length, "Del ciclo", "green")}
-                ${kpiCardHTML("Demeritos", summary.demerits.length, "Del ciclo", "red")}
-                ${kpiCardHTML("Atrasos", summary.lateCount, "Reloj control", "orange")}
-                ${kpiCardHTML("Marcajes", summary.clockIssueCount, "Incidencias", "slate")}
-                ${kpiCardHTML(
-                    "Capacitacion",
-                    summary.training.length + summary.calendarTraining.length,
-                    "Del ciclo",
-                    "teal"
-                )}
+            <div class="qual-annual-head">
+                <div class="qual-detail-id">
+                    <span class="qual-avatar qual-avatar--lg">${escapeHTML(initials(profile.name))}</span>
+                    <div>
+                        <div class="qual-detail-name">
+                            <h3>${escapeHTML(profile.name || "Sin nombre")}</h3>
+                            <span class="qual-kind-pill">Precalificacion anual</span>
+                        </div>
+                        <small>Planta ${escapeHTML(coefficientGroup.label)} &middot; coeficientes ${escapeHTML(coefficients)} (art. 17)</small>
+                        <small>Periodo ${escapeHTML(formatDate(period.startISO))} al ${escapeHTML(formatDate(period.endISO))} &middot; la precalificacion se cierra el ${escapeHTML(formatDate(period.deadlineISO))}</small>
+                    </div>
+                </div>
+                ${scoreCardHTML(record, points)}
             </div>
 
             ${quarterReportsHTML(summary, period)}
@@ -2388,6 +2437,13 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
             }, 140);
         };
     }
+
+    panel.querySelectorAll("[data-qual-report]").forEach(button => {
+        button.onclick = () => {
+            openReportId = button.dataset.qualReport || "";
+            renderQualificationsPanel();
+        };
+    });
 
     panel.querySelector("[data-qual-back]")?.addEventListener("click", () => {
         openProfileKey = "";

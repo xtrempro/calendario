@@ -487,3 +487,33 @@ test("la fila del trabajador muestra solo lo que tiene", async () => {
     // Y si esta el formulario escaneado, se ve desde la lista.
     assert.match(source, /qual-scan-badge/);
 });
+
+test("en la anual el puntaje es una tarjeta junto a la identidad", async () => {
+    const [source, css] = await Promise.all([
+        read("../js/qualifications.js"),
+        read("../styles.css")
+    ]);
+
+    // A lo ancho de la pantalla, el puntaje quedaba lejos de las notas que lo
+    // mueven; es el dato que se mira mientras se califica.
+    assert.match(source, /function scoreCardHTML/);
+    assert.doesNotMatch(source, /function scoreBandHTML/);
+    assert.match(css, /\.qual-annual-head \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(300px, 340px\)/);
+    // Y el encabezado dice la planta, los coeficientes y el plazo de cierre.
+    assert.match(source, /coeficientes \$\{escapeHTML\(coefficients\)\}/);
+    assert.match(source, /la precalificacion se cierra el/);
+});
+
+test("los tres informes se pueden comparar de un vistazo", async () => {
+    const [source, css] = await Promise.all([
+        read("../js/qualifications.js"),
+        read("../styles.css")
+    ]);
+
+    // Apilados a lo ancho no se podian mirar juntos, que es lo que hay que
+    // hacer para poner la nota del ano.
+    assert.match(css, /\.qual-reports__cards \{[^}]*grid-template-columns: repeat\(3/);
+    assert.match(source, /function reportExcerpt/);
+    assert.match(source, /data-qual-report=/);
+    assert.doesNotMatch(source, /<details class="qual-report">/);
+});
