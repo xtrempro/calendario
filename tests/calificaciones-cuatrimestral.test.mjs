@@ -596,6 +596,38 @@ test("el recuadro de evaluaciones sale del perfil sin perder lo guardado", async
     // registros guardados y sin ninguna pantalla que los abriera.
     assert.match(main, /HR_LOG_CONFIG\.forEach\(config => \{/);
     assert.match(source, /summary\.performance\.forEach/);
-    assert.match(source, /data-qual-legacy-file=/);
+    // El boton del adjunto se generalizo al agregarselo tambien a los eventos.
+    assert.match(source, /fileSource: item\.file \? "performance" : ""/);
     assert.match(source, /Evaluacion anterior/);
+});
+
+test("los eventos llegan a Calificaciones con su propio texto", async () => {
+    const source = await read("../js/qualifications.js");
+
+    // El evento guarda su contenido en `detail`, no en `title`. Leyendo
+    // `title` llegaba como una "Anotacion" generica y SIN texto, que es
+    // justamente lo que hay que copiar a la apreciacion.
+    assert.match(source, /summary\.events\.forEach\(\(item, index\) => \{/);
+    assert.match(source, /const detail = String\(item\.detail \|\| item\.title \|\| ""\)/);
+    assert.doesNotMatch(source, /title: item\.title \|\| "Anotacion"/);
+    // Y se cuentan en la franja del periodo y en el resumen de la unidad.
+    assert.match(source, /summary\.events\.length, "evento", "eventos"/);
+    assert.match(source, /totals\.events, "eventos registrados"/);
+});
+
+test("el evento admite archivo de respaldo", async () => {
+    const [main, source] = await Promise.all([
+        read("../js/main.js"),
+        read("../js/qualifications.js")
+    ]);
+
+    // Mismo mecanismo que ya usan merito y demerito: basta con declarar el
+    // rotulo del archivo en la seccion.
+    assert.match(
+        main,
+        /key: "events",[\s\S]{0,320}fileLabel: "Archivo de respaldo"/
+    );
+    // Y se puede abrir desde la ficha, igual que el de la evaluacion retirada.
+    assert.match(source, /data-qual-file-source=/);
+    assert.match(source, /const entry = \(summary\[source\] \|\| \[\]\)\[index\]/);
 });

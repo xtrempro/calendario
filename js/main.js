@@ -725,7 +725,8 @@ const HR_LOG_CONFIG = [
         fields: [
             { name: "date", label: "Fecha", type: "date" },
             { name: "detail", label: "Detalle", type: "textarea" }
-        ]
+        ],
+        fileLabel: "Archivo de respaldo"
     },
     {
         key: "merit",

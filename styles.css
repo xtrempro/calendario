@@ -17033,6 +17033,8 @@ button.staffing-pill {
 .qual-ledger__dot--ok { background: var(--green); }
 .qual-ledger__dot--warn { background: var(--yellow); }
 .qual-ledger__dot--bad { background: var(--red); }
+/* El evento no es merito ni demerito: va en gris, como el hecho neutro que es. */
+.qual-ledger__dot--mute { background: var(--muted); }
 
 .qual-ledger__note {
     margin: 0;

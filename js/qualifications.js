@@ -1063,17 +1063,22 @@ function evidenceByFactor(summary) {
                 .filter(Boolean)
                 .join(" - "),
             text: String(item.detail || "Evaluacion de desempeno anterior."),
-            // El indice apunta al registro original para poder abrir su PDF.
-            legacyIndex: item.file ? index : -1
+            // Apuntan al registro original para poder abrir su PDF.
+            fileSource: item.file ? "performance" : "",
+            fileIndex: item.file ? index : -1
         });
     });
 
-    summary.events.forEach(item => {
-        buckets.rendimiento.push({
+    summary.events.forEach((item, index) => {
+        const detail = String(item.detail || item.title || "").trim();
+
+        buckets.condiciones.push({
             tone: "mute",
-            title: item.title || "Anotacion",
-            detail: formatDate(entryDate(item)),
-            text: item.title || "Anotacion en la hoja de vida"
+            title: `Evento del ${formatDate(entryDate(item))}`,
+            detail: detail || "Sin detalle",
+            text: detail || `Evento registrado el ${formatDate(entryDate(item))}.`,
+            fileSource: item.file ? "events" : "",
+            fileIndex: item.file ? index : -1
         });
     });
 
@@ -1151,11 +1156,12 @@ function evidenceChipsHTML(factorKey, items) {
                 </span>
                 <span class="qual-chip__add" aria-hidden="true">+</span>
             </button>
-            ${item.legacyIndex >= 0 ? `
+            ${item.fileIndex >= 0 ? `
                 <button class="qual-chip__file"
                     type="button"
-                    data-qual-legacy-file="${item.legacyIndex}"
-                    title="Abrir la calificacion escaneada">
+                    data-qual-file-source="${escapeAttribute(item.fileSource)}"
+                    data-qual-file-index="${item.fileIndex}"
+                    title="Abrir el archivo de respaldo">
                     PDF
                 </button>
             ` : ""}
@@ -1705,6 +1711,7 @@ function ledgerStripHTML(summary, period) {
     const chips = [
         ["ok", summary.merits.length, "merito", "meritos"],
         ["warn", summary.demerits.length, "demerito", "demeritos"],
+        ["mute", summary.events.length, "evento", "eventos"],
         ["bad", summary.lateCount, "atraso", "atrasos"],
         ["ok", training, "capacitacion", "capacitaciones"],
         ["mute", leaveDays, "dia de permiso", "dias de permiso"]
@@ -2158,15 +2165,17 @@ function unitLedgerHTML(summaries) {
     const totals = summaries.reduce((sum, summary) => ({
         merits: sum.merits + summary.merits.length,
         demerits: sum.demerits + summary.demerits.length,
+        events: sum.events + summary.events.length,
         late: sum.late + summary.lateCount,
         training: sum.training +
             summary.training.length +
             summary.calendarTraining.length
-    }), { merits: 0, demerits: 0, late: 0, training: 0 });
+    }), { merits: 0, demerits: 0, events: 0, late: 0, training: 0 });
 
     const rows = [
         ["ok", totals.merits, "anotaciones de merito"],
         ["warn", totals.demerits, "anotaciones de demerito"],
+        ["mute", totals.events, "eventos registrados"],
         ["bad", totals.late, "atrasos en reloj control"],
         ["ok", totals.training, "capacitaciones aprobadas"]
     ];
@@ -2624,10 +2633,11 @@ function bindAppraisalHelpers(form, summary, period) {
         field.oninput = paint;
     });
 
-    form.querySelectorAll("[data-qual-legacy-file]").forEach(button => {
+    form.querySelectorAll("[data-qual-file-source]").forEach(button => {
         button.onclick = () => {
-            const index = Number(button.dataset.qualLegacyFile);
-            const entry = summary.performance[index];
+            const source = button.dataset.qualFileSource;
+            const index = Number(button.dataset.qualFileIndex);
+            const entry = (summary[source] || [])[index];
 
             if (!hasAttachmentContent(entry?.file)) return;
 
