@@ -386,3 +386,24 @@ test("los recuadros de texto no los pisa la regla generica del formulario", asyn
     assert.match(css, /\.qual-form \.qual-reason textarea \{/);
     assert.doesNotMatch(css, /\n\.qual-appraisal \{/);
 });
+
+test("la cabecera muestra el ciclo, el avance y los antecedentes de la unidad", async () => {
+    const [source, css] = await Promise.all([
+        read("../js/qualifications.js"),
+        read("../styles.css")
+    ]);
+
+    // Los cuatro pasos en UNA fila de pastillas con su etapa, no cuatro
+    // tarjetas grandes que se parten en dos filas.
+    assert.match(source, /function periodStageLabel/);
+    assert.match(source, /qual-period__stage/);
+    assert.match(css, /\.qual-periods \{[^}]*display: flex/);
+
+    // Avance y antecedentes lado a lado.
+    assert.match(source, /function progressHTML/);
+    assert.match(source, /function unitLedgerHTML/);
+    assert.match(css, /\.qual-overview \{[^}]*grid-template-columns/);
+
+    // El atajo para no volver a la lista entre trabajador y trabajador.
+    assert.match(source, /data-qual-queue/);
+});

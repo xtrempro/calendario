@@ -962,20 +962,6 @@ function kpiCardHTML(label, value, detail, tone = "blue") {
     `;
 }
 
-function periodButtonHTML(period) {
-    const active = period.id === selectedPeriodId;
-    const annual = isAnnualPeriod(period);
-
-    return `
-        <button class="qual-period ${active ? "is-active" : ""}${annual ? " qual-period--annual" : ""}"
-            type="button"
-            data-qual-period="${escapeAttribute(period.id)}">
-            <strong>${escapeHTML(period.shortLabel)}</strong>
-            <small>${escapeHTML(annual ? "con notas" : formatPeriodDeadline(period))}</small>
-        </button>
-    `;
-}
-
 function filterButtonHTML(status, label, count) {
     const active = selectedStatus === status;
 
@@ -1964,55 +1950,177 @@ function selectedSummaryFrom(summaries) {
     return summaries[0];
 }
 
-function renderHeader(period, summaries) {
-    const total = summaries.length;
-    const closed = summaries.filter(summary =>
-        isClosedStatus(summary.status)
-    ).length;
+// Estado del cuatrimestre dentro del ciclo, para la pastilla del boton: lo que
+// ya paso, lo que corre y lo que todavia no empieza.
+function periodStageLabel(period, today = new Date()) {
+    if (isAnnualPeriod(period)) return "septiembre";
+
+    const iso = toISODate(today);
+
+    if (iso > period.endISO) return "cerrado";
+    if (iso < period.startISO) return "por venir";
+
+    return "en curso";
+}
+
+function periodButtonHTML(period) {
+    const active = period.id === selectedPeriodId;
+    const annual = isAnnualPeriod(period);
+    const stage = periodStageLabel(period);
+
+    return `
+        <button class="qual-period${active ? " is-active" : ""}${annual ? " qual-period--annual" : ""}"
+            type="button"
+            data-qual-period="${escapeAttribute(period.id)}">
+            <strong>${escapeHTML(annual ? "Calificacion anual" : period.label)}</strong>
+            <span class="qual-period__stage">${escapeHTML(stage)}</span>
+        </button>
+    `;
+}
+
+// Lo que entro al periodo en TODA la unidad. No es adorno: es el material con
+// el que se escriben las apreciaciones, y verlo junto evita la sensacion de
+// que hay que ir a buscarlo a otra parte.
+function unitLedgerHTML(summaries) {
+    const totals = summaries.reduce((sum, summary) => ({
+        merits: sum.merits + summary.merits.length,
+        demerits: sum.demerits + summary.demerits.length,
+        late: sum.late + summary.lateCount,
+        training: sum.training +
+            summary.training.length +
+            summary.calendarTraining.length
+    }), { merits: 0, demerits: 0, late: 0, training: 0 });
+
+    const rows = [
+        ["ok", totals.merits, "anotaciones de merito"],
+        ["warn", totals.demerits, "anotaciones de demerito"],
+        ["bad", totals.late, "atrasos en reloj control"],
+        ["ok", totals.training, "capacitaciones aprobadas"]
+    ];
+
+    return `
+        <section class="qual-ledger">
+            <div class="qual-panel-head">
+                <span>Antecedentes que entraron al periodo</span>
+            </div>
+            <div class="qual-ledger__grid">
+                ${rows.map(([tone, count, label]) => `
+                    <div class="qual-ledger__item">
+                        <span class="qual-ledger__dot qual-ledger__dot--${tone}"></span>
+                        <span>
+                            <strong>${count}</strong>
+                            <small>${escapeHTML(label)}</small>
+                        </span>
+                    </div>
+                `).join("")}
+            </div>
+            <p class="qual-ledger__note">
+                Todo esto ya esta en el sistema: anotaciones, reloj control y
+                capacitaciones. La apreciacion escrita se apoya en ello y no hay
+                que ir a buscarlo a otra parte.
+            </p>
+        </section>
+    `;
+}
+
+function progressHTML(period, summaries) {
+    const total = summaries.length || 1;
     const pending = summaries.filter(summary =>
         summary.status === STATUS_PENDING
     ).length;
-    const deadline = deadlineText(period, pending);
+    const drafts = summaries.filter(summary =>
+        summary.status === STATUS_DRAFT
+    ).length;
+    const printed = summaries.filter(summary =>
+        summary.status === STATUS_PRINTED
+    ).length;
+    const archived = summaries.filter(summary =>
+        summary.status === STATUS_ARCHIVED
+    ).length;
+    const annual = isAnnualPeriod(period);
+
+    return `
+        <section class="qual-progress">
+            <div class="qual-panel-head">
+                <span>${annual ? "Avance de la calificacion anual" : "Avance del cuatrimestre"}</span>
+                <strong>${archived} de ${summaries.length} ${annual ? "cerradas" : "firmadas"}</strong>
+            </div>
+            <div class="qual-progress__bar">
+                <span class="qual-progress__done" style="width: ${(archived / total) * 100}%"></span>
+                <span class="qual-progress__printed" style="width: ${(printed / total) * 100}%"></span>
+            </div>
+            <div class="qual-progress__grid">
+                ${kpiCardHTML(
+                    "Sin escribir",
+                    pending,
+                    "no empezadas",
+                    pending ? "orange" : "green"
+                )}
+                ${kpiCardHTML("Borradores", drafts, "a medio escribir", "slate")}
+                ${kpiCardHTML(
+                    "Impresas",
+                    printed,
+                    annual ? "sin cerrar" : "esperando firma",
+                    "blue"
+                )}
+                ${kpiCardHTML(
+                    "Archivadas",
+                    archived,
+                    annual ? "cerradas" : "escaneadas",
+                    "green"
+                )}
+            </div>
+        </section>
+    `;
+}
+
+function renderHeader(period, summaries) {
+    const pending = summaries.filter(summary =>
+        summary.status === STATUS_PENDING
+    ).length;
+    const nextPending = summaries.find(summary =>
+        summary.status !== STATUS_ARCHIVED
+    );
 
     return `
         <div class="section-head section-head--with-action qual-head">
             <span class="section-head__title">
                 <h3>Calificaciones</h3>
-                <small>Ciclo ${period.cycleStartYear}-${period.cycleStartYear + 1} | ${escapeHTML(period.label)}</small>
+                <small>Tres informes escritos al a&ntilde;o, y la calificaci&oacute;n con notas en septiembre</small>
             </span>
-            <span class="worker-request-counter">
-                ${closed} de ${total} cerrada(s)
+            <span class="qual-head__actions">
+                <span class="qual-deadline${pending ? " is-urgent" : ""}">
+                    ${escapeHTML(deadlineText(period, pending))}
+                </span>
+                ${nextPending ? `
+                    <button class="primary-button qual-queue" type="button" data-qual-queue>
+                        Evaluar en fila
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="m10 6 6 6-6 6"></path>
+                        </svg>
+                    </button>
+                ` : ""}
             </span>
         </div>
+
         <section class="qual-cyclebar">
-            <button class="secondary-button qual-cycle-nav"
-                type="button"
-                data-qual-cycle="-1"
-                aria-label="Ciclo anterior">&lt;</button>
-            <strong>Ciclo ${period.cycleStartYear}-${period.cycleStartYear + 1}</strong>
-            <button class="secondary-button qual-cycle-nav"
-                type="button"
-                data-qual-cycle="1"
-                aria-label="Ciclo siguiente">&gt;</button>
+            <button class="qual-cycle-nav" type="button" data-qual-cycle="-1" aria-label="Ciclo anterior">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m14 6-6 6 6 6"></path></svg>
+            </button>
+            <strong>Ciclo ${period.cycleStartYear}&#8209;${period.cycleStartYear + 1}</strong>
+            <button class="qual-cycle-nav" type="button" data-qual-cycle="1" aria-label="Ciclo siguiente">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m10 6 6 6-6 6"></path></svg>
+            </button>
             <div class="qual-periods">
                 ${qualificationCycleSteps(period.cycleStartYear)
                     .map(periodButtonHTML)
                     .join("")}
             </div>
         </section>
-        <section class="qual-kpis">
-            ${kpiCardHTML("Pendientes", pending, deadline, pending ? "orange" : "green")}
-            ${kpiCardHTML("Borradores", summaries.filter(summary => summary.status === STATUS_DRAFT).length, "En preparacion", "teal")}
-            ${kpiCardHTML("Cerradas", closed, `Limite ${formatPeriodDeadline(period)}`, "blue")}
-            ${kpiCardHTML(
-                "Alertas",
-                summaries.reduce((sum, summary) =>
-                    sum + summary.demerits.length + summary.lateCount,
-                    0
-                ),
-                "Demeritos y atrasos",
-                "red"
-            )}
+
+        <section class="qual-overview">
+            ${progressHTML(period, summaries)}
+            ${unitLedgerHTML(summaries)}
         </section>
     `;
 }
@@ -2185,6 +2293,19 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
             }, 140);
         };
     }
+
+    panel.querySelector("[data-qual-queue]")?.addEventListener("click", () => {
+        // Salta al primero que aun no este archivado, respetando el orden de
+        // la lista: primero lo que falta por escribir.
+        const next = summaries.find(summary =>
+            summary.status !== STATUS_ARCHIVED
+        );
+
+        if (!next) return;
+
+        selectedProfileKey = next.profileKey;
+        renderQualificationsPanel();
+    });
 
     panel.querySelectorAll("[data-qual-profile]").forEach(button => {
         button.onclick = () => {

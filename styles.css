@@ -15707,72 +15707,286 @@ button.staffing-pill {
     margin-bottom: 0;
 }
 
+/* ---------- Cabecera del ciclo ---------- */
+
+.qual-head__actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.qual-deadline {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: rgba(34, 197, 94, 0.14);
+    color: #15803d;
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.qual-deadline.is-urgent {
+    background: rgba(240, 177, 0, 0.16);
+    color: #97690a;
+}
+
+.qual-queue {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.qual-queue svg {
+    width: 17px;
+    height: 17px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* Los cuatro pasos del ciclo en UNA fila de pastillas. Antes eran tarjetas
+   grandes que se partian en dos filas y ocupaban un tercio de la pantalla. */
 .qual-cyclebar {
-    display: grid;
-    grid-template-columns: auto minmax(150px, auto) auto minmax(0, 1fr);
+    display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
     border: 1px solid var(--border);
     border-radius: 14px;
     background: var(--panel-alt);
 }
 
+.qual-cycle-nav {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex: none;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--text-soft);
+    cursor: pointer;
+}
+
+.qual-cycle-nav:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.qual-cycle-nav svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .qual-cyclebar > strong {
-    color: var(--text);
-    font-size: 0.92rem;
-    text-align: center;
+    font-family: var(--font-display);
+    font-size: 0.9rem;
     white-space: nowrap;
 }
 
-.qual-cycle-nav {
-    min-width: 38px;
-    padding-inline: 10px;
-}
-
 .qual-periods {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
     min-width: 0;
 }
 
 .qual-period {
-    display: grid;
-    gap: 2px;
-    min-width: 0;
-    min-height: 48px;
-    padding: 8px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 13px;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--panel);
     color: var(--text-soft);
-    text-align: left;
+    font-size: 0.84rem;
     cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.qual-period strong,
-.qual-period small {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.qual-period:hover {
+    border-color: var(--accent);
+}
+
+.qual-period > strong {
+    font-weight: 800;
     white-space: nowrap;
 }
 
-.qual-period strong {
-    color: var(--text);
-    font-size: 0.85rem;
-}
-
-.qual-period small {
+.qual-period__stage {
+    display: inline-flex;
+    align-items: center;
+    min-height: 20px;
+    padding: 0 8px;
+    border-radius: 999px;
+    background: rgba(17, 32, 56, 0.06);
     color: var(--text-muted);
-    font-size: 0.74rem;
+    font-size: 0.66rem;
+    font-weight: 900;
 }
 
 .qual-period.is-active {
-    border-color: rgba(37, 99, 235, 0.46);
-    background: rgba(37, 99, 235, 0.1);
-    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.12);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.qual-period.is-active .qual-period__stage {
+    background: rgba(var(--brand-blue-rgb), 0.16);
+    color: var(--accent);
+}
+
+.qual-period--annual.is-active {
+    border-color: #7322a3;
+    background: rgba(143, 44, 201, 0.1);
+    color: #7322a3;
+}
+
+.qual-period--annual.is-active .qual-period__stage {
+    background: rgba(143, 44, 201, 0.14);
+    color: #7322a3;
+}
+
+/* ---------- Avance y antecedentes, lado a lado ---------- */
+
+.qual-overview {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    gap: 11px;
+    align-items: start;
+}
+
+.qual-progress,
+.qual-ledger {
+    display: grid;
+    gap: 11px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--panel-alt);
+}
+
+.qual-panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.qual-panel-head > span {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.qual-panel-head > strong {
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    color: var(--text);
+}
+
+.qual-progress__bar {
+    display: flex;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(17, 32, 56, 0.08);
+    overflow: hidden;
+}
+
+.qual-progress__done { background: var(--green); }
+.qual-progress__printed { background: var(--yellow); }
+
+.qual-progress__grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 9px;
+}
+
+.qual-ledger__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.qual-ledger__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 11px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+}
+
+.qual-ledger__item > span:last-child {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+}
+
+.qual-ledger__item strong {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.qual-ledger__item small {
+    color: var(--text-muted);
+    font-size: 0.73rem;
+    font-weight: 600;
+}
+
+.qual-ledger__dot {
+    flex: 0 0 auto;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--muted);
+}
+
+.qual-ledger__dot--ok { background: var(--green); }
+.qual-ledger__dot--warn { background: var(--yellow); }
+.qual-ledger__dot--bad { background: var(--red); }
+
+.qual-ledger__note {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.77rem;
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+@media (max-width: 1180px) {
+    .qual-overview {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 780px) {
+    .qual-progress__grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 .qual-kpis,
@@ -16420,11 +16634,6 @@ button.staffing-pill {
 
 .qual-period--annual {
     border-color: rgba(143, 44, 201, 0.42);
-}
-
-.qual-period--annual.is-active {
-    background: rgba(143, 44, 201, 0.12);
-    color: #7322a3;
 }
 
 .qual-reports {
