@@ -32,6 +32,7 @@ import {
     partialShiftLabel
 } from "./partialShift.js";
 import { commemorativeDaysForDate } from "./commemorativeDays.js";
+import { medicalEquipmentOutagesForRange } from "./medicalEquipment.js";
 
 const TASKS_KEY = "weekly_task_assignment_tasks";
 const ASSIGNMENTS_KEY = "weekly_task_assignment_entries";
@@ -169,6 +170,96 @@ function weekDays(start = currentWeekStart) {
         day.setDate(start.getDate() + index);
         return day;
     });
+}
+
+function equipmentOutagesForDays(days) {
+    if (!days.length) return [];
+
+    return medicalEquipmentOutagesForRange(
+        isoFromDate(days[0]),
+        isoFromDate(days[days.length - 1])
+    );
+}
+
+function outageMatchesDate(outage, iso) {
+    const from = String(outage.startAt || outage.date || "").slice(0, 10);
+    const to = String(outage.endAt || outage.date || from).slice(0, 10);
+
+    return Boolean(from && to && from <= iso && to >= iso);
+}
+
+function outagesForTaskIdsDay(outages, taskIds, day) {
+    const iso = isoFromDate(day);
+    const ids = new Set((taskIds || []).map(String));
+    const byId = new Map();
+
+    (outages || []).forEach(outage => {
+        const affected = Array.isArray(outage.taskIds)
+            ? outage.taskIds.map(String)
+            : [];
+
+        if (!outageMatchesDate(outage, iso)) return;
+        if (!affected.some(taskId => ids.has(taskId))) return;
+
+        byId.set(outage.id, outage);
+    });
+
+    return [...byId.values()];
+}
+
+function outageTimeLabel(outage) {
+    const start = String(outage.startAt || "").slice(11, 16);
+    const end = String(outage.endAt || "").slice(11, 16);
+
+    if (start && end) return `${start}-${end}`;
+    if (start) return `desde ${start}`;
+    if (end) return `hasta ${end}`;
+    return "";
+}
+
+function outageScheduleNote(outages) {
+    return (outages || []).map(outage => {
+        const type = String(outage.type || "") === "corrective"
+            ? "correctiva"
+            : "preventiva";
+        const time = outageTimeLabel(outage);
+
+        return [
+            `Tarea inactiva por mantencion ${type}`,
+            outage.equipmentName,
+            time
+        ].filter(Boolean).join(" - ");
+    }).join(" | ");
+}
+
+function renderTaskMaintenanceNote(outages) {
+    if (!outages?.length) return "";
+
+    return `
+        <div class="task-assignment-maintenance-note">
+            <span>${escapeHTML(outageScheduleNote(outages))}</span>
+            <small>No se publica dotacion para esta celda.</small>
+        </div>
+    `;
+}
+
+function renderEquipmentOutageBanner(outages) {
+    if (!outages.length) return "";
+
+    const visible = outages.slice(0, 4);
+    const rest = outages.length - visible.length;
+
+    return `
+        <section class="task-assignment-maintenance-banner">
+            <strong>Mantenciones que bloquean tareas esta semana</strong>
+            <div>
+                ${visible.map(outage => `
+                    <span>${escapeHTML(outage.equipmentName)}${outageTimeLabel(outage) ? ` &middot; ${escapeHTML(outageTimeLabel(outage))}` : ""}</span>
+                `).join("")}
+                ${rest > 0 ? `<span>+${rest} mas</span>` : ""}
+            </div>
+        </section>
+    `;
 }
 
 function weekKey(start = currentWeekStart) {
@@ -1926,9 +2017,14 @@ function syncCellPicker(root) {
         `[data-task-cell="${taskId}"][data-shift="${shift}"][data-day="${keyDay}"]`
     );
 
-    // Sin casilla -tarea borrada, semana cambiada- o con el panel oculto tras
-    // un cambio de vista, el panel flotante no tiene a que anclarse.
-    if (!cell || !cell.getBoundingClientRect().width) {
+    // Sin casilla -tarea borrada, semana cambiada-, con el panel oculto tras
+    // un cambio de vista o bloqueada por mantenimiento, el panel flotante no
+    // tiene a que anclarse.
+    if (
+        !cell ||
+        !cell.getBoundingClientRect().width ||
+        cell.dataset.maintenanceBlocked === "true"
+    ) {
         openCellPicker = null;
         return;
     }
@@ -1966,6 +2062,10 @@ function renderAssignmentCell(assignments, task, day, holidays, placement) {
         .map(profileName => renderWorkerChip(profileName, task, keyDay))
         .filter(Boolean);
     const { dayIndex, taskIndex, size } = placement;
+    const outages = Array.isArray(placement.outages)
+        ? placement.outages
+        : [];
+    const maintenanceBlocked = outages.length > 0;
     // Fila y columna explicitas: con una casilla que ocupa varias filas, dejar
     // que la grilla las acomode sola correria las de abajo de lugar.
     const area = `grid-column: ${dayIndex + 2}; grid-row: ${taskIndex + 2} / span ${size};`;
@@ -1977,15 +2077,16 @@ function renderAssignmentCell(assignments, task, day, holidays, placement) {
         "task-assignment-cell",
         size > 1 ? " task-assignment-cell--merged" : "",
         inhabilClass(day, holidays, "task-assignment-cell--inhabil"),
-        uncovered ? " task-assignment-cell--uncovered" : "",
+        uncovered && !maintenanceBlocked ? " task-assignment-cell--uncovered" : "",
+        maintenanceBlocked ? " task-assignment-cell--maintenance" : "",
         picking ? " task-assignment-cell--picking" : "",
-        onlyUncovered && !uncovered && !picking
+        onlyUncovered && (!uncovered || maintenanceBlocked) && !picking
             ? " task-assignment-cell--dimmed"
             : ""
     ].join("");
 
     return `
-        <div class="${classes}" style="${area}" data-task-cell="${escapeHTML(task.id)}" data-shift="${escapeHTML(task.shift)}" data-day="${escapeHTML(keyDay)}" data-merge-size="${size}">
+        <div class="${classes}" style="${area}" data-task-cell="${escapeHTML(task.id)}" data-shift="${escapeHTML(task.shift)}" data-day="${escapeHTML(keyDay)}" data-merge-size="${size}" ${maintenanceBlocked ? 'data-maintenance-blocked="true"' : ""}>
             ${size > 1 ? `
                 <span class="task-assignment-cell-tag">
                     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -1999,12 +2100,13 @@ function renderAssignmentCell(assignments, task, day, holidays, placement) {
             <div class="task-assignment-cell-workers">
                 ${workers.join("")}
             </div>
-            <button class="task-assignment-add" type="button" data-cell-assign title="${assigned.length ? "Agregar trabajadores" : "Asignar trabajadores"}">
+            ${renderTaskMaintenanceNote(outages)}
+            <button class="task-assignment-add" type="button" data-cell-assign title="${maintenanceBlocked ? "Tarea inactiva por mantenimiento" : assigned.length ? "Agregar trabajadores" : "Asignar trabajadores"}" ${maintenanceBlocked ? "disabled" : ""}>
                 <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                     <path d="M12 5.5v13"></path>
                     <path d="M5.5 12h13"></path>
                 </svg>
-                <span>${assigned.length ? "Agregar" : "Asignar"}</span>
+                <span>${maintenanceBlocked ? "Inactiva" : assigned.length ? "Agregar" : "Asignar"}</span>
             </button>
             ${entry.note ? `<p>${escapeHTML(entry.note)}</p>` : ""}
             ${renderMergePorts(task, keyDay, placement)}
@@ -2174,7 +2276,7 @@ function unassignedOnShift(shift, keyDay, tasks, assignments) {
         .sort((a, b) => a.name.localeCompare(b.name, "es"));
 }
 
-function renderBoard(shift, tasks, days, assignments, holidays = {}) {
+function renderBoard(shift, tasks, days, assignments, holidays = {}, equipmentOutages = []) {
     const config = SHIFT_CONFIG[shift];
     const sectionTasks = tasks.map(task => taskForShift(task, shift));
     // Cada dia se agrupa por su cuenta: la misma tarea puede ir fusionada el
@@ -2191,6 +2293,11 @@ function renderBoard(shift, tasks, days, assignments, holidays = {}) {
 
         groups.forEach(group => {
             owner.set(group.start, group);
+            const groupOutages = outagesForTaskIdsDay(
+                equipmentOutages,
+                group.taskIds,
+                day
+            );
 
             for (let offset = 1; offset < group.taskIds.length; offset += 1) {
                 covered.add(group.start + offset);
@@ -2206,7 +2313,9 @@ function renderBoard(shift, tasks, days, assignments, holidays = {}) {
             total += size;
             people += workers.length;
 
-            if (workers.length) {
+            if (groupOutages.length) {
+                done += size;
+            } else if (workers.length) {
                 done += size;
             } else {
                 uncovered += 1;
@@ -2289,7 +2398,12 @@ function renderBoard(shift, tasks, days, assignments, holidays = {}) {
                                         dayIndex,
                                         taskIndex,
                                         size,
-                                        taskCount: sectionTasks.length
+                                        taskCount: sectionTasks.length,
+                                        outages: outagesForTaskIdsDay(
+                                            equipmentOutages,
+                                            group?.taskIds || [task.id],
+                                            column.day
+                                        )
                                     }
                                 );
                             }).join("")}
@@ -2401,6 +2515,7 @@ function renderShell(holidays = {}) {
     const days = weekDays();
     const tasks = getTasks();
     const assignments = cleanAssignmentsForWeek(days, tasks);
+    const equipmentOutages = equipmentOutagesForDays(days);
     const roles = availableRoles();
     const professions = availableProfessions();
     const current = isCurrentWeek();
@@ -2479,8 +2594,9 @@ function renderShell(holidays = {}) {
                 </div>
                 ${renderTaskAddForm()}
             </section>
-            ${renderBoard("day", tasks, days, assignments, holidays)}
-            ${renderBoard("night", tasks, days, assignments, holidays)}
+            ${renderEquipmentOutageBanner(equipmentOutages)}
+            ${renderBoard("day", tasks, days, assignments, holidays, equipmentOutages)}
+            ${renderBoard("night", tasks, days, assignments, holidays, equipmentOutages)}
             ${renderEventsBoard(days, holidays)}
         </div>
     `;
@@ -2787,6 +2903,7 @@ function readDraggedWorker(event) {
 
 function canMoveWorkerToCell(cell, payload) {
     return Boolean(
+        cell.dataset.maintenanceBlocked !== "true" &&
         payload?.workerName &&
         payload?.shift === cell.dataset.shift &&
         payload?.keyDay === cell.dataset.day &&
@@ -3387,6 +3504,14 @@ function bindShellEvents(root) {
                 event => {
                     event.stopPropagation();
 
+                    if (
+                        cell.dataset.maintenanceBlocked === "true" ||
+                        event.currentTarget.disabled
+                    ) {
+                        closeCellPicker();
+                        return;
+                    }
+
                     const target = {
                         shift: cell.dataset.shift,
                         taskId: cell.dataset.taskCell,
@@ -3940,7 +4065,22 @@ function openAssignmentDialog({ shift, taskId, keyDay }) {
     render();
 }
 
-function cellExcelText(assignments, shift, taskId, day, tasks) {
+function cellExcelText(assignments, shift, taskId, day, tasks, equipmentOutages = []) {
+    const group = groupForTask(
+        assignments,
+        shift,
+        tasks,
+        taskId,
+        keyFromDate(day)
+    );
+    const outages = outagesForTaskIdsDay(
+        equipmentOutages,
+        group?.taskIds || [taskId],
+        day
+    );
+
+    if (outages.length) return outageScheduleNote(outages);
+
     const entry = groupOwnerEntry(
         assignments,
         shift,
@@ -3967,6 +4107,7 @@ function cellExcelText(assignments, shift, taskId, day, tasks) {
 function excelTableForShift(shift, tasks, days, assignments) {
     const title = SHIFT_CONFIG[shift].label;
     const rows = tasks.map(task => taskForShift(task, shift));
+    const equipmentOutages = equipmentOutagesForDays(days);
 
     return `
         <h2>${escapeHTML(title)}</h2>
@@ -3981,7 +4122,7 @@ function excelTableForShift(shift, tasks, days, assignments) {
                 ${rows.map(task => `
                     <tr>
                         <td>${escapeHTML(task.title)}</td>
-                        ${days.map(day => `<td>${escapeHTML(cellExcelText(assignments, shift, task.id, day, tasks))}</td>`).join("")}
+                        ${days.map(day => `<td>${escapeHTML(cellExcelText(assignments, shift, task.id, day, tasks, equipmentOutages))}</td>`).join("")}
                     </tr>
                 `).join("") || `<tr><td colspan="8">Sin tareas</td></tr>`}
             </tbody>
@@ -4025,6 +4166,7 @@ export function getTaskScheduleWeek(start = currentWeekStart) {
     const days = weekDays(start);
     const tasks = getTasks();
     const assignments = cleanAssignmentsForWeek(days, tasks, start);
+    const equipmentOutages = equipmentOutagesForDays(days);
 
     let sections = SHIFT_TYPES.map(shift => ({
         shift,
@@ -4036,6 +4178,27 @@ export function getTaskScheduleWeek(start = currentWeekStart) {
                 title: task.title,
                 detail: taskDetailForShift(task, shift),
                 cells: days.map(day => {
+                    const group = groupForTask(
+                        assignments,
+                        shift,
+                        tasks,
+                        task.id,
+                        keyFromDate(day)
+                    );
+                    const outages = outagesForTaskIdsDay(
+                        equipmentOutages,
+                        group?.taskIds || [task.id],
+                        day
+                    );
+
+                    if (outages.length) {
+                        return {
+                            workers: [],
+                            note: outageScheduleNote(outages),
+                            inactive: true
+                        };
+                    }
+
                     // Casilla fusionada: los trabajadores viven en la de arriba
                     // del grupo, pero son de todas sus tareas.
                     const entry = groupOwnerEntry(
@@ -4321,6 +4484,7 @@ function autoScheduleCandidates(assignments, tasks, shift, keyDay) {
 
 function autoScheduleCells(days, tasks, assignments) {
     const cells = [];
+    const equipmentOutages = equipmentOutagesForDays(days);
 
     SHIFT_TYPES.forEach(shift => {
         days.forEach(day => {
@@ -4336,8 +4500,14 @@ function autoScheduleCells(days, tasks, assignments) {
             // es donde viven los trabajadores del grupo.
             columnGroups(assignments, shift, tasks, keyDay).forEach(group => {
                 const taskId = group.taskIds[0];
+                const outages = outagesForTaskIdsDay(
+                    equipmentOutages,
+                    group.taskIds,
+                    day
+                );
                 const entry = getCellEntry(assignments, shift, taskId, keyDay);
 
+                if (outages.length) return;
                 if (assignmentWorkers(entry).length) return;
 
                 cells.push({

@@ -24,6 +24,7 @@ test("clasifica las claves persistidas por modulo de seguridad", () => {
         workerRequests: "requests",
         memos: "memos",
         informations: "informations",
+        medicalEquipment: "medicalEquipment",
         qualifications: "qualifications",
         shiftMoves: "swap",
         carry_worker_1: "hours",
@@ -54,12 +55,14 @@ test("divide un snapshot sin mezclar permisos", () => {
         data_worker_1: { "2026-06-25": "L" },
         memos: [{ id: "memo-1" }],
         informations: [{ id: "info-1" }],
+        medicalEquipment: [{ id: "eq-1" }],
         qualifications: { records: { "2026:sep-dec:worker-1": {} } },
         unknown_sensitive_setting: true
     });
 
     assert.deepEqual(Object.keys(modules).sort(), [
         "informations",
+        "medicalEquipment",
         "memos",
         "profile",
         "qualifications",
@@ -70,6 +73,7 @@ test("divide un snapshot sin mezclar permisos", () => {
     assert.deepEqual(Object.keys(modules.turnos), ["data_worker_1"]);
     assert.deepEqual(Object.keys(modules.memos), ["memos"]);
     assert.deepEqual(Object.keys(modules.informations), ["informations"]);
+    assert.deepEqual(Object.keys(modules.medicalEquipment), ["medicalEquipment"]);
     assert.deepEqual(Object.keys(modules.qualifications), ["qualifications"]);
     assert.deepEqual(
         Object.keys(modules.system),

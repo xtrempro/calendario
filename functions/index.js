@@ -23,6 +23,9 @@ const {
   createWorkerClockIncidentRequestHandler
 } = require("./workerClockIncidents");
 const {
+  createWorkerMedicalEquipmentReportHandler
+} = require("./medicalEquipmentReports");
+const {
   findCompatibleReplacementCandidates
 } = require("./linkedReplacementSearch");
 const {
@@ -120,6 +123,7 @@ const MENU_PERMISSION_KEYS = [
   "weekly",
   "tasks",
   "informations",
+  "medicalEquipment",
   "kanban",
   "agenda",
   "profile",
@@ -134,7 +138,7 @@ const MENU_PERMISSION_KEYS = [
   "log"
 ];
 const LEGACY_FULL_ADMIN_PERMISSION_KEYS = MENU_PERMISSION_KEYS
-  .filter(key => !["informations", "qualifications"].includes(key));
+  .filter(key => !["informations", "medicalEquipment", "qualifications"].includes(key));
 const SCHEDULE_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
 const SCHEDULE_OCR_MAX_TEXT_LENGTH = 30000;
 const SCHEDULE_OCR_TIMEOUT_MS = 20000;
@@ -146,6 +150,7 @@ const SCHEDULE_ATTACHMENT_RECORD_ID = "published-schedule";
 const INFORMATION_ATTACHMENT_MODULE_ID = "informations";
 const INFORMATION_ATTACHMENT_OWNER_ID = "published";
 const INFORMATION_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
+const MEDICAL_EQUIPMENT_ATTACHMENT_MODULE_ID = "medicalEquipment";
 const QUALIFICATION_ATTACHMENT_MODULE_ID = "qualifications";
 const SCHEDULE_IMAGE_MIME_TYPES = new Set([
   "image/png",
@@ -216,6 +221,10 @@ function normalizeSupervisorPermissions(input = {}) {
       (
         key === INFORMATION_ATTACHMENT_MODULE_ID ||
         (
+          key === MEDICAL_EQUIPMENT_ATTACHMENT_MODULE_ID &&
+          hasLegacyFullAdminPermissions(source)
+        ) ||
+        (
           key === "qualifications" &&
           hasLegacyFullAdminPermissions(source)
         )
@@ -258,6 +267,21 @@ function memberCanPublishQualifications(member = {}) {
 
   if (permissions.qualifications?.edit === true) return true;
   if (Object.prototype.hasOwnProperty.call(permissions, "qualifications")) {
+    return false;
+  }
+
+  return hasLegacyFullAdminPermissions(permissions);
+}
+
+function memberCanPublishMedicalEquipment(member = {}) {
+  if (member.role === "owner") return true;
+
+  const permissions = member.permissions && typeof member.permissions === "object"
+    ? member.permissions
+    : {};
+
+  if (permissions.medicalEquipment?.edit === true) return true;
+  if (Object.prototype.hasOwnProperty.call(permissions, "medicalEquipment")) {
     return false;
   }
 
@@ -390,6 +414,19 @@ async function requireWorkspaceQualificationPublisher(workspaceId, uid, token) {
     throw new HttpsError(
       "permission-denied",
       "No tienes permisos para adjuntar calificaciones en esta unidad."
+    );
+  }
+
+  return member;
+}
+
+async function requireWorkspaceMedicalEquipmentPublisher(workspaceId, uid, token) {
+  const member = await requireWorkspaceMember(workspaceId, uid, token);
+
+  if (!memberCanPublishMedicalEquipment(member)) {
+    throw new HttpsError(
+      "permission-denied",
+      "No tienes permisos para administrar equipos medicos en esta unidad."
     );
   }
 
@@ -559,6 +596,19 @@ function isQualificationAttachmentStoragePath(workspaceId, storagePath) {
     parts[1] === safeStoragePathSegment(workspaceId, "workspace") &&
     parts[2] === "attachments" &&
     parts[3] === QUALIFICATION_ATTACHMENT_MODULE_ID &&
+    Boolean(parts[4]) &&
+    Boolean(parts[5]) &&
+    Boolean(parts[6]);
+}
+
+function isMedicalEquipmentAttachmentStoragePath(workspaceId, storagePath) {
+  const parts = String(storagePath || "").split("/");
+
+  return parts.length === 7 &&
+    parts[0] === "workspaces" &&
+    parts[1] === safeStoragePathSegment(workspaceId, "workspace") &&
+    parts[2] === "attachments" &&
+    parts[3] === MEDICAL_EQUIPMENT_ATTACHMENT_MODULE_ID &&
     Boolean(parts[4]) &&
     Boolean(parts[5]) &&
     Boolean(parts[6]);
@@ -1220,6 +1270,150 @@ exports.deleteInformationAttachment = onCall(
         throw new HttpsError(
           "internal",
           "No se pudo eliminar el archivo adjunto de informacion."
+        );
+      }
+    }
+
+    return { deleted: true };
+  }
+);
+
+exports.uploadMedicalEquipmentAttachment = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 120,
+    memory: "512MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para adjuntar equipos medicos."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+    const rawOwnerId = cleanCallableText(request.data?.ownerId, 160);
+    const rawRecordId = cleanCallableText(request.data?.recordId, 160);
+    const ownerId = safeStoragePathSegment(rawOwnerId, "equipment");
+    const recordId = safeStoragePathSegment(rawRecordId, "medical_equipment");
+
+    if (!workspaceId || !rawOwnerId || !rawRecordId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Selecciona equipo y seccion antes de adjuntar el archivo."
+      );
+    }
+
+    await requireWorkspaceMedicalEquipmentPublisher(
+      workspaceId,
+      uid,
+      request.auth.token || {}
+    );
+
+    const decoded = decodeInformationAttachmentPayload(request.data || {});
+    const bucket = admin.storage().bucket();
+
+    if (!bucket) {
+      throw new HttpsError(
+        "failed-precondition",
+        "El almacenamiento de equipos medicos no esta disponible."
+      );
+    }
+
+    const id = `medical_equipment_${Date.now()}_${randomBytes(6).toString("hex")}`;
+    const downloadToken = randomBytes(24).toString("hex");
+    const storagePath = [
+      "workspaces",
+      safeStoragePathSegment(workspaceId, "workspace"),
+      "attachments",
+      MEDICAL_EQUIPMENT_ATTACHMENT_MODULE_ID,
+      ownerId,
+      recordId,
+      `${safeStoragePathSegment(id, "medical_equipment")}_${decoded.safeName}`
+    ].join("/");
+    const addedAt = new Date().toISOString();
+
+    await bucket.file(storagePath).save(decoded.buffer, {
+      resumable: false,
+      metadata: {
+        cacheControl: "private, max-age=0, no-cache",
+        contentType: decoded.contentType,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+          workspaceId,
+          moduleId: MEDICAL_EQUIPMENT_ATTACHMENT_MODULE_ID,
+          ownerId,
+          recordId,
+          uploadedByUid: uid,
+          originalName: decoded.originalName
+        }
+      }
+    });
+
+    return {
+      id,
+      name: decoded.originalName,
+      type: decoded.contentType,
+      size: decoded.buffer.length,
+      addedAt,
+      uploadedByUid: uid,
+      storagePath,
+      downloadURL: storageDownloadURL(bucket.name, storagePath, downloadToken)
+    };
+  }
+);
+
+exports.deleteMedicalEquipmentAttachment = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 60,
+    memory: "256MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para eliminar adjuntos de equipos medicos."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+    const storagePath = cleanCallableText(request.data?.storagePath, 500);
+
+    if (!workspaceId || !isMedicalEquipmentAttachmentStoragePath(workspaceId, storagePath)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "El archivo de equipos medicos no es valido para esta unidad."
+      );
+    }
+
+    await requireWorkspaceMedicalEquipmentPublisher(
+      workspaceId,
+      uid,
+      request.auth.token || {}
+    );
+
+    const bucket = admin.storage().bucket();
+
+    if (!bucket) {
+      throw new HttpsError(
+        "failed-precondition",
+        "El almacenamiento de equipos medicos no esta disponible."
+      );
+    }
+
+    try {
+      await bucket.file(storagePath).delete();
+    } catch (error) {
+      if (Number(error?.code) !== 404) {
+        throw new HttpsError(
+          "internal",
+          "No se pudo eliminar el archivo adjunto de equipos medicos."
         );
       }
     }
@@ -4031,6 +4225,20 @@ exports.createWorkerClockIncidentRequest = onCall(
     timeoutSeconds: 60
   },
   (request) => createWorkerClockIncidentRequestHandler(request, {
+    db,
+    HttpsError,
+    serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+    storageBucket: () => admin.storage().bucket()
+  })
+);
+
+exports.createWorkerMedicalEquipmentReport = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 120,
+    memory: "512MiB"
+  },
+  (request) => createWorkerMedicalEquipmentReportHandler(request, {
     db,
     HttpsError,
     serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),

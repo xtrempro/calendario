@@ -46,6 +46,7 @@ service cloud.firestore {
         ("memos" in permissions && permissions.memos.edit == true) ||
         ("informations" in permissions && permissions.informations.edit == true) ||
         !("informations" in permissions) ||
+        ("medicalEquipment" in permissions && permissions.medicalEquipment.edit == true) ||
         ("swap" in permissions && permissions.swap.edit == true) ||
         ("hours" in permissions && permissions.hours.edit == true) ||
         ("reports" in permissions && permissions.reports.edit == true) ||
@@ -78,6 +79,11 @@ service cloud.firestore {
 
     function qualificationsEnabledByDefault(permissions) {
       return !("qualifications" in permissions) &&
+        hasLegacyFullAdminPermissions(permissions);
+    }
+
+    function medicalEquipmentEnabledByDefault(permissions) {
+      return !("medicalEquipment" in permissions) &&
         hasLegacyFullAdminPermissions(permissions);
     }
 
@@ -213,6 +219,10 @@ service cloud.firestore {
           (
             menuKey == "qualifications" &&
             qualificationsEnabledByDefault(permissions)
+          ) ||
+          (
+            menuKey == "medicalEquipment" &&
+            medicalEquipmentEnabledByDefault(permissions)
           )
         );
     }
@@ -233,6 +243,10 @@ service cloud.firestore {
           (
             menuKey == "qualifications" &&
             qualificationsEnabledByDefault(permissions)
+          ) ||
+          (
+            menuKey == "medicalEquipment" &&
+            medicalEquipmentEnabledByDefault(permissions)
           )
         );
     }
@@ -280,6 +294,7 @@ service cloud.firestore {
         (moduleId == "requests" && canViewMenu(workspaceId, "requests")) ||
         (moduleId == "memos" && canViewMenu(workspaceId, "memos")) ||
         (moduleId == "informations" && canViewInformationsMenu(workspaceId)) ||
+        (moduleId == "medicalEquipment" && canViewMenu(workspaceId, "medicalEquipment")) ||
         (moduleId == "swap" && canViewMenu(workspaceId, "swap")) ||
         (moduleId == "hours" && canViewMenu(workspaceId, "hours")) ||
         (moduleId == "weekly" && canViewMenu(workspaceId, "weekly")) ||
@@ -302,6 +317,7 @@ service cloud.firestore {
         (moduleId == "requests" && canEditMenu(workspaceId, "requests")) ||
         (moduleId == "memos" && canEditMenu(workspaceId, "memos")) ||
         (moduleId == "informations" && canEditInformationsMenu(workspaceId)) ||
+        (moduleId == "medicalEquipment" && canEditMenu(workspaceId, "medicalEquipment")) ||
         (moduleId == "swap" && canEditMenu(workspaceId, "swap")) ||
         (moduleId == "hours" && canEditMenu(workspaceId, "hours")) ||
         (moduleId == "weekly" && canEditMenu(workspaceId, "weekly")) ||
@@ -868,6 +884,17 @@ service cloud.firestore {
         allow delete: if canManageRequests(workspaceId);
       }
 
+      match /medicalEquipmentReports/{reportId} {
+        allow read: if canViewMenu(workspaceId, "medicalEquipment") ||
+          (
+            signedIn() &&
+            resource.data.createdByUid == request.auth.uid &&
+            exists(/databases/$(database)/documents/workspaces/$(workspaceId)/workerLinks/$(request.auth.uid))
+          );
+        allow create: if false;
+        allow update, delete: if canEditMenu(workspaceId, "medicalEquipment");
+      }
+
       match /workerSwapCandidates/{userId} {
         allow read: if canReadRequests(workspaceId) ||
           (
@@ -1090,9 +1117,11 @@ service cloud.firestore {
       match /published/{docId} {
         allow read: if isCurrentLinkedWorker(workspaceId) ||
           canReadWorkerData(workspaceId) ||
-          (docId == "informations" && canViewInformationsMenu(workspaceId));
+          (docId == "informations" && canViewInformationsMenu(workspaceId)) ||
+          (docId == "medicalEquipment" && canViewMenu(workspaceId, "medicalEquipment"));
         allow write: if canPublishWorkerData(workspaceId) ||
-          (docId == "informations" && canEditInformationsMenu(workspaceId));
+          (docId == "informations" && canEditInformationsMenu(workspaceId)) ||
+          (docId == "medicalEquipment" && canEditMenu(workspaceId, "medicalEquipment"));
       }
 
       // Confirmaciones de lectura de las informaciones: UN documento por

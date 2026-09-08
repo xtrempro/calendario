@@ -448,6 +448,12 @@ import {
     renderInformationsPanel
 } from "./informations.js";
 import {
+    initMedicalEquipmentPanel,
+    renderMedicalEquipmentPanel,
+    startMedicalEquipmentReportSync,
+    stopMedicalEquipmentReportSync
+} from "./medicalEquipment.js";
+import {
     initQualificationsPanel,
     renderQualificationsPanel
 } from "./qualifications.js";
@@ -5897,6 +5903,10 @@ async function setActiveShortcut(targetId, options = {}) {
 
         if (nextView === "informations") {
             renderInformationsPanel();
+        }
+
+        if (nextView === "medicalEquipment") {
+            renderMedicalEquipmentPanel();
         }
 
         if (nextView === "qualifications") {
@@ -13771,6 +13781,9 @@ function syncWorkspaceStateViews() {
             if (document.body.dataset.activeView === "kanban") {
                 renderKanbanBoard();
             }
+            if (document.body.dataset.activeView === "medicalEquipment") {
+                renderMedicalEquipmentPanel();
+            }
             if (document.body.dataset.activeView === "qualifications") {
                 renderQualificationsPanel();
             }
@@ -13898,6 +13911,7 @@ initFirebaseShell({
             stopInterUnitLoanSync();
             stopSupervisorMessages();
             stopSupervisorInviteRequestsListener();
+            stopMedicalEquipmentReportSync();
             stopWorkspacePermissionListener();
         }
 
@@ -13927,6 +13941,13 @@ initFirebaseShell({
                 syncCalendarDirectEditToggle();
                 renderDashboardState();
                 void startSupervisorInviteRequestsListener(workspace);
+                void startMedicalEquipmentReportSync(workspace, {
+                    onChange: () => {
+                        if (document.body.dataset.activeView === "medicalEquipment") {
+                            renderMedicalEquipmentPanel();
+                        }
+                    }
+                });
 
                 if (workspaceRequiresMfa()) {
                     enforceWorkspaceMfa(workspace).catch(async error => {
@@ -14089,6 +14110,7 @@ initFirebaseShell({
             stopSupervisorMessages();
             stopFirebaseAppStateSync();
             stopSupervisorInviteRequestsListener();
+            stopMedicalEquipmentReportSync();
             stopWorkspacePermissionListener();
             stopHomeTasksSync();
             stopTaskAlertScheduler();
@@ -14105,6 +14127,9 @@ initFirebaseShell({
         }
         if (document.body.dataset.activeView === "kanban") {
             renderKanbanBoard();
+        }
+        if (document.body.dataset.activeView === "medicalEquipment") {
+            renderMedicalEquipmentPanel();
         }
     }
 });
@@ -14123,6 +14148,7 @@ loadWorkspacePermissions()
 initHoursCharts(getPerfilActual);
 updateMemosNavBadge();
 initInformationsPanel();
+initMedicalEquipmentPanel();
 initQualificationsPanel();
 refreshWorkerRequestsNavBadge();
 initNotificationsBell({

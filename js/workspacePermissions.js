@@ -21,6 +21,11 @@ export const MENU_PERMISSION_DEFS = [
         target: "taskAssignmentsPanel"
     },
     { key: "informations", label: "Informaciones", target: "informationsPanel" },
+    {
+        key: "medicalEquipment",
+        label: "Equipos M\u00e9dicos",
+        target: "medicalEquipmentPanel"
+    },
     { key: "kanban", label: "Kanban", target: "kanbanPanel" },
     { key: "agenda", label: "Contactos", target: "agendaPanel" },
     { key: "profile", label: "Perfiles", target: "profileSection" },
@@ -46,7 +51,11 @@ const TARGET_TO_MENU = MENU_PERMISSION_DEFS.reduce((map, menu) => {
 });
 const LEGACY_FULL_ADMIN_PERMISSION_KEYS = MENU_PERMISSION_DEFS
     .map(menu => menu.key)
-    .filter(key => !["informations", "qualifications"].includes(key));
+    .filter(key => ![
+        "informations",
+        "medicalEquipment",
+        "qualifications"
+    ].includes(key));
 
 let permissionState = {
     ready: false,
@@ -67,7 +76,10 @@ function hasLegacyFullAdminPermissions(source = {}) {
 function defaultEnabledWhenMissing(menuKey, source = {}) {
     return menuKey === "informations" ||
         (
-            menuKey === "qualifications" &&
+            (
+                menuKey === "medicalEquipment" ||
+                menuKey === "qualifications"
+            ) &&
             hasLegacyFullAdminPermissions(source)
         );
 }

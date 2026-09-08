@@ -39,6 +39,10 @@ export function getViewForTarget(targetId) {
         return "informations";
     }
 
+    if (targetId === "medicalEquipmentPanel") {
+        return "medicalEquipment";
+    }
+
     if (targetId === "qualificationsPanel") {
         return "qualifications";
     }

@@ -64,6 +64,7 @@ function permissions(editable = [], hidden = []) {
         "requests",
         "memos",
         "informations",
+        "medicalEquipment",
         "swap",
         "hours",
         "reports",
@@ -88,6 +89,7 @@ function legacyPermissions(editable = [], hidden = []) {
     const next = permissions(editable, hidden);
 
     delete next.informations;
+    delete next.medicalEquipment;
     delete next.qualifications;
     return next;
 }

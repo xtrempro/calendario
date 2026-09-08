@@ -1366,6 +1366,7 @@ body:not([data-active-view="dashboard"]) #dashboardPanel,
 body:not([data-active-view="requests"]) #workerRequestsPanel,
 body:not([data-active-view="memos"]) #memosPanel,
 body:not([data-active-view="informations"]) #informationsPanel,
+body:not([data-active-view="medicalEquipment"]) #medicalEquipmentPanel,
 body:not([data-active-view="qualifications"]) #qualificationsPanel,
 body:not([data-active-view="clockmarks"]) #clockMarksPanel,
 body:not([data-active-view="home"]) #homePanel,
@@ -1405,6 +1406,11 @@ body[data-active-view="informations"] .leave-panel,
 body[data-active-view="informations"] .timeline-panel,
 body[data-active-view="informations"] #turnChangesView,
 body[data-active-view="informations"] .primary-grid,
+body[data-active-view="medicalEquipment"] .calendar-panel,
+body[data-active-view="medicalEquipment"] .leave-panel,
+body[data-active-view="medicalEquipment"] .timeline-panel,
+body[data-active-view="medicalEquipment"] #turnChangesView,
+body[data-active-view="medicalEquipment"] .primary-grid,
 body[data-active-view="qualifications"] .calendar-panel,
 body[data-active-view="qualifications"] .leave-panel,
 body[data-active-view="qualifications"] .timeline-panel,
@@ -3178,6 +3184,10 @@ body[data-active-view="memos"] .secondary-grid {
 }
 
 body[data-active-view="informations"] .secondary-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+body[data-active-view="medicalEquipment"] .secondary-grid {
     grid-template-columns: minmax(0, 1fr);
 }
 
@@ -5014,36 +5024,40 @@ body[data-active-view="profile"] .profile-view-layout > .sidebar .profile-item__
     order: 12;
 }
 
-.actionbar .nav-tile[data-target="kanbanPanel"] {
+.actionbar .nav-tile[data-target="medicalEquipmentPanel"] {
     order: 13;
 }
 
-.actionbar .nav-tile[data-target="agendaPanel"] {
+.actionbar .nav-tile[data-target="kanbanPanel"] {
     order: 14;
 }
 
-.actionbar .nav-tile[data-target="hoursPanel"] {
+.actionbar .nav-tile[data-target="agendaPanel"] {
     order: 15;
 }
 
-.actionbar .nav-tile[data-target="memosPanel"] {
+.actionbar .nav-tile[data-target="hoursPanel"] {
     order: 16;
 }
 
-.actionbar .nav-tile[data-target="dashboardPanel"] {
+.actionbar .nav-tile[data-target="memosPanel"] {
     order: 17;
 }
 
-.actionbar .nav-tile[data-target="auditLogPanel"] {
+.actionbar .nav-tile[data-target="dashboardPanel"] {
     order: 18;
 }
 
-#undoBtn {
+.actionbar .nav-tile[data-target="auditLogPanel"] {
     order: 19;
 }
 
-#redoBtn {
+#undoBtn {
     order: 20;
+}
+
+#redoBtn {
+    order: 21;
 }
 
 .nav-tile {
@@ -15697,6 +15711,803 @@ button.staffing-pill {
     gap: 14px;
 }
 
+.medical-equipment-panel {
+    display: grid;
+    gap: 14px;
+}
+
+.medical-equipment-shell {
+    display: grid;
+    gap: 14px;
+    color: var(--text);
+}
+
+.medeq-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 16px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: linear-gradient(135deg, var(--panel), var(--panel-alt));
+    box-shadow: var(--shadow-card);
+}
+
+.medeq-head h2,
+.medeq-detail-head h3 {
+    margin: 0;
+    font-family: var(--font-display);
+    color: var(--text);
+    letter-spacing: 0;
+}
+
+.medeq-head h2 {
+    font-size: clamp(1.45rem, 2vw, 2rem);
+}
+
+.medeq-head p {
+    max-width: 760px;
+    margin: 6px 0 0;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    line-height: 1.45;
+}
+
+.medeq-kicker {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    margin-bottom: 4px;
+    color: #0f766e;
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.medeq-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(90px, 1fr));
+    gap: 8px;
+    min-width: min(520px, 42vw);
+}
+
+.medeq-stats span,
+.medeq-summary-row span {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.theme-dark .medeq-stats span,
+.theme-dark .medeq-summary-row span {
+    background: rgba(15, 23, 42, 0.62);
+}
+
+.medeq-stats strong,
+.medeq-summary-row strong {
+    color: var(--text);
+    font-size: 1.08rem;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+}
+
+.medeq-stats small,
+.medeq-summary-row small {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.medeq-layout {
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+}
+
+.medeq-sidebar,
+.medeq-detail,
+.medeq-section {
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--panel);
+    box-shadow: var(--shadow-card);
+}
+
+.medeq-sidebar {
+    position: sticky;
+    top: 18px;
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+}
+
+.medeq-toolbar {
+    display: grid;
+    gap: 8px;
+}
+
+.medeq-toolbar input,
+.medeq-toolbar select,
+.medeq-grid input,
+.medeq-grid select,
+.medeq-grid textarea,
+.medeq-field-wide textarea,
+.medeq-report__head select {
+    width: 100%;
+    min-width: 0;
+    min-height: 40px;
+    border: 1px solid var(--field-border);
+    border-radius: 10px;
+    background: var(--field-bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.86rem;
+}
+
+.medeq-toolbar input,
+.medeq-grid input,
+.medeq-grid select,
+.medeq-report__head select {
+    padding: 0 11px;
+}
+
+.medeq-grid textarea,
+.medeq-field-wide textarea {
+    padding: 10px 11px;
+    resize: vertical;
+}
+
+.medeq-list {
+    display: grid;
+    gap: 8px;
+}
+
+.medeq-list-item {
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-alt);
+    color: var(--text);
+    text-align: left;
+}
+
+.medeq-list-item:hover,
+.medeq-list-item.is-active {
+    border-color: rgba(15, 118, 110, 0.48);
+    background: rgba(20, 184, 166, 0.09);
+}
+
+.medeq-list-item__main {
+    min-width: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.medeq-list-item__main strong,
+.medeq-list-item__main small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.medeq-list-item__main small,
+.medeq-muted {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.medeq-pill,
+.medeq-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 900;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.medeq-pill {
+    min-height: 24px;
+    padding: 4px 8px;
+}
+
+.medeq-pill--ok {
+    background: rgba(34, 197, 94, 0.14);
+    color: #15803d;
+}
+
+.medeq-pill--notice {
+    background: rgba(14, 165, 233, 0.13);
+    color: #0369a1;
+}
+
+.medeq-pill--warning {
+    background: rgba(245, 158, 11, 0.16);
+    color: #92400e;
+}
+
+.medeq-pill--danger {
+    background: rgba(239, 68, 68, 0.14);
+    color: #b91c1c;
+}
+
+.medeq-pill--muted {
+    background: var(--surface-2);
+    color: var(--text-muted);
+}
+
+.medeq-count {
+    justify-self: end;
+    grid-column: 2;
+    min-width: 22px;
+    min-height: 22px;
+    padding: 0 7px;
+    background: #ef4444;
+    color: #fff;
+}
+
+.medeq-main {
+    min-width: 0;
+}
+
+.medeq-detail {
+    display: grid;
+    gap: 14px;
+    padding: 14px;
+}
+
+.medeq-detail-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: start;
+    padding: 4px 2px 2px;
+}
+
+.medeq-detail-head h3 {
+    font-size: 1.28rem;
+}
+
+.medeq-detail-head small {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-weight: 800;
+}
+
+.medeq-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.medeq-actions .primary-button,
+.medeq-actions .secondary-button,
+.medeq-actions .danger-button,
+.medeq-form-section .primary-button,
+.medeq-form-section .secondary-button {
+    min-height: 38px;
+    padding: 0 14px;
+}
+
+.medeq-summary-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.medeq-section {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    box-shadow: none;
+}
+
+.medeq-section h4 {
+    margin: 0;
+    color: var(--text);
+    font-size: 0.98rem;
+}
+
+.medeq-section--split {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.medeq-section--split > div {
+    min-width: 0;
+    display: grid;
+    align-content: start;
+    gap: 10px;
+}
+
+.medeq-grid {
+    display: grid;
+    gap: 10px;
+}
+
+.medeq-grid--four {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.medeq-grid label,
+.medeq-field-wide {
+    min-width: 0;
+    display: grid;
+    gap: 6px;
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    font-weight: 900;
+}
+
+.medeq-check {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 9px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel-alt);
+    color: var(--text-soft);
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+.medeq-check input {
+    flex: none;
+    width: 17px;
+    height: 17px;
+    accent-color: #0f766e;
+}
+
+.medeq-check span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.medeq-check--field {
+    min-height: 40px;
+    align-self: end;
+}
+
+.medeq-task-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 8px;
+}
+
+.medeq-attachments,
+.medeq-timeline,
+.medeq-report-list {
+    display: grid;
+    gap: 8px;
+}
+
+.medeq-file {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+    align-items: center;
+}
+
+.medeq-file > button:first-child {
+    min-width: 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel-alt);
+    color: var(--text);
+    text-align: left;
+}
+
+.medeq-file svg,
+.medeq-upload svg {
+    width: 17px;
+    height: 17px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.medeq-file span {
+    min-width: 0;
+    display: grid;
+}
+
+.medeq-file strong,
+.medeq-file small {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.medeq-file small {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}
+
+.medeq-upload {
+    min-height: 42px;
+    display: grid;
+    place-items: center;
+    border: 1px dashed rgba(15, 118, 110, 0.52);
+    border-radius: 10px;
+    background: rgba(20, 184, 166, 0.08);
+    color: #0f766e;
+    font-size: 0.82rem;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.medeq-upload input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+}
+
+.medeq-upload span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.medeq-mini {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    background: var(--panel-alt);
+    color: var(--text-soft);
+    font-size: 1rem;
+    font-weight: 900;
+}
+
+.medeq-mini--danger,
+.medeq-link-danger {
+    color: #dc2626;
+}
+
+.medeq-link-danger {
+    justify-self: start;
+    min-height: 30px;
+    padding: 0;
+    background: transparent;
+    font-size: 0.78rem;
+    font-weight: 900;
+}
+
+.medeq-contact,
+.medeq-timeline-item,
+.medeq-report,
+.medeq-form-section,
+.medical-equipment-empty,
+.medeq-readonly {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-alt);
+}
+
+.medeq-contact {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 10px;
+}
+
+.medeq-contact div {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+.medeq-contact strong,
+.medeq-contact span,
+.medeq-contact a,
+.medeq-contact small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.medeq-contact span,
+.medeq-contact small {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.medeq-contact a {
+    color: #0f766e;
+    font-size: 0.82rem;
+    font-weight: 900;
+    text-decoration: none;
+}
+
+.medeq-form-section {
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+}
+
+.medeq-form-section summary {
+    cursor: pointer;
+    color: var(--text);
+    font-weight: 900;
+}
+
+.medeq-section-title,
+.medeq-section-title-row {
+    color: var(--text-soft);
+    font-size: 0.82rem;
+    font-weight: 900;
+}
+
+.medeq-section-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.medeq-section-title-row select {
+    min-height: 36px;
+    border: 1px solid var(--field-border);
+    border-radius: 10px;
+    background: var(--field-bg);
+    color: var(--text);
+}
+
+.medeq-timeline-item {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+}
+
+.medeq-timeline-item__head,
+.medeq-report__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.medeq-timeline-item__head span {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 900;
+}
+
+.medeq-timeline-item p,
+.medeq-report p {
+    margin: 0;
+    color: var(--text-soft);
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+
+.medeq-line,
+.medeq-downtime {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.medeq-line span,
+.medeq-downtime span {
+    display: inline-flex;
+    min-height: 24px;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.medeq-downtime span {
+    background: rgba(245, 158, 11, 0.14);
+    color: #92400e;
+}
+
+.medeq-report {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border-left-width: 4px;
+}
+
+.medeq-report--low {
+    border-left-color: #22c55e;
+}
+
+.medeq-report--medium {
+    border-left-color: #0ea5e9;
+}
+
+.medeq-report--high {
+    border-left-color: #f59e0b;
+}
+
+.medeq-report--critical {
+    border-left-color: #ef4444;
+}
+
+.medeq-report__head span {
+    min-width: 0;
+    display: grid;
+    gap: 3px;
+}
+
+.medeq-report__head strong,
+.medeq-report__head small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.medeq-report__head small,
+.medeq-report__head em {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+    font-style: normal;
+    font-weight: 800;
+}
+
+.medical-equipment-empty,
+.medeq-readonly {
+    display: grid;
+    gap: 4px;
+    padding: 14px;
+    color: var(--text-muted);
+    font-size: 0.86rem;
+    font-weight: 800;
+}
+
+.medical-equipment-empty strong {
+    color: var(--text);
+}
+
+.task-assignment-cell--maintenance {
+    border-color: rgba(15, 118, 110, 0.5);
+    background: rgba(20, 184, 166, 0.1);
+}
+
+.task-assignment-maintenance-banner {
+    display: grid;
+    gap: 8px;
+    padding: 12px 14px;
+    border: 1px solid rgba(15, 118, 110, 0.34);
+    border-radius: 12px;
+    background: rgba(20, 184, 166, 0.08);
+    color: #0f766e;
+}
+
+.task-assignment-maintenance-banner strong {
+    color: inherit;
+    font-size: 0.86rem;
+    font-weight: 900;
+}
+
+.task-assignment-maintenance-banner div {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.task-assignment-maintenance-banner span {
+    display: inline-flex;
+    min-height: 26px;
+    align-items: center;
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--text-soft);
+    font-size: 0.75rem;
+    font-weight: 900;
+}
+
+.task-assignment-cell--maintenance .task-assignment-add {
+    display: none;
+}
+
+.task-assignment-maintenance-note {
+    display: grid;
+    gap: 2px;
+    padding: 6px 7px;
+    border-radius: 8px;
+    background: rgba(15, 118, 110, 0.12);
+    color: #0f766e;
+    font-size: 0.68rem;
+    font-weight: 900;
+    line-height: 1.25;
+}
+
+.task-assignment-maintenance-note small {
+    color: inherit;
+    opacity: 0.78;
+    font-weight: 800;
+}
+
+@media (max-width: 1180px) {
+    .medeq-head {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .medeq-stats {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .medeq-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .medeq-sidebar {
+        position: static;
+    }
+}
+
+@media (max-width: 760px) {
+    .medeq-head,
+    .medeq-detail,
+    .medeq-section,
+    .medeq-sidebar {
+        padding: 12px;
+        border-radius: 14px;
+    }
+
+    .medeq-stats,
+    .medeq-summary-row,
+    .medeq-grid--four,
+    .medeq-section--split {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .medeq-detail-head {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .medeq-actions {
+        justify-content: stretch;
+    }
+
+    .medeq-actions .primary-button,
+    .medeq-actions .secondary-button,
+    .medeq-actions .danger-button {
+        width: 100%;
+    }
+}
+
 .qualifications-panel,
 .qual-root {
     display: grid;
@@ -20250,6 +21061,7 @@ body.calendar-direct-edit-off:not(.mode-active) .calendar-panel .day:not(.turn-c
     .worker-requests-panel,
     .memos-panel,
     .informations-panel,
+    .medical-equipment-panel,
     .qualifications-panel,
     .agenda-panel,
     .audit-log-panel {

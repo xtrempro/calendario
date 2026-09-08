@@ -17,6 +17,7 @@ export const MAX_ATTACHMENT_FILES = 10;
 export const MAX_ATTACHMENT_TOTAL_SIZE =
     MAX_ATTACHMENT_SIZE * MAX_ATTACHMENT_FILES;
 const STORAGE_APP_CHECK_TIMEOUT_MS = 12000;
+const MEDICAL_EQUIPMENT_ATTACHMENT_MODULE_ID = "medicalEquipment";
 
 const ALLOWED_EXTENSIONS = new Set(
     ATTACHMENT_ACCEPT.split(",").map(extension => extension.slice(1))
@@ -48,6 +49,7 @@ const STORAGE_MODULES = new Set([
     "tasks",
     "requests",
     "informations",
+    "medicalEquipment",
     // Formulario de evaluacion cuatrimestral firmado y escaneado. El ownerId es
     // el trabajador y el recordId el periodo evaluado.
     "qualifications",
@@ -259,6 +261,10 @@ function isQualificationContext(context) {
     return context?.moduleId === "qualifications";
 }
 
+function isMedicalEquipmentContext(context) {
+    return context?.moduleId === MEDICAL_EQUIPMENT_ATTACHMENT_MODULE_ID;
+}
+
 function isPublishedInformationStoragePath(storagePath) {
     const parts = String(storagePath || "").split("/");
 
@@ -278,6 +284,18 @@ function isQualificationStoragePath(storagePath) {
         parts[0] === "workspaces" &&
         parts[2] === "attachments" &&
         parts[3] === "qualifications" &&
+        Boolean(parts[4]) &&
+        Boolean(parts[5]) &&
+        Boolean(parts[6]);
+}
+
+function isMedicalEquipmentStoragePath(storagePath) {
+    const parts = String(storagePath || "").split("/");
+
+    return parts.length === 7 &&
+        parts[0] === "workspaces" &&
+        parts[2] === "attachments" &&
+        parts[3] === MEDICAL_EQUIPMENT_ATTACHMENT_MODULE_ID &&
         Boolean(parts[4]) &&
         Boolean(parts[5]) &&
         Boolean(parts[6]);
@@ -308,6 +326,42 @@ async function uploadInformationAttachment(file, context) {
 
     return {
         id: String(data.id || attachmentId("information")),
+        name: String(data.name || file.name || "archivo"),
+        type: String(data.type || fileContentType(file)).toLowerCase(),
+        size: Number(data.size) || file.size || 0,
+        addedAt: String(data.addedAt || new Date().toISOString()),
+        storagePath: String(data.storagePath || ""),
+        downloadURL: String(data.downloadURL || ""),
+        uploadedByUid: String(data.uploadedByUid || context.userId)
+    };
+}
+
+async function uploadMedicalEquipmentAttachment(file, context) {
+    const services = await getFirebaseServices();
+
+    await waitForStorageAppCheck(services, "subir");
+
+    const callable = services.functionsModule.httpsCallable(
+        services.functions,
+        "uploadMedicalEquipmentAttachment"
+    );
+    const response = await callable({
+        workspaceId: context.workspaceId,
+        ownerId: context.ownerId,
+        recordId: context.recordId,
+        name: String(file.name || ""),
+        type: fileContentType(file),
+        size: file.size || 0,
+        dataUrl: await readFileAsDataURL(file)
+    });
+    const data = response?.data || {};
+
+    if (!data.storagePath) {
+        throw new Error("La subida no devolvio la ruta del archivo.");
+    }
+
+    return {
+        id: String(data.id || attachmentId("medical_equipment")),
         name: String(data.name || file.name || "archivo"),
         type: String(data.type || fileContentType(file)).toLowerCase(),
         size: Number(data.size) || file.size || 0,
@@ -363,6 +417,23 @@ async function deleteInformationAttachment(attachment) {
     const callable = services.functionsModule.httpsCallable(
         services.functions,
         "deleteInformationAttachment"
+    );
+
+    await callable({
+        workspaceId: workspace?.id || "",
+        storagePath: String(attachment?.storagePath || "")
+    });
+}
+
+async function deleteMedicalEquipmentAttachment(attachment) {
+    const workspace = getActiveWorkspace();
+    const services = await getFirebaseServices();
+
+    await waitForStorageAppCheck(services, "eliminar");
+
+    const callable = services.functionsModule.httpsCallable(
+        services.functions,
+        "deleteMedicalEquipmentAttachment"
     );
 
     await callable({
@@ -624,6 +695,17 @@ export async function readAttachmentFiles(files, options = {}) {
             continue;
         }
 
+        if (isMedicalEquipmentContext(context)) {
+            try {
+                attachments.push(
+                    await uploadMedicalEquipmentAttachment(file, context)
+                );
+            } catch (error) {
+                throw attachmentStorageError(error, "subir");
+            }
+            continue;
+        }
+
         if (isQualificationContext(context)) {
             try {
                 attachments.push(
@@ -792,6 +874,15 @@ export async function deleteStoredAttachment(attachment) {
     if (isPublishedInformationStoragePath(attachment.storagePath)) {
         try {
             await deleteInformationAttachment(attachment);
+        } catch (error) {
+            throw attachmentStorageError(error, "eliminar");
+        }
+        return;
+    }
+
+    if (isMedicalEquipmentStoragePath(attachment.storagePath)) {
+        try {
+            await deleteMedicalEquipmentAttachment(attachment);
         } catch (error) {
             throw attachmentStorageError(error, "eliminar");
         }
