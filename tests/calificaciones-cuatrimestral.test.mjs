@@ -445,3 +445,15 @@ test("la ficha lleva la franja de antecedentes y el pie de la fila", async () =>
     assert.match(source, /function queueFooterHTML/);
     assert.match(source, /data-qual-next=/);
 });
+
+test("las tarjetas de cifras no llevan franja de color al costado", async () => {
+    const css = await read("../styles.css");
+
+    // El color va en el rotulo y en la cifra, que es donde se lee. La franja
+    // pedia un tono saturado por tarjeta y cuatro seguidas parecian un semaforo.
+    assert.doesNotMatch(css, /\.qual-kpi \{[^}]*border-left: 4px/);
+    assert.match(css, /\.qual-kpi \{[^}]*--qual-kpi-tone/);
+    assert.match(css, /\.qual-kpi strong \{[^}]*color: var\(--qual-kpi-tone\)/);
+    assert.match(css, /\.qual-kpi span \{[^}]*text-transform: uppercase/);
+    assert.doesNotMatch(css, /\.qual-kpi--green \{ border-left-color/);
+});

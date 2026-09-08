@@ -16205,40 +16205,55 @@ button.staffing-pill {
     gap: 10px;
 }
 
+/* Sin franja de color a la izquierda: el color lo llevan el rotulo y la cifra,
+   que es donde se lee. La franja obligaba ademas a un tono saturado por tarjeta
+   y cuatro seguidas parecian un semaforo. */
 .qual-kpi {
+    --qual-kpi-tone: var(--blue);
     display: grid;
-    gap: 4px;
+    gap: 3px;
     min-width: 0;
-    padding: 12px;
+    padding: 12px 13px;
     border: 1px solid var(--border);
-    border-left: 4px solid #2563eb;
     border-radius: 12px;
     background: var(--panel);
 }
 
-.qual-kpi span,
-.qual-kpi small {
+.qual-kpi span {
     min-width: 0;
-    color: var(--text-muted);
-    font-size: 0.76rem;
+    color: var(--qual-kpi-tone);
+    font-size: 0.7rem;
     font-weight: 800;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
     overflow-wrap: anywhere;
 }
 
 .qual-kpi strong {
     min-width: 0;
-    color: var(--text);
-    font-size: 1.2rem;
-    line-height: 1.1;
+    color: var(--qual-kpi-tone);
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
     overflow-wrap: anywhere;
 }
 
-.qual-kpi--green { border-left-color: #16a34a; }
-.qual-kpi--red { border-left-color: #dc2626; }
-.qual-kpi--orange { border-left-color: #f97316; }
-.qual-kpi--teal { border-left-color: #0d9488; }
-.qual-kpi--violet { border-left-color: #7c3aed; }
-.qual-kpi--slate { border-left-color: #64748b; }
+.qual-kpi small {
+    min-width: 0;
+    color: var(--text-muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.qual-kpi--green { --qual-kpi-tone: #15803d; }
+.qual-kpi--red { --qual-kpi-tone: #c53030; }
+.qual-kpi--orange { --qual-kpi-tone: #97690a; }
+.qual-kpi--teal { --qual-kpi-tone: #0f766e; }
+.qual-kpi--violet { --qual-kpi-tone: #7322a3; }
+.qual-kpi--slate { --qual-kpi-tone: var(--text-soft); }
 
 .qual-list-tools {
     display: grid;
