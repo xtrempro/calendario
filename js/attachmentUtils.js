@@ -255,6 +255,10 @@ function isPublishedInformationContext(context) {
         context.ownerId === "published";
 }
 
+function isQualificationContext(context) {
+    return context?.moduleId === "qualifications";
+}
+
 function isPublishedInformationStoragePath(storagePath) {
     const parts = String(storagePath || "").split("/");
 
@@ -263,6 +267,18 @@ function isPublishedInformationStoragePath(storagePath) {
         parts[2] === "attachments" &&
         parts[3] === "informations" &&
         parts[4] === "published" &&
+        Boolean(parts[5]) &&
+        Boolean(parts[6]);
+}
+
+function isQualificationStoragePath(storagePath) {
+    const parts = String(storagePath || "").split("/");
+
+    return parts.length === 7 &&
+        parts[0] === "workspaces" &&
+        parts[2] === "attachments" &&
+        parts[3] === "qualifications" &&
+        Boolean(parts[4]) &&
         Boolean(parts[5]) &&
         Boolean(parts[6]);
 }
@@ -302,6 +318,42 @@ async function uploadInformationAttachment(file, context) {
     };
 }
 
+async function uploadQualificationAttachment(file, context) {
+    const services = await getFirebaseServices();
+
+    await waitForStorageAppCheck(services, "subir");
+
+    const callable = services.functionsModule.httpsCallable(
+        services.functions,
+        "uploadQualificationAttachment"
+    );
+    const response = await callable({
+        workspaceId: context.workspaceId,
+        ownerId: context.ownerId,
+        recordId: context.recordId,
+        name: String(file.name || ""),
+        type: fileContentType(file),
+        size: file.size || 0,
+        dataUrl: await readFileAsDataURL(file)
+    });
+    const data = response?.data || {};
+
+    if (!data.storagePath) {
+        throw new Error("La subida no devolvio la ruta del archivo.");
+    }
+
+    return {
+        id: String(data.id || attachmentId("qualification")),
+        name: String(data.name || file.name || "archivo"),
+        type: String(data.type || fileContentType(file)).toLowerCase(),
+        size: Number(data.size) || file.size || 0,
+        addedAt: String(data.addedAt || new Date().toISOString()),
+        storagePath: String(data.storagePath || ""),
+        downloadURL: String(data.downloadURL || ""),
+        uploadedByUid: String(data.uploadedByUid || context.userId)
+    };
+}
+
 async function deleteInformationAttachment(attachment) {
     const workspace = getActiveWorkspace();
     const services = await getFirebaseServices();
@@ -311,6 +363,23 @@ async function deleteInformationAttachment(attachment) {
     const callable = services.functionsModule.httpsCallable(
         services.functions,
         "deleteInformationAttachment"
+    );
+
+    await callable({
+        workspaceId: workspace?.id || "",
+        storagePath: String(attachment?.storagePath || "")
+    });
+}
+
+async function deleteQualificationAttachment(attachment) {
+    const workspace = getActiveWorkspace();
+    const services = await getFirebaseServices();
+
+    await waitForStorageAppCheck(services, "eliminar");
+
+    const callable = services.functionsModule.httpsCallable(
+        services.functions,
+        "deleteQualificationAttachment"
     );
 
     await callable({
@@ -555,6 +624,17 @@ export async function readAttachmentFiles(files, options = {}) {
             continue;
         }
 
+        if (isQualificationContext(context)) {
+            try {
+                attachments.push(
+                    await uploadQualificationAttachment(file, context)
+                );
+            } catch (error) {
+                throw attachmentStorageError(error, "subir");
+            }
+            continue;
+        }
+
         const id = attachmentId("attachment");
         const safeName = safePathSegment(file.name, "archivo");
         const storagePath = [
@@ -712,6 +792,15 @@ export async function deleteStoredAttachment(attachment) {
     if (isPublishedInformationStoragePath(attachment.storagePath)) {
         try {
             await deleteInformationAttachment(attachment);
+        } catch (error) {
+            throw attachmentStorageError(error, "eliminar");
+        }
+        return;
+    }
+
+    if (isQualificationStoragePath(attachment.storagePath)) {
+        try {
+            await deleteQualificationAttachment(attachment);
         } catch (error) {
             throw attachmentStorageError(error, "eliminar");
         }

@@ -146,6 +146,7 @@ const SCHEDULE_ATTACHMENT_RECORD_ID = "published-schedule";
 const INFORMATION_ATTACHMENT_MODULE_ID = "informations";
 const INFORMATION_ATTACHMENT_OWNER_ID = "published";
 const INFORMATION_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
+const QUALIFICATION_ATTACHMENT_MODULE_ID = "qualifications";
 const SCHEDULE_IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -246,6 +247,21 @@ function memberCanPublishInformations(member = {}) {
   if (permissions.informations?.edit === true) return true;
 
   return !Object.prototype.hasOwnProperty.call(permissions, "informations");
+}
+
+function memberCanPublishQualifications(member = {}) {
+  if (member.role === "owner") return true;
+
+  const permissions = member.permissions && typeof member.permissions === "object"
+    ? member.permissions
+    : {};
+
+  if (permissions.qualifications?.edit === true) return true;
+  if (Object.prototype.hasOwnProperty.call(permissions, "qualifications")) {
+    return false;
+  }
+
+  return hasLegacyFullAdminPermissions(permissions);
 }
 
 function createSupervisorInviteToken() {
@@ -361,6 +377,19 @@ async function requireWorkspaceInformationPublisher(workspaceId, uid, token) {
     throw new HttpsError(
       "permission-denied",
       "No tienes permisos para publicar informaciones en esta unidad."
+    );
+  }
+
+  return member;
+}
+
+async function requireWorkspaceQualificationPublisher(workspaceId, uid, token) {
+  const member = await requireWorkspaceMember(workspaceId, uid, token);
+
+  if (!memberCanPublishQualifications(member)) {
+    throw new HttpsError(
+      "permission-denied",
+      "No tienes permisos para adjuntar calificaciones en esta unidad."
     );
   }
 
@@ -518,6 +547,19 @@ function isInformationAttachmentStoragePath(workspaceId, storagePath) {
     parts[2] === "attachments" &&
     parts[3] === INFORMATION_ATTACHMENT_MODULE_ID &&
     parts[4] === INFORMATION_ATTACHMENT_OWNER_ID &&
+    Boolean(parts[5]) &&
+    Boolean(parts[6]);
+}
+
+function isQualificationAttachmentStoragePath(workspaceId, storagePath) {
+  const parts = String(storagePath || "").split("/");
+
+  return parts.length === 7 &&
+    parts[0] === "workspaces" &&
+    parts[1] === safeStoragePathSegment(workspaceId, "workspace") &&
+    parts[2] === "attachments" &&
+    parts[3] === QUALIFICATION_ATTACHMENT_MODULE_ID &&
+    Boolean(parts[4]) &&
     Boolean(parts[5]) &&
     Boolean(parts[6]);
 }
@@ -1178,6 +1220,150 @@ exports.deleteInformationAttachment = onCall(
         throw new HttpsError(
           "internal",
           "No se pudo eliminar el archivo adjunto de informacion."
+        );
+      }
+    }
+
+    return { deleted: true };
+  }
+);
+
+exports.uploadQualificationAttachment = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 120,
+    memory: "512MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para adjuntar la calificacion."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+    const rawOwnerId = cleanCallableText(request.data?.ownerId, 160);
+    const rawRecordId = cleanCallableText(request.data?.recordId, 160);
+    const ownerId = safeStoragePathSegment(rawOwnerId, "worker");
+    const recordId = safeStoragePathSegment(rawRecordId, "qualification");
+
+    if (!workspaceId || !rawOwnerId || !rawRecordId) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Selecciona trabajador y periodo antes de adjuntar la calificacion."
+      );
+    }
+
+    await requireWorkspaceQualificationPublisher(
+      workspaceId,
+      uid,
+      request.auth.token || {}
+    );
+
+    const decoded = decodeInformationAttachmentPayload(request.data || {});
+    const bucket = admin.storage().bucket();
+
+    if (!bucket) {
+      throw new HttpsError(
+        "failed-precondition",
+        "El almacenamiento de calificaciones no esta disponible."
+      );
+    }
+
+    const id = `qualification_${Date.now()}_${randomBytes(6).toString("hex")}`;
+    const downloadToken = randomBytes(24).toString("hex");
+    const storagePath = [
+      "workspaces",
+      safeStoragePathSegment(workspaceId, "workspace"),
+      "attachments",
+      QUALIFICATION_ATTACHMENT_MODULE_ID,
+      ownerId,
+      recordId,
+      `${safeStoragePathSegment(id, "qualification")}_${decoded.safeName}`
+    ].join("/");
+    const addedAt = new Date().toISOString();
+
+    await bucket.file(storagePath).save(decoded.buffer, {
+      resumable: false,
+      metadata: {
+        cacheControl: "private, max-age=0, no-cache",
+        contentType: decoded.contentType,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+          workspaceId,
+          moduleId: QUALIFICATION_ATTACHMENT_MODULE_ID,
+          ownerId,
+          recordId,
+          uploadedByUid: uid,
+          originalName: decoded.originalName
+        }
+      }
+    });
+
+    return {
+      id,
+      name: decoded.originalName,
+      type: decoded.contentType,
+      size: decoded.buffer.length,
+      addedAt,
+      uploadedByUid: uid,
+      storagePath,
+      downloadURL: storageDownloadURL(bucket.name, storagePath, downloadToken)
+    };
+  }
+);
+
+exports.deleteQualificationAttachment = onCall(
+  {
+    enforceAppCheck: ENFORCE_APP_CHECK,
+    timeoutSeconds: 60,
+    memory: "256MiB"
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+
+    if (!uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Debes iniciar sesion para eliminar la calificacion."
+      );
+    }
+
+    const workspaceId = cleanCallableText(request.data?.workspaceId, 160);
+    const storagePath = cleanCallableText(request.data?.storagePath, 500);
+
+    if (!workspaceId || !isQualificationAttachmentStoragePath(workspaceId, storagePath)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "El archivo de calificacion no es valido para esta unidad."
+      );
+    }
+
+    await requireWorkspaceQualificationPublisher(
+      workspaceId,
+      uid,
+      request.auth.token || {}
+    );
+
+    const bucket = admin.storage().bucket();
+
+    if (!bucket) {
+      throw new HttpsError(
+        "failed-precondition",
+        "El almacenamiento de calificaciones no esta disponible."
+      );
+    }
+
+    try {
+      await bucket.file(storagePath).delete();
+    } catch (error) {
+      if (Number(error?.code) !== 404) {
+        throw new HttpsError(
+          "internal",
+          "No se pudo eliminar el archivo adjunto de calificacion."
         );
       }
     }

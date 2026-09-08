@@ -152,9 +152,10 @@ test("los antecedentes se reparten por factor y se copian al texto", async () =>
 });
 
 test("el escaneado firmado cierra el circuito", async () => {
-    const [source, attachments] = await Promise.all([
+    const [source, attachments, functionsIndex] = await Promise.all([
         read("../js/qualifications.js"),
-        read("../js/attachmentUtils.js")
+        read("../js/attachmentUtils.js"),
+        read("../functions/index.js")
     ]);
 
     assert.match(source, /function normalizeScan/);
@@ -163,6 +164,10 @@ test("el escaneado firmado cierra el circuito", async () => {
     assert.match(source, /if \(record\.scan\) return STATUS_ARCHIVED/);
     // Sin esto, attachmentUtils rechaza la subida en silencio.
     assert.match(attachments, /"qualifications"/);
+    assert.match(attachments, /uploadQualificationAttachment/);
+    assert.match(attachments, /deleteQualificationAttachment/);
+    assert.match(functionsIndex, /exports\.uploadQualificationAttachment\s*=\s*onCall/);
+    assert.match(functionsIndex, /exports\.deleteQualificationAttachment\s*=\s*onCall/);
 });
 
 test("imprimir no manda la pagina entera a la impresora", async () => {
