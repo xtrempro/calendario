@@ -15766,9 +15766,13 @@ button.staffing-pill {
     gap: 12px;
 }
 
-.qual-back { grid-area: back; }
-.qual-detail-id { grid-area: id; }
-.qual-detail-periods { grid-area: periods; }
+/* Las areas son de ESTA rejilla y de ninguna otra. Sueltas, `.qual-detail-id`
+   se llevaba su `grid-area: id` al encabezado de la anual, cuya rejilla no
+   define esa area: el navegador la manda a una fila implicita y la identidad
+   terminaba debajo del puntaje y pegada a la derecha. */
+.qual-detail-head > .qual-back { grid-area: back; }
+.qual-detail-head > .qual-detail-id { grid-area: id; }
+.qual-detail-head > .qual-detail-periods { grid-area: periods; }
 
 .qual-detail-id {
     display: flex;

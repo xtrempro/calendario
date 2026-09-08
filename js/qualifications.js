@@ -1416,7 +1416,17 @@ function factorFieldHTML(factor, record, editable, previousScores = {}) {
 // cada franja es su tramo de puntos, no una porcion igual. Es lo unico con
 // efecto de verdad (ascenso, estimulos, eliminacion) y hasta ahora no se veia
 // hasta guardar.
-function scoreCardHTML(record, points) {
+// El puntaje que obtuvo el ciclo ANTERIOR. Va al pie de la tarjeta: la
+// calificacion se lee contra la del ano pasado, no en el vacio.
+function previousCyclePoints(profile, cycleStartYear) {
+    const state = getQualificationState();
+    const previous = annualPeriod(cycleStartYear - 1);
+    const record = findRecordForProfile(state, previous, profile);
+
+    return qualificationPoints(record, profile);
+}
+
+function scoreCardHTML(record, points, previousPoints) {
     const value = Number(points) || 0;
     const marker = value
         ? Math.max(0, Math.min(100, ((value - 10) / 90) * 100))
@@ -1455,6 +1465,9 @@ function scoreCardHTML(record, points) {
             </div>
             <div class="qual-scoreboard__foot">
                 <span data-qual-filled>${filled} de 6 notas puestas</span>
+                <span>${previousPoints
+                    ? `Ciclo anterior: ${escapeHTML(Number(previousPoints).toFixed(2))}`
+                    : "Sin ciclo anterior"}</span>
             </div>
         </section>
     `;
@@ -1914,7 +1927,11 @@ function annualDetailHTML(summary, period, readonly, queue = []) {
                         <small>Periodo ${escapeHTML(formatDate(period.startISO))} al ${escapeHTML(formatDate(period.endISO))} &middot; la precalificacion se cierra el ${escapeHTML(formatDate(period.deadlineISO))}</small>
                     </div>
                 </div>
-                ${scoreCardHTML(record, points)}
+                ${scoreCardHTML(
+                    record,
+                    points,
+                    previousCyclePoints(profile, period.cycleStartYear)
+                )}
             </div>
 
             ${quarterReportsHTML(summary, period)}

@@ -517,3 +517,22 @@ test("los tres informes se pueden comparar de un vistazo", async () => {
     assert.match(source, /data-qual-report=/);
     assert.doesNotMatch(source, /<details class="qual-report">/);
 });
+
+test("las areas de la rejilla no se escapan del encabezado cuatrimestral", async () => {
+    const css = await read("../styles.css");
+
+    // Sueltas, `.qual-detail-id { grid-area: id }` se aplicaba TAMBIEN al
+    // encabezado de la anual, cuya rejilla no define esa area: el navegador la
+    // mandaba a una fila implicita y la identidad terminaba debajo del puntaje
+    // y pegada a la derecha.
+    assert.match(css, /\.qual-detail-head > \.qual-detail-id \{ grid-area: id; \}/);
+    assert.doesNotMatch(css, /\n\.qual-detail-id \{ grid-area: id; \}/);
+});
+
+test("la tarjeta de puntaje compara con el ciclo anterior", async () => {
+    const source = await read("../js/qualifications.js");
+
+    // La calificacion se lee contra la del ano pasado, no en el vacio.
+    assert.match(source, /function previousCyclePoints/);
+    assert.match(source, /Ciclo anterior: \$\{escapeHTML/);
+});
