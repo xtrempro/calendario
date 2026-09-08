@@ -975,10 +975,43 @@ function filterButtonHTML(status, label, count) {
     `;
 }
 
+// Solo lo que TIENE algo. Antes cada fila arrastraba "0 merito 0 demerito
+// 0 atraso 0 capacitacion" en gris: cuatro ceros repetidos setenta y tres
+// veces que no distinguen a nadie y tapan a los que si tienen antecedentes.
+function workerTagsHTML(summary) {
+    const training = summary.training.length + summary.calendarTraining.length;
+    const tags = [
+        ["bad", summary.lateCount, "atraso", "atrasos"],
+        ["warn", summary.demerits.length, "demerito", "demeritos"],
+        ["ok", summary.merits.length, "merito", "meritos"],
+        ["ok", training, "capacitacion", "capacitaciones"]
+    ].filter(([, count]) => count > 0);
+
+    if (!tags.length) return "";
+
+    return `
+        <span class="qual-worker-tags">
+            ${tags.map(([tone, count, one, many]) => `
+                <span class="qual-tag qual-tag--${tone}">
+                    ${count} ${escapeHTML(count === 1 ? one : many)}
+                </span>
+            `).join("")}
+        </span>
+    `;
+}
+
 function workerRowHTML(summary) {
     const profile = summary.profile;
     const selected = summary.profileKey === openProfileKey;
-    const points = qualificationPoints(summary.record, profile);
+    // Estamento y profesion, sin repetir cuando son la misma palabra. El RUT
+    // sale de aqui: no ayuda a reconocer a nadie de un vistazo y lo unico que
+    // hace es empujar el resto de la linea.
+    const role = [profile.estamento, profile.profession]
+        .map(value => String(value || "").trim())
+        .filter(Boolean);
+    const subtitle = [...new Set(role)].join(" - ") ||
+        profile.rut ||
+        "Sin datos de planta";
 
     return `
         <button class="qual-worker-row ${selected ? "is-selected" : ""}"
@@ -987,23 +1020,16 @@ function workerRowHTML(summary) {
             <span class="qual-avatar">${escapeHTML(initials(profile.name))}</span>
             <span class="qual-worker-main">
                 <strong>${escapeHTML(profile.name || "Sin nombre")}</strong>
-                <small>${escapeHTML([
-                    profile.rut || "Sin RUT",
-                    profile.estamento || "",
-                    profile.profession || ""
-                ].filter(Boolean).join(" | "))}</small>
-                <span class="qual-worker-tags">
-                    <span>${summary.merits.length} merito</span>
-                    <span>${summary.demerits.length} demerito</span>
-                    <span>${summary.lateCount} atraso</span>
-                    <span>${summary.training.length + summary.calendarTraining.length} capacitacion</span>
-                </span>
+                <small>${escapeHTML(subtitle)}</small>
             </span>
-            <span class="qual-worker-side">
-                <span class="worker-request-status worker-request-status--${statusClass(summary.status)}">
-                    ${escapeHTML(statusLabel(summary.status))}
-                </span>
-                ${points ? `<small>${escapeHTML(String(points))} pts</small>` : ""}
+            ${workerTagsHTML(summary)}
+            <span class="qual-worker-scan">
+                ${summary.record?.scan
+                    ? `<span class="qual-scan-badge">PDF</span>`
+                    : `<small>sin escaneo</small>`}
+            </span>
+            <span class="worker-request-status worker-request-status--${statusClass(summary.status)}">
+                ${escapeHTML(statusLabel(summary.status))}
             </span>
         </button>
     `;

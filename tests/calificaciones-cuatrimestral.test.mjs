@@ -457,3 +457,33 @@ test("las tarjetas de cifras no llevan franja de color al costado", async () => 
     assert.match(css, /\.qual-kpi span \{[^}]*text-transform: uppercase/);
     assert.doesNotMatch(css, /\.qual-kpi--green \{ border-left-color/);
 });
+
+test("el buscador y los filtros van en una linea", async () => {
+    const css = await read("../styles.css");
+
+    // En dos filas ocupaban el doble de alto para decir lo mismo y empujaban
+    // la lista fuera de la primera pantalla.
+    assert.match(css, /\.qual-list-tools \{[^}]*display: flex/);
+    assert.match(css, /\.qual-list-tools \.field-shell \{[^}]*flex: 1 1 260px/);
+});
+
+test("la fila del trabajador muestra solo lo que tiene", async () => {
+    const [source, css] = await Promise.all([
+        read("../js/qualifications.js"),
+        read("../styles.css")
+    ]);
+
+    // Antes cada fila arrastraba "0 merito 0 demerito 0 atraso 0 capacitacion":
+    // cuatro ceros repetidos setenta y tres veces que tapan a quien si tiene
+    // antecedentes.
+    assert.match(source, /function workerTagsHTML/);
+    assert.match(source, /\.filter\(\(\[, count\]\) => count > 0\)/);
+    assert.doesNotMatch(source, /\$\{summary\.merits\.length\} merito</);
+    // Cada antecedente con su color, y el RUT fuera del subtitulo.
+    ["ok", "warn", "bad"].forEach(tone => {
+        assert.match(css, new RegExp(`\.qual-tag--${tone}`));
+    });
+    assert.match(source, /const subtitle = \[\.\.\.new Set\(role\)\]/);
+    // Y si esta el formulario escaneado, se ve desde la lista.
+    assert.match(source, /qual-scan-badge/);
+});

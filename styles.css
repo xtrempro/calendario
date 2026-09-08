@@ -16255,9 +16255,29 @@ button.staffing-pill {
 .qual-kpi--violet { --qual-kpi-tone: #7322a3; }
 .qual-kpi--slate { --qual-kpi-tone: var(--text-soft); }
 
+/* Buscador y filtros en UNA linea: en dos ocupaban el doble de alto para
+   decir lo mismo, y empujaban la lista -que es lo que se viene a mirar- fuera
+   de la primera pantalla. El buscador se estira y los filtros se quedan a la
+   derecha con su ancho natural. */
 .qual-list-tools {
-    display: grid;
+    display: flex;
+    align-items: center;
     gap: 10px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel-alt);
+}
+
+.qual-list-tools .field-shell {
+    flex: 1 1 260px;
+    min-width: 200px;
+    margin-bottom: 0;
+}
+
+.qual-list-tools .worker-request-filters {
+    flex: 0 1 auto;
 }
 
 .qual-list-head,
@@ -16961,14 +16981,17 @@ button.staffing-pill {
     padding-right: 2px;
 }
 
+/* Nombre y cargo a la izquierda; a la derecha, en orden, los antecedentes que
+   tiene, si esta el escaneado y en que estado va. Las tres columnas de la
+   derecha se dimensionan solas para que la del nombre se lleve el resto. */
 .qual-worker-row {
     display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) auto;
+    grid-template-columns: 42px minmax(0, 1fr) auto auto auto;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     width: 100%;
     min-width: 0;
-    padding: 10px;
+    padding: 11px 13px;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--panel);
@@ -17033,23 +17056,71 @@ button.staffing-pill {
 
 .qual-worker-tags {
     display: flex;
+    align-items: center;
+    justify-content: flex-end;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: 5px;
     min-width: 0;
 }
 
-.qual-worker-tags span {
-    padding: 3px 6px;
-    border-radius: 999px;
-    background: var(--panel-alt);
+/* Cada antecedente con su color: el atraso pesa distinto que la capacitacion,
+   y en gris todos parecian lo mismo. */
+.qual-tag {
+    padding: 4px 9px;
+    border-radius: 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.qual-tag--ok { background: rgba(34, 197, 94, 0.12); color: #15803d; }
+.qual-tag--warn { background: rgba(240, 177, 0, 0.14); color: #97690a; }
+.qual-tag--bad { background: rgba(239, 68, 68, 0.1); color: #c53030; }
+
+.qual-worker-scan {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    min-width: 74px;
+}
+
+.qual-worker-scan small {
     color: var(--text-muted);
-    font-size: 0.68rem;
-    font-weight: 800;
-    line-height: 1.1;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.qual-scan-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 9px;
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.1);
+    color: #c53030;
+    font-size: 0.7rem;
+    font-weight: 900;
+}
+
+.qual-worker-row .worker-request-status {
+    justify-content: center;
+    min-width: 116px;
+    text-align: center;
 }
 
 .qual-worker-side {
     justify-items: end;
+}
+
+@media (max-width: 900px) {
+    .qual-worker-row {
+        grid-template-columns: 42px minmax(0, 1fr) auto;
+    }
+
+    .qual-worker-tags,
+    .qual-worker-scan {
+        display: none;
+    }
 }
 
 .qual-doc-summary {
