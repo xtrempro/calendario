@@ -222,6 +222,10 @@ test("reglas modulares de Firestore y Storage", async t => {
         "profile-editor-no-mfa",
         { email: "profile-no-mfa@example.com" }
     );
+    const qualificationsEditorWithoutMfa = env.authenticatedContext(
+        "qualifications-editor-no-mfa",
+        { email: "qualifications-no-mfa@example.com" }
+    );
     const ownerWithoutMfa = env.authenticatedContext(
         "owner-no-mfa",
         { email: "owner-no-mfa@example.com" }
@@ -462,6 +466,16 @@ test("reglas modulares de Firestore y Storage", async t => {
                 "profile-editor-no-mfa"
             ),
             { role: "member", permissions: permissions(["profile"]) }
+        );
+        await setDoc(
+            doc(
+                db,
+                "workspaces",
+                WORKSPACE_ID,
+                "members",
+                "qualifications-editor-no-mfa"
+            ),
+            { role: "member", permissions: permissions(["qualifications"]) }
         );
         await setDoc(
             doc(
@@ -843,6 +857,29 @@ test("reglas modulares de Firestore y Storage", async t => {
                             "worker-no-mfa",
                             "profile-documents",
                             "profile-editor-no-mfa"
+                        )
+                    )
+                );
+
+                const qualificationPath = [
+                    "workspaces",
+                    WORKSPACE_ID,
+                    "attachments",
+                    "qualifications",
+                    "310000213",
+                    "2026_sep-dec_310000213",
+                    "mfa-required.pdf"
+                ].join("/");
+
+                await assertFails(
+                    uploadBytes(
+                        ref(qualificationsEditorWithoutMfa.storage(), qualificationPath),
+                        new Uint8Array([37, 80, 68, 70]),
+                        attachmentMetadata(
+                            "qualifications",
+                            "310000213",
+                            "2026_sep-dec_310000213",
+                            "qualifications-editor-no-mfa"
                         )
                     )
                 );
@@ -2147,6 +2184,10 @@ test("reglas modulares de Firestore y Storage", async t => {
                 "qualifications"
             ].join("/");
             const path = `${base}/worker-a/2026_sep-dec_worker-a/firmado.pdf`;
+            const explicitEditorPath =
+                `${base}/worker-a/2026_sep-dec_worker-a/editor.pdf`;
+            const rutPath =
+                `${base}/310000213/2026_sep-dec_310000213/Certificado_de_Titulo.pdf`;
             const legacyPath = `${base}/worker-a/2026_sep-dec_worker-a/legacy.pdf`;
             const outsiderPath = `${base}/worker-a/2026_sep-dec_worker-a/ajeno.pdf`;
             const bytes = new Uint8Array([37, 80, 68, 70]);
@@ -2157,25 +2198,43 @@ test("reglas modulares de Firestore y Storage", async t => {
                 name,
                 "application/pdf"
             );
+            const rutMeta = name => attachmentMetadata(
+                "qualifications",
+                "310000213",
+                "2026_sep-dec_310000213",
+                name,
+                "application/pdf"
+            );
 
             await assertSucceeds(
                 uploadBytes(ref(owner.storage(), path), bytes, meta("owner"))
             );
 
-            // El caso que fallaba en produccion: `qualifications` es un menu
-            // nuevo, los miembros creados antes no tienen la clave en su mapa
-            // de permisos, y el cliente los deja editar. Sin la excepcion, la
-            // interfaz permitia adjuntar y Storage devolvia unauthorized.
             await assertSucceeds(
+                uploadBytes(
+                    ref(owner.storage(), rutPath),
+                    bytes,
+                    rutMeta("owner")
+                )
+            );
+            await assertSucceeds(
+                uploadBytes(
+                    ref(qualificationsEditor.storage(), explicitEditorPath),
+                    bytes,
+                    meta("qualifications-editor")
+                )
+            );
+
+            await assertSucceeds(
+                getBytes(ref(qualificationsEditor.storage(), path))
+            );
+
+            await assertFails(
                 uploadBytes(
                     ref(legacyEditor.storage(), legacyPath),
                     bytes,
                     meta("legacy-editor")
                 )
-            );
-
-            await assertSucceeds(
-                getBytes(ref(legacyEditor.storage(), path))
             );
 
             await assertFails(

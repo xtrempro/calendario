@@ -48,6 +48,7 @@ service firebase.storage {
         ("kanban" in permissions && permissions.kanban.edit == true) ||
         ("agenda" in permissions && permissions.agenda.edit == true) ||
         ("profile" in permissions && permissions.profile.edit == true) ||
+        ("qualifications" in permissions && permissions.qualifications.edit == true) ||
         ("clockmarks" in permissions && permissions.clockmarks.edit == true) ||
         ("requests" in permissions && permissions.requests.edit == true) ||
         ("memos" in permissions && permissions.memos.edit == true) ||
@@ -227,26 +228,20 @@ service firebase.storage {
         );
     }
 
-    // `qualifications` es un menu NUEVO: los miembros creados antes de que
-    // existiera no tienen esa clave en su mapa de permisos.
-    //
-    // El cliente (`canEditMenu`) trata la clave AUSENTE como "puede editar",
-    // igual que hace `canEditInformationsMenu` en firebase.rules. Pero
-    // `canEditModule` de aqui exige la clave presente y en true, asi que la
-    // interfaz dejaba adjuntar el formulario escaneado y Storage lo rechazaba
-    // con `storage/unauthorized`. Esta excepcion iguala las dos reglas.
     function canEditQualificationsAttachment(workspaceId) {
+      let data = member(workspaceId);
       let permissions =
-        "permissions" in member(workspaceId)
-          ? member(workspaceId).permissions
-          : {};
+        "permissions" in data ? data.permissions : {};
 
-      return isWorkspaceOwner(workspaceId) ||
+      return isWorkspaceMember(workspaceId) &&
         (
-          "qualifications" in permissions &&
-          permissions.qualifications.edit == true
-        ) ||
-        !("qualifications" in permissions);
+          isWorkspaceOwnerByDoc(workspaceId) ||
+          data.role == "owner" ||
+          (
+            "qualifications" in permissions &&
+            permissions.qualifications.edit == true
+          )
+        );
     }
 
     function requestMetadataMatchesPath(workspaceId, moduleId, ownerId, recordId) {
@@ -304,6 +299,7 @@ service firebase.storage {
           ) ||
           (
             isLeaveAttachment(moduleId) &&
+            isWorkspaceMember(workspaceId) &&
             canEditModule(workspaceId, "turnos") &&
             allowedMessageFile()
           ) ||
@@ -318,6 +314,7 @@ service firebase.storage {
             !isLeaveAttachment(moduleId) &&
             !isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
             !isPublishedInformationAttachment(moduleId, ownerId) &&
+            isWorkspaceMember(workspaceId) &&
             canEditModule(workspaceId, moduleId) &&
             allowedFile()
           )
