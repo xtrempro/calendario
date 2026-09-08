@@ -1055,6 +1055,19 @@ function evidenceByFactor(summary) {
         });
     });
 
+    summary.performance.forEach((item, index) => {
+        buckets.rendimiento.push({
+            tone: "mute",
+            title: "Evaluacion anterior",
+            detail: [formatDate(entryDate(item)), item.detail]
+                .filter(Boolean)
+                .join(" - "),
+            text: String(item.detail || "Evaluacion de desempeno anterior."),
+            // El indice apunta al registro original para poder abrir su PDF.
+            legacyIndex: item.file ? index : -1
+        });
+    });
+
     summary.events.forEach(item => {
         buckets.rendimiento.push({
             tone: "mute",
@@ -1125,18 +1138,28 @@ function evidenceChipsHTML(factorKey, items) {
     }
 
     return items.slice(0, 8).map((item, index) => `
-        <button class="qual-chip qual-chip--${escapeAttribute(item.tone)}"
-            type="button"
-            data-qual-insert="${escapeAttribute(factorKey)}"
-            data-qual-insert-index="${index}"
-            title="Copiar a la apreciacion">
-            <span class="qual-chip__dot"></span>
-            <span class="qual-chip__text">
-                <strong>${escapeHTML(item.title)}</strong>
-                <small>${escapeHTML(item.detail || "")}</small>
-            </span>
-            <span class="qual-chip__add" aria-hidden="true">+</span>
-        </button>
+        <span class="qual-chip-row">
+            <button class="qual-chip qual-chip--${escapeAttribute(item.tone)}"
+                type="button"
+                data-qual-insert="${escapeAttribute(factorKey)}"
+                data-qual-insert-index="${index}"
+                title="Copiar a la apreciacion">
+                <span class="qual-chip__dot"></span>
+                <span class="qual-chip__text">
+                    <strong>${escapeHTML(item.title)}</strong>
+                    <small>${escapeHTML(item.detail || "")}</small>
+                </span>
+                <span class="qual-chip__add" aria-hidden="true">+</span>
+            </button>
+            ${item.legacyIndex >= 0 ? `
+                <button class="qual-chip__file"
+                    type="button"
+                    data-qual-legacy-file="${item.legacyIndex}"
+                    title="Abrir la calificacion escaneada">
+                    PDF
+                </button>
+            ` : ""}
+        </span>
     `).join("");
 }
 
@@ -2599,6 +2622,23 @@ function bindAppraisalHelpers(form, summary, period) {
         };
 
         field.oninput = paint;
+    });
+
+    form.querySelectorAll("[data-qual-legacy-file]").forEach(button => {
+        button.onclick = () => {
+            const index = Number(button.dataset.qualLegacyFile);
+            const entry = summary.performance[index];
+
+            if (!hasAttachmentContent(entry?.file)) return;
+
+            void openAttachmentFile(entry.file, { newTab: true })
+                .catch(async error => {
+                    await showAlert(
+                        error?.message || "No se pudo abrir el archivo.",
+                        { title: "Calificaciones", tone: "danger" }
+                    );
+                });
+        };
     });
 
     form.querySelectorAll("[data-qual-insert]").forEach(button => {

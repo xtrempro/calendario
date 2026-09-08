@@ -16789,6 +16789,36 @@ button.staffing-pill {
     font-weight: 800;
 }
 
+/* Fila del antecedente: el chip que copia el texto y, cuando el registro
+   antiguo traia calificacion escaneada, el boton que la abre. Van separados
+   porque un boton dentro de otro no es HTML valido. */
+.qual-chip-row {
+    display: flex;
+    align-items: stretch;
+    gap: 5px;
+}
+
+.qual-chip-row .qual-chip {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.qual-chip__file {
+    flex: 0 0 auto;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: rgba(239, 68, 68, 0.1);
+    color: #c53030;
+    font-size: 0.68rem;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.qual-chip__file:hover {
+    border-color: #c53030;
+}
+
 .qual-chip {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;

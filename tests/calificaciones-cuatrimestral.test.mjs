@@ -579,3 +579,23 @@ test("los tres informes van dentro de un recuadro gris", async () => {
     assert.match(css, /\.qual-reports \{[^}]*background: var\(--panel-alt\)/);
     assert.match(css, /\.qual-reports \.qual-subhead h4 \{[^}]*text-transform: uppercase/);
 });
+
+test("el recuadro de evaluaciones sale del perfil sin perder lo guardado", async () => {
+    const [main, source] = await Promise.all([
+        read("../js/main.js"),
+        read("../js/qualifications.js")
+    ]);
+
+    // El trabajo vive ahora en Calificaciones; tenerlo en los dos sitios
+    // invitaba a escribir la evaluacion donde no correspondia.
+    assert.match(main, /const HR_LOG_SECTIONS = HR_LOG_CONFIG\.filter\(config => !config\.retired\)/);
+    assert.match(main, /key: "performance",\s*\n\s*retired: true/);
+    assert.match(main, /DOM\.profileRecordsPanel\.innerHTML = HR_LOG_SECTIONS/);
+
+    // Pero la clave se conserva y se sigue leyendo: quitarla habria dejado los
+    // registros guardados y sin ninguna pantalla que los abriera.
+    assert.match(main, /HR_LOG_CONFIG\.forEach\(config => \{/);
+    assert.match(source, /summary\.performance\.forEach/);
+    assert.match(source, /data-qual-legacy-file=/);
+    assert.match(source, /Evaluacion anterior/);
+});

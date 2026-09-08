@@ -218,9 +218,13 @@ test("adjuntar exige poder editar Turnos", () => {
     // La licencia se aplica desde el calendario: es el permiso que corresponde.
     // "leaves" no tiene permiso de menu propio.
     assert.match(rules, /function isLeaveAttachment\(moduleId\) \{/);
+    // Lo que se comprueba es que las tres condiciones vayan en la MISMA rama,
+    // no que esten en lineas consecutivas: la rama gano despues un
+    // `isWorkspaceMember` en medio y esta prueba se puso roja sin que la regla
+    // hubiera dejado de ser correcta.
     assert.match(
         rules,
-        /isLeaveAttachment\(moduleId\) &&\s*\n\s*canEditModule\(workspaceId, "turnos"\) &&\s*\n\s*allowedMessageFile\(\)/
+        /isLeaveAttachment\(moduleId\) &&[\s\S]{0,200}canEditModule\(workspaceId, "turnos"\) &&[\s\S]{0,80}allowedMessageFile\(\)/
     );
 });
 

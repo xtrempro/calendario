@@ -741,8 +741,19 @@ const HR_LOG_CONFIG = [
         ],
         fileLabel: "Archivo escaneado"
     },
+    // "Evaluaciones de desempeno" se retiro de la vista del perfil: ese
+    // trabajo vive ahora en el menu Calificaciones, con su formulario, sus
+    // plazos y su escaneado firmado. Tenerlo en los dos sitios invitaba a
+    // escribir la evaluacion donde no correspondia.
+    //
+    // La CLAVE se conserva y `getProfileLogs` la sigue leyendo: los
+    // registros que ya existan NO se borran, y Calificaciones los muestra
+    // como antecedente del periodo, con su escaneado si lo tenian. Sacar
+    // tambien la clave los habria dejado guardados y sin ninguna pantalla
+    // que los abriera.
     {
         key: "performance",
+        retired: true,
         title: "Evaluaciones de desempe\u00f1o",
         filterYear: true,
         fields: [
@@ -752,6 +763,12 @@ const HR_LOG_CONFIG = [
         fileLabel: "Calificacion escaneada"
     }
 ];
+
+// Las secciones que se DIBUJAN en el perfil. Las retiradas se quedan fuera
+// de la vista pero siguen normalizandose al leer, para no perder lo que ya
+// esta guardado.
+const HR_LOG_SECTIONS = HR_LOG_CONFIG.filter(config => !config.retired);
+
 
 const recordYearFilters = {};
 let cancelProfileSecondaryRender = null;
@@ -4175,7 +4192,7 @@ function renderProfileRecords(profile, editing) {
 
     const logs = getProfileLogs(profile.name);
 
-    const totalRecords = HR_LOG_CONFIG.reduce(
+    const totalRecords = HR_LOG_SECTIONS.reduce(
         (sum, config) => sum + (logs[config.key] || []).length,
         0
     );
@@ -4184,7 +4201,7 @@ function renderProfileRecords(profile, editing) {
         totalEl.textContent = `${totalRecords} ${totalRecords === 1 ? "registro" : "registros"}`;
     }
 
-    DOM.profileRecordsPanel.innerHTML = HR_LOG_CONFIG
+    DOM.profileRecordsPanel.innerHTML = HR_LOG_SECTIONS
         .map(config => renderRecordCard(config, logs, editing))
         .join("");
 
@@ -4202,7 +4219,7 @@ function renderProfileRecords(profile, editing) {
         .querySelectorAll("[data-record-add]")
         .forEach(button => {
             button.onclick = () => {
-                const config = HR_LOG_CONFIG.find(item =>
+                const config = HR_LOG_SECTIONS.find(item =>
                     item.key === button.dataset.recordAdd
                 );
 
