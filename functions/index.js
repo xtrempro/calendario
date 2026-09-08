@@ -133,6 +133,8 @@ const MENU_PERMISSION_KEYS = [
   "dashboard",
   "log"
 ];
+const LEGACY_FULL_ADMIN_PERMISSION_KEYS = MENU_PERMISSION_KEYS
+  .filter(key => !["informations", "qualifications"].includes(key));
 const SCHEDULE_ATTACHMENT_MAX_SIZE = 10 * 1024 * 1024;
 const SCHEDULE_OCR_MAX_TEXT_LENGTH = 30000;
 const SCHEDULE_OCR_TIMEOUT_MS = 20000;
@@ -193,6 +195,12 @@ function cleanManifestParam(value, pattern, maxLength) {
   return pattern.test(clean) ? clean : "";
 }
 
+function hasLegacyFullAdminPermissions(source = {}) {
+  return LEGACY_FULL_ADMIN_PERMISSION_KEYS.every(key =>
+    source?.[key]?.view === true && source?.[key]?.edit === true
+  );
+}
+
 function normalizeSupervisorPermissions(input = {}) {
   const source = input && typeof input === "object" ? input : {};
 
@@ -203,7 +211,14 @@ function normalizeSupervisorPermissions(input = {}) {
     );
     const raw = hasExplicitPermission ? source[key] || {} : {};
     const enabledByDefault =
-      !hasExplicitPermission && key === INFORMATION_ATTACHMENT_MODULE_ID;
+      !hasExplicitPermission &&
+      (
+        key === INFORMATION_ATTACHMENT_MODULE_ID ||
+        (
+          key === "qualifications" &&
+          hasLegacyFullAdminPermissions(source)
+        )
+      );
     const view = enabledByDefault || raw.view === true;
 
     permissions[key] = {

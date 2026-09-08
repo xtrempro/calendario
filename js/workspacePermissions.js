@@ -44,6 +44,9 @@ const TARGET_TO_MENU = MENU_PERMISSION_DEFS.reduce((map, menu) => {
     // puede ver Turnos tampoco tiene por que ver en que grupo va cada persona.
     shiftHoldersPanel: "turnos"
 });
+const LEGACY_FULL_ADMIN_PERMISSION_KEYS = MENU_PERMISSION_DEFS
+    .map(menu => menu.key)
+    .filter(key => !["informations", "qualifications"].includes(key));
 
 let permissionState = {
     ready: false,
@@ -55,8 +58,18 @@ let permissionState = {
 };
 let unsubscribePermissions = null;
 
-function defaultEnabledWhenMissing(menuKey) {
-    return menuKey === "informations";
+function hasLegacyFullAdminPermissions(source = {}) {
+    return LEGACY_FULL_ADMIN_PERMISSION_KEYS.every(key =>
+        source?.[key]?.view === true && source?.[key]?.edit === true
+    );
+}
+
+function defaultEnabledWhenMissing(menuKey, source = {}) {
+    return menuKey === "informations" ||
+        (
+            menuKey === "qualifications" &&
+            hasLegacyFullAdminPermissions(source)
+        );
 }
 
 function defaultMenuPermissions() {
@@ -112,7 +125,8 @@ export function normalizeMenuPermissions(permissions = {}) {
         );
         const raw = hasExplicitPermission ? source[menu.key] || {} : {};
         const enabledByDefault =
-            !hasExplicitPermission && defaultEnabledWhenMissing(menu.key);
+            !hasExplicitPermission &&
+            defaultEnabledWhenMissing(menu.key, source);
         const view = enabledByDefault || raw.view === true;
         const edit = view && (enabledByDefault || raw.edit === true);
 

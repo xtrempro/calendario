@@ -166,13 +166,30 @@ test("Calificaciones calcula puntaje y lista con escala 1-10", async () => {
     );
 });
 
-test("Calificaciones no se activa por defecto en permisos heredados", async () => {
+test("Calificaciones se activa por defecto solo para admins heredados completos", async () => {
     const { normalizeMenuPermissions } =
         await import("../js/workspacePermissions.js");
+    const legacyFullAdmin = {
+        turnos: { view: true, edit: true },
+        weekly: { view: true, edit: true },
+        tasks: { view: true, edit: true },
+        kanban: { view: true, edit: true },
+        agenda: { view: true, edit: true },
+        profile: { view: true, edit: true },
+        clockmarks: { view: true, edit: true },
+        requests: { view: true, edit: true },
+        memos: { view: true, edit: true },
+        swap: { view: true, edit: true },
+        hours: { view: true, edit: true },
+        reports: { view: true, edit: true },
+        dashboard: { view: true, edit: true },
+        log: { view: true, edit: true }
+    };
 
     const legacy = normalizeMenuPermissions({
         informations: { view: true, edit: true }
     });
+    const fullLegacy = normalizeMenuPermissions(legacyFullAdmin);
     const explicitOn = normalizeMenuPermissions({
         qualifications: { view: true, edit: true }
     });
@@ -181,6 +198,7 @@ test("Calificaciones no se activa por defecto en permisos heredados", async () =
     });
 
     assert.deepEqual(legacy.qualifications, { view: false, edit: false });
+    assert.deepEqual(fullLegacy.qualifications, { view: true, edit: true });
     assert.deepEqual(explicitOn.qualifications, { view: true, edit: true });
     assert.deepEqual(explicitReadOnly.qualifications, {
         view: true,

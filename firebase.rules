@@ -25,9 +25,9 @@ service cloud.firestore {
       ).data;
     }
 
-    // Si el miembro puede editar ALGO en la unidad. Informaciones se considera
-    // activo cuando falta en permisos antiguos para que el nuevo menu nazca
-    // habilitado en administradores ya existentes.
+    // Si el miembro puede editar ALGO en la unidad. Informaciones nace activo
+    // si falta en permisos antiguos; Calificaciones solo hereda acceso cuando
+    // el usuario ya tenia todos los menus anteriores con edicion.
     function memberCanEditSomething(workspaceId) {
       let member = memberData(workspaceId);
       let permissions =
@@ -51,6 +51,34 @@ service cloud.firestore {
         ("reports" in permissions && permissions.reports.edit == true) ||
         ("dashboard" in permissions && permissions.dashboard.edit == true) ||
         ("log" in permissions && permissions.log.edit == true);
+    }
+
+    function hasLegacyMenuGrant(permissions, menuKey) {
+      return menuKey in permissions &&
+        permissions[menuKey].view == true &&
+        permissions[menuKey].edit == true;
+    }
+
+    function hasLegacyFullAdminPermissions(permissions) {
+      return hasLegacyMenuGrant(permissions, "turnos") &&
+        hasLegacyMenuGrant(permissions, "weekly") &&
+        hasLegacyMenuGrant(permissions, "tasks") &&
+        hasLegacyMenuGrant(permissions, "kanban") &&
+        hasLegacyMenuGrant(permissions, "agenda") &&
+        hasLegacyMenuGrant(permissions, "profile") &&
+        hasLegacyMenuGrant(permissions, "clockmarks") &&
+        hasLegacyMenuGrant(permissions, "requests") &&
+        hasLegacyMenuGrant(permissions, "memos") &&
+        hasLegacyMenuGrant(permissions, "swap") &&
+        hasLegacyMenuGrant(permissions, "hours") &&
+        hasLegacyMenuGrant(permissions, "reports") &&
+        hasLegacyMenuGrant(permissions, "dashboard") &&
+        hasLegacyMenuGrant(permissions, "log");
+    }
+
+    function qualificationsEnabledByDefault(permissions) {
+      return !("qualifications" in permissions) &&
+        hasLegacyFullAdminPermissions(permissions);
     }
 
     // El segundo factor se le exige exactamente a quien puede cambiar algo: a
@@ -181,6 +209,10 @@ service cloud.firestore {
           (
             menuKey in permissions &&
             permissions[menuKey].edit == true
+          ) ||
+          (
+            menuKey == "qualifications" &&
+            qualificationsEnabledByDefault(permissions)
           )
         );
     }
@@ -197,6 +229,10 @@ service cloud.firestore {
           (
             menuKey in permissions &&
             permissions[menuKey].view == true
+          ) ||
+          (
+            menuKey == "qualifications" &&
+            qualificationsEnabledByDefault(permissions)
           )
         );
     }

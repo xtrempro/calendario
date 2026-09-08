@@ -34,6 +34,22 @@ const FIRESTORE_RULES_PATH = TEST_MFA_RULES
 const STORAGE_RULES_PATH = TEST_MFA_RULES
     ? ".firebase/turnoplus-test/storage.rules"
     : "storage.rules";
+const LEGACY_FULL_ADMIN_PERMISSION_KEYS = [
+    "turnos",
+    "weekly",
+    "tasks",
+    "kanban",
+    "agenda",
+    "profile",
+    "clockmarks",
+    "requests",
+    "memos",
+    "swap",
+    "hours",
+    "reports",
+    "dashboard",
+    "log"
+];
 
 function permissions(editable = [], hidden = []) {
     const keys = [
@@ -213,6 +229,13 @@ test("reglas modulares de Firestore y Storage", async t => {
     });
     const legacyEditor = env.authenticatedContext("legacy-editor", {
         email: "legacy-editor@example.com",
+        firebase: {
+            sign_in_provider: "google.com",
+            sign_in_second_factor: "totp"
+        }
+    });
+    const legacyFullAdmin = env.authenticatedContext("legacy-full-admin", {
+        email: "legacy-full-admin@example.com",
         firebase: {
             sign_in_provider: "google.com",
             sign_in_second_factor: "totp"
@@ -500,6 +523,13 @@ test("reglas modulares de Firestore y Storage", async t => {
             { role: "member", permissions: legacyPermissions(["turnos"]) }
         );
         await setDoc(
+            doc(db, "workspaces", WORKSPACE_ID, "members", "legacy-full-admin"),
+            {
+                role: "member",
+                permissions: legacyPermissions(LEGACY_FULL_ADMIN_PERMISSION_KEYS)
+            }
+        );
+        await setDoc(
             doc(
                 db,
                 "workspaces",
@@ -684,6 +714,17 @@ test("reglas modulares de Firestore y Storage", async t => {
                         ...qualificationsPath,
                         "entries",
                         "qualifications"
+                    ),
+                    stateEntry("qualifications", "qualifications")
+                )
+            );
+            await assertSucceeds(
+                setDoc(
+                    doc(
+                        legacyFullAdmin.firestore(),
+                        ...qualificationsPath,
+                        "entries",
+                        "qualifications_legacy_full"
                     ),
                     stateEntry("qualifications", "qualifications")
                 )
@@ -2188,6 +2229,8 @@ test("reglas modulares de Firestore y Storage", async t => {
                 `${base}/worker-a/2026_sep-dec_worker-a/editor.pdf`;
             const rutPath =
                 `${base}/310000213/2026_sep-dec_310000213/Certificado_de_Titulo.pdf`;
+            const legacyFullRutPath =
+                `${base}/310000213/2026_sep-dec_310000213/legacy-full.pdf`;
             const legacyPath = `${base}/worker-a/2026_sep-dec_worker-a/legacy.pdf`;
             const outsiderPath = `${base}/worker-a/2026_sep-dec_worker-a/ajeno.pdf`;
             const bytes = new Uint8Array([37, 80, 68, 70]);
@@ -2222,6 +2265,13 @@ test("reglas modulares de Firestore y Storage", async t => {
                     ref(qualificationsEditor.storage(), explicitEditorPath),
                     bytes,
                     meta("qualifications-editor")
+                )
+            );
+            await assertSucceeds(
+                uploadBytes(
+                    ref(legacyFullAdmin.storage(), legacyFullRutPath),
+                    bytes,
+                    rutMeta("legacy-full-admin")
                 )
             );
 

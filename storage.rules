@@ -61,6 +61,34 @@ service firebase.storage {
         ("log" in permissions && permissions.log.edit == true);
     }
 
+    function hasLegacyMenuGrant(permissions, menuKey) {
+      return menuKey in permissions &&
+        permissions[menuKey].view == true &&
+        permissions[menuKey].edit == true;
+    }
+
+    function hasLegacyFullAdminPermissions(permissions) {
+      return hasLegacyMenuGrant(permissions, "turnos") &&
+        hasLegacyMenuGrant(permissions, "weekly") &&
+        hasLegacyMenuGrant(permissions, "tasks") &&
+        hasLegacyMenuGrant(permissions, "kanban") &&
+        hasLegacyMenuGrant(permissions, "agenda") &&
+        hasLegacyMenuGrant(permissions, "profile") &&
+        hasLegacyMenuGrant(permissions, "clockmarks") &&
+        hasLegacyMenuGrant(permissions, "requests") &&
+        hasLegacyMenuGrant(permissions, "memos") &&
+        hasLegacyMenuGrant(permissions, "swap") &&
+        hasLegacyMenuGrant(permissions, "hours") &&
+        hasLegacyMenuGrant(permissions, "reports") &&
+        hasLegacyMenuGrant(permissions, "dashboard") &&
+        hasLegacyMenuGrant(permissions, "log");
+    }
+
+    function qualificationsEnabledByDefault(permissions) {
+      return !("qualifications" in permissions) &&
+        hasLegacyFullAdminPermissions(permissions);
+    }
+
     function memberHasExplicitAccess(workspaceId) {
       let data = member(workspaceId);
 
@@ -240,7 +268,25 @@ service firebase.storage {
           (
             "qualifications" in permissions &&
             permissions.qualifications.edit == true
-          )
+          ) ||
+          qualificationsEnabledByDefault(permissions)
+        );
+    }
+
+    function canViewQualificationsAttachment(workspaceId) {
+      let data = member(workspaceId);
+      let permissions =
+        "permissions" in data ? data.permissions : {};
+
+      return isWorkspaceMember(workspaceId) &&
+        (
+          isWorkspaceOwnerByDoc(workspaceId) ||
+          data.role == "owner" ||
+          (
+            "qualifications" in permissions &&
+            permissions.qualifications.view == true
+          ) ||
+          qualificationsEnabledByDefault(permissions)
         );
     }
 
@@ -262,7 +308,7 @@ service firebase.storage {
             canViewInformationAttachment(workspaceId)
           ) ||
           canViewModule(workspaceId, moduleId) ||
-          (moduleId == "qualifications" && canEditQualificationsAttachment(workspaceId)) ||
+          (moduleId == "qualifications" && canViewQualificationsAttachment(workspaceId)) ||
           resource.metadata.uploadedByUid == request.auth.uid
         ) ||
         (
