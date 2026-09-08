@@ -227,6 +227,28 @@ service firebase.storage {
         );
     }
 
+    // `qualifications` es un menu NUEVO: los miembros creados antes de que
+    // existiera no tienen esa clave en su mapa de permisos.
+    //
+    // El cliente (`canEditMenu`) trata la clave AUSENTE como "puede editar",
+    // igual que hace `canEditInformationsMenu` en firebase.rules. Pero
+    // `canEditModule` de aqui exige la clave presente y en true, asi que la
+    // interfaz dejaba adjuntar el formulario escaneado y Storage lo rechazaba
+    // con `storage/unauthorized`. Esta excepcion iguala las dos reglas.
+    function canEditQualificationsAttachment(workspaceId) {
+      let permissions =
+        "permissions" in member(workspaceId)
+          ? member(workspaceId).permissions
+          : {};
+
+      return isWorkspaceOwner(workspaceId) ||
+        (
+          "qualifications" in permissions &&
+          permissions.qualifications.edit == true
+        ) ||
+        !("qualifications" in permissions);
+    }
+
     function requestMetadataMatchesPath(workspaceId, moduleId, ownerId, recordId) {
       return request.resource.metadata.workspaceId == workspaceId &&
         request.resource.metadata.moduleId == moduleId &&
@@ -245,6 +267,7 @@ service firebase.storage {
             canViewInformationAttachment(workspaceId)
           ) ||
           canViewModule(workspaceId, moduleId) ||
+          (moduleId == "qualifications" && canEditQualificationsAttachment(workspaceId)) ||
           resource.metadata.uploadedByUid == request.auth.uid
         ) ||
         (
@@ -285,6 +308,11 @@ service firebase.storage {
             allowedMessageFile()
           ) ||
           (
+            moduleId == "qualifications" &&
+            canEditQualificationsAttachment(workspaceId) &&
+            allowedFile()
+          ) ||
+          (
             moduleId != "tasks" &&
             !isMessageAttachment(moduleId) &&
             !isLeaveAttachment(moduleId) &&
@@ -321,6 +349,7 @@ service firebase.storage {
             !isPublishedScheduleAttachment(moduleId, ownerId, recordId) &&
             (
               canEditModule(workspaceId, moduleId) ||
+              (moduleId == "qualifications" && canEditQualificationsAttachment(workspaceId)) ||
               resource.metadata.uploadedByUid == request.auth.uid
             ) &&
             allowedFile()
@@ -344,6 +373,7 @@ service firebase.storage {
             canEditModule(workspaceId, "turnos")
           ) ||
           canEditModule(workspaceId, moduleId) ||
+          (moduleId == "qualifications" && canEditQualificationsAttachment(workspaceId)) ||
           resource.metadata.uploadedByUid == request.auth.uid
         );
     }

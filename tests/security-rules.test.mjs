@@ -2138,6 +2138,57 @@ test("reglas modulares de Firestore y Storage", async t => {
     );
 
     await t.test(
+        "Storage acepta el formulario escaneado de calificaciones",
+        async () => {
+            const base = [
+                "workspaces",
+                WORKSPACE_ID,
+                "attachments",
+                "qualifications"
+            ].join("/");
+            const path = `${base}/worker-a/2026_sep-dec_worker-a/firmado.pdf`;
+            const legacyPath = `${base}/worker-a/2026_sep-dec_worker-a/legacy.pdf`;
+            const outsiderPath = `${base}/worker-a/2026_sep-dec_worker-a/ajeno.pdf`;
+            const bytes = new Uint8Array([37, 80, 68, 70]);
+            const meta = name => attachmentMetadata(
+                "qualifications",
+                "worker-a",
+                "2026_sep-dec_worker-a",
+                name,
+                "application/pdf"
+            );
+
+            await assertSucceeds(
+                uploadBytes(ref(owner.storage(), path), bytes, meta("owner"))
+            );
+
+            // El caso que fallaba en produccion: `qualifications` es un menu
+            // nuevo, los miembros creados antes no tienen la clave en su mapa
+            // de permisos, y el cliente los deja editar. Sin la excepcion, la
+            // interfaz permitia adjuntar y Storage devolvia unauthorized.
+            await assertSucceeds(
+                uploadBytes(
+                    ref(legacyEditor.storage(), legacyPath),
+                    bytes,
+                    meta("legacy-editor")
+                )
+            );
+
+            await assertSucceeds(
+                getBytes(ref(legacyEditor.storage(), path))
+            );
+
+            await assertFails(
+                uploadBytes(
+                    ref(outsider.storage(), outsiderPath),
+                    bytes,
+                    meta("outsider")
+                )
+            );
+        }
+    );
+
+    await t.test(
         "Storage permite publicar adjuntos compartidos de informaciones",
         async () => {
             const infoPath = [
