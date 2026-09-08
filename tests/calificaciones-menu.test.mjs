@@ -141,12 +141,28 @@ test("Calificaciones calcula puntaje y lista con escala 1-10", async () => {
     );
     assert.equal(qualificationRecordStatus(null), "pending");
     assert.equal(qualificationRecordStatus({ status: "draft" }), "draft");
+
+    // El cierre ya no lo da la aplicacion sino el PAPEL: se imprime, lo firman
+    // las dos partes a mano y vuelve escaneado. Un registro con `evaluatedAt`
+    // -o con el estado viejo `evaluated`- se lee ahora como impreso a la
+    // espera de firma, y solo el escaneado lo deja archivado.
     assert.equal(
         qualificationRecordStatus({
             status: "draft",
             evaluatedAt: "2026-12-31T12:00:00.000Z"
         }),
-        "evaluated"
+        "printed"
+    );
+    assert.equal(
+        qualificationRecordStatus({ status: "evaluated" }),
+        "printed"
+    );
+    assert.equal(
+        qualificationRecordStatus({
+            status: "printed",
+            scan: { id: "s1", name: "firmado.pdf", storagePath: "x/y.pdf" }
+        }),
+        "archived"
     );
 });
 

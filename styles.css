@@ -15839,6 +15839,405 @@ button.staffing-pill {
 .qual-list-head,
 .qual-subhead,
 .qual-detail-head,
+/* ---------- Informe cuatrimestral: apreciacion escrita ---------- */
+
+/* El antecedente va PEGADO al factor que lo usa, en la columna de al lado.
+   Antes vivia en un recuadro suelto arriba de todo: habia que leerlo, bajar, y
+   redactar de memoria. */
+.qual-factor {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+    gap: 13px;
+    align-items: start;
+}
+
+.qual-factor__main {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.qual-factor__evidence {
+    display: grid;
+    gap: 7px;
+    align-content: start;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    background: var(--panel);
+}
+
+.qual-evidence-title {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.qual-evidence-empty {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.qual-appraisal {
+    width: 100%;
+    min-height: 118px;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--field, var(--panel));
+    color: var(--text);
+    font: inherit;
+    font-weight: 500;
+    line-height: 1.55;
+    resize: vertical;
+}
+
+.qual-appraisal-count {
+    color: var(--text-muted);
+    font-size: 0.74rem;
+    font-weight: 800;
+}
+
+.qual-chip {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--panel-alt);
+    color: var(--text-soft);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.qual-chip:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.qual-chip__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--muted);
+}
+
+.qual-chip--ok .qual-chip__dot { background: var(--green); }
+.qual-chip--warn .qual-chip__dot { background: var(--yellow); }
+.qual-chip--bad .qual-chip__dot { background: var(--red); }
+
+.qual-chip__text {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+}
+
+.qual-chip__text strong {
+    color: var(--text);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.qual-chip__text small {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.qual-chip__add {
+    color: var(--accent);
+    font-size: 1rem;
+    font-weight: 900;
+    opacity: 0.7;
+}
+
+.qual-note {
+    margin: 0;
+    padding: 11px 12px;
+    border: 1px solid rgba(var(--brand-blue-rgb), 0.24);
+    border-radius: 12px;
+    background: rgba(var(--brand-blue-rgb), 0.05);
+    color: var(--text-soft);
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.45;
+}
+
+/* ---------- El camino del papel ---------- */
+
+.qual-paper {
+    display: grid;
+    gap: 11px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--panel-alt);
+}
+
+.qual-paper-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 9px;
+}
+
+.qual-step {
+    display: grid;
+    gap: 4px;
+    padding: 11px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+}
+
+.qual-step.is-done {
+    border-color: rgba(34, 197, 94, 0.34);
+}
+
+.qual-step__dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.28);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 900;
+}
+
+.qual-step.is-done .qual-step__dot {
+    background: var(--green);
+    color: #fff;
+}
+
+.qual-step strong {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.qual-step.is-done strong {
+    color: var(--text);
+}
+
+.qual-step small {
+    color: var(--text-muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.qual-scan-drop {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 62px;
+    padding: 0 14px;
+    border: 1px dashed rgba(var(--brand-blue-rgb), 0.4);
+    border-radius: 12px;
+    background: rgba(var(--brand-blue-rgb), 0.04);
+    color: var(--accent);
+    font-size: 0.84rem;
+    font-weight: 800;
+    text-align: center;
+    cursor: pointer;
+}
+
+.qual-scan-drop:hover {
+    border-color: var(--accent);
+    background: rgba(var(--brand-blue-rgb), 0.08);
+}
+
+.qual-scan-drop svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+/* El input cubre la zona entera para recibir el arrastre, pero invisible: lo
+   que se ve es la etiqueta. */
+.qual-scan-drop input[type="file"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.qual-scan-drop.is-disabled {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+.qual-scan {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid rgba(34, 197, 94, 0.4);
+    border-radius: 12px;
+    background: rgba(34, 197, 94, 0.07);
+}
+
+.qual-scan__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: rgba(239, 68, 68, 0.12);
+    color: #c53030;
+    font-size: 0.62rem;
+    font-weight: 900;
+}
+
+.qual-scan__meta {
+    display: grid;
+    gap: 1px;
+    min-width: 0;
+}
+
+.qual-scan__meta strong {
+    color: var(--text);
+    font-size: 0.82rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.qual-scan__meta small {
+    color: var(--text-muted);
+    font-size: 0.73rem;
+}
+
+.qual-scan__remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--panel);
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+/* ---------- Calificacion anual ---------- */
+
+.qual-period--annual {
+    border-color: rgba(143, 44, 201, 0.42);
+}
+
+.qual-period--annual.is-active {
+    background: rgba(143, 44, 201, 0.12);
+    color: #7322a3;
+}
+
+.qual-reports {
+    display: grid;
+    gap: 8px;
+}
+
+.qual-report {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--panel-alt);
+    overflow: hidden;
+}
+
+.qual-report > summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 11px 13px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.qual-report > summary::-webkit-details-marker {
+    display: none;
+}
+
+.qual-report > summary strong {
+    color: var(--text);
+    font-size: 0.86rem;
+    font-weight: 800;
+}
+
+.qual-report > summary span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 0 9px;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 900;
+}
+
+.qual-report > summary .is-ok {
+    background: rgba(34, 197, 94, 0.14);
+    color: #15803d;
+}
+
+.qual-report > summary .is-missing {
+    background: rgba(240, 177, 0, 0.16);
+    color: #97690a;
+}
+
+.qual-report__part {
+    display: grid;
+    gap: 2px;
+    padding: 0 13px 11px;
+}
+
+.qual-report__part strong {
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.qual-report__part p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+@media (max-width: 1080px) {
+    .qual-factor {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .qual-paper-steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 .qual-factor-head {
     display: flex;
     align-items: flex-start;

@@ -48,6 +48,9 @@ const STORAGE_MODULES = new Set([
     "tasks",
     "requests",
     "informations",
+    // Formulario de evaluacion cuatrimestral firmado y escaneado. El ownerId es
+    // el trabajador y el recordId el periodo evaluado.
+    "qualifications",
     // Respaldos de licencias medicas. El ownerId es el trabajador y el recordId
     // el registro del LOG de esa licencia (ver leaveAttachments.js).
     "leaves",
