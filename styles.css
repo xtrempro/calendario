@@ -15839,6 +15839,274 @@ button.staffing-pill {
 .qual-list-head,
 .qual-subhead,
 .qual-detail-head,
+/* ---------- Calificacion anual: escala de notas y puntaje ---------- */
+
+/* Las bandas del articulo 15 A ESCALA REAL: el ancho de cada franja es su
+   tramo de puntos, no una porcion igual. Asi se ve de un vistazo lo cerca que
+   esta de Lista 1, que es lo unico con efecto (ascenso, estimulos). */
+.qual-scoreboard {
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--panel-alt);
+}
+
+.qual-scoreboard__head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.qual-scoreboard__head span {
+    display: grid;
+    gap: 1px;
+}
+
+.qual-scoreboard__head small {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.qual-scoreboard__head strong {
+    font-family: var(--font-display);
+    font-size: 1.9rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--text);
+}
+
+.qual-scoreboard__list {
+    text-align: right;
+}
+
+.qual-scoreboard__list strong {
+    font-size: 1rem;
+    color: var(--accent);
+}
+
+.qual-scoreboard__foot {
+    color: var(--text-muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+}
+
+.qual-bands {
+    position: relative;
+    display: flex;
+    height: 9px;
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.qual-band {
+    display: block;
+    height: 100%;
+}
+
+.qual-band--4 { width: 22.2%; background: rgba(239, 68, 68, 0.55); }
+.qual-band--3 { width: 17.8%; background: rgba(249, 115, 22, 0.55); }
+.qual-band--2 { width: 38.9%; background: rgba(36, 119, 238, 0.5); }
+.qual-band--1 { width: 21.1%; background: rgba(34, 197, 94, 0.6); }
+
+.qual-bands__marker {
+    position: absolute;
+    top: -3px;
+    width: 3px;
+    height: 15px;
+    border-radius: 2px;
+    background: var(--text);
+    transform: translateX(-50%);
+    transition: left 0.15s ease;
+}
+
+.qual-bands__scale {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-muted);
+    font-size: 0.62rem;
+    font-weight: 800;
+}
+
+/* ---------- La escala 1 a 10 ---------- */
+
+.qual-factor--annual .qual-subfactors {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 11px;
+}
+
+.qual-factor--annual .qual-subfactor {
+    display: grid;
+    gap: 8px;
+    align-content: start;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    background: var(--panel);
+}
+
+.qual-subfactor__head {
+    display: grid;
+    gap: 2px;
+}
+
+.qual-subfactor__head strong {
+    color: var(--text);
+    font-size: 0.88rem;
+    font-weight: 800;
+}
+
+.qual-subfactor__head small {
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    font-weight: 600;
+}
+
+.qual-scale {
+    display: flex;
+    gap: 3px;
+}
+
+/* Un boton por nota, teñido con su tramo. Un clic en vez de teclear, y volver
+   a tocar la misma nota la quita. */
+.qual-cell {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 34px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 800;
+    cursor: pointer;
+    transition: transform 0.12s ease;
+}
+
+.qual-cell:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+.qual-cell:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.qual-cell--deficiente { background: rgba(239, 68, 68, 0.14); color: #c53030; }
+.qual-cell--insuficiente { background: rgba(249, 115, 22, 0.16); color: #c2410c; }
+.qual-cell--satisfactorio { background: rgba(240, 177, 0, 0.16); color: #97690a; }
+.qual-cell--buena { background: rgba(36, 119, 238, 0.14); color: #1d4ed8; }
+.qual-cell--optimo { background: rgba(34, 197, 94, 0.16); color: #15803d; }
+
+/* La nota del ciclo anterior queda marcada con borde punteado: mover dos
+   puntos de un ano a otro es lo primero que mira una apelacion. */
+.qual-cell.is-previous { border-style: dashed; border-color: currentColor; }
+
+.qual-cell.is-on { color: #fff; }
+.qual-cell--deficiente.is-on { background: #c53030; border-color: #c53030; }
+.qual-cell--insuficiente.is-on { background: #c2410c; border-color: #c2410c; }
+.qual-cell--satisfactorio.is-on { background: #97690a; border-color: #97690a; }
+.qual-cell--buena.is-on { background: #1d4ed8; border-color: #1d4ed8; }
+.qual-cell--optimo.is-on { background: #15803d; border-color: #15803d; }
+
+.qual-subfactor__foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 18px;
+}
+
+.qual-subfactor__foot small {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.qual-concept {
+    font-size: 0.74rem;
+    font-weight: 800;
+    color: var(--text-muted);
+}
+
+.qual-concept--deficiente { color: #c53030; }
+.qual-concept--insuficiente { color: #c2410c; }
+.qual-concept--satisfactorio { color: #97690a; }
+.qual-concept--buena { color: #1d4ed8; }
+.qual-concept--optimo { color: #15803d; }
+
+/* El fundamento solo aparece donde el reglamento lo va a exigir de verdad. */
+.qual-reason {
+    display: grid;
+    gap: 5px;
+}
+
+.qual-reason[hidden] {
+    display: none;
+}
+
+.qual-reason span {
+    color: #97690a;
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.qual-reason textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid rgba(240, 177, 0, 0.5);
+    border-radius: 10px;
+    background: rgba(240, 177, 0, 0.06);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    resize: vertical;
+}
+
+.qual-factor--annual .qual-factor-score {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+}
+
+.qual-factor--annual .qual-factor-score span {
+    display: grid;
+    gap: 1px;
+    text-align: right;
+}
+
+.qual-factor--annual .qual-factor-score small {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.qual-factor--annual .qual-factor-score strong {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.qual-factor--annual .qual-factor-score .is-points {
+    color: var(--accent);
+}
+
+@media (max-width: 1080px) {
+    .qual-factor--annual .qual-subfactors {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 /* ---------- Informe cuatrimestral: apreciacion escrita ---------- */
 
 /* El antecedente va PEGADO al factor que lo usa, en la columna de al lado.

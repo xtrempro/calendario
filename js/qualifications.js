@@ -1261,60 +1261,319 @@ function formatBytes(value) {
 // Calificacion anual: las notas del articulo 14.
 // ---------------------------------------------------------------------------
 
-function factorFieldHTML(factor, record, editable) {
-    const value = record?.factors?.[factor.key] || {};
-    const score = factorComputedScore(value);
-    const scoreText = Number.isFinite(score) ? score.toFixed(2) : "-";
+// Tramo de nota del articulo 14. Es lo que da el color de cada casilla y el
+// concepto que se lee debajo.
+function noteBand(value) {
+    if (value >= 9) return "optimo";
+    if (value >= 7) return "buena";
+    if (value >= 5) return "satisfactorio";
+    if (value >= 3) return "insuficiente";
+
+    return "deficiente";
+}
+
+/**
+ * La nota que esa persona obtuvo en el subfactor el ciclo ANTERIOR.
+ *
+ * Se marca en la escala con un borde punteado. No es adorno: una nota que se
+ * mueve dos puntos de un ano a otro es justo lo que una apelacion va a mirar,
+ * y verla al lado evita moverla sin darse cuenta.
+ */
+function previousCycleScores(profile, cycleStartYear) {
+    const state = getQualificationState();
+    const previous = annualPeriod(cycleStartYear - 1);
+    const record = findRecordForProfile(state, previous, profile);
+    const map = {};
+
+    QUALIFICATION_FACTORS.forEach(factor => {
+        factor.subfactors.forEach(subfactor => {
+            const value = scoreNumber(
+                record?.factors?.[factor.key]?.subfactors?.[subfactor.key]?.score
+            );
+
+            map[`${factor.key}:${subfactor.key}`] = Number.isFinite(value)
+                ? value
+                : 0;
+        });
+    });
+
+    return map;
+}
+
+// El articulo 14 exige fundar cada nota. Pedir seis textos por persona es lo
+// que hace que nadie los escriba, asi que el recuadro se pide donde una
+// apelacion va a mirar: en los extremos, y cuando la nota se mueve dos puntos
+// o mas respecto del ciclo anterior.
+function needsReason(value, previous) {
+    if (!value) return false;
+    if (value <= 4 || value >= 9) return true;
+
+    return Boolean(previous) && Math.abs(value - previous) >= 2;
+}
+
+function reasonLabel(value, previous) {
+    if (value >= 9) return "Fundamento obligatorio: nota en el tramo optimo";
+    if (value <= 4) return "Fundamento obligatorio: nota bajo el estandar";
+
+    return `Fundamento obligatorio: cambia ${Math.abs(value - previous)} puntos`;
+}
+
+function noteScaleHTML(factor, subfactor, value, previous, editable) {
+    const key = `${factor.key}:${subfactor.key}`;
 
     return `
-        <section class="qual-factor">
+        <div class="qual-scale" role="group" aria-label="Nota de ${escapeAttribute(subfactor.label)}">
+            ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(note => `
+                <button class="qual-cell qual-cell--${noteBand(note)}${value === note ? " is-on" : ""}${previous === note ? " is-previous" : ""}"
+                    type="button"
+                    data-qual-note="${escapeAttribute(key)}"
+                    data-qual-note-value="${note}"
+                    title="${note} - ${escapeAttribute(scoreConcept(note))}"
+                    aria-pressed="${value === note ? "true" : "false"}"
+                    ${editable ? "" : "disabled"}>${note}</button>
+            `).join("")}
+        </div>
+    `;
+}
+
+function factorFieldHTML(factor, record, editable, previousScores = {}) {
+    const value = record?.factors?.[factor.key] || {};
+    const score = factorComputedScore(value);
+    const ready = Number.isFinite(score);
+
+    return `
+        <section class="qual-factor qual-factor--annual" data-qual-factor="${escapeAttribute(factor.key)}">
             <div class="qual-factor-head">
                 <div>
                     <strong>${escapeHTML(factor.label)}</strong>
                     <small>${escapeHTML(factor.detail)}</small>
                 </div>
                 <span class="qual-factor-score">
-                    <strong>${escapeHTML(scoreText)}</strong>
-                    <small>${escapeHTML(scoreConcept(score))}</small>
+                    <span>
+                        <small>Nota factor</small>
+                        <strong data-qual-factor-note="${escapeAttribute(factor.key)}">${ready ? score.toFixed(2) : "--"}</strong>
+                    </span>
+                    <span>
+                        <small>Puntos</small>
+                        <strong class="is-points" data-qual-factor-points="${escapeAttribute(factor.key)}">--</strong>
+                    </span>
                 </span>
             </div>
+
             <div class="qual-subfactors">
                 ${factor.subfactors.map(subfactor => {
-                    const subvalue =
-                        value.subfactors?.[subfactor.key] || {};
+                    const key = `${factor.key}:${subfactor.key}`;
+                    const subvalue = value.subfactors?.[subfactor.key] || {};
+                    const note = scoreNumber(subvalue.score) || 0;
+                    const previous = previousScores[key] || 0;
+                    const asks = needsReason(note, previous);
 
                     return `
-                        <label class="qual-subfactor">
-                            <span>
+                        <div class="qual-subfactor" data-qual-sub="${escapeAttribute(key)}">
+                            <div class="qual-subfactor__head">
                                 <strong>${escapeHTML(subfactor.label)}</strong>
                                 <small>${escapeHTML(subfactor.detail)}</small>
-                            </span>
-                            <input type="number"
-                                min="1"
-                                max="10"
-                                step="1"
-                                inputmode="numeric"
-                                data-qual-sub-score="${escapeAttribute(`${factor.key}:${subfactor.key}`)}"
-                                value="${escapeAttribute(subvalue.score || "")}"
-                                ${editable ? "" : "disabled"}>
-                            <textarea rows="2"
-                                data-qual-sub-comment="${escapeAttribute(`${factor.key}:${subfactor.key}`)}"
-                                maxlength="${MAX_NOTE_LENGTH}"
-                                placeholder="Fundamento"
-                                ${editable ? "" : "disabled"}>${escapeHTML(subvalue.comment || "")}</textarea>
-                        </label>
+                            </div>
+
+                            ${noteScaleHTML(factor, subfactor, note, previous, editable)}
+
+                            <div class="qual-subfactor__foot">
+                                <span class="qual-concept qual-concept--${noteBand(note || 0)}"
+                                    data-qual-concept="${escapeAttribute(key)}">
+                                    ${note ? `${note} - ${escapeHTML(scoreConcept(note))}` : "Sin nota"}
+                                </span>
+                                <small>${previous ? `Ciclo anterior ${previous}` : "Sin ciclo anterior"}</small>
+                            </div>
+
+                            <!-- El valor real que lee el guardado. La escala de
+                                 arriba solo lo escribe. -->
+                            <input type="hidden"
+                                data-qual-sub-score="${escapeAttribute(key)}"
+                                value="${escapeAttribute(note || "")}">
+
+                            <label class="qual-reason ${asks ? "is-required" : ""}"
+                                data-qual-reason="${escapeAttribute(key)}"
+                                ${asks ? "" : "hidden"}>
+                                <span data-qual-reason-label="${escapeAttribute(key)}">
+                                    ${asks ? escapeHTML(reasonLabel(note, previous)) : ""}
+                                </span>
+                                <textarea rows="2"
+                                    data-qual-sub-comment="${escapeAttribute(key)}"
+                                    maxlength="${MAX_NOTE_LENGTH}"
+                                    placeholder="Hecho del periodo que sostiene esta nota."
+                                    ${editable ? "" : "disabled"}>${escapeHTML(subvalue.comment || "")}</textarea>
+                            </label>
+                        </div>
                     `;
                 }).join("")}
             </div>
-            <label class="qual-factor-comment">
-                <span>Fundamento del factor</span>
-                <textarea rows="2"
-                    data-qual-comment="${escapeAttribute(factor.key)}"
-                    maxlength="${MAX_NOTE_LENGTH}"
-                    ${editable ? "" : "disabled"}>${escapeHTML(value.comment || "")}</textarea>
-            </label>
         </section>
     `;
+}
+
+// Bloque de puntaje con las bandas del articulo 15 a escala real: el ancho de
+// cada franja es su tramo de puntos, no una porcion igual. Es lo unico con
+// efecto de verdad (ascenso, estimulos, eliminacion) y hasta ahora no se veia
+// hasta guardar.
+function scoreBandHTML(points, coefficientGroup) {
+    const value = Number(points) || 0;
+    const list = qualificationList(value);
+    const marker = value
+        ? Math.max(0, Math.min(100, ((value - 10) / 90) * 100))
+        : 0;
+
+    return `
+        <section class="qual-scoreboard">
+            <div class="qual-scoreboard__head">
+                <span>
+                    <small>Puntaje</small>
+                    <strong data-qual-total>${value ? value.toFixed(2) : "--"}</strong>
+                </span>
+                <span class="qual-scoreboard__list">
+                    <small>Lista</small>
+                    <strong data-qual-list>${escapeHTML(qualificationListLabel(value))}</strong>
+                </span>
+            </div>
+            <div class="qual-bands">
+                <span class="qual-band qual-band--4"></span>
+                <span class="qual-band qual-band--3"></span>
+                <span class="qual-band qual-band--2"></span>
+                <span class="qual-band qual-band--1"></span>
+                <span class="qual-bands__marker"
+                    data-qual-marker
+                    style="left: ${marker}%"
+                    ${value ? "" : "hidden"}></span>
+            </div>
+            <div class="qual-bands__scale">
+                <span>10</span><span>30</span><span>46</span><span>81</span><span>100</span>
+            </div>
+            <small class="qual-scoreboard__foot">
+                ${escapeHTML(coefficientGroup.label)}:
+                ${QUALIFICATION_FACTORS.map(factor =>
+                    `${factor.label} ${coefficientGroup[factor.key]}`
+                ).join(" | ")}
+            </small>
+        </section>
+    `;
+}
+
+/**
+ * Recalcula nota de factor, puntos, puntaje y lista SIN repintar el panel.
+ *
+ * Repintar aqui costaria el texto sin guardar de los fundamentos y el foco del
+ * recuadro en el que se este escribiendo, asi que se tocan solo los nodos que
+ * cambian.
+ */
+function refreshAnnualTotals(form, profile) {
+    const group = QUALIFICATION_COEFFICIENTS[
+        qualificationCoefficientGroup(profile)
+    ] || QUALIFICATION_COEFFICIENTS.administrativos_auxiliares;
+    let total = 0;
+
+    QUALIFICATION_FACTORS.forEach(factor => {
+        const notes = factor.subfactors
+            .map(subfactor => scoreNumber(
+                form.querySelector(
+                    `[data-qual-sub-score="${factor.key}:${subfactor.key}"]`
+                )?.value
+            ))
+            .filter(Number.isFinite);
+        const ready = notes.length === factor.subfactors.length;
+        const note = ready
+            ? notes.reduce((sum, item) => sum + item, 0) / notes.length
+            : 0;
+        const points = ready ? note * group[factor.key] : 0;
+        const noteNode = form.querySelector(
+            `[data-qual-factor-note="${factor.key}"]`
+        );
+        const pointsNode = form.querySelector(
+            `[data-qual-factor-points="${factor.key}"]`
+        );
+
+        if (noteNode) noteNode.textContent = ready ? note.toFixed(2) : "--";
+        if (pointsNode) pointsNode.textContent = ready ? points.toFixed(2) : "--";
+
+        total += points;
+    });
+
+    // Dos decimales, como pide el articulo 14.
+    const rounded = Math.round(total * 100) / 100;
+    const totalNode = form.querySelector("[data-qual-total]");
+    const listNode = form.querySelector("[data-qual-list]");
+    const marker = form.querySelector("[data-qual-marker]");
+
+    if (totalNode) totalNode.textContent = rounded ? rounded.toFixed(2) : "--";
+    if (listNode) listNode.textContent = qualificationListLabel(rounded);
+
+    if (marker) {
+        marker.hidden = !rounded;
+        marker.style.left =
+            `${Math.max(0, Math.min(100, ((rounded - 10) / 90) * 100))}%`;
+    }
+}
+
+/** La escala de notas: escribe el valor y repinta solo lo que cambia. */
+function bindNoteScales(form, summary, period) {
+    const previousScores = previousCycleScores(
+        summary.profile,
+        period.cycleStartYear
+    );
+
+    form.querySelectorAll("[data-qual-note]").forEach(button => {
+        button.onclick = () => {
+            const key = button.dataset.qualNote;
+            const note = Number(button.dataset.qualNoteValue) || 0;
+            const hidden = form.querySelector(
+                `[data-qual-sub-score="${key}"]`
+            );
+
+            if (!hidden) return;
+
+            // Volver a tocar la misma nota la quita: es la forma de dejar el
+            // subfactor sin calificar sin tener que borrar un campo.
+            const next = scoreNumber(hidden.value) === note ? 0 : note;
+
+            hidden.value = next || "";
+
+            const group = form.querySelector(`[data-qual-sub="${key}"]`);
+
+            group?.querySelectorAll("[data-qual-note]").forEach(cell => {
+                const value = Number(cell.dataset.qualNoteValue) || 0;
+                const on = value === next;
+
+                cell.classList.toggle("is-on", on);
+                cell.setAttribute("aria-pressed", on ? "true" : "false");
+            });
+
+            const concept = form.querySelector(`[data-qual-concept="${key}"]`);
+
+            if (concept) {
+                concept.textContent = next
+                    ? `${next} - ${scoreConcept(next)}`
+                    : "Sin nota";
+                concept.className =
+                    `qual-concept qual-concept--${noteBand(next || 0)}`;
+            }
+
+            const previous = previousScores[key] || 0;
+            const reason = form.querySelector(`[data-qual-reason="${key}"]`);
+            const label = form.querySelector(`[data-qual-reason-label="${key}"]`);
+            const asks = needsReason(next, previous);
+
+            if (reason) {
+                reason.hidden = !asks;
+                reason.classList.toggle("is-required", asks);
+            }
+
+            if (label && asks) {
+                label.textContent = reasonLabel(next, previous);
+            }
+
+            refreshAnnualTotals(form, summary.profile);
+        };
+    });
+
+    refreshAnnualTotals(form, summary.profile);
 }
 
 function detailHTML(summary, period, readonly) {
@@ -1504,28 +1763,29 @@ function annualDetailHTML(summary, period, readonly) {
     const editable = !readonly;
     const average = scoreAverage(record) || "-";
     const points = qualificationPoints(record, profile);
-    const pointsText = points ? String(points) : "-";
-    const listText = qualificationListLabel(points);
     const coefficientGroup =
         QUALIFICATION_COEFFICIENTS[qualificationCoefficientGroup(profile)] ||
         QUALIFICATION_COEFFICIENTS.administrativos_auxiliares;
+    const previousScores = previousCycleScores(profile, period.cycleStartYear);
 
     return `
         <section class="panel qual-detail-panel">
             ${detailHeadHTML(summary, period)}
 
+            ${scoreBandHTML(points, coefficientGroup)}
+
             <div class="qual-evidence-grid">
-                ${kpiCardHTML("Puntaje", pointsText, "Notas x coeficiente", "blue")}
-                ${kpiCardHTML("Lista", listText, `Promedio ${average}`, "violet")}
-                ${kpiCardHTML(
-                    "Coeficientes",
-                    coefficientGroup.label,
-                    QUALIFICATION_FACTORS.map(factor => coefficientGroup[factor.key]).join(" / "),
-                    "slate"
-                )}
+                ${kpiCardHTML("Promedio", average, "Notas de subfactor", "violet")}
                 ${kpiCardHTML("Meritos", summary.merits.length, "Del ciclo", "green")}
                 ${kpiCardHTML("Demeritos", summary.demerits.length, "Del ciclo", "red")}
                 ${kpiCardHTML("Atrasos", summary.lateCount, "Reloj control", "orange")}
+                ${kpiCardHTML("Marcajes", summary.clockIssueCount, "Incidencias", "slate")}
+                ${kpiCardHTML(
+                    "Capacitacion",
+                    summary.training.length + summary.calendarTraining.length,
+                    "Del ciclo",
+                    "teal"
+                )}
             </div>
 
             ${quarterReportsHTML(summary, period)}
@@ -1534,9 +1794,12 @@ function annualDetailHTML(summary, period, readonly) {
                 ${supervisorFieldsHTML(record, editable)}
 
                 <div class="qual-factors">
-                    ${QUALIFICATION_FACTORS.map(factor =>
-                        factorFieldHTML(factor, record, editable)
-                    ).join("")}
+                    ${QUALIFICATION_FACTORS.map(factor => factorFieldHTML(
+                        factor,
+                        record,
+                        editable,
+                        previousScores
+                    )).join("")}
                 </div>
 
                 <label>
@@ -1977,7 +2240,9 @@ function bindQualificationsPanel(panel, { period, summaries, selected }) {
             }
         );
 
-        if (!annual) {
+        if (annual) {
+            bindNoteScales(form, selected, period);
+        } else {
             bindAppraisalHelpers(form, selected, period);
         }
     }

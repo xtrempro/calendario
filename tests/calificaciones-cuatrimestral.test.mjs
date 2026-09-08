@@ -288,3 +288,55 @@ test("las rayas de firma se imprimen con raya", async () => {
     assert.match(form, /<span class="ln"><\/span>\s*\n\s*<small>Firma del Funcionario<\/small>/);
     assert.match(form, /<span class="ln"><\/span>\s*\n\s*<small>Firma y Timbre<\/small>/);
 });
+
+test("la anual usa la escala 1-10, no campos numericos", async () => {
+    const [source, css] = await Promise.all([
+        read("../js/qualifications.js"),
+        read("../styles.css")
+    ]);
+
+    // La escala del articulo 14 se pone de un clic y la nota queda tenida con
+    // su tramo. Antes eran seis <input type="number"> apretados con un
+    // "Fundamento" siempre a la vista.
+    assert.match(source, /data-qual-note=/);
+    assert.doesNotMatch(source, /<input type="number"[\s\S]{0,120}data-qual-sub-score/);
+    assert.match(source, /function noteBand/);
+    ["deficiente", "insuficiente", "satisfactorio", "buena", "optimo"].forEach(band => {
+        assert.match(css, new RegExp(`\.qual-cell--${band}`));
+    });
+    // El fundamento solo aparece donde el reglamento lo va a exigir.
+    assert.match(source, /function needsReason/);
+    assert.doesNotMatch(source, /Fundamento del factor/);
+});
+
+test("el puntaje y la lista se calculan sin repintar el panel", async () => {
+    const source = await read("../js/qualifications.js");
+
+    // Repintar costaria el texto sin guardar de los fundamentos y el foco del
+    // recuadro en el que se este escribiendo.
+    assert.match(source, /function refreshAnnualTotals/);
+    assert.match(source, /\[data-qual-total\]/);
+    assert.match(source, /\[data-qual-marker\]/);
+    assert.match(source, /function bindNoteScales/);
+});
+
+test("las bandas del articulo 15 van a escala real", async () => {
+    const css = await read("../styles.css");
+
+    // 10-30, 30-46, 46-81 y 81-100 sobre un total de 90 puntos de ancho.
+    assert.match(css, /\.qual-band--4 \{ width: 22\.2%/);
+    assert.match(css, /\.qual-band--3 \{ width: 17\.8%/);
+    assert.match(css, /\.qual-band--2 \{ width: 38\.9%/);
+    assert.match(css, /\.qual-band--1 \{ width: 21\.1%/);
+});
+
+test("se marca la nota del ciclo anterior", async () => {
+    const [source, css] = await Promise.all([
+        read("../js/qualifications.js"),
+        read("../styles.css")
+    ]);
+
+    assert.match(source, /function previousCycleScores/);
+    assert.match(source, /annualPeriod\(cycleStartYear - 1\)/);
+    assert.match(css, /\.qual-cell\.is-previous/);
+});
