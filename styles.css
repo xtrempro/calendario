@@ -15944,6 +15944,9 @@ button.staffing-pill {
 
 .qual-factor--annual .qual-subfactor {
     display: grid;
+    /* Anula la columna de 72 px que la regla general reservaba para el
+       <input type="number"> que se elimino: ahi la escala quedaba aplastada. */
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
     align-content: start;
     padding: 12px;
@@ -16057,7 +16060,7 @@ button.staffing-pill {
     font-weight: 800;
 }
 
-.qual-reason textarea {
+.qual-form .qual-reason textarea {
     width: 100%;
     padding: 8px 10px;
     border: 1px solid rgba(240, 177, 0, 0.5);
@@ -16112,7 +16115,7 @@ button.staffing-pill {
 /* El antecedente va PEGADO al factor que lo usa, en la columna de al lado.
    Antes vivia en un recuadro suelto arriba de todo: habia que leerlo, bajar, y
    redactar de memoria. */
-.qual-factor {
+.qual-factor--quarter {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
     gap: 13px;
@@ -16151,7 +16154,7 @@ button.staffing-pill {
     line-height: 1.4;
 }
 
-.qual-appraisal {
+.qual-form .qual-appraisal {
     width: 100%;
     min-height: 118px;
     padding: 11px 12px;
@@ -16497,7 +16500,7 @@ button.staffing-pill {
 }
 
 @media (max-width: 1080px) {
-    .qual-factor {
+    .qual-factor--quarter {
         grid-template-columns: minmax(0, 1fr);
     }
 

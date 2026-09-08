@@ -1147,7 +1147,7 @@ function appraisalFieldHTML(factor, record, evidence, editable) {
     const text = record?.appraisals?.[factor.key] || "";
 
     return `
-        <section class="qual-factor">
+        <section class="qual-factor qual-factor--quarter">
             <div class="qual-factor__main">
                 <div class="qual-factor-head">
                     <div>

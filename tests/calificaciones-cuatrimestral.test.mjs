@@ -340,3 +340,49 @@ test("se marca la nota del ciclo anterior", async () => {
     assert.match(source, /annualPeriod\(cycleStartYear - 1\)/);
     assert.match(css, /\.qual-cell\.is-previous/);
 });
+
+/* ==========================================================================
+   La cascada del CSS, que es lo que hizo que no se pareciera al mockup
+   ========================================================================== */
+
+test("el layout de dos columnas es solo del cuatrimestre", async () => {
+    const [source, css] = await Promise.all([
+        read("../js/qualifications.js"),
+        read("../styles.css")
+    ]);
+
+    // La regla estaba en `.qual-factor` a secas, asi que la anual tambien la
+    // heredaba y metia sus escalas de diez casillas en la columna de 300 px.
+    assert.match(source, /class="qual-factor qual-factor--quarter"/);
+    assert.match(
+        css,
+        /\.qual-factor--quarter \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(240px, 300px\)/
+    );
+    // La regla general de `.qual-factor` no debe fijar columnas.
+    assert.doesNotMatch(
+        css,
+        /\n\.qual-factor \{[^}]*grid-template-columns/
+    );
+});
+
+test("la escala de la anual recupera el ancho completo", async () => {
+    const css = await read("../styles.css");
+
+    // `.qual-subfactor` reserva una columna de 72 px para el <input number>
+    // que se elimino; sin anularla, las diez casillas caben en 72 px.
+    assert.match(
+        css,
+        /\.qual-factor--annual \.qual-subfactor \{[^}]*grid-template-columns: minmax\(0, 1fr\)/
+    );
+});
+
+test("los recuadros de texto no los pisa la regla generica del formulario", async () => {
+    const css = await read("../styles.css");
+
+    // `.qual-form textarea` es (0,1,1) y le ganaba a `.qual-appraisal` (0,1,0):
+    // la apreciacion y el fundamento perdian borde y fondo. Se anidan bajo
+    // `.qual-form` para quedar por encima.
+    assert.match(css, /\.qual-form \.qual-appraisal \{/);
+    assert.match(css, /\.qual-form \.qual-reason textarea \{/);
+    assert.doesNotMatch(css, /\n\.qual-appraisal \{/);
+});
